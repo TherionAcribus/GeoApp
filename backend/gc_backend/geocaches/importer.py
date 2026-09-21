@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional
+
+from sqlalchemy.exc import IntegrityError
 
 from ..database import db
 from ..models import Zone
@@ -12,6 +15,22 @@ from .archive_service import ArchiveService
 
 
 logger = logging.getLogger(__name__)
+
+
+# Un verrou par gc_code : la vérification d'existence et l'INSERT sont séparés
+# par un scraping de plusieurs secondes, fenêtre pendant laquelle deux requêtes
+# concurrentes (ajout manuel, import-around, /finds/import…) concluaient toutes
+# deux « inexistant » puis violaient unique_gc_code_zone.
+_IMPORT_LOCKS: dict[str, threading.Lock] = {}
+_IMPORT_LOCKS_GUARD = threading.Lock()
+
+
+def _import_lock_for(code: str) -> threading.Lock:
+    with _IMPORT_LOCKS_GUARD:
+        lock = _IMPORT_LOCKS.get(code)
+        if lock is None:
+            lock = _IMPORT_LOCKS[code] = threading.Lock()
+        return lock
 
 
 class GeocacheImporter:
@@ -31,23 +50,25 @@ class GeocacheImporter:
 
         code = self._validate_zone_and_code(zone_id, gc_code)
 
-        existing, outcome = self._resolve_existing(zone_id, code)
-        if existing is not None and not update_existing:
-            return (existing, outcome) if return_outcome else existing
+        with _import_lock_for(code):
+            existing, outcome = self._resolve_existing(zone_id, code)
+            if existing is not None and not update_existing:
+                return (existing, outcome) if return_outcome else existing
 
-        logger.info(f"Geocache {code} not found locally, scraping...")
-        try:
-            scraped = self.scraper.scrape(code)
-        except Exception as e:
-            logger.error(f"Failed to scrape geocache {code}: {e}")
-            raise
+            logger.info(f"Geocache {code} not found locally, scraping...")
+            try:
+                scraped = self.scraper.scrape(code)
+            except Exception as e:
+                logger.error(f"Failed to scrape geocache {code}: {e}")
+                raise
 
-        if existing is not None:
-            self._update_existing_geocache(existing, scraped)
-            return (existing, 'updated') if return_outcome else existing
+            if existing is not None:
+                self._update_existing_geocache(existing, scraped)
+                return (existing, 'updated') if return_outcome else existing
 
-        g = self._persist_new_geocache(zone_id, code, scraped)
-        return (g, 'created') if return_outcome else g
+            g, created = self._persist_new_geocache(zone_id, code, scraped)
+            outcome = 'created' if created else 'existing'
+            return (g, outcome) if return_outcome else g
 
     def import_from_scraped(self, zone_id: int, scraped: ScrapedGeocache, return_outcome: bool = False,
                            update_existing: bool = False):
@@ -59,17 +80,19 @@ class GeocacheImporter:
         """
         code = self._validate_zone_and_code(zone_id, scraped.gc_code)
 
-        existing, outcome = self._resolve_existing(zone_id, code)
-        if existing is not None and not update_existing:
-            return (existing, outcome) if return_outcome else existing
+        with _import_lock_for(code):
+            existing, outcome = self._resolve_existing(zone_id, code)
+            if existing is not None and not update_existing:
+                return (existing, outcome) if return_outcome else existing
 
-        if existing is not None:
-            self._update_existing_geocache(existing, scraped)
-            return (existing, 'updated') if return_outcome else existing
+            if existing is not None:
+                self._update_existing_geocache(existing, scraped)
+                return (existing, 'updated') if return_outcome else existing
 
-        logger.info(f"Geocache {code} not found locally, importing from parsed data...")
-        g = self._persist_new_geocache(zone_id, code, scraped)
-        return (g, 'created') if return_outcome else g
+            logger.info(f"Geocache {code} not found locally, importing from parsed data...")
+            g, created = self._persist_new_geocache(zone_id, code, scraped)
+            outcome = 'created' if created else 'existing'
+            return (g, outcome) if return_outcome else g
 
     # ------------------------------------------------------------------
     # Helpers internes partagés
@@ -128,7 +151,17 @@ class GeocacheImporter:
         # Sinon, pour ce MVP: réassocier à la nouvelle zone (simple)
         logger.info(f"Moving geocache {code} from zone {existing.zone_id} to {zone_id}")
         existing.zone_id = zone_id
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Un doublon (gc_code, zone_id) existe déjà dans la zone cible
+            # (données historiques ou import concurrent) : on s'y rattache.
+            db.session.rollback()
+            in_zone = Geocache.query.filter_by(gc_code=code, zone_id=zone_id).first()
+            if in_zone is not None:
+                logger.info(f"Geocache {code} already in zone {zone_id} (id={in_zone.id})")
+                return in_zone, 'existing'
+            raise
         logger.info(f"Geocache {code} moved successfully")
         return existing, 'moved'
 
@@ -226,14 +259,27 @@ class GeocacheImporter:
 
         return g
 
-    def _persist_new_geocache(self, zone_id: int, code: str, s: ScrapedGeocache) -> Geocache:
-        """Crée une nouvelle géocache puis committe la transaction."""
+    def _persist_new_geocache(self, zone_id: int, code: str,
+                              s: ScrapedGeocache) -> tuple[Geocache, bool]:
+        """Crée une nouvelle géocache puis committe la transaction.
+
+        Retourne ``(geocache, created)`` ; ``created`` est faux quand un import
+        concurrent a créé la ligne entre la vérification d'existence et
+        l'INSERT — dans ce cas on retourne la ligne existante.
+        """
         archive = ArchiveService.get_by_gc_code(code)
         try:
             g = self._apply_new_geocache(zone_id, code, s, archive)
             db.session.commit()
             logger.info(f"Geocache {code} imported successfully (id={g.id})")
-            return g
+            return g, True
+        except IntegrityError:
+            db.session.rollback()
+            existing = Geocache.query.filter_by(gc_code=code, zone_id=zone_id).first()
+            if existing is not None:
+                logger.info(f"Geocache {code} created concurrently (id={existing.id}), reusing it")
+                return existing, False
+            raise
         except Exception as e:
             db.session.rollback()
             logger.error(f"Failed to save geocache {code}: {e}")
@@ -387,6 +433,14 @@ class GeocacheImporter:
                         else:
                             outcome = 'moved' if moved else 'existing'
                 pending += 1
+            except IntegrityError:
+                # Inséré en parallèle par un autre import entre le préchargement
+                # et le flush : la ligne existe, on la rapporte comme présente.
+                if Geocache.query.filter_by(gc_code=code, zone_id=zone_id).first() is not None:
+                    outcome = 'existing'
+                else:
+                    error = 'concurrent insert'
+                    logger.warning(f"Bulk import hit a concurrent insert for {code}")
             except Exception as e:
                 error = str(e)
                 logger.warning(f"Bulk import failed for {code}: {e}")
