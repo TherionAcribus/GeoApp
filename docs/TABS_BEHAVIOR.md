@@ -54,6 +54,19 @@ Le mode `smart-replace` s'appuie sur des préférences communes :
 - `geoApp.ui.tabs.smartReplace.interaction.minOpenTimeEnabled` (boolean)  
   Active la promotion automatique d'un onglet en interaction après `smartReplaceTimeout` secondes.
 
+### 2.3. Ouverture automatique après import
+
+- `geoApp.zones.import.openDetailsMode` (string)  
+  Ce qui se passe après l'import d'une géocache par son code GC depuis le tableau d'une zone
+  (`ZoneGeocachesWidget.handleAddGeocacheSubmit`) :
+
+  - `open-and-focus` (défaut) : ouvre l'onglet de détails et s'y place.
+  - `open-in-background` : ouvre l'onglet mais laisse le tableau au premier plan.
+  - `none` : n'ouvre rien, le tableau est simplement rafraîchi.
+
+  Le mode de remplacement reste celui de `geoApp.ui.tabs.categories.geocache` : cette clé décide
+  seulement s'il faut ouvrir et prendre le focus, pas dans quel onglet.
+
 ---
 
 ## 3. Gestionnaires d'onglets par catégorie
@@ -87,9 +100,13 @@ Méthode principale :
 async openGeocacheDetails(options: OpenGeocacheOptions): Promise<GeocacheDetailsWidget>
 ```
 
-- `OpenGeocacheOptions` contient `geocacheId`, `name?`, `forceDuplicate?`.
+- `OpenGeocacheOptions` contient `geocacheId`, `name?`, `forceDuplicate?`, `activate?`.
 - Sans `forceDuplicate`, un onglet déjà ouvert pour `geocacheId` est simplement réactivé.
 - Sinon, le service applique le mode de remplacement avant de créer ou réutiliser un onglet.
+- `activate: false` attache l'onglet sans le mettre au premier plan : il apparaît dans la barre
+  d'onglets, son contenu est chargé, mais l'utilisateur reste sur la vue courante. Utilisé par
+  l'import d'une géocache par code GC depuis le tableau d'une zone
+  (`geoApp.zones.import.openDetailsMode` = `open-in-background`). Par défaut, l'onglet est activé.
 
 ### 3.2. Tableaux par zone
 
@@ -250,6 +267,13 @@ Chaque widget configure éventuellement un timer pour l'interaction implicite `m
 - Annulé à chaque changement de contexte ou à la destruction du widget.
 - Après `geoApp.ui.tabs.smartReplaceTimeout` secondes, émet `type: 'min-open-time'`.
 
+Pour les détails de géocaches, l'émission est conditionnée à la **consultation** de l'onglet :
+`GeocacheDetailsWidget.consultedSinceSetGeocache` passe à vrai si l'onglet est visible au moment
+du `setGeocache` ou lors du premier `onActivateRequest` qui suit. Un onglet ouvert en arrière-plan
+et jamais regardé n'est donc pas épinglé au bout du délai — sinon il occuperait indéfiniment le
+slot de remplacement du mode `smart-replace`. S'il est consulté après l'expiration du délai, le
+timer repart de cette première consultation.
+
 Ce mécanisme permet de considérer un onglet comme important même si l'utilisateur ne clique pas ou ne scrolle pas explicitement (lecture passive).
 
 ---
@@ -302,6 +326,12 @@ Ces scénarios permettent de valider rapidement que les trois modes et l'épingl
 3. Vérifier :
    - Sans interaction, un seul onglet est réutilisé (les détails changent).
    - Après clic/scroll ou après `smartReplaceTimeout`, l'onglet devient épinglé et les nouvelles géocaches s'ouvrent dans un autre onglet.
+4. Importer un code GC depuis le champ « Code GC » du tableau d'une zone, pour chaque valeur de
+   `geoApp.zones.import.openDetailsMode` :
+   - `open-and-focus` : l'onglet de détails s'ouvre et devient actif.
+   - `open-in-background` : l'onglet apparaît, chargé, mais le tableau reste au premier plan ; il
+     n'est pas épinglé par `smartReplaceTimeout` tant qu'il n'a pas été consulté.
+   - `none` : aucun onglet n'est ouvert, la nouvelle ligne apparaît dans le tableau.
 
 ### 7.2. Tableaux par zone
 

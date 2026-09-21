@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -59,6 +60,9 @@ class ScrapedGeocache:
     placed_at: Optional[datetime]
     status: str | None
     # Enrichissements
+    # GUID Geocaching du propriétaire : clé des URL de profil (/p/?guid=) et du
+    # centre de messages (?recipientId=). Le pseudo ne suffit pas pour ce dernier.
+    owner_guid: str | None = None
     coordinates_raw: str | None = None  # Coordonnées affichées au format Geocaching (peuvent être corrigées)
     is_corrected: bool | None = None
     original_latitude: float | None = None  # Coordonnées originales en décimal (pour la carte)
@@ -79,6 +83,51 @@ class ScrapedGeocache:
 
 
 GC_CODE_RE = re.compile(r'^GC[0-9A-Z]+$')
+
+# GUID Geocaching : identifiant stable d'un joueur, seul moyen d'adresser le
+# centre de messages. Le pseudo, lui, ne sert qu'à l'URL de profil publique.
+GUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+
+
+def guid_from_href(href: str | None, param: str) -> str | None:
+    """Extrait un GUID du paramètre ``param`` d'une URL (absolue ou relative)."""
+    if not href:
+        return None
+    try:
+        query = parse_qs(urlparse(href).query)
+    except Exception:  # pragma: no cover - URL exotique
+        return None
+    for value in query.get(param, []):
+        candidate = (value or '').strip()
+        if GUID_RE.match(candidate):
+            return candidate.lower()
+    return None
+
+
+def extract_owner_guid(soup) -> str | None:
+    """GUID du propriétaire, lu sur le bloc « A cache by ... » du listing.
+
+    Deux sources sur la même ligne de la page, dans l'ordre de fiabilité :
+    le lien « Message this owner » (``recipientId``), puis le lien du profil
+    (``/p/?guid=``). On ne balaie pas le reste de la page : d'autres joueurs
+    (auteurs de logs) y ont aussi des liens de profil.
+    """
+    message_link = soup.find('a', {'id': 'lnkMessageOwner'})
+    if message_link:
+        guid = guid_from_href(message_link.get('href'), 'recipientId')
+        if guid:
+            return guid
+
+    owner_div = soup.find('div', {'id': 'ctl00_ContentBody_mcd1'})
+    if owner_div:
+        for link in owner_div.find_all('a', href=True):
+            guid = guid_from_href(link.get('href'), 'guid')
+            if guid:
+                return guid
+            guid = guid_from_href(link.get('href'), 'recipientId')
+            if guid:
+                return guid
+    return None
 
 # Icône du type de log dans le bandeau « FoundStatus » : /images/logtypes/48/2.png
 # (la taille varie selon le gabarit de la page, l'identifiant du type non).
@@ -114,9 +163,8 @@ class GeocachingScraper:
             raise ValueError('invalid_gc_code')
         return code
 
-    def scrape(self, gc_code: str) -> ScrapedGeocache:
-        code = self.validate_gc_code(gc_code)
-        logger.info(f"Scraping geocache {code}")
+    def fetch_listing_html(self, code: str) -> str:
+        """Récupère le HTML du listing avec timeouts progressifs et retries."""
         url = f'{self.BASE_URL}{code}'
 
         # Tentatives avec timeouts progressifs
@@ -137,7 +185,7 @@ class GeocachingScraper:
                 resp.raise_for_status()
 
                 # Succès - sortir de la boucle
-                break
+                return resp.text
 
             except requests.exceptions.Timeout as e:
                 last_exception = e
@@ -152,14 +200,39 @@ class GeocachingScraper:
                 logger.error(f"HTTP request failed for {code}: {e}")
                 raise
 
-        else:
-            # Si on arrive ici, c'est qu'on a épuisé tous les timeouts
-            if last_exception:
-                raise LookupError('gc_timeout') from last_exception
-            raise RuntimeError(f"Unexpected error scraping {code}")
+        # Si on arrive ici, c'est qu'on a épuisé tous les timeouts
+        if last_exception:
+            raise LookupError('gc_timeout') from last_exception
+        raise RuntimeError(f"Unexpected error scraping {code}")
+
+    def scrape_owner_identity(self, gc_code: str) -> tuple[str | None, str | None]:
+        """Pseudo et GUID du propriétaire, sans analyser tout le listing.
+
+        Sert au rattrapage à la demande : les géocaches importées avant l'ajout
+        de ``owner_guid`` n'ont pas de GUID en base, et un rafraîchissement
+        complet serait disproportionné pour aller chercher un seul champ.
+        """
+        code = self.validate_gc_code(gc_code)
+        logger.info(f"Fetching owner identity for {code}")
+        soup = BeautifulSoup(self.fetch_listing_html(code), _BS4_PARSER)
+
+        owner_name = None
+        owner_div = soup.find('div', {'id': 'ctl00_ContentBody_mcd1'})
+        if owner_div:
+            owner_link = owner_div.find('a')
+            if owner_link:
+                owner_name = owner_link.get_text(strip=True)
+        return owner_name, extract_owner_guid(soup)
+
+    def scrape(self, gc_code: str) -> ScrapedGeocache:
+        code = self.validate_gc_code(gc_code)
+        logger.info(f"Scraping geocache {code}")
+        url = f'{self.BASE_URL}{code}'
+
+        html = self.fetch_listing_html(code)
 
         logger.debug(f"Parsing HTML for {code}")
-        soup = BeautifulSoup(resp.text, _BS4_PARSER)
+        soup = BeautifulSoup(html, _BS4_PARSER)
 
         def text_or_none(el):
             return el.get_text(strip=True) if el else None
@@ -202,6 +275,9 @@ class GeocachingScraper:
             if owner_text:
                 logger.debug(f"[{code}] Owner found via data-testid: {owner_text}")
         logger.debug(f"[{code}] Final owner: {owner_text}")
+
+        owner_guid = extract_owner_guid(soup)
+        logger.debug(f"[{code}] Owner guid: {owner_guid}")
 
         # Type de cache (ancien format précis)
         logger.debug(f"[{code}] Extracting cache type...")
@@ -429,7 +505,7 @@ class GeocachingScraper:
 
         # Détection via script userDefinedCoords (si présent)
         try:
-            m = re.search(r'userDefinedCoords\s*=\s*\{[\s\S]*?\};', resp.text)
+            m = re.search(r'userDefinedCoords\s*=\s*\{[\s\S]*?\};', html)
             if m:
                 block = m.group(0)
                 new_m = re.search(r'newLatLng\"?\s*:\s*\[\s*([-0-9\.]+)\s*,\s*([-0-9\.]+)\s*\]', block)
@@ -750,6 +826,7 @@ class GeocachingScraper:
             type=type_text,
             size=size_text,
             owner=owner_text,
+            owner_guid=owner_guid,
             difficulty=difficulty,
             terrain=terrain,
             latitude=latitude,

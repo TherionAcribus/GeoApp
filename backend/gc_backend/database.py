@@ -43,6 +43,7 @@ def init_db(app):
                 existing_cols.add(row[1])
 
             to_add: dict[str, str] = {
+                'owner_guid': 'VARCHAR(36)',
                 'coordinates_raw': 'TEXT',
                 'is_corrected': 'BOOLEAN',
                 'original_latitude': 'REAL',

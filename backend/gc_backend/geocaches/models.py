@@ -17,6 +17,11 @@ class Geocache(db.Model):
     type = db.Column(db.String(100))
     size = db.Column(db.String(50))
     owner = db.Column(db.String(255))
+    # GUID Geocaching du propriétaire : seule clé acceptée par le centre de
+    # messages (`/account/messagecenter?recipientId=`). Renseigné par le scrape,
+    # NULL sur les géocaches importées avant son introduction (rattrapage à la
+    # demande via `/api/geocaches/<id>/owner-link`).
+    owner_guid = db.Column(db.String(36))
     difficulty = db.Column(db.Float)
     terrain = db.Column(db.Float)
     latitude = db.Column(db.Float)
@@ -151,6 +156,7 @@ class Geocache(db.Model):
             'type': self.type,
             'size': self.size,
             'owner': self.owner,
+            'owner_guid': self.owner_guid,
             'difficulty': self.difficulty,
             'terrain': self.terrain,
             'latitude': self.latitude,

@@ -98,6 +98,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected waypointEditorCallback?: (prefill?: WaypointPrefillPayload) => void;
     protected isSavingWaypoint = false;
     protected interactionTimerId: number | undefined;
+    /**
+     * Vrai dès que l'onglet a été consulté (activé ou visible) depuis le
+     * dernier `setGeocache`. Le délai « temps d'ouverture minimum » ne doit
+     * épingler que les onglets réellement regardés : un onglet ouvert en
+     * arrière-plan (import avec `geoApp.zones.import.openDetailsMode` à
+     * `open-in-background`) et jamais consulté resterait sinon épinglé,
+     * bloquant le remplacement intelligent.
+     */
+    protected consultedSinceSetGeocache = false;
     protected descriptionVariant: DescriptionVariant = 'original';
     protected descriptionVariantGeocacheId: number | undefined;
     protected isTranslatingDescription = false;
@@ -330,7 +339,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
 
         this.interactionTimerId = window.setTimeout(() => {
-            this.emitInteraction('min-open-time');
+            this.interactionTimerId = undefined;
+            if (this.consultedSinceSetGeocache) {
+                this.emitInteraction('min-open-time');
+            }
         }, timeoutSeconds * 1000);
     }
 
@@ -663,6 +675,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     setGeocache(context: { geocacheId: number; name?: string }): void {
         this.geocacheId = context.geocacheId;
+        // Un onglet déjà affiché est considéré comme consulté d'emblée ; un
+        // onglet pas encore attaché le devient via `onActivateRequest`.
+        this.consultedSinceSetGeocache = this.isVisible;
         this.lastAccessTimestamp = Date.now();
         this.notesCount = undefined;
         this.archiveStatus = 'none';
@@ -687,6 +702,14 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
      */
     protected onActivateRequest(msg: any): void {
         super.onActivateRequest(msg);
+        if (!this.consultedSinceSetGeocache) {
+            this.consultedSinceSetGeocache = true;
+            // Onglet ouvert en arrière-plan puis consulté après l'expiration du
+            // délai : on le relance pour que le compte reparte de la 1re vue.
+            if (this.interactionTimerId === undefined) {
+                this.setupMinOpenTimeTimer();
+            }
+        }
         this.node.focus();
         this.navigationController.reactivateAssociatedMap(this.geocacheId);
     }
@@ -1302,6 +1325,46 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     };
 
+    /**
+     * GUID Geocaching du proprietaire, pour le menu contextuel du nom.
+     *
+     * Les geocaches importees avant l'ajout de la colonne `owner_guid` n'en ont
+     * pas : le backend relit alors le bloc proprietaire du listing et le
+     * memorise, si bien que ce rattrapage ne coute qu'une fois par cache.
+     */
+    private resolveOwnerGuid = async (): Promise<string | undefined> => {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId) {
+            return undefined;
+        }
+        try {
+            const identity = await this.geocacheDetailsService.getOwnerIdentity(geocacheId);
+            const guid = identity?.owner_guid || undefined;
+            // La cache affichee a pu changer pendant l'appel reseau.
+            if (this.geocacheId === geocacheId && this.data) {
+                if (guid) {
+                    this.data.owner_guid = guid;
+                }
+                if (identity?.owner) {
+                    this.data.owner = identity.owner;
+                }
+                this.update();
+            }
+            if (!guid) {
+                this.messages.warn('Profil du proprietaire introuvable sur la page de la geocache');
+            }
+            return guid;
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] resolveOwnerGuid error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la recuperation du profil du proprietaire'));
+            return undefined;
+        }
+    };
+
+    private openOwnerUrl = (url: string): void => {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    };
+
     private async confirmStoreAllImages(options: { geocacheId: number; pendingCount: number }): Promise<boolean> {
         const dialog = new ConfirmDialog({
             title: 'Stockage local des images',
@@ -1452,6 +1515,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onOpenLogEditor: this.openLogEditor,
                     onOpenNotes: this.openNotes,
                     onForceSyncArchive: this.forceSyncArchive,
+                    onResolveOwnerGuid: this.resolveOwnerGuid,
+                    onOpenOwnerUrl: this.openOwnerUrl,
                     extraActions: this.headerActionRegistry.getActions({ geocacheData: d! }),
                 }}
                 coordinatesEditorProps={{

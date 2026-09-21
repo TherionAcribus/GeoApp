@@ -62,6 +62,16 @@ type GeocacheDetailsResponse = Geocache & {
 
 type WizardPick<T> = QuickPickValue<T>;
 
+/** Réponse de `POST /api/geocaches/add` (voir `add_geocache` côté Flask). */
+type AddGeocacheResponse = {
+    id?: number;
+    gc_code?: string;
+    name?: string;
+};
+
+/** Valeurs de `geoApp.zones.import.openDetailsMode`. */
+type ImportOpenDetailsMode = 'open-and-focus' | 'open-in-background' | 'none';
+
 @injectable()
 export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'zone.geocaches.widget';
@@ -391,6 +401,18 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         return match ? match[1].toUpperCase() : undefined;
     }
 
+    /**
+     * Mode d'ouverture de la fiche après import d'une géocache par son code GC.
+     * Une valeur inconnue retombe sur le défaut du schéma.
+     */
+    private getImportOpenDetailsMode(): ImportOpenDetailsMode {
+        const raw = this.preferenceService.get('geoApp.zones.import.openDetailsMode', 'open-and-focus') as string;
+        if (raw === 'open-and-focus' || raw === 'open-in-background' || raw === 'none') {
+            return raw;
+        }
+        return 'open-and-focus';
+    }
+
     protected async handleAddGeocacheSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
         event.preventDefault();
 
@@ -407,10 +429,25 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 return;
             }
 
-            await this.geocachesService.addToZone(this.zoneId, gcCode);
+            const imported = await this.geocachesService.addToZone<AddGeocacheResponse>(this.zoneId, gcCode);
             form.reset();
             await this.refreshZoneData();
             this.messages.info(`Geocache ${gcCode} importee`);
+
+            // L'ouverture vient après le rafraîchissement et le message : une erreur
+            // d'ouverture d'onglet ne doit pas faire passer l'import pour un échec.
+            const mode = this.getImportOpenDetailsMode();
+            if (mode !== 'none' && imported && typeof imported.id === 'number') {
+                try {
+                    await this.geocacheTabsManager.openGeocacheDetails({
+                        geocacheId: imported.id,
+                        name: imported.name ?? gcCode,
+                        activate: mode === 'open-and-focus'
+                    });
+                } catch (openError) {
+                    console.error('Failed to open GeocacheDetailsWidget after import', openError);
+                }
+            }
         } catch (error) {
             console.error('Import geocache error', error);
             this.messages.error(getErrorMessage(error, 'Erreur lors de l import de la geocache'));

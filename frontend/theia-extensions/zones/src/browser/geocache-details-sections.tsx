@@ -11,6 +11,7 @@ import {
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
 import { ContextMenu, ContextMenuItem } from './context-menu';
+import { buildOwnerMessageUrl, buildOwnerProfileUrl, openExternalUrl } from './geocaching-owner-links';
 import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
 import { LogsRecentSummary, LogSummaryEntry } from './geocache-logs-summary';
 import '../../src/browser/style/geocache-details-header.css';
@@ -57,6 +58,14 @@ interface GeocacheDetailsHeaderProps {
     onOpenLogEditor: () => void;
     onOpenNotes: () => void;
     onForceSyncArchive: () => void | Promise<void>;
+    /**
+     * Va chercher le GUID du proprietaire quand il manque en base (geocaches
+     * importees avant son introduction). Appele a l'ouverture du menu, pas au
+     * clic : ouvrir une fenetre apres un `await` serait bloque par le navigateur.
+     */
+    onResolveOwnerGuid?: () => Promise<string | undefined>;
+    /** Ouverture des liens Geocaching du proprietaire ; par defaut, un onglet externe. */
+    onOpenOwnerUrl?: (url: string) => void;
     onRefresh?: () => void | Promise<void>;
     /** Rafraîchissement en cours : le bouton porte l'état (icône animée) au lieu d'une notification. */
     isRefreshing?: boolean;
@@ -91,6 +100,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenLogEditor,
     onOpenNotes,
     onForceSyncArchive,
+    onResolveOwnerGuid,
+    onOpenOwnerUrl,
     onRefresh,
     isRefreshing = false,
     extraActions = []
@@ -103,6 +114,72 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
     const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
     const chatProfileMenuRef = React.useRef<HTMLDivElement>(null);
+
+    // --- Menu du proprietaire (message / fiche sur Geocaching.com) ---
+    const ownerName = (geocacheData.owner || '').trim();
+    const [ownerMenuPosition, setOwnerMenuPosition] = React.useState<{ x: number; y: number } | null>(null);
+    const [resolvedOwnerGuid, setResolvedOwnerGuid] = React.useState<string | undefined>(undefined);
+    const [ownerLookup, setOwnerLookup] = React.useState<'idle' | 'resolving' | 'missing'>('idle');
+
+    // Changement de geocache : le GUID rapatrie ne vaut plus rien.
+    React.useEffect(() => {
+        setOwnerMenuPosition(null);
+        setResolvedOwnerGuid(undefined);
+        setOwnerLookup('idle');
+    }, [geocacheData.gc_code]);
+
+    const ownerGuid = geocacheData.owner_guid || resolvedOwnerGuid;
+    const ownerProfileUrl = buildOwnerProfileUrl(ownerName, ownerGuid);
+    const ownerMessageUrl = buildOwnerMessageUrl(ownerGuid, geocacheData.gc_code);
+
+    const openOwnerMenu = (event: React.MouseEvent | React.KeyboardEvent, anchor?: HTMLElement | null): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        const mouse = event as React.MouseEvent;
+        if (typeof mouse.clientX === 'number' && mouse.clientX > 0) {
+            setOwnerMenuPosition({ x: mouse.clientX, y: mouse.clientY });
+        } else {
+            const rect = anchor?.getBoundingClientRect();
+            setOwnerMenuPosition({ x: rect?.left ?? 0, y: (rect?.bottom ?? 0) + 2 });
+        }
+        // Le GUID est rapatrie des l'ouverture du menu : au moment du clic sur
+        // l'item, `window.open` doit rester dans le geste utilisateur, sinon le
+        // navigateur bloque l'onglet.
+        if (!ownerGuid && ownerLookup === 'idle' && onResolveOwnerGuid) {
+            setOwnerLookup('resolving');
+            onResolveOwnerGuid().then(
+                guid => {
+                    setResolvedOwnerGuid(guid);
+                    setOwnerLookup(guid ? 'idle' : 'missing');
+                },
+                () => setOwnerLookup('missing')
+            );
+        }
+    };
+
+    const openOwnerUrl = (url: string): void => {
+        if (onOpenOwnerUrl) { onOpenOwnerUrl(url); } else { openExternalUrl(url); }
+    };
+
+    const isResolvingOwner = ownerLookup === 'resolving';
+    const ownerMenuItems: ContextMenuItem[] = [
+        {
+            label: isResolvingOwner
+                ? 'Recherche du profil...'
+                : ownerMessageUrl
+                    ? `Envoyer un message a propos de ${geocacheData.gc_code || 'cette cache'}`
+                    : 'Message indisponible (profil introuvable)',
+            icon: '✉️',
+            disabled: !ownerMessageUrl,
+            action: () => { if (ownerMessageUrl) { openOwnerUrl(ownerMessageUrl); } }
+        },
+        {
+            label: 'Ouvrir sa fiche',
+            icon: '👤',
+            disabled: !ownerProfileUrl,
+            action: () => { if (ownerProfileUrl) { openOwnerUrl(ownerProfileUrl); } }
+        }
+    ];
 
     React.useEffect(() => {
         if (!isAnalyzeMenuOpen) { return; }
@@ -447,7 +524,45 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
-                <span style={{ opacity: 0.7 }}>{`Par ${geocacheData.owner || 'Inconnu'}`}</span>
+                {ownerName ? (
+                    <span style={{ opacity: 0.7, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        Par
+                        <span
+                            role='button'
+                            tabIndex={0}
+                            aria-haspopup='menu'
+                            onClick={(e) => openOwnerMenu(e, e.currentTarget)}
+                            onContextMenu={(e) => openOwnerMenu(e, e.currentTarget)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    openOwnerMenu(e, e.currentTarget);
+                                }
+                            }}
+                            title={`${ownerName} — clic pour le contacter ou ouvrir sa fiche sur Geocaching.com`}
+                            style={{
+                                cursor: 'pointer',
+                                textDecoration: 'underline dotted',
+                                textUnderlineOffset: 3,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                            }}
+                        >
+                            {ownerName}
+                            <i className='fa fa-caret-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
+                        </span>
+                    </span>
+                ) : (
+                    <span style={{ opacity: 0.7 }}>Par Inconnu</span>
+                )}
+                {ownerMenuPosition ? (
+                    <ContextMenu
+                        items={ownerMenuItems}
+                        x={ownerMenuPosition.x}
+                        y={ownerMenuPosition.y}
+                        onClose={() => setOwnerMenuPosition(null)}
+                    />
+                ) : undefined}
                 {renderFoundBadge(geocacheData)}
                 {geocacheData.status === 'archived' && (
                     <span style={{

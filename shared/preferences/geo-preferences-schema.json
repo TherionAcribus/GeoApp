@@ -1582,6 +1582,46 @@
         "geocaches"
       ]
     },
+    "geoApp.zones.import.openDetailsMode": {
+      "type": "string",
+      "enum": [
+        "open-and-focus",
+        "open-in-background",
+        "none"
+      ],
+      "default": "open-and-focus",
+      "title": "Ouverture de la fiche après import d'une géocache",
+      "description": "Comportement après l'import d'une géocache par son code GC depuis le tableau d'une zone. « Ouvrir et afficher » ouvre l'onglet de détails et s'y place ; « Ouvrir en arrière-plan » ouvre l'onglet mais laisse le tableau au premier plan ; « Ne pas ouvrir » se contente de rafraîchir le tableau.",
+      "x-ui": {
+        "section": "Zones",
+        "label": "Après import d'une géocache",
+        "order": 30,
+        "enumLabels": {
+          "open-and-focus": "Ouvrir et afficher la fiche",
+          "open-in-background": "Ouvrir en arrière-plan",
+          "none": "Ne pas ouvrir la fiche"
+        },
+        "keywords": [
+          "import",
+          "ajout",
+          "code gc",
+          "onglet",
+          "fiche",
+          "details",
+          "détails",
+          "zone"
+        ]
+      },
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "zones",
+        "geocaches",
+        "ui"
+      ]
+    },
     "geoApp.friends.map.autoLoad": {
       "type": "boolean",
       "default": true,

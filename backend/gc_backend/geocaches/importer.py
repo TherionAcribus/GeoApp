@@ -195,6 +195,8 @@ class GeocacheImporter:
         g.type = s.type
         g.size = s.size
         g.owner = s.owner
+        # Un import GPX ne porte pas le GUID : on ne l'efface pas pour autant.
+        g.owner_guid = getattr(s, 'owner_guid', None) or g.owner_guid
         g.difficulty = s.difficulty
         g.terrain = s.terrain
         g.placed_at = s.placed_at
@@ -311,6 +313,7 @@ class GeocacheImporter:
             zone_id=zone_id,
         )
         # Données enrichies
+        g.owner_guid = getattr(s, 'owner_guid', None)
         g.coordinates_raw = getattr(s, 'coordinates_raw', None)
         g.is_corrected = getattr(s, 'is_corrected', None)
         g.original_latitude = getattr(s, 'original_latitude', None)

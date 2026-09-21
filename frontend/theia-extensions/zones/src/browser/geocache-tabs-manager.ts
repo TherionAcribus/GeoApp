@@ -21,6 +21,12 @@ export interface OpenGeocacheOptions {
     geocacheId: number;
     name?: string;
     forceDuplicate?: boolean;
+    /**
+     * Par défaut l'onglet est activé (mis au premier plan). `false` l'attache
+     * sans voler le focus : l'onglet apparaît dans la barre mais l'utilisateur
+     * reste sur la vue courante.
+     */
+    activate?: boolean;
 }
 
 @injectable()
@@ -49,6 +55,7 @@ export class GeocacheTabsManager {
      */
     async openGeocacheDetails(options: OpenGeocacheOptions): Promise<GeocacheDetailsWidget> {
         const { geocacheId, name, forceDuplicate } = options;
+        const activate = options.activate !== false;
 
         this.cleanupDisposed();
 
@@ -56,7 +63,7 @@ export class GeocacheTabsManager {
         if (!forceDuplicate) {
             const existing = this.tabs.find(entry => entry.geocacheId === geocacheId && !entry.widget.isDisposed);
             if (existing) {
-                this.attachAndActivate(existing.widget);
+                this.attachAndActivate(existing.widget, activate);
                 existing.widget.setGeocache({ geocacheId, name });
                 return existing.widget;
             }
@@ -90,7 +97,7 @@ export class GeocacheTabsManager {
         targetEntry.isPinned = false;
         targetEntry.widget.setGeocache({ geocacheId, name });
 
-        this.attachAndActivate(targetEntry.widget);
+        this.attachAndActivate(targetEntry.widget, activate);
 
         return targetEntry.widget;
     }
@@ -181,11 +188,13 @@ export class GeocacheTabsManager {
         }
     }
 
-    protected attachAndActivate(widget: GeocacheDetailsWidget): void {
+    protected attachAndActivate(widget: GeocacheDetailsWidget, activate: boolean = true): void {
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'main' });
         }
-        this.activate(widget);
+        if (activate) {
+            this.activate(widget);
+        }
     }
 
     protected activate(widget: Widget): void {

@@ -24,6 +24,15 @@ export interface UpdateTranslatedContentInput {
     waypoints?: Array<{ id: number; note_override: string }>;
 }
 
+export interface OwnerIdentityResponse {
+    id?: number;
+    gc_code?: string;
+    owner?: string;
+    owner_guid?: string | null;
+    /** true si le backend est alle relire le listing pour cette reponse. */
+    scraped?: boolean;
+}
+
 export interface ArchiveStatusResponse {
     exists?: boolean;
     needs_sync?: boolean;
@@ -149,6 +158,19 @@ export class GeocacheDetailsService {
             `/api/geocaches/${geocacheId}/logs/recent-summary?count=${count}`,
             {},
             'Erreur lors du chargement du résumé des logs'
+        );
+    }
+
+    /**
+     * Pseudo et GUID du proprietaire. Le backend relit le listing si le GUID
+     * manque en base (geocaches importees avant son introduction), puis le
+     * memorise : les appels suivants sont servis depuis la base.
+     */
+    async getOwnerIdentity(geocacheId: number): Promise<OwnerIdentityResponse | undefined> {
+        return this.apiClient.requestOptionalJson<OwnerIdentityResponse>(
+            `/api/geocaches/${geocacheId}/owner-link`,
+            {},
+            'Erreur lors de la récupération du profil du propriétaire'
         );
     }
 

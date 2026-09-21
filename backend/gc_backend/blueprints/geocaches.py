@@ -1338,6 +1338,64 @@ def get_geocache_details(geocache_id: int):
         raise
 
 
+@bp.get('/api/geocaches/<int:geocache_id>/owner-link')
+def get_geocache_owner_link(geocache_id: int):
+    """Identité du propriétaire : pseudo et GUID Geocaching.
+
+    Le pseudo suffit à ouvrir la fiche publique ; le centre de messages, lui,
+    n'accepte que le GUID. Les géocaches importées avant la colonne
+    `owner_guid` n'en ont pas : on le rattrape ici en relisant le seul bloc
+    propriétaire du listing, puis on le mémorise pour ne le faire qu'une fois.
+
+    `?refresh=1` force la relecture même si un GUID est déjà en base.
+    """
+    geocache = Geocache.query.get(geocache_id)
+    if not geocache:
+        return jsonify({'error': 'Geocache not found'}), 404
+
+    force = str(request.args.get('refresh', '')).strip().lower() in ('1', 'true', 'yes')
+    if geocache.owner_guid and not force:
+        return jsonify({
+            'id': geocache.id,
+            'gc_code': geocache.gc_code,
+            'owner': geocache.owner,
+            'owner_guid': geocache.owner_guid,
+            'scraped': False,
+        })
+
+    try:
+        scraper = GeocachingScraper()
+        owner_name, owner_guid = scraper.scrape_owner_identity(geocache.gc_code)
+    except ValueError:
+        return jsonify({'error': 'Invalid gc_code'}), 400
+    except LookupError as e:
+        reason = str(e) or 'gc_lookup_failed'
+        logger.warning("Owner lookup failed for %s: %s", geocache.gc_code, reason)
+        return jsonify({'error': reason}), 502
+    except Exception as e:
+        logger.error("Error fetching owner identity for %s: %s", geocache.gc_code, e, exc_info=True)
+        return jsonify({'error': 'Failed to fetch owner identity'}), 502
+
+    try:
+        if owner_guid:
+            geocache.owner_guid = owner_guid
+        # Le pseudo peut avoir changé depuis l'import ; on le remet à jour au passage.
+        if owner_name and owner_name != geocache.owner:
+            geocache.owner = owner_name
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error("Error persisting owner identity for %s: %s", geocache.gc_code, e, exc_info=True)
+
+    return jsonify({
+        'id': geocache.id,
+        'gc_code': geocache.gc_code,
+        'owner': geocache.owner,
+        'owner_guid': geocache.owner_guid,
+        'scraped': True,
+    })
+
+
 @bp.get('/api/geocaches/by-code/<string:gc_code>')
 def get_geocache_by_code(gc_code: str):
     """Récupère les détails complets d'une géocache via son GC code."""
@@ -1556,6 +1614,7 @@ def refresh_geocache(geocache_id: int):
         geocache.type = s.type
         geocache.size = s.size
         geocache.owner = s.owner
+        geocache.owner_guid = getattr(s, 'owner_guid', None) or geocache.owner_guid
         geocache.difficulty = s.difficulty
         geocache.terrain = s.terrain
         geocache.placed_at = s.placed_at
@@ -1762,6 +1821,7 @@ def copy_geocache(geocache_id: int):
             type=source_geocache.type,
             size=source_geocache.size,
             owner=source_geocache.owner,
+            owner_guid=source_geocache.owner_guid,
             difficulty=source_geocache.difficulty,
             terrain=source_geocache.terrain,
             latitude=source_geocache.latitude,

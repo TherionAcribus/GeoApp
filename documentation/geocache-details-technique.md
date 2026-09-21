@@ -64,7 +64,7 @@ Miroir de la géocache renvoyée par le backend (`GET /api/geocaches/<id>`). Cha
 
 | Groupe | Champs |
 |---|---|
-| Identité | `id`, `gc_code`, `name`, `url`, `type`, `size`, `owner`, `status` |
+| Identité | `id`, `gc_code`, `name`, `url`, `type`, `size`, `owner`, `owner_guid`, `status` |
 | Difficulté | `difficulty`, `terrain`, `favorites_count`, `logs_count`, `placed_at`, `attributes[]` |
 | Coordonnées | `latitude`, `longitude`, `coordinates_raw`, `is_corrected`, `original_*` |
 | Description | `description_html`, `description_raw`, `description_override_html`, `description_override_raw`, `description_override_updated_at` |
@@ -99,6 +99,7 @@ Routes appelées par la page (via `GeocacheDetailsService` et `GeocachesService`
 | POST | `/api/geocaches/<id>/waypoints/<wid>/push-coordinates` | Pousse les coords d'un waypoint vers GC.com. |
 | POST | `/api/geocaches/<id>/set-corrected-coords/<wid>` | Définit un waypoint comme coords corrigées. |
 | GET | `/api/geocaches/<id>/logs/recent-summary?count=<n>` | Résumé des derniers logs. |
+| GET | `/api/geocaches/<id>/owner-link[?refresh=1]` | Pseudo + GUID du propriétaire (rattrapage à la demande). |
 | GET | `/api/geocaches/<id>/images` | Liste des images (pour le chat libre). |
 | GET | `/api/archive/<gc>/status` | Statut d'archive. |
 | POST | `/api/archive/<gc>/sync` | Synchronise l'archive. |
@@ -140,7 +141,7 @@ Les chargements secondaires portent une **garde anti-course** : si l'utilisateur
 
 L'ordre de rendu (`GeocacheDetailsView`) :
 
-1. **Header** (`GeocacheDetailsHeader`) : titre, badges (**trouvée / non trouvée** — toujours affiché, vert avec la date de découverte si connue ; archivée / désactivée), barre d'actions :
+1. **Header** (`GeocacheDetailsHeader`) : titre, badges (**trouvée / non trouvée** — toujours affiché, vert avec la date de découverte si connue ; archivée / désactivée), **nom du propriétaire cliquable** (cf. « Menu du propriétaire »), barre d'actions :
    - menu déroulant **« Analyser »** (Formula Solver, Analyse page, Analyse code/Metasolver, Analyse plugins, Grilles, + actions contribuées) ;
    - **split-button Chat IA** affichant le profil effectif + menu de sélection de profil (`Auto`/`Fast`/`Strong`/`Web`/`Local`) ;
    - **Chat Libre** ;
@@ -155,6 +156,38 @@ L'ordre de rendu (`GeocacheDetailsView`) :
 8. **Checkers** (`GeocacheCheckersSection`) : liens vers les checkers, menu contextuel d'ouverture (même groupe / nouveau groupe / fenêtre externe), avertissement spécifique GeoCheck (captcha).
 
 ## Fonctionnalités transverses
+
+### Menu du propriétaire
+
+Le pseudo affiché dans l'en-tête (`Par <pseudo>`) ouvre un menu contextuel (clic
+gauche, clic droit ou Entrée) avec deux entrées, toutes deux ouvertes **hors de
+GeoApp**, dans un onglet du navigateur :
+
+| Entrée | URL |
+|---|---|
+| Envoyer un message à propos de `<GC>` | `https://www.geocaching.com/account/messagecenter?recipientId=<guid>&gcCode=<GC>` |
+| Ouvrir sa fiche | `https://www.geocaching.com/p/?guid=<guid>`, ou `…/p/?u=<pseudo>` à défaut de GUID |
+
+Geocaching.com manipule deux identifiants : le **pseudo**, qui suffit pour la
+fiche publique, et le **GUID**, seule clé acceptée par le centre de messages.
+Le GUID est lu sur le listing au scrape — lien `#lnkMessageOwner`
+(`recipientId`), sinon lien de profil du bloc `#ctl00_ContentBody_mcd1`
+(`guid`) — et stocké dans `geocache.owner_guid`. On ne balaie pas le reste de
+la page : les auteurs de logs y ont aussi des liens `/p/?guid=`.
+
+**Rattrapage des géocaches importées avant cette colonne** : elles n'ont pas de
+GUID en base. À l'ouverture du menu (et non au clic sur l'entrée), le widget
+appelle `GET /api/geocaches/<id>/owner-link` ; le backend relit alors le seul
+bloc propriétaire du listing, le mémorise, et le sert depuis la base aux appels
+suivants. Résoudre **avant** le clic est indispensable : un `window.open` après
+un `await` sort du geste utilisateur et serait bloqué par le navigateur. Pendant
+la résolution, l'entrée « message » affiche `Recherche du profil...` et reste
+désactivée ; si le listing ne porte aucun GUID (propriétaire n'acceptant pas les
+messages), elle le reste avec la mention `Message indisponible`, l'ouverture de
+la fiche restant possible via le pseudo.
+
+Construction des URL centralisée dans `geocaching-owner-links.ts`
+(`buildOwnerProfileUrl`, `buildOwnerMessageUrl`, `openExternalUrl`).
 
 ### Traduction IA
 
@@ -216,7 +249,7 @@ Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieu
 ## Sécurité
 
 - **Sanitisation XSS de la description** : le HTML provient de geocaching.com (contenu tiers non maîtrisé) et est injecté via `dangerouslySetInnerHTML`. Il est systématiquement nettoyé par `DOMPurify` (`@theia/core/shared/dompurify`) avant injection — scripts, handlers `on*` et URLs `javascript:` neutralisés ; images, liens et mise en forme conservés.
-- **Liens externes** : la description intercepte les clics sur les `<a>` pour les ouvrir selon la préférence (`new-tab` / `new-window`), et les checkers offrent un choix explicite (même groupe / nouveau groupe / fenêtre externe).
+- **Liens externes** : la description intercepte les clics sur les `<a>` pour les ouvrir selon la préférence (`new-tab` / `new-window`), et les checkers offrent un choix explicite (même groupe / nouveau groupe / fenêtre externe). Les liens du propriétaire sortent toujours vers le navigateur (`noopener,noreferrer`) : le centre de messages de Geocaching.com ne fonctionne pas dans le mini-navigateur intégré.
 
 ## UX & accessibilité
 
@@ -250,6 +283,7 @@ Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieu
   - `geocache-details-notes-controller.ts`, `geocache-details-header-actions.ts`
 - Service & HTTP
   - `geocache-details-service.ts`, `geocaches-service.ts`, `backend-api-client.ts`
+  - `geocaching-owner-links.ts` (URL profil / centre de messages du propriétaire)
 - Éditeurs & panneaux
   - `geocache-coordinates-editor.tsx`, `geocache-description-editor.tsx`
   - `geocache-waypoints-editor.tsx`, `geocache-images-panel.tsx`, `geocache-logs-summary.tsx`

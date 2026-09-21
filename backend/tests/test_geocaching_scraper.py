@@ -114,3 +114,70 @@ def test_scraper_leaves_found_unknown_when_the_banner_is_absent():
     """Bandeau absent : cache non trouvée, ou page servie sans session connectée."""
     scraped = _scrape_html('<html><body><h1>7-POLYGLOTTE</h1></body></html>')
     assert scraped.found is None
+
+
+def _owner_block_html(owner_block: str) -> str:
+    return f"""
+    <html>
+        <body>
+            <h1>7-POLYGLOTTE</h1>
+            {owner_block}
+        </body>
+    </html>
+    """
+
+
+OWNER_GUID = 'e4c9aa12-6aa4-48f8-9e2a-8b69040ae285'
+
+
+def test_scraper_extracts_owner_guid_from_the_message_owner_link():
+    scraped = _scrape_html(_owner_block_html(
+        f"""
+        <div id="ctl00_ContentBody_mcd1">
+            A cache by <a href="https://www.geocaching.com/p/?guid={OWNER_GUID}&amp;wid=8e82a0c4-2784-4d87-88b4-3cffbc2a0225&amp;ds=2">reikja</a>
+            <span class="message__owner">
+                <a id="lnkMessageOwner" href="/account/messagecenter?recipientId={OWNER_GUID}&amp;gcCode=GC890F8">Message this owner</a>
+            </span>
+        </div>
+        """
+    ))
+
+    assert scraped.owner == 'reikja'
+    assert scraped.owner_guid == OWNER_GUID
+
+
+def test_scraper_falls_back_on_the_profile_link_when_messaging_is_unavailable():
+    """Certains listings n'affichent pas « Message this owner » : reste le lien de profil."""
+    scraped = _scrape_html(_owner_block_html(
+        f"""
+        <div id="ctl00_ContentBody_mcd1">
+            A cache by <a href="/p/?guid={OWNER_GUID}">reikja</a>
+        </div>
+        """
+    ))
+
+    assert scraped.owner_guid == OWNER_GUID
+
+
+def test_scraper_ignores_profile_links_outside_the_owner_block():
+    """Les auteurs de logs ont aussi des liens /p/?guid= : ils ne sont pas le proprietaire."""
+    scraped = _scrape_html(_owner_block_html(
+        f"""
+        <div id="ctl00_ContentBody_mcd1">A cache by <span>reikja</span></div>
+        <a href="/p/?guid={OWNER_GUID}">un autre joueur</a>
+        """
+    ))
+
+    assert scraped.owner_guid is None
+
+
+def test_scraper_rejects_a_malformed_guid():
+    scraped = _scrape_html(_owner_block_html(
+        """
+        <div id="ctl00_ContentBody_mcd1">
+            A cache by <a href="/p/?guid=not-a-guid">reikja</a>
+        </div>
+        """
+    ))
+
+    assert scraped.owner_guid is None
