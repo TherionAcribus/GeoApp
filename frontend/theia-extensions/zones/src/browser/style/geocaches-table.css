@@ -439,3 +439,23 @@
     background: var(--theia-list-hoverBackground);
     outline: none;
 }
+
+/* Puces de résumé de zone (compteurs cliquables). */
+.geoapp-gc-stat-chip {
+    padding: 1px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 0.85em;
+    cursor: pointer;
+}
+
+.geoapp-gc-stat-chip:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-gc-stat-chip--active {
+    background: var(--theia-button-secondaryBackground, var(--theia-list-activeSelectionBackground));
+    border-color: var(--theia-focusBorder);
+}

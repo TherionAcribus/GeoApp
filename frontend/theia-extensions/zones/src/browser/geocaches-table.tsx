@@ -1345,6 +1345,29 @@ ${origin}`}
         return map;
     }, [cacheTypes, sizes, solvedOptions]);
 
+    /**
+     * Compteurs de la zone entière (`data`, pas le filtré) affichés en puces
+     * cliquables : chaque puce applique — ou retire — la requête tokenisée
+     * correspondante. Les compteurs nuls sont masqués.
+     */
+    const zoneStats = React.useMemo(() => {
+        const needsMaintenance = GEOCACHE_FILTER_ACCESSORS.need_maintenance as (gc: Geocache) => boolean;
+        const stats: Array<{ id: string; label: string; count: number; searchQuery: string }> = [
+            { id: 'found', label: 'trouvée(s)', count: data.filter(g => g.found === true).length, searchQuery: '@found:true' },
+            { id: 'not-found', label: 'non trouvée(s)', count: data.filter(g => g.found !== true).length, searchQuery: '@found:false' },
+            {
+                id: 'unsolved-mysteries',
+                label: 'mystery(s) à résoudre',
+                count: data.filter(g => g.cache_type === 'Mystery' && (g.solved ?? 'not_solved') !== 'solved').length,
+                searchQuery: '@type:mystery @solved:not_solved,in_progress',
+            },
+            { id: 'archived', label: 'archivée(s)', count: data.filter(g => g.status === 'archived').length, searchQuery: '@status:archived' },
+            { id: 'corrected', label: 'corrigée(s)', count: data.filter(g => g.is_corrected).length, searchQuery: '@corrigée:oui' },
+            { id: 'maintenance', label: 'maintenance', count: data.filter(g => needsMaintenance(g)).length, searchQuery: '@maintenance:oui' },
+        ];
+        return stats.filter(s => s.count > 0);
+    }, [data]);
+
     // « Trouvées cette année » est dynamique : la borne est recalculée à
     // chaque montage du tableau.
     const filterPresets = React.useMemo<FilterPreset[]>(() => [
@@ -1969,6 +1992,31 @@ ${origin}`}
                         />
                     )}
                 </div>
+            </div>
+
+            {/* Résumé de la zone : compteurs cliquables — chaque puce applique
+                la requête correspondante, la recliquer la retire. */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85em', opacity: 0.7 }}>
+                    {data.length} géocache(s)
+                </span>
+                {zoneStats.map(stat => {
+                    const active = globalFilter.trim() === stat.searchQuery;
+                    return (
+                        <button
+                            key={stat.id}
+                            type='button'
+                            className={`geoapp-gc-stat-chip${active ? ' geoapp-gc-stat-chip--active' : ''}`}
+                            aria-pressed={active}
+                            title={active
+                                ? `Retirer le filtre « ${stat.label} »`
+                                : `Filtrer sur ${stat.searchQuery}`}
+                            onClick={() => setGlobalFilter(active ? '' : stat.searchQuery)}
+                        >
+                            {stat.count} {stat.label}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Barre d'actions de sélection — hauteur réservée pour éviter tout
