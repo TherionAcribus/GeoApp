@@ -321,8 +321,38 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             même pendant un chargement ou sur une zone vide : il porte le mode, qui
             ne dépend pas de ce que le tableau a à afficher. */}
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0 }}>
-            {props.loading ? (
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, position: 'relative' }}>
+            {/* Le tableau ne se démonte qu'au tout premier chargement (zone sans
+                données en mémoire). Pendant un rechargement déclenché par une
+                action de la page, il reste monté — sinon tri, filtres, sélection
+                et scroll seraient perdus à chaque ajout/suppression/import. Un
+                badge non bloquant signale que les données affichées se rafraîchissent. */}
+            {props.loading && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 12,
+                        zIndex: 5,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '3px 10px',
+                        borderRadius: 10,
+                        border: '1px solid var(--theia-panel-border)',
+                        background: 'var(--theia-editor-background)',
+                        fontSize: '0.8em',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                        pointerEvents: 'none',
+                    }}
+                    role='status'
+                    aria-live='polite'
+                >
+                    <span className='geoapp-gc-action-btn__spinner' aria-hidden='true' />
+                    Mise à jour…
+                </div>
+            )}
+            {props.loading && props.rows.length === 0 ? (
                 <div style={{ display: 'flex', flex: 1 }}>
                     <LoadingState fullHeight />
                 </div>
