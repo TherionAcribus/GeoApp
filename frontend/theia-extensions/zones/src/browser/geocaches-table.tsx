@@ -23,6 +23,9 @@ import {
     AdvancedFilterClause,
     TokenFilter,
     ZONE_GEOCACHE_FIELD_DEFINITIONS,
+    NUMERIC_GEOCACHE_FIELDS,
+    BOOLEAN_GEOCACHE_FIELDS,
+    DATE_GEOCACHE_FIELDS,
     parseSearchQuery,
     matchesSearchPattern,
     normalizeSearchText,
@@ -259,19 +262,66 @@ export function normalizeGeocachesTableVisibleColumnIds(raw: unknown): Geocaches
 }
 
 
-function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
-    const field: string = clause.field;
-    const op = clause.operator;
-
+/**
+ * Valeurs dérivées des champs de filtre qui ne se lisent pas directement sur
+ * l'objet géocache : comptages calculés, repli de date, attributs, booléens
+ * absents du payload.
+ */
+const GEOCACHE_FILTER_ACCESSORS: Record<string, (gc: Geocache) => unknown> = {
+    waypoints_count: gc => gc.waypoints?.length ?? 0,
+    placed_at: gc => gc.placed_at ?? gc.hidden_date,
+    has_notes: gc => Boolean(gc.has_notes),
+    is_corrected: gc => Boolean(gc.is_corrected),
+    need_maintenance: gc => (gc.attributes ?? []).some(
+        a => !a.is_negative && a.name.toLowerCase().includes('owner attention')
+    ),
     // `favorites_percent` peut être absent du payload (cache pas encore
     // re-scrapée) alors que la colonne affiche une estimation : le filtre lit la
     // même valeur que l'affichage, sans quoi `@pf>50` masquerait des lignes que
     // le tableau montre à « ~59.6% ».
-    const rawValue = field === 'favorites_percent'
-        ? favoritePercent(geocache).value
-        : (geocache as any)[field] as any;
+    favorites_percent: gc => favoritePercent(gc).value,
+};
 
-    if (field === 'found') {
+/**
+ * Alias français des valeurs des champs enum `status` et `solved`. Les clés
+ * sont déjà normalisées (minuscules, sans accents — voir `normalizeSearchText`
+ * dans le module partagé).
+ */
+const STATUS_VALUE_ALIASES: Record<string, string> = {
+    active: 'active', activee: 'active', archived: 'archived', archive: 'archived', archivee: 'archived',
+    disabled: 'disabled', desactive: 'disabled', desactivee: 'disabled', inactive: 'disabled',
+};
+const SOLVED_VALUE_ALIASES: Record<string, string> = {
+    solved: 'solved', resolu: 'solved', resolue: 'solved', not_solved: 'not_solved',
+    non_resolue: 'not_solved', in_progress: 'in_progress', en_cours: 'in_progress', encours: 'in_progress',
+};
+
+/**
+ * Remplace la valeur saisie pour `status`/`solved` par sa forme canonique
+ * quand un alias français la désigne ; sinon la retourne telle quelle. Les
+ * espaces sont aussi essayés en `_` (« en cours » → `en_cours`).
+ */
+function canonicalEnumFilterValue(field: string, value: string): string {
+    const aliases = field === 'status' ? STATUS_VALUE_ALIASES
+        : field === 'solved' ? SOLVED_VALUE_ALIASES
+            : undefined;
+    if (!aliases) {
+        return value;
+    }
+    const normalized = normalizeSearchText(value);
+    return aliases[normalized]
+        ?? aliases[normalized.replace(/\s+/g, '_')]
+        ?? aliases[normalized.replace(/[\s_]+/g, '')]
+        ?? value;
+}
+
+function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
+    const field: string = clause.field;
+    const op = clause.operator;
+
+    const rawValue = GEOCACHE_FILTER_ACCESSORS[field]?.(geocache) ?? (geocache as any)[field];
+
+    if (BOOLEAN_GEOCACHE_FIELDS.has(field)) {
         const actual = Boolean(rawValue);
         if (op !== 'is') {
             return true;
@@ -285,8 +335,7 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
         return true;
     }
 
-    if (field === 'difficulty' || field === 'terrain' || field === 'favorites_count'
-        || field === 'favorites_percent' || field === 'finds_count') {
+    if (NUMERIC_GEOCACHE_FIELDS.has(field)) {
         const actual = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? ''));
         if (!Number.isFinite(actual)) {
             return false;
@@ -327,16 +376,59 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
         return true;
     }
 
+    // Comparaison par préfixe sur la date ISO : la granularité de la borne
+    // (`2020`, `2020-05` ou `2020-05-17`) fixe la longueur du préfixe comparé.
+    if (DATE_GEOCACHE_FIELDS.has(field)) {
+        const actual = String(rawValue ?? '');
+        if (!/^\d{4}-\d{2}-\d{2}/.test(actual)) {
+            // Une cache sans date ne satisfait aucune borne, mais satisfait
+            // « différent de » : `@placed_at:!=2020` la conserve.
+            return op === 'neq';
+        }
+        if (op === 'between') {
+            const v1 = clause.value ?? '';
+            const v2 = clause.value2 ?? '';
+            if (!v1 || !v2) {
+                return true;
+            }
+            return actual.slice(0, v1.length) >= v1 && actual.slice(0, v2.length) <= v2;
+        }
+        const w = (clause.value ?? '').toString();
+        if (!w) {
+            return true;
+        }
+        const p = actual.slice(0, w.length);
+        if (op === 'eq') {
+            return p === w;
+        }
+        if (op === 'neq') {
+            return p !== w;
+        }
+        if (op === 'gte') {
+            return p >= w;
+        }
+        if (op === 'gt') {
+            return p > w;
+        }
+        if (op === 'lte') {
+            return p <= w;
+        }
+        if (op === 'lt') {
+            return p < w;
+        }
+        return true;
+    }
+
     if (op === 'in' || op === 'not_in') {
         const values = clause.values ?? [];
         if (values.length === 0) {
             return true;
         }
-        const ok = values.some(v => matchesSearchPattern(rawValue, v, 'equals'));
+        const ok = values.some(v => matchesSearchPattern(rawValue, canonicalEnumFilterValue(field, v), 'equals'));
         return op === 'in' ? ok : !ok;
     }
 
-    const wanted = (clause.value ?? '').toString();
+    const wanted = canonicalEnumFilterValue(field, (clause.value ?? '').toString());
     if (!normalizeSearchText(wanted) && (op === 'contains' || op === 'not_contains' || op === 'eq' || op === 'neq')) {
         return true;
     }
@@ -1180,6 +1272,7 @@ ${origin}`}
         map.set('cache_type', cacheTypes);
         map.set('size', sizes);
         map.set('solved', solvedOptions);
+        map.set('status', ['active', 'disabled', 'archived']);
         map.set('found', ['true', 'false']);
         return map;
     }, [cacheTypes, sizes, solvedOptions]);
@@ -1211,7 +1304,13 @@ ${origin}`}
                     geocache.gc_code,
                     geocache.name,
                     geocache.cache_type,
-                    geocache.owner ?? ''
+                    geocache.owner ?? '',
+                    geocache.size,
+                    geocache.status ?? '',
+                    geocache.coordinates_raw ?? ''
+                    // `solved` est volontairement exclu : `not_solved` contient
+                    // `solved`, chercher « solved » retournerait aussi les
+                    // caches non résolues.
                 ];
                 if (!fields.some(value => matchesSearchPattern(value, searchPattern, 'contains'))) {
                     return false;

@@ -11,7 +11,18 @@ export type FilterField =
     | 'found'
     | 'favorites_count'
     | 'favorites_percent'
-    | 'finds_count';
+    | 'finds_count'
+    | 'status'
+    | 'is_corrected'
+    | 'has_notes'
+    | 'need_maintenance'
+    | 'placed_at'
+    | 'created_at'
+    | 'found_date'
+    | 'logs_count'
+    | 'logs_total_available'
+    | 'waypoints_count'
+    | 'distance_km';
 
 export type AdvancedOperator =
     | 'contains'
@@ -53,9 +64,15 @@ export interface AutocompleteSuggestion {
 export interface FieldDefinition {
     field: string;
     label: string;
-    kind: 'text' | 'number' | 'enum' | 'boolean';
+    kind: 'text' | 'number' | 'enum' | 'boolean' | 'date';
 }
 
+/**
+ * Champs filtrables connus de l'import « autour » : le backend les applique par
+ * `getattr` sur les résultats de l'API geocaching.com. Un champ absent de ces
+ * résultats (notes, logs locaux, dates d'import…) exclurait silencieusement
+ * toutes les candidates — ces champs-là restent propres à la liste de zone.
+ */
 export const STANDARD_GEOCACHE_FIELD_DEFINITIONS: FieldDefinition[] = [
     { field: 'gc_code', label: 'Code GC', kind: 'text' },
     { field: 'name', label: 'Nom', kind: 'text' },
@@ -70,19 +87,46 @@ export const STANDARD_GEOCACHE_FIELD_DEFINITIONS: FieldDefinition[] = [
 ];
 
 /**
- * Champs réservés aux géocaches de la base locale.
- *
- * `favorites_percent` et `finds_count` viennent du scraping de la page d'une
- * cache : les résultats de recherche Geocaching.com ne les portent pas. Ils
- * restent donc hors de `STANDARD_GEOCACHE_FIELD_DEFINITIONS`, que partage la
- * boîte « importer autour » — y proposer un filtre qui ne trouverait jamais rien
- * serait pire que de ne pas le proposer.
+ * Champs proposés par la table des géocaches d'une zone : les champs standard
+ * plus ceux qui n'existent que dans la base locale (statut, notes, waypoints,
+ * dates, compteurs de logs et de trouvailles).
  */
 export const ZONE_GEOCACHE_FIELD_DEFINITIONS: FieldDefinition[] = [
     ...STANDARD_GEOCACHE_FIELD_DEFINITIONS,
-    { field: 'favorites_percent', label: '%PF', kind: 'number' },
+    { field: 'status', label: 'Statut', kind: 'enum' },
+    { field: 'is_corrected', label: 'Coordonnées corrigées', kind: 'boolean' },
+    { field: 'has_notes', label: 'Notes', kind: 'boolean' },
+    { field: 'need_maintenance', label: 'Maintenance demandée', kind: 'boolean' },
+    { field: 'placed_at', label: 'Posée le', kind: 'date' },
+    { field: 'found_date', label: 'Découverte le', kind: 'date' },
+    { field: 'created_at', label: 'Ajoutée le', kind: 'date' },
+    { field: 'logs_count', label: 'Logs (local)', kind: 'number' },
+    { field: 'logs_total_available', label: 'Logs sur GC.com', kind: 'number' },
+    { field: 'waypoints_count', label: 'Waypoints', kind: 'number' },
     { field: 'finds_count', label: 'Trouvailles', kind: 'number' },
+    { field: 'favorites_percent', label: '% favoris', kind: 'number' },
 ];
+
+/** Champs comparés numériquement (`@diff:>=3`, `@logs:10<>20`…). */
+export const NUMERIC_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
+    'difficulty', 'terrain', 'favorites_count', 'favorites_percent', 'finds_count',
+    'logs_count', 'logs_total_available', 'waypoints_count', 'distance_km',
+]);
+
+/** Champs à valeur booléenne, filtrés par l'opérateur `is` (`@found:true`). */
+export const BOOLEAN_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
+    'found', 'is_corrected', 'has_notes', 'need_maintenance',
+]);
+
+/** Champs date, comparés par préfixe ISO (`@placed:>=2020`, année ou année-mois acceptées). */
+export const DATE_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
+    'placed_at', 'created_at', 'found_date',
+]);
+
+/** Champs à valeur dans une liste fermée (`@type:traditional,mystery`). */
+export const ENUM_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
+    'cache_type', 'size', 'solved', 'status',
+]);
 
 export const DISTANCE_KM_FIELD_DEFINITION: FieldDefinition = {
     field: 'distance_km',
@@ -165,7 +209,9 @@ export function findAutocompleteTokenStart(beforeCaret: string): number | null {
 }
 
 export function normalizeFieldAlias(raw: string): string | null {
-    const key = raw.trim().toLowerCase();
+    // `normalizeSearchText` (minuscules + sans accents) permet de saisir les
+    // alias français accentués : `@état:`, `@corrigée:`, `@posée:`…
+    const key = normalizeSearchText(raw.trim());
     if (!key) {
         return null;
     }
@@ -184,8 +230,22 @@ export function normalizeFieldAlias(raw: string): string | null {
         solved: 'solved',
         resolution: 'solved',
         resolved: 'solved',
-        status: 'solved',
+        // `status` désigne le statut de la cache (active/disabled/archived) ;
+        // la résolution reste sous `solved`/`resolution`/`resolved`.
+        status: 'status',
+        statut: 'status',
+        etat: 'status',
         found: 'found',
+        corrected: 'is_corrected',
+        corrigee: 'is_corrected',
+        corr: 'is_corrected',
+        is_corrected: 'is_corrected',
+        notes: 'has_notes',
+        note: 'has_notes',
+        has_notes: 'has_notes',
+        maintenance: 'need_maintenance',
+        maint: 'need_maintenance',
+        need_maintenance: 'need_maintenance',
         favorites: 'favorites_count',
         fav: 'favorites_count',
         favorites_count: 'favorites_count',
@@ -197,6 +257,24 @@ export function normalizeFieldAlias(raw: string): string | null {
         finds: 'finds_count',
         finds_count: 'finds_count',
         trouvailles: 'finds_count',
+        logs: 'logs_count',
+        logs_count: 'logs_count',
+        logs_total: 'logs_total_available',
+        logs_total_available: 'logs_total_available',
+        waypoints: 'waypoints_count',
+        wp: 'waypoints_count',
+        wpts: 'waypoints_count',
+        waypoints_count: 'waypoints_count',
+        placed: 'placed_at',
+        posee: 'placed_at',
+        hidden: 'placed_at',
+        placed_at: 'placed_at',
+        created: 'created_at',
+        added: 'created_at',
+        ajoutee: 'created_at',
+        created_at: 'created_at',
+        found_date: 'found_date',
+        decouverte: 'found_date',
         distance: 'distance_km',
         dist: 'distance_km',
         distance_km: 'distance_km',
@@ -245,15 +323,20 @@ export function parseSearchQuery(input: string): { freeText: string; tokenFilter
     return { freeText, tokenFilters };
 }
 
+/**
+ * Opérande d'un filtre date : année (`2020`), année-mois (`2020-05`) ou date
+ * ISO complète (`2020-05-17`). La granularité choisie fixe la longueur du
+ * préfixe comparé dans `matchesClause`.
+ */
+const DATE_OPERAND_REGEXP = /^\d{4}(-\d{2}(-\d{2})?)?$/;
+
 export function parseTokenExpression(field: string, exprRaw: string): TokenFilter | null {
     const expr = (exprRaw ?? '').trim();
     if (!expr) {
         return null;
     }
 
-    const isNumericField = [
-        'difficulty', 'terrain', 'favorites_count', 'favorites_percent', 'finds_count', 'distance_km',
-    ].includes(field);
+    const isNumericField = NUMERIC_GEOCACHE_FIELDS.has(field);
 
     if (isNumericField) {
         const betweenIdx = expr.indexOf('<>');
@@ -293,18 +376,18 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
         return Number.isFinite(v) ? { field, operator: 'eq', value: String(v) } : null;
     }
 
-    if (field === 'found') {
+    if (BOOLEAN_GEOCACHE_FIELDS.has(field)) {
         const v = expr.toLowerCase();
-        if (v === 'true' || v === '1' || v === 'yes' || v === 'found') {
+        if (v === 'true' || v === '1' || v === 'yes' || v === 'oui' || v === 'found') {
             return { field, operator: 'is', value: 'true' };
         }
-        if (v === 'false' || v === '0' || v === 'no' || v === 'notfound') {
+        if (v === 'false' || v === '0' || v === 'no' || v === 'non' || v === 'notfound') {
             return { field, operator: 'is', value: 'false' };
         }
         return null;
     }
 
-    if (field === 'cache_type' || field === 'size' || field === 'solved') {
+    if (ENUM_GEOCACHE_FIELDS.has(field)) {
         const list = expr
             .split(',')
             .map(s => s.trim())
@@ -313,6 +396,51 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
             return { field, operator: 'in', values: list };
         }
         return { field, operator: 'eq', value: expr };
+    }
+
+    // Dates : mêmes opérateurs que les numériques, mais l'opérande est une
+    // année (`2020`), une année-mois (`2020-05`) ou une date ISO complète —
+    // la comparaison se fait ensuite par préfixe sur la date de la cache.
+    if (DATE_GEOCACHE_FIELDS.has(field)) {
+        const betweenIdx = expr.indexOf('<>');
+        if (betweenIdx !== -1) {
+            const a = expr.slice(0, betweenIdx).trim();
+            const b = expr.slice(betweenIdx + 2).trim();
+            if (!DATE_OPERAND_REGEXP.test(a) || !DATE_OPERAND_REGEXP.test(b)) {
+                return null;
+            }
+            // Comme pour les numériques, « entre » accepte les bornes dans
+            // n'importe quel ordre ; l'ordre lexicographique suit la
+            // chronologie sur ces formats.
+            return a <= b
+                ? { field, operator: 'between', value: a, value2: b }
+                : { field, operator: 'between', value: b, value2: a };
+        }
+        if (expr.startsWith('>=')) {
+            const v = expr.slice(2).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'gte', value: v } : null;
+        }
+        if (expr.startsWith('<=')) {
+            const v = expr.slice(2).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'lte', value: v } : null;
+        }
+        if (expr.startsWith('>')) {
+            const v = expr.slice(1).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'gt', value: v } : null;
+        }
+        if (expr.startsWith('<')) {
+            const v = expr.slice(1).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'lt', value: v } : null;
+        }
+        if (expr.startsWith('!=')) {
+            const v = expr.slice(2).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'neq', value: v } : null;
+        }
+        if (expr.startsWith('=')) {
+            const v = expr.slice(1).trim();
+            return DATE_OPERAND_REGEXP.test(v) ? { field, operator: 'eq', value: v } : null;
+        }
+        return DATE_OPERAND_REGEXP.test(expr) ? { field, operator: 'eq', value: expr } : null;
     }
 
     if (expr.startsWith('!=')) {
@@ -324,8 +452,8 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
     return { field, operator: 'contains', value: expr };
 }
 
-export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | undefined): Array<{ operator: AdvancedOperator; label: string }> {
-    if (kind === 'number') {
+export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | undefined): Array<{ operator: AdvancedOperator; label: string }> {
+    if (kind === 'number' || kind === 'date') {
         return [
             { operator: 'eq', label: '=' },
             { operator: 'neq', label: '≠' },
@@ -355,9 +483,13 @@ export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'bo
     ];
 }
 
-export function getDefaultOperatorForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | undefined): AdvancedOperator {
+export function getDefaultOperatorForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | undefined): AdvancedOperator {
     if (kind === 'number') {
         return 'between';
+    }
+    // Le cas d'usage dominant d'un filtre date est « posées après… ».
+    if (kind === 'date') {
+        return 'gte';
     }
     if (kind === 'enum') {
         return 'eq';
