@@ -10,10 +10,11 @@ import html
 from datetime import date, datetime, timezone
 import re
 
+from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from ..database import db
-from ..geocaches.models import Geocache
+from ..geocaches.models import Geocache, GeocacheNote
 from ..geocaches.importer import GeocacheImporter
 from ..geocaches.archive_service import ArchiveService
 from ..geocaches.scraper import GeocachingScraper
@@ -696,17 +697,35 @@ def _get_center_from_request_payload(data: dict) -> tuple[float, float]:
 def get_geocaches_for_zone(zone_id: int):
     """Récupère toutes les géocaches d'une zone."""
     try:
-        geocaches = Geocache.query.filter_by(zone_id=zone_id).all()
-        
+        geocaches = (
+            Geocache.query
+            .filter_by(zone_id=zone_id)
+            .options(selectinload(Geocache.waypoints))
+            .all()
+        )
+
+        # Une seule requête groupée sur la table d'association pour le nombre de
+        # notes par géocache, au lieu d'un lazy-load `gc.notes` par cache (N+1).
+        gc_ids = [gc.id for gc in geocaches]
+        notes_count_by_id = dict(
+            db.session.query(GeocacheNote.geocache_id, func.count())
+            .filter(GeocacheNote.geocache_id.in_(gc_ids))
+            .group_by(GeocacheNote.geocache_id)
+            .all()
+        ) if gc_ids else {}
+
         # Adapter les données au format attendu par le frontend
         result = []
         for gc in geocaches:
+            notes_count = notes_count_by_id.get(gc.id, 0)
             result.append({
                 'id': gc.id,
                 'gc_code': gc.gc_code,
                 'name': gc.name,
-                'description': gc.description_raw,
-                'hint': gc.hints,
+                # 'description' et 'hint' sont volontairement absents : ces champs
+                # texte lourds ne sont utilisés ni par le tableau ni par la carte.
+                # Le flow Plugin les récupère à la demande via
+                # `/api/geocaches/batch?full=1`.
                 'owner': gc.owner,
                 'cache_type': gc.type,  # Le frontend attend 'cache_type'
                 'difficulty': gc.difficulty,
@@ -719,8 +738,8 @@ def get_geocaches_for_zone(zone_id: int):
                 'placed_at': gc.placed_at.isoformat() if gc.placed_at else None,
                 'created_at': gc.created_at.isoformat() if gc.created_at else None,
                 'found_date': gc.found_date.isoformat() if gc.found_date else None,
-                'has_notes': bool((gc.gc_personal_note or '').strip()) or bool(gc.notes),
-                'notes_count': len(gc.notes or []),
+                'has_notes': bool((gc.gc_personal_note or '').strip()) or notes_count > 0,
+                'notes_count': notes_count,
                 'logs_count': gc.logs_count or 0,
                 'logs_total_available': gc.logs_total_available,
                 'finds_count': gc.finds_count,
@@ -1130,6 +1149,11 @@ def get_geocaches_batch():
 
     Les géocaches sont renvoyées dans l'ordre demandé, sans doublon : cet ordre porte du
     sens côté client (ordre d'envoi des logs, numérotation des trouvailles).
+
+    `?full=1` (ou `true`/`yes`) bascule chaque entrée de `to_summary()` vers
+    `to_dict()` — description, hint, waypoints et checkers compris — avec les
+    relations chargées en eager. À réserver aux flows qui en ont besoin (ex. :
+    application d'un plugin), le listing de zone reste sur la vue légère.
     """
     raw_ids = (request.args.get('ids') or '').strip()
     if not raw_ids:
@@ -1154,9 +1178,21 @@ def get_geocaches_batch():
     if len(requested) > MAX_BATCH_GEOCACHE_IDS:
         return jsonify({'error': f'Too many ids (max {MAX_BATCH_GEOCACHE_IDS})'}), 400
 
+    full = (request.args.get('full') or '').strip().lower() in ('1', 'true', 'yes')
+
     try:
-        found = {gc.id: gc for gc in Geocache.query.filter(Geocache.id.in_(requested)).all()}
-        geocaches = [found[gid].to_summary() for gid in requested if gid in found]
+        query = Geocache.query.filter(Geocache.id.in_(requested))
+        if full:
+            # Vue complète : waypoints et checkers en eager pour to_dict() sans N+1.
+            query = query.options(
+                selectinload(Geocache.waypoints),
+                selectinload(Geocache.checkers),
+            )
+        found = {gc.id: gc for gc in query.all()}
+        geocaches = [
+            (found[gid].to_dict() if full else found[gid].to_summary())
+            for gid in requested if gid in found
+        ]
         missing = [gid for gid in requested if gid not in found]
 
         if missing:

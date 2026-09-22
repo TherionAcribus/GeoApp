@@ -2018,9 +2018,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
 
         try {
-            // Récupérer les détails des géocaches sélectionnées
-            const selectedGeocaches = this.rows.filter(g => geocacheIds.includes(g.id));
-            
+            // Récupérer les détails complets des géocaches sélectionnées : la liste
+            // de zone n'embarque plus description ni hint, le flow Plugin les
+            // demande explicitement via `/api/geocaches/batch?full=1`.
+            const response = await this.geocachesService.getBatch<GeocacheDetailsResponse>(geocacheIds, { full: true });
+            if (response.missing.length > 0) {
+                this.messages.warn(`${response.missing.length} géocache(s) introuvable(s)`);
+            }
+            const selectedGeocaches = response.geocaches;
             if (selectedGeocaches.length === 0) {
                 this.messages.warn('Aucune géocache sélectionnée');
                 return;
@@ -2047,8 +2052,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                             longitude: g.longitude,
                             coordinates_raw: g.coordinates_raw || `${g.latitude}, ${g.longitude}`
                         } : undefined,
-                        description: g.description,
-                        hint: g.hint,
+                        description: g.description_raw,
+                        hint: g.hints,
                         difficulty: g.difficulty,
                         terrain: g.terrain,
                         waypoints: g.waypoints || []

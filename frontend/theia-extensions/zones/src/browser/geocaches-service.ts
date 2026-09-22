@@ -89,6 +89,18 @@ export class GeocachesService {
         );
     }
 
+    /**
+     * Vue légère de plusieurs géocaches en une requête (`to_summary()` côté backend).
+     * Passer `full: true` pour les champs complets (description, hint, waypoints).
+     */
+    async getBatch<T = unknown>(ids: number[], options?: { full?: boolean }): Promise<{ geocaches: T[]; missing: number[] }> {
+        return this.apiClient.requestJson<{ geocaches: T[]; missing: number[] }>(
+            `/api/geocaches/batch?ids=${encodeURIComponent(ids.join(','))}${options?.full ? '&full=1' : ''}`,
+            {},
+            'Erreur lors du chargement des géocaches'
+        );
+    }
+
     async getNearby<T = unknown>(id: number, radiusKm: number = 5): Promise<NearbyGeocachesResult<T>> {
         return this.apiClient.requestJson<NearbyGeocachesResult<T>>(
             `/api/geocaches/${id}/nearby?radius=${encodeURIComponent(String(radiusKm))}`,
