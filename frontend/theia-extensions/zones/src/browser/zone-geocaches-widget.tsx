@@ -38,6 +38,7 @@ import { OutingPlanService } from './outing-plan-service';
 import { OutingPlanCacheFlags } from './outing-plan-types';
 import type { SortingState } from '@tanstack/react-table';
 import { loadGeocacheSorting, saveGeocacheSorting } from './geocache-table-sorting-store';
+import { DistanceOrigin, loadDistanceOrigin, saveDistanceOrigin } from './geocache-distance-origin-store';
 import {
     FriendAnalysisSummary,
     FriendFilter,
@@ -106,6 +107,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
     /** Tri du tableau, propre à la zone affichée : persisté dans `StorageService`. */
     protected tableSorting: SortingState = [];
+    /** Origine des distances de la zone courante (colonne « Distance », filtre `@distance:`). */
+    protected distanceOrigin: DistanceOrigin | undefined;
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
@@ -329,6 +332,40 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
         this.tableSorting = stored;
+        this.update();
+    }
+
+    /** La géocache devient l'origine des distances de la zone — persistée. */
+    protected readonly handleSetDistanceOrigin = (geocache: Geocache): void => {
+        if (geocache.latitude == null || geocache.longitude == null) {
+            return;
+        }
+        this.distanceOrigin = { lat: geocache.latitude, lon: geocache.longitude, label: geocache.gc_code };
+        this.update();
+        if (this.zoneId !== undefined) {
+            void saveDistanceOrigin(this.storageService, this.zoneId, this.distanceOrigin);
+        }
+    };
+
+    protected readonly handleClearDistanceOrigin = (): void => {
+        this.distanceOrigin = undefined;
+        this.update();
+        if (this.zoneId !== undefined) {
+            void saveDistanceOrigin(this.storageService, this.zoneId, undefined);
+        }
+    };
+
+    /**
+     * Recharge l'origine des distances de la zone affichée. Garde sur `zoneId`,
+     * comme `restoreTableSorting` : la lecture peut se résoudre après un nouveau
+     * changement de zone.
+     */
+    protected async restoreDistanceOrigin(zoneId: number): Promise<void> {
+        const stored = await loadDistanceOrigin(this.storageService, zoneId);
+        if (this.zoneId !== zoneId) {
+            return;
+        }
+        this.distanceOrigin = stored;
         this.update();
     }
 
@@ -1149,6 +1186,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // remplacé par le tri enregistré de la nouvelle (ou par aucun tri).
         this.tableSorting = [];
         void this.restoreTableSorting(context.zoneId);
+        // Même traitement pour l'origine des distances : propre à chaque zone.
+        this.distanceOrigin = undefined;
+        void this.restoreDistanceOrigin(context.zoneId);
         this.lastMapGeocacheRefs = undefined;
         this.update();
         // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
@@ -2375,6 +2415,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
                 tableSorting={this.tableSorting}
                 onTableSortingChange={this.handleTableSortingChange}
+                distanceOrigin={this.distanceOrigin}
+                onSetDistanceOrigin={this.handleSetDistanceOrigin}
+                onClearDistanceOrigin={this.handleClearDistanceOrigin}
                 loading={this.loading}
                 isImporting={this.isImporting}
                 isAddingGeocache={this.isAddingGeocache}

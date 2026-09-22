@@ -32,6 +32,7 @@ import {
     matchesSearchPattern,
     normalizeSearchText,
 } from './geocache-filter-shared';
+import type { DistanceOrigin } from './geocache-distance-origin-store';
 
 import '../../src/browser/style/geocaches-table.css';
 // Les badges de sortie sont définis avec le panneau : la table doit les habiller même
@@ -162,6 +163,15 @@ interface GeocachesTableProps {
     /** En mode sortie : la sélection courante s'ajoute au périmètre. */
     onAddSelectionToOuting?: (ids: number[]) => void;
     /**
+     * Origine des distances (colonne « Distance », filtre `@distance:`). Définie
+     * par clic droit sur une ligne ; persistée par zone dans le widget.
+     */
+    distanceOrigin?: DistanceOrigin | null;
+    /** La géocache devient l'origine des distances. */
+    onSetDistanceOrigin?: (geocache: Geocache) => void;
+    /** Retire l'origine des distances. */
+    onClearDistanceOrigin?: () => void;
+    /**
      * Ce que la dernière analyse IA a signalé, par code GC (colonne `outing_flags`).
      *
      * Ces drapeaux ne sont pas des faits calculés par GeoApp mais les conclusions d'un
@@ -198,7 +208,8 @@ export type GeocachesTableColumnId =
     | 'friends_found'
     | 'outing_flags'
     | 'status'
-    | 'need_maintenance';
+    | 'need_maintenance'
+    | 'distance';
 
 interface GeocachesTableColumnDefinition {
     id: GeocachesTableColumnId;
@@ -245,6 +256,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'outing_flags', label: 'Sortie', description: "Signaux de la dernière analyse IA de sortie (matériel, santé, bloquant)." },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
+    { id: 'distance', label: 'Distance', description: "Distance à vol d'oiseau depuis l'origine des distances (clic droit sur une ligne pour la définir)." },
 ];
 
 export const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
@@ -333,11 +345,44 @@ function canonicalEnumFilterValue(field: string, value: string): string {
         ?? value;
 }
 
-function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
+/**
+ * Distance à vol d'oiseau (Haversine) entre une géocache et l'origine des
+ * distances, en km — `undefined` sans origine ou sans coordonnées. Réécriture
+ * locale : `map-utils.calculateDistance` tirerait OpenLayers dans la table.
+ */
+function distanceKm(geocache: Geocache, origin: DistanceOrigin | null | undefined): number | undefined {
+    if (!origin || geocache.latitude == null || geocache.longitude == null) {
+        return undefined;
+    }
+    const toRad = (deg: number) => deg * Math.PI / 180;
+    const dLat = toRad(geocache.latitude - origin.lat);
+    const dLon = toRad(geocache.longitude - origin.lon);
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(toRad(origin.lat)) * Math.cos(toRad(geocache.latitude)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** `<1 km` s'affiche en mètres, au-delà en km (une décimale sous 100 km). */
+function formatDistance(km: number | undefined): string {
+    if (km === undefined) {
+        return '—';
+    }
+    if (km < 1) {
+        return `${Math.round(km * 1000)} m`;
+    }
+    if (km < 100) {
+        return `${km.toFixed(1)} km`;
+    }
+    return `${Math.round(km)} km`;
+}
+
+function matchesClause(geocache: Geocache, clause: TokenFilter, extraAccessors?: Record<string, (gc: Geocache) => unknown>): boolean {
     const field: string = clause.field;
     const op = clause.operator;
 
-    const rawValue = GEOCACHE_FILTER_ACCESSORS[field]?.(geocache) ?? (geocache as any)[field];
+    const rawValue = extraAccessors?.[field]?.(geocache)
+        ?? GEOCACHE_FILTER_ACCESSORS[field]?.(geocache)
+        ?? (geocache as any)[field];
 
     if (BOOLEAN_GEOCACHE_FIELDS.has(field)) {
         const actual = Boolean(rawValue);
@@ -706,6 +751,9 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onFriendFilterChange,
     onStartOutingWithSelection,
     onAddSelectionToOuting,
+    distanceOrigin,
+    onSetDistanceOrigin,
+    onClearDistanceOrigin,
     outingFlags
 }) => {
     // Tri contrôlé par le parent (persistance par zone) ou interne à défaut —
@@ -1129,6 +1177,29 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 150,
             },
             {
+                id: 'distance',
+                // Tri sur la distance numérique ; `sortUndefined` garde les lignes
+                // sans distance (pas d'origine ou pas de coordonnées) en fin de
+                // liste dans les deux sens.
+                accessorFn: row => distanceKm(row, distanceOrigin),
+                sortUndefined: 'last',
+                header: 'Distance',
+                cell: ({ row }) => {
+                    const km = distanceKm(row.original, distanceOrigin);
+                    return (
+                        <span
+                            className="geoapp-gc-cell-muted-sm"
+                            title={distanceOrigin
+                                ? `À vol d'oiseau depuis ${distanceOrigin.label ?? 'le point d\'origine'}`
+                                : 'Définir une origine : clic droit sur une ligne → « Définir comme origine des distances »'}
+                        >
+                            {formatDistance(km)}
+                        </span>
+                    );
+                },
+                size: 90,
+            },
+            {
                 accessorKey: 'finds_count',
                 header: 'Trouvailles',
                 cell: info => {
@@ -1310,7 +1381,8 @@ ${origin}`}
         // « Sortie » : sans ces dépendances, elles resteraient figées sur la valeur
         // initiale, c'est-à-dire vides jusqu'au prochain remontage de la table.
         // `findersOfOuting` l'est aussi : décocher un ami doit vider ses puces.
-        [friendFinds, findersOfOuting, outingFlags]
+        // `distanceOrigin` : changer l'origine doit recalculer la colonne Distance.
+        [friendFinds, findersOfOuting, outingFlags, distanceOrigin]
     );
 
     const cacheTypes = React.useMemo(() => {
@@ -1375,6 +1447,16 @@ ${origin}`}
         { id: 'found-this-year', label: 'Trouvées cette année', searchQuery: `@decouverte:>=${new Date().getFullYear()}` },
     ], []);
 
+    /**
+     * Accesseurs de filtre calculés à la volée : `@distance:` lit la distance
+     * depuis l'origine courante. Sans origine la valeur est `undefined` → la
+     * clause numérique échoue (`NaN` ne satisfait aucune borne), comme une
+     * cache sans coordonnées.
+     */
+    const filterExtraAccessors = React.useMemo<Record<string, (gc: Geocache) => unknown>>(() => ({
+        distance_km: gc => distanceKm(gc, distanceOrigin),
+    }), [distanceOrigin]);
+
     const filteredData = React.useMemo(() => {
         const { freeText, tokenFilters } = parseSearchQuery(debouncedGlobalFilter);
         const searchPattern = freeText.trim();
@@ -1415,7 +1497,7 @@ ${origin}`}
                 }
             }
             for (const clause of clauses) {
-                if (!matchesClause(geocache, clause)) {
+                if (!matchesClause(geocache, clause, filterExtraAccessors)) {
                     return false;
                 }
             }
@@ -1443,7 +1525,7 @@ ${origin}`}
             return true;
         });
     }, [
-        data, debouncedGlobalFilter, advancedClauses, friendFinds,
+        data, debouncedGlobalFilter, advancedClauses, friendFinds, filterExtraAccessors,
         outingMode, outingScopeOnly, outingScope, friendFilter, friendRowState, knownFriends,
     ]);
 
@@ -1676,6 +1758,23 @@ ${origin}`}
                 label: 'Importer autour…',
                 iconClass: 'codicon codicon-location',
                 action: () => onImportAround(geocache)
+            });
+        }
+
+        // Origine des distances : la ligne cliquée devient le point « zéro » de
+        // la colonne Distance et du filtre `@distance:`.
+        if (onSetDistanceOrigin && geocache.latitude != null && geocache.longitude != null) {
+            items.push({
+                label: 'Définir comme origine des distances',
+                iconClass: 'codicon codicon-milestone',
+                action: () => onSetDistanceOrigin(geocache)
+            });
+        }
+        if (distanceOrigin && onClearDistanceOrigin) {
+            items.push({
+                label: `Effacer l'origine des distances${distanceOrigin.label ? ` (${distanceOrigin.label})` : ''}`,
+                iconClass: 'codicon codicon-circle-slash',
+                action: () => onClearDistanceOrigin()
             });
         }
 
@@ -2017,6 +2116,21 @@ ${origin}`}
                         </button>
                     );
                 })}
+                {/* Origine des distances, si définie : la puce la rappelle et un
+                    clic l'efface — sans elle la colonne Distance affiche « — »
+                    sans explication visible. */}
+                {distanceOrigin && (
+                    <button
+                        type='button'
+                        className='geoapp-gc-stat-chip'
+                        title="Origine des distances — cliquer pour l'effacer"
+                        onClick={() => onClearDistanceOrigin?.()}
+                    >
+                        <span className='codicon codicon-milestone' aria-hidden='true' />
+                        {' '}depuis {distanceOrigin.label ?? 'point'}{' '}
+                        <span className='codicon codicon-close' aria-hidden='true' />
+                    </button>
+                )}
             </div>
 
             {/* Barre d'actions de sélection — hauteur réservée pour éviter tout

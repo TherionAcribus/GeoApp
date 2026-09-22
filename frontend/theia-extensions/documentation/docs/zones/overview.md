@@ -80,6 +80,10 @@ Les **pastilles de presets** (« Non trouvées », « Mysteries à résoudre »,
 
 Le **tri** choisi dans le tableau est mémorisé **par zone** : chaque zone retrouve son propre tri à la réouverture, même après un redémarrage.
 
+### Colonne « Distance »
+
+Une colonne **Distance** (masquée par défaut — activez-la via le menu **Colonnes**) affiche la distance à vol d'oiseau depuis une **origine** que vous définissez par **clic droit sur une ligne → « Définir comme origine des distances »** : la géocache devient le point « zéro ». L'origine est mémorisée **par zone** ; la puce « depuis GCxxxxx » au-dessus du tableau la rappelle et s'efface d'un clic (ou via **« Effacer l'origine des distances »** dans le menu contextuel). Le filtre `@distance:` (ex. `@distance:<=5`) utilise la même origine.
+
 ### Rafraîchissement du tableau
 
 Quand une action recharge la liste (import, suppression, rafraîchissement…), le tableau **reste affiché** : votre tri, vos filtres, votre sélection et votre position de défilement sont conservés. Un badge **« Mise à jour… »** en haut à droite indique que les données se rafraîchissent en arrière-plan.

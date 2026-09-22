@@ -38,6 +38,9 @@ function testLocalOnlyFieldsStayOutOfTheStandardList(): void {
         'placed_at', 'found_date', 'created_at',
         'logs_count', 'logs_total_available', 'waypoints_count',
         'finds_count', 'favorites_percent',
+        // `distance_km` est calculé côté table (depuis l'origine des distances) ;
+        // l'import « autour » l'ajoute lui-même à sa propre liste de champs.
+        'distance_km',
     ]) {
         assert.equal(standardFields.includes(field), false, `champ local dans la liste standard : ${field}`);
     }

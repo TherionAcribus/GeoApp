@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { SortingState } from '@tanstack/react-table';
 import { GeocachesTable, Geocache, GeocachesTableColumnId } from './geocaches-table';
+import type { DistanceOrigin } from './geocache-distance-origin-store';
 import { OutingPlanCacheFlags } from './outing-plan-types';
 import type { FriendAnalysisSummary } from './friend-outing-state';
 import { ImportGpxDialog } from './import-gpx-dialog';
@@ -63,6 +64,12 @@ export interface ZoneGeocachesViewProps {
     /** Tri du tableau, persisté par zone dans le widget. */
     tableSorting: SortingState;
     onTableSortingChange: (sorting: SortingState) => void;
+    /** Origine des distances (colonne « Distance », filtre `@distance:`), persistée par zone. */
+    distanceOrigin?: DistanceOrigin | null;
+    /** La géocache devient l'origine des distances. */
+    onSetDistanceOrigin?: (geocache: Geocache) => void;
+    /** Retire l'origine des distances. */
+    onClearDistanceOrigin?: () => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
     onSelectionChange?: (geocacheIds: number[]) => void;
     selectedGeocacheIds?: number[];
@@ -447,6 +454,9 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
                     sorting={props.tableSorting}
                     onSortingChange={props.onTableSortingChange}
+                    distanceOrigin={props.distanceOrigin}
+                    onSetDistanceOrigin={props.onSetDistanceOrigin}
+                    onClearDistanceOrigin={props.onClearDistanceOrigin}
                     onFilteredDataChange={props.onFilteredDataChange}
                     onSelectionChange={props.onSelectionChange}
                     selectedGeocacheIds={props.selectedGeocacheIds}

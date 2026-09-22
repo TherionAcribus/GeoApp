@@ -100,13 +100,23 @@ export const STANDARD_GEOCACHE_FIELD_DEFINITIONS: FieldDefinition[] = [
     { field: 'favorites_count', label: 'Favoris', kind: 'number' },
 ];
 
+export const DISTANCE_KM_FIELD_DEFINITION: FieldDefinition = {
+    field: 'distance_km',
+    label: 'Distance (km)',
+    kind: 'number',
+};
+
 /**
  * Champs proposés par la table des géocaches d'une zone : les champs standard
  * plus ceux qui n'existent que dans la base locale (statut, notes, waypoints,
- * dates, compteurs de logs et de trouvailles).
+ * dates, compteurs de logs et de trouvailles) ou qui se calculent côté table
+ * (distance depuis l'origine des distances).
  */
 export const ZONE_GEOCACHE_FIELD_DEFINITIONS: FieldDefinition[] = [
     ...STANDARD_GEOCACHE_FIELD_DEFINITIONS,
+    // Distance depuis l'origine du tableau (clic droit sur une ligne), pas le
+    // rayon de l'import « autour » — le champ standard n'est donc pas concerné.
+    DISTANCE_KM_FIELD_DEFINITION,
     { field: 'status', label: 'Statut', kind: 'enum' },
     { field: 'is_corrected', label: 'Coordonnées corrigées', kind: 'boolean' },
     { field: 'has_notes', label: 'Notes', kind: 'boolean' },
@@ -141,12 +151,6 @@ export const DATE_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
 export const ENUM_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
     'cache_type', 'size', 'solved', 'status',
 ]);
-
-export const DISTANCE_KM_FIELD_DEFINITION: FieldDefinition = {
-    field: 'distance_km',
-    label: 'Distance (km)',
-    kind: 'number',
-};
 
 /**
  * Normalise une valeur pour la recherche : minuscules et suppression des accents
