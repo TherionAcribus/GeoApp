@@ -121,7 +121,7 @@ Le panneau est entièrement accessible au clavier. Cliquez dans l'arbre (ou tabu
 
 ## Importer des géocaches
 
-L'import (GPX, Pocket Query, liste de favoris, autour d'un point) est décrit dans [Créer votre première zone](../getting-started/first-zone.md). Il se lance depuis le menu **GeoApp → Importer**, en choisissant la zone de destination.
+L'import (GPX, Pocket Query, liste de favoris, autour d'un point) est décrit dans [Créer votre première zone](../getting-started/first-zone.md). Il se lance depuis le menu **GeoApp → Importer**, en choisissant la zone de destination. Dans l'onglet d'une zone, le menu **Importer ▾** de l'en-tête regroupe les mêmes sources, et le champ **Code GC** à sa gauche importe une seule géocache par son code.
 
 ## Astuces d'organisation
 

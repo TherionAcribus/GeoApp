@@ -413,3 +413,26 @@
     color: var(--theia-errorForeground);
     border-color: var(--theia-errorForeground);
 }
+
+/* Menu « Importer ▾ » de l'en-tête des géocaches d'une zone. */
+.geoapp-import-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.geoapp-import-menu-item:hover:not(:disabled),
+.geoapp-import-menu-item:focus-visible {
+    background: var(--theia-list-hoverBackground);
+    outline: none;
+}

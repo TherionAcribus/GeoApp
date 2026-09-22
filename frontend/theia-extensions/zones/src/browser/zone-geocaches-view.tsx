@@ -145,6 +145,40 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
     // diverger d'elle.
     const outing = props.outing ?? null;
     const outingMode = outing !== null;
+
+    // Menu « Importer ▾ » : un seul bouton dans l'en-tête, les quatre sources
+    // d'import dans un menu (clic extérieur / Échap pour fermer).
+    const [importMenuOpen, setImportMenuOpen] = React.useState(false);
+    const importMenuContainerRef = React.useRef<HTMLDivElement | null>(null);
+    React.useEffect(() => {
+        if (!importMenuOpen) {
+            return;
+        }
+        const onPointerDown = (event: MouseEvent) => {
+            const container = importMenuContainerRef.current;
+            if (container && !container.contains(event.target as Node)) {
+                setImportMenuOpen(false);
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setImportMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [importMenuOpen]);
+
+    const importMenuItems: Array<{ icon: string; label: string; title: string; action: () => void }> = [
+        { icon: '📂', label: 'Fichier GPX', title: 'Importer des géocaches depuis un fichier GPX', action: props.onOpenImportDialog },
+        { icon: '📋', label: 'Bookmark List', title: 'Importer depuis une Bookmark List Geocaching.com', action: props.onOpenBookmarkListDialog },
+        { icon: '🔍', label: 'Pocket Query', title: 'Importer depuis une Pocket Query Geocaching.com (PQ)', action: props.onOpenPocketQueryDialog },
+        { icon: '📍', label: "Autour d'un point ou d'une cache…", title: "Rechercher et importer des géocaches autour d'un point ou d'une cache", action: props.onStartImportAround },
+    ];
     // Le bandeau de mode tient sur une ligne : au-delà de trois amis, on compte.
     const outingFriendsLabel = outing && outing.friends.length > 0
         ? (outing.friends.length > 3
@@ -154,9 +188,9 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
 
     return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>{props.titleLabel}</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <form onSubmit={props.onSubmitAddGeocache} style={{ display: 'flex' }}>
                     <div style={{
                         display: 'flex',
@@ -202,34 +236,51 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                         </button>
                     </div>
                 </form>
-                <button
-                    className='theia-button secondary'
-                    onClick={props.onOpenImportDialog}
-                    title='Importer des géocaches depuis un fichier GPX'
-                >
-                    📂 GPX
-                </button>
-                <button
-                    className='theia-button secondary'
-                    onClick={props.onOpenBookmarkListDialog}
-                    title='Importer depuis une Bookmark List Geocaching.com'
-                >
-                    📋 Liste
-                </button>
-                <button
-                    className='theia-button secondary'
-                    onClick={props.onOpenPocketQueryDialog}
-                    title='Importer depuis une Pocket Query Geocaching.com (PQ)'
-                >
-                    🔍 Pocket Query
-                </button>
-                <button
-                    className='theia-button secondary'
-                    onClick={props.onStartImportAround}
-                    title="Rechercher et importer des géocaches autour d'un point ou d'une cache"
-                >
-                    📍 Importer autour…
-                </button>
+                <div ref={importMenuContainerRef} style={{ position: 'relative' }}>
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => setImportMenuOpen(open => !open)}
+                        aria-expanded={importMenuOpen}
+                        aria-haspopup='menu'
+                        title="Importer des géocaches : GPX, Bookmark List, Pocket Query ou autour d'un point"
+                    >
+                        Importer <span className='codicon codicon-chevron-down' aria-hidden='true' />
+                    </button>
+                    {importMenuOpen && (
+                        <div
+                            role='menu'
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                marginTop: 4,
+                                minWidth: 230,
+                                border: '1px solid var(--theia-panel-border)',
+                                background: 'var(--theia-editor-background)',
+                                borderRadius: 3,
+                                zIndex: 20,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                                padding: 4,
+                            }}
+                        >
+                            {importMenuItems.map(item => (
+                                <button
+                                    key={item.label}
+                                    role='menuitem'
+                                    className='geoapp-import-menu-item'
+                                    title={item.title}
+                                    onClick={() => {
+                                        setImportMenuOpen(false);
+                                        item.action();
+                                    }}
+                                >
+                                    <span aria-hidden='true'>{item.icon}</span>
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
                 {(outingMode ? props.onExitOutingMode : props.onEnterOutingMode) && (
                     <button
                         className={`theia-button${outingMode ? '' : ' secondary'}`}
