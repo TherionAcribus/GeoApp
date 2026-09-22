@@ -22,6 +22,7 @@ import { favoritePercent, favoritePercentHint, formatFavoritePercent } from './f
 import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
+    FilterPreset,
     TokenFilter,
     ZONE_GEOCACHE_FIELD_DEFINITIONS,
     NUMERIC_GEOCACHE_FIELDS,
@@ -247,6 +248,19 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
 ];
 
 export const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
+
+/**
+ * Presets de la barre de filtres du tableau de zone : requêtes tokenisées
+ * `@champ:valeur` appliquées telles quelles dans le champ de recherche — le
+ * texte reste visible et l'utilisateur peut l'ajuster après application.
+ */
+const ZONE_FILTER_PRESETS: FilterPreset[] = [
+    { id: 'not-found', label: 'Non trouvées', searchQuery: '@found:false' },
+    { id: 'unsolved-mysteries', label: 'Mysteries à résoudre', searchQuery: '@type:mystery @solved:not_solved,in_progress' },
+    { id: 'active', label: 'Actives', searchQuery: '@status:active' },
+    { id: 'corrected', label: 'Corrigées', searchQuery: '@corrigée:oui' },
+    { id: 'with-notes', label: 'Avec notes', searchQuery: '@notes:oui' },
+];
 const GEOCACHES_TABLE_COLUMN_DEFINITION_BY_ID = new Map<GeocachesTableColumnId, GeocachesTableColumnDefinition>(
     GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => [def.id, def])
 );
@@ -1321,6 +1335,13 @@ ${origin}`}
         return map;
     }, [cacheTypes, sizes, solvedOptions]);
 
+    // « Trouvées cette année » est dynamique : la borne est recalculée à
+    // chaque montage du tableau.
+    const filterPresets = React.useMemo<FilterPreset[]>(() => [
+        ...ZONE_FILTER_PRESETS,
+        { id: 'found-this-year', label: 'Trouvées cette année', searchQuery: `@decouverte:>=${new Date().getFullYear()}` },
+    ], []);
+
     const filteredData = React.useMemo(() => {
         const { freeText, tokenFilters } = parseSearchQuery(globalFilter);
         const searchPattern = freeText.trim();
@@ -1759,6 +1780,7 @@ ${origin}`}
                         onAdvancedClausesChange={setAdvancedClauses}
                         fieldDefinitions={ZONE_GEOCACHE_FIELD_DEFINITIONS}
                         enumOptionsByField={enumOptionsByField}
+                        presets={filterPresets}
                         resultCount={filteredData.length}
                     />
                     <div ref={columnsMenuContainerRef} style={{ position: 'relative' }}>

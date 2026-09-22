@@ -61,6 +61,20 @@ export interface AutocompleteSuggestion {
     insertText: string;
 }
 
+/**
+ * Filtre prédéfini appliqué en un clic depuis la barre de filtres.
+ *
+ * `searchQuery` remplace le contenu du champ de recherche (tokens `@champ:…`
+ * inclus) ; `clauses` remplace les clauses avancées — l'id est régénéré à
+ * l'application, les presets ne portent donc que la clause utile.
+ */
+export interface FilterPreset {
+    id: string;
+    label: string;
+    searchQuery?: string;
+    clauses?: Array<Omit<AdvancedFilterClause, 'id'>>;
+}
+
 export interface FieldDefinition {
     field: string;
     label: string;

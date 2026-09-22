@@ -68,6 +68,18 @@ Les géocaches cochées s'affichent en surbrillance et la **barre d'actions** ap
 
 > 💡 **Shift+clic** ajoute la plage à la sélection en cours : il ne décoche jamais. Si la ligne de départ a été filtrée entre-temps, le Shift+clic se comporte comme un clic simple.
 
+### Filtrer et rechercher
+
+La barre au-dessus du tableau combine trois niveaux de filtrage :
+
+- **Recherche libre** : insensible à la casse et aux accents, joker `*` (ex. `gr*tte`). Elle porte sur le code GC, le nom, le type, le propriétaire, la taille, le statut et les coordonnées.
+- **Tokens ciblés** `@champ:valeur` directement dans la recherche : `@found:false`, `@type:mystery`, `@diff:>=3`, `@posée:>=2020`, `@notes:oui`, `@status:archived`, `@pf:>=50`… Tapez `@` dans le champ pour voir les champs proposés en autocomplétion.
+- **Filtres supplémentaires** : l'éditeur de clauses (champ, opérateur, valeur) pour les combinaisons plus complexes.
+
+Les **pastilles de presets** (« Non trouvées », « Mysteries à résoudre », « Actives », « Corrigées », « Avec notes », « Trouvées cette année ») appliquent une requête prédéfinie en un clic : le texte reste visible dans le champ et peut être ajusté.
+
+Le **tri** choisi dans le tableau est mémorisé **par zone** : chaque zone retrouve son propre tri à la réouverture, même après un redémarrage.
+
 ### Rafraîchissement du tableau
 
 Quand une action recharge la liste (import, suppression, rafraîchissement…), le tableau **reste affiché** : votre tri, vos filtres, votre sélection et votre position de défilement sont conservés. Un badge **« Mise à jour… »** en haut à droite indique que les données se rafraîchissent en arrière-plan.

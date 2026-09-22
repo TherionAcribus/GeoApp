@@ -4,6 +4,7 @@ import {
     AdvancedOperator,
     AutocompleteSuggestion,
     FieldDefinition,
+    FilterPreset,
     STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     findAutocompleteTokenStart,
     getDefaultOperatorForKind,
@@ -18,6 +19,8 @@ export interface GeocacheFilterBarProps {
     onAdvancedClausesChange: (clauses: AdvancedFilterClause[]) => void;
     fieldDefinitions?: FieldDefinition[];
     enumOptionsByField?: Map<string, string[]>;
+    /** Filtres prédéfinis affichés en pastilles à droite du bouton de filtres. */
+    presets?: FilterPreset[];
     placeholder?: string;
     resultCount?: number;
     disabled?: boolean;
@@ -38,6 +41,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
     onAdvancedClausesChange,
     fieldDefinitions = STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     enumOptionsByField = new Map(),
+    presets = [],
     placeholder = 'Rechercher... (@champ:valeur, joker *)',
     resultCount,
     disabled = false,
@@ -226,6 +230,27 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
         onAdvancedClausesChange([]);
     }, [onAdvancedClausesChange]);
 
+    /**
+     * Un preset est un point de départ : il remplace la recherche et les
+     * clauses courantes plutôt que de s'y combiner — empiler les filtres d'un
+     * preset sur ceux d'un autre produirait des intersections inattendues.
+     */
+    const applyPreset = React.useCallback(
+        (preset: FilterPreset) => {
+            setAutocompleteOpen(false);
+            onSearchQueryChange(preset.searchQuery ?? '');
+            const clauses = (preset.clauses ?? []).map(clause => ({
+                ...clause,
+                id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            }));
+            onAdvancedClausesChange(clauses);
+            if (clauses.length > 0) {
+                setAdvancedFiltersOpen(true);
+            }
+        },
+        [onSearchQueryChange, onAdvancedClausesChange]
+    );
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -330,6 +355,20 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                     {advancedFiltersOpen ? 'Masquer les filtres' : 'Filtres supplémentaires'}
                     {advancedClauses.length > 0 && ` (${advancedClauses.length})`}
                 </button>
+
+                {presets.map(preset => (
+                    <button
+                        key={preset.id}
+                        type="button"
+                        className="theia-button secondary"
+                        disabled={disabled}
+                        style={{ padding: '1px 8px', fontSize: '0.85em' }}
+                        title={`Appliquer « ${preset.label} » — remplace la recherche et les filtres actuels`}
+                        onClick={() => applyPreset(preset)}
+                    >
+                        {preset.label}
+                    </button>
+                ))}
             </div>
 
             {advancedFiltersOpen && (
