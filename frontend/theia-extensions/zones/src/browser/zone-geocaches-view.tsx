@@ -177,11 +177,11 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
         };
     }, [importMenuOpen]);
 
-    const importMenuItems: Array<{ icon: string; label: string; title: string; action: () => void }> = [
-        { icon: '📂', label: 'Fichier GPX', title: 'Importer des géocaches depuis un fichier GPX', action: props.onOpenImportDialog },
-        { icon: '📋', label: 'Bookmark List', title: 'Importer depuis une Bookmark List Geocaching.com', action: props.onOpenBookmarkListDialog },
-        { icon: '🔍', label: 'Pocket Query', title: 'Importer depuis une Pocket Query Geocaching.com (PQ)', action: props.onOpenPocketQueryDialog },
-        { icon: '📍', label: "Autour d'un point ou d'une cache…", title: "Rechercher et importer des géocaches autour d'un point ou d'une cache", action: props.onStartImportAround },
+    const importMenuItems: Array<{ iconClass: string; label: string; title: string; action: () => void }> = [
+        { iconClass: 'codicon codicon-file', label: 'Fichier GPX', title: 'Importer des géocaches depuis un fichier GPX', action: props.onOpenImportDialog },
+        { iconClass: 'codicon codicon-bookmark', label: 'Bookmark List', title: 'Importer depuis une Bookmark List Geocaching.com', action: props.onOpenBookmarkListDialog },
+        { iconClass: 'codicon codicon-search', label: 'Pocket Query', title: 'Importer depuis une Pocket Query Geocaching.com (PQ)', action: props.onOpenPocketQueryDialog },
+        { iconClass: 'codicon codicon-location', label: "Autour d'un point ou d'une cache…", title: "Rechercher et importer des géocaches autour d'un point ou d'une cache", action: props.onStartImportAround },
     ];
     // Le bandeau de mode tient sur une ligne : au-delà de trois amis, on compte.
     const outingFriendsLabel = outing && outing.friends.length > 0
@@ -278,7 +278,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                                         item.action();
                                     }}
                                 >
-                                    <span aria-hidden='true'>{item.icon}</span>
+                                    <span className={item.iconClass} aria-hidden='true' />
                                     {item.label}
                                 </button>
                             ))}
@@ -293,7 +293,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                             ? 'Quitter le mode sortie entre amis'
                             : 'Préparer une sortie entre amis (les caches sélectionnées en définissent le périmètre)'}
                     >
-                        👥 Sortie
+                        <span className='codicon codicon-organization' aria-hidden='true' /> Sortie
                     </button>
                 )}
             </div>
@@ -350,7 +350,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                 background: 'var(--theia-editor-background)',
                 fontSize: '0.85em',
             }}>
-                <span>👥</span>
+                <span className='codicon codicon-organization' aria-hidden='true' />
                 <span title={outing.friends.length > 0 ? outing.friends.join(', ') : undefined}>
                     {outingFriendsLabel
                         ? `Sortie avec ${outingFriendsLabel}`

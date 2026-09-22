@@ -253,6 +253,9 @@
 .geoapp-gc-badge--archived,
 .geoapp-gc-badge--disabled,
 .geoapp-gc-badge--maint {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     border-radius: 4px;
     padding: 1px 6px;
     font-size: 11px;

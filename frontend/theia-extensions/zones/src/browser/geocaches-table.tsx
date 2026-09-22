@@ -981,7 +981,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     const status = (info.row.original as Geocache).status;
                     const isArchived = status === 'archived';
                     const isDisabled = status === 'disabled';
-                    const statusLabel = isArchived ? ' \u2014 ⛔ Archivée' : isDisabled ? ' \u2014 ⚠️ Désactivée' : '';
+                    const statusLabel = isArchived ? ' \u2014 Archivée' : isDisabled ? ' \u2014 Désactivée' : '';
                     return (
                         <span className="geoapp-gc-type-wrap">
                             <GeocacheIcon
@@ -1094,7 +1094,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             },
             {
                 accessorKey: 'favorites_count',
-                header: '❤️',
+                header: () => <span className='codicon codicon-heart' role='img' aria-label='Favoris' title='Favoris' />,
                 cell: info => <span title="Favoris">{info.getValue() as number}</span>,
                 size: 50,
             },
@@ -1134,7 +1134,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             {
                 id: 'friends_found',
                 accessorFn: row => findersOfOuting((row as Geocache).gc_code).length,
-                header: '👥',
+                header: () => <span className='codicon codicon-organization' role='img' aria-label='Trouvée par des amis' title='Trouvée par des amis' />,
                 cell: ({ row }) => {
                     const names = findersOfOuting((row.original as Geocache).gc_code);
                     if (names.length === 0) {
@@ -1193,7 +1193,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 // Le tri se fait sur le nombre de signaux : les caches qui demandent une
                 // préparation remontent, ce qui est la seule question que pose la colonne.
                 accessorFn: row => (outingFlags?.[(row as Geocache).gc_code]?.flags ?? []).length,
-                header: '🎒',
+                header: () => <span className='codicon codicon-flag' role='img' aria-label='Signaux de sortie' title='Signaux de sortie' />,
                 cell: ({ row }) => {
                     const entry = outingFlags?.[(row.original as Geocache).gc_code];
                     const badges = badgesForFlags(entry?.flags);
@@ -1231,10 +1231,10 @@ ${origin}`}
                 cell: ({ row }) => {
                     const status = (row.original as Geocache).status ?? 'active';
                     if (status === 'archived') {
-                        return <span className="geoapp-gc-badge--archived">⛔ Archivée</span>;
+                        return <span className="geoapp-gc-badge--archived"><span className='codicon codicon-circle-slash' aria-hidden='true' /> Archivée</span>;
                     }
                     if (status === 'disabled') {
-                        return <span className="geoapp-gc-badge--disabled">⚠️ Désactivée</span>;
+                        return <span className="geoapp-gc-badge--disabled"><span className='codicon codicon-warning' aria-hidden='true' /> Désactivée</span>;
                     }
                     return <span className="geoapp-gc-status-active">Active</span>;
                 },
@@ -1253,7 +1253,7 @@ ${origin}`}
                     if (!needsMaint) return null;
                     return (
                         <span className="geoapp-gc-badge--maint" title='Owner attention requested'>
-                            🔧 Maint.
+                            <span className='codicon codicon-wrench' aria-hidden='true' /> Maint.
                         </span>
                     );
                 },
@@ -1276,7 +1276,7 @@ ${origin}`}
                                 aria-label="Rafraîchir cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em' }}
                             >
-                                <span aria-hidden="true">🔄</span>
+                                <span className='codicon codicon-refresh' aria-hidden="true" />
                             </button>
                         )}
                         {onDelete && (
@@ -1288,7 +1288,7 @@ ${origin}`}
                                 aria-label="Supprimer cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em', color: 'var(--theia-errorForeground)' }}
                             >
-                                <span aria-hidden="true">🗑️</span>
+                                <span className='codicon codicon-trash' aria-hidden="true" />
                             </button>
                         )}
                     </div>
@@ -1610,12 +1610,12 @@ ${origin}`}
         const items: ContextMenuItem[] = [
             {
                 label: 'Ouvrir',
-                icon: '📖',
+                iconClass: 'codicon codicon-book',
                 action: () => onRowClick?.(geocache)
             },
             {
                 label: 'Rafraîchir',
-                icon: '🔄',
+                iconClass: 'codicon codicon-refresh',
                 action: () => onRefresh?.(geocache.id)
             }
         ];
@@ -1624,7 +1624,7 @@ ${origin}`}
         if (onMove && zones.length > 1 && currentZoneId) {
             items.push({
                 label: 'Déplacer vers...',
-                icon: '📦',
+                iconClass: 'codicon codicon-move',
                 action: () => setMoveDialog(geocache)
             });
         }
@@ -1633,7 +1633,7 @@ ${origin}`}
         if (onCopy && zones.length > 1 && currentZoneId) {
             items.push({
                 label: 'Copier vers...',
-                icon: '📋',
+                iconClass: 'codicon codicon-copy',
                 action: () => setCopyDialog(geocache)
             });
         }
@@ -1641,7 +1641,7 @@ ${origin}`}
         if (onImportAround) {
             items.push({
                 label: 'Importer autour…',
-                icon: '📍',
+                iconClass: 'codicon codicon-location',
                 action: () => onImportAround(geocache)
             });
         }
@@ -1649,7 +1649,7 @@ ${origin}`}
         items.push({ separator: true });
         items.push({
             label: 'Supprimer',
-            icon: '🗑️',
+            iconClass: 'codicon codicon-trash',
             danger: true,
             action: () => onDelete?.(geocache)
         });
@@ -1976,7 +1976,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
                                     title="Loguer les géocaches sélectionnées"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">✍️</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-edit" aria-hidden="true" />
                                     Loguer
                                 </button>
                             )}
@@ -1986,7 +1986,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
                                     title="Appliquer un plugin aux géocaches sélectionnées"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🔧</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-extensions" aria-hidden="true" />
                                     Plugin
                                 </button>
                             )}
@@ -2001,7 +2001,7 @@ ${origin}`}
                                     {analyzingWithAi ? (
                                         <span className="geoapp-gc-action-btn__spinner" aria-hidden="true" />
                                     ) : (
-                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🧠</span>
+                                        <span className="geoapp-gc-action-btn__icon codicon codicon-sparkle" aria-hidden="true" />
                                     )}
                                     {analyzingWithAi ? 'Analyse en cours…' : 'Analyser IA'}
                                 </button>
@@ -2018,7 +2018,7 @@ ${origin}`}
                                         className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
                                         title="Ajouter les géocaches sélectionnées au périmètre de la sortie"
                                     >
-                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
+                                        <span className="geoapp-gc-action-btn__icon codicon codicon-organization" aria-hidden="true" />
                                         Ajouter à la sortie
                                     </button>
                                 )
@@ -2029,7 +2029,7 @@ ${origin}`}
                                         className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
                                         title="Préparer une sortie entre amis sur les géocaches sélectionnées"
                                     >
-                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
+                                        <span className="geoapp-gc-action-btn__icon codicon codicon-organization" aria-hidden="true" />
                                         Sortie
                                     </button>
                                 )
@@ -2047,7 +2047,7 @@ ${origin}`}
                                     {exportingGpx ? (
                                         <span className="geoapp-gc-action-btn__spinner" aria-hidden="true" />
                                     ) : (
-                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">⬇️</span>
+                                        <span className="geoapp-gc-action-btn__icon codicon codicon-export" aria-hidden="true" />
                                     )}
                                     {exportingGpx ? 'Export en cours…' : 'Exporter GPX'}
                                 </button>
@@ -2058,7 +2058,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn"
                                     title="Rafraîchir les géocaches sélectionnées"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🔄</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-refresh" aria-hidden="true" />
                                     Rafraîchir
                                 </button>
                             )}
@@ -2068,7 +2068,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn"
                                     title="Copier les géocaches sélectionnées vers une autre zone"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">📋</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-copy" aria-hidden="true" />
                                     Copier
                                 </button>
                             )}
@@ -2078,7 +2078,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn"
                                     title="Déplacer les géocaches sélectionnées vers une autre zone"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">📦</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-move" aria-hidden="true" />
                                     Déplacer
                                 </button>
                             )}
@@ -2088,7 +2088,7 @@ ${origin}`}
                                     className="geoapp-gc-action-btn geoapp-gc-action-btn--danger"
                                     title="Supprimer les géocaches sélectionnées"
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🗑️</span>
+                                    <span className="geoapp-gc-action-btn__icon codicon codicon-trash" aria-hidden="true" />
                                     Supprimer
                                 </button>
                             )}

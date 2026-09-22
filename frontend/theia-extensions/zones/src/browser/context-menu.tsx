@@ -2,7 +2,10 @@ import * as React from 'react';
 
 export interface ContextMenuItem {
     label?: string;
+    /** Picto texte (emoji) — préférer `iconClass` pour une icône codicon. */
     icon?: string;
+    /** Classe d'icône codicon (ex. `'codicon codicon-refresh'`), prioritaire sur `icon`. */
+    iconClass?: string;
     action?: () => void;
     danger?: boolean;
     separator?: boolean;
@@ -97,7 +100,9 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = ({
                             <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center' }}>
                                 {item.checked ? '✓' : ''}
                             </span>
-                            {item.icon && <span>{item.icon}</span>}
+                            {item.iconClass
+                                ? <span className={item.iconClass} aria-hidden='true' />
+                                : item.icon && <span>{item.icon}</span>}
                             <span style={{ flex: 1 }}>{item.label || ''}</span>
                             {hasSubmenu && <span style={{ opacity: 0.7 }}>▸</span>}
                         </div>
