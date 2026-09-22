@@ -909,22 +909,22 @@ export class ZonesTreeWidget extends ReactWidget {
         const items: ContextMenuItem[] = [
             {
                 label: 'Ouvrir',
-                icon: '📂',
+                iconClass: 'codicon codicon-folder-opened',
                 action: () => this.openZoneTable(zone)
             },
             {
                 label: 'Renommer',
-                icon: '✎',
+                iconClass: 'codicon codicon-pencil',
                 action: () => this.renameZone(zone)
             },
             {
                 label: 'Dupliquer',
-                icon: '⧉',
+                iconClass: 'codicon codicon-files',
                 action: () => this.duplicateZone(zone)
             },
             {
                 label: 'Fusionner vers...',
-                icon: '⇄',
+                iconClass: 'codicon codicon-git-merge',
                 action: () => {
                     this.mergeDialog = { zone };
                     this.update();
@@ -936,7 +936,7 @@ export class ZonesTreeWidget extends ReactWidget {
             },
             {
                 label: 'Trier les caches par',
-                icon: '↕',
+                iconClass: 'codicon codicon-arrow-swap',
                 submenu: this.buildGeocacheSortSubmenu()
             },
             {
@@ -944,7 +944,7 @@ export class ZonesTreeWidget extends ReactWidget {
             },
             {
                 label: 'Supprimer',
-                icon: '🗑️',
+                iconClass: 'codicon codicon-trash',
                 danger: true,
                 action: () => this.deleteZone(zone)
             }
@@ -965,12 +965,12 @@ export class ZonesTreeWidget extends ReactWidget {
         const items: ContextMenuItem[] = [
             {
                 label: 'Ouvrir',
-                icon: '📖',
+                iconClass: 'codicon codicon-book',
                 action: () => this.openGeocacheDetails(geocache)
             },
             {
                 label: 'Déplacer vers...',
-                icon: '📦',
+                iconClass: 'codicon codicon-move',
                 action: () => {
                     this.moveDialog = { geocache, zoneId };
                     this.update();
@@ -979,7 +979,7 @@ export class ZonesTreeWidget extends ReactWidget {
             },
             {
                 label: 'Copier vers...',
-                icon: '📋',
+                iconClass: 'codicon codicon-copy',
                 action: () => {
                     this.copyDialog = { geocache, zoneId };
                     this.update();
@@ -991,7 +991,7 @@ export class ZonesTreeWidget extends ReactWidget {
             },
             {
                 label: 'Supprimer',
-                icon: '🗑️',
+                iconClass: 'codicon codicon-trash',
                 danger: true,
                 action: async () => {
                     const dialog = new ConfirmDialog({
@@ -1504,13 +1504,13 @@ export class ZonesTreeWidget extends ReactWidget {
                             userSelect: 'none',
                         }}
                     >
-                        {zone.geocaches_count > 0 ? (isExpanded ? '▼' : '▶') : ''}
+                        {zone.geocaches_count > 0 && (
+                            <span className={isExpanded ? 'codicon codicon-chevron-down' : 'codicon codicon-chevron-right'} aria-hidden='true' />
+                        )}
                     </span>
 
                     {/* Icône dossier */}
-                    <span style={{ marginRight: 6 }}>
-                        {isExpanded ? '📂' : '📁'}
-                    </span>
+                    <span className={isExpanded ? 'codicon codicon-folder-opened' : 'codicon codicon-folder'} aria-hidden='true' style={{ marginRight: 6 }} />
 
                     {/* Nom de la zone */}
                     <span className='zone-name'>

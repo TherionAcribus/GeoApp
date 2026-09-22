@@ -109,7 +109,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
     const archiveColor = getArchiveColor(archiveStatus);
     const archiveLabel = getArchiveLabel(archiveStatus);
-    const archiveIcon = getArchiveIcon(archiveStatus);
+    const archiveIconClass = getArchiveIconClass(archiveStatus);
 
     const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
     const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
@@ -169,13 +169,13 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 : ownerMessageUrl
                     ? `Envoyer un message a propos de ${geocacheData.gc_code || 'cette cache'}`
                     : 'Message indisponible (profil introuvable)',
-            icon: '✉️',
+            iconClass: 'codicon codicon-mail',
             disabled: !ownerMessageUrl,
             action: () => { if (ownerMessageUrl) { openOwnerUrl(ownerMessageUrl); } }
         },
         {
             label: 'Ouvrir sa fiche',
-            icon: '👤',
+            iconClass: 'codicon codicon-person',
             disabled: !ownerProfileUrl,
             action: () => { if (ownerProfileUrl) { openOwnerUrl(ownerProfileUrl); } }
         }
@@ -225,15 +225,15 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
         }
     };
 
-    const analyzeActions: { label: string; icon: string; title: string; action: () => void; disabled?: boolean }[] = [
-        { label: 'Resoudre formules', icon: '🧮', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
-        { label: 'Analyse page', icon: '📄', title: 'Lancer l\'analyse complete de la page', action: () => { void onAnalyzePage(); } },
-        { label: 'Analyse code', icon: '🔍', title: 'Analyser le texte avec Metasolver', action: () => { void onAnalyzeCode(); } },
-        { label: 'Analyse plugins', icon: '🧩', title: 'Analyser cette geocache avec les plugins', action: () => { void onAnalyzeWithPlugins(); } },
-        { label: 'Grilles', icon: '#', title: 'Ouvrir l atelier de grilles pour cette geocache', action: () => { void onOpenGridPuzzle(); } },
+    const analyzeActions: { label: string; iconClass: string; title: string; action: () => void; disabled?: boolean }[] = [
+        { label: 'Resoudre formules', iconClass: 'codicon codicon-symbol-operator', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
+        { label: 'Analyse page', iconClass: 'codicon codicon-file', title: 'Lancer l\'analyse complete de la page', action: () => { void onAnalyzePage(); } },
+        { label: 'Analyse code', iconClass: 'codicon codicon-search', title: 'Analyser le texte avec Metasolver', action: () => { void onAnalyzeCode(); } },
+        { label: 'Analyse plugins', iconClass: 'codicon codicon-extensions', title: 'Analyser cette geocache avec les plugins', action: () => { void onAnalyzeWithPlugins(); } },
+        { label: 'Grilles', iconClass: 'codicon codicon-layout', title: 'Ouvrir l atelier de grilles pour cette geocache', action: () => { void onOpenGridPuzzle(); } },
         ...extraActions.map(action => ({
             label: action.label,
-            icon: '⚡',
+            iconClass: 'codicon codicon-zap',
             title: action.title || action.label,
             action: () => { void action.execute({ geocacheData }); },
             disabled: action.isEnabled ? !action.isEnabled({ geocacheData }) : false,
@@ -332,7 +332,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                         onMouseEnter={(e) => { if (!item.disabled) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; } }}
                                         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                     >
-                                        <span aria-hidden='true'>{item.icon}</span>
+                                        <span className={item.iconClass} aria-hidden='true' />
                                         <span>{item.label}</span>
                                     </div>
                                 );
@@ -574,7 +574,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         fontSize: 11,
                         fontWeight: 'bold',
                     }}>
-                        ⛔ Archivée
+                        <span className='codicon codicon-circle-slash' aria-hidden='true' /> Archivée
                     </span>
                 )}
                 {geocacheData.status === 'disabled' && (
@@ -587,7 +587,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         fontSize: 11,
                         fontWeight: 'bold',
                     }}>
-                        ⚠️ Désactivée
+                        <span className='codicon codicon-warning' aria-hidden='true' /> Désactivée
                     </span>
                 )}
                 {onRefresh && (
@@ -602,10 +602,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     >
                         <span
                             aria-hidden='true'
-                            className={`geoapp-gcd-refresh-icon${isRefreshing ? ' geoapp-gcd-refresh-icon--spinning' : ''}`}
-                        >
-                            🔄
-                        </span>
+                            className={`codicon codicon-refresh geoapp-gcd-refresh-icon${isRefreshing ? ' geoapp-gcd-refresh-icon--spinning' : ''}`}
+                        />
                     </button>
                 )}
                 {archiveStatus !== 'none' ? (
@@ -629,7 +627,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             opacity: isSyncingArchive ? 0.6 : 1,
                         }}
                     >
-                        <span aria-hidden='true'>{archiveIcon}</span>
+                        <span className={archiveIconClass} aria-hidden='true' />
                         <span>{archiveLabel}</span>
                     </button>
                 ) : undefined}
@@ -806,21 +804,21 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
     const buildContextMenuItems = (url: string): ContextMenuItem[] => [
         {
             label: 'Ouvrir dans un nouvel onglet (même groupe)',
-            icon: '🗂️',
+            iconClass: 'codicon codicon-multiple-windows',
             action: () => {
                 if (onOpenUrl) { onOpenUrl(url, 'same-group'); } else { window.open(url, '_blank'); }
             }
         },
         {
             label: 'Ouvrir dans un nouveau groupe d\'onglets',
-            icon: '📐',
+            iconClass: 'codicon codicon-split-horizontal',
             action: () => {
                 if (onOpenUrl) { onOpenUrl(url, 'new-group'); } else { window.open(url, '_blank'); }
             }
         },
         {
             label: 'Ouvrir dans une fenêtre externe',
-            icon: '🌐',
+            iconClass: 'codicon codicon-link-external',
             action: () => {
                 if (onOpenUrl) { onOpenUrl(url, 'external-window'); } else { window.open(url, '_blank', 'noopener,noreferrer'); }
             }
@@ -862,7 +860,7 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
                                             opacity: 0.85,
                                         }}
                                     >
-                                        ⚠️ captcha → fenêtre externe
+                                        <span className='codicon codicon-warning' aria-hidden='true' /> captcha → fenêtre externe
                                     </span>
                                 )}
                             </span>
@@ -1048,12 +1046,12 @@ function getArchiveLabel(status: ArchiveStatus): string {
     return 'Non archivee';
 }
 
-function getArchiveIcon(status: ArchiveStatus): string {
+function getArchiveIconClass(status: ArchiveStatus): string {
     if (status === 'synced') {
-        return '💾';
+        return 'codicon codicon-archive';
     }
     if (status === 'loading') {
-        return '⏳';
+        return 'codicon codicon-loading codicon-modifier-spin';
     }
-    return '⚠️';
+    return 'codicon codicon-warning';
 }
