@@ -722,6 +722,16 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     }, [sorting, onSortingChangeProp]);
     const [rowSelection, setRowSelection] = React.useState({});
     const [globalFilter, setGlobalFilter] = React.useState('');
+    // Le champ garde la frappe immédiate ; le filtrage (et la reconstruction des
+    // marqueurs carte qui suit `onFilteredDataChange`) attend la fin de la
+    // frappe — sinon chaque caractère refiltre les ~300 lignes et redessine la
+    // carte.
+    const SEARCH_DEBOUNCE_MS = 150;
+    const [debouncedGlobalFilter, setDebouncedGlobalFilter] = React.useState('');
+    React.useEffect(() => {
+        const handle = window.setTimeout(() => setDebouncedGlobalFilter(globalFilter), SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(handle);
+    }, [globalFilter]);
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [moveDialog, setMoveDialog] = React.useState<Geocache | null>(null);
     const [copyDialog, setCopyDialog] = React.useState<Geocache | null>(null);
@@ -1343,7 +1353,7 @@ ${origin}`}
     ], []);
 
     const filteredData = React.useMemo(() => {
-        const { freeText, tokenFilters } = parseSearchQuery(globalFilter);
+        const { freeText, tokenFilters } = parseSearchQuery(debouncedGlobalFilter);
         const searchPattern = freeText.trim();
         const hasFreeText = normalizeSearchText(searchPattern).length > 0;
 
@@ -1410,7 +1420,7 @@ ${origin}`}
             return true;
         });
     }, [
-        data, globalFilter, advancedClauses, friendFinds,
+        data, debouncedGlobalFilter, advancedClauses, friendFinds,
         outingMode, outingScopeOnly, outingScope, friendFilter, friendRowState, knownFriends,
     ]);
 

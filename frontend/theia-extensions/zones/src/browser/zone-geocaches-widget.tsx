@@ -1149,6 +1149,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // remplacé par le tri enregistré de la nouvelle (ou par aucun tri).
         this.tableSorting = [];
         void this.restoreTableSorting(context.zoneId);
+        this.lastMapGeocacheRefs = undefined;
         this.update();
         // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
         // à jour via onDidChangeZoneList. load() ne s'en occupe plus.
@@ -1235,13 +1236,26 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         };
     }
 
+    /**
+     * Dernières lignes envoyées à la carte, par id. Trier ou rafraîchir un état
+     * annexe (progression des scans d'amis…) réémet `filteredData` avec les
+     * mêmes objets : sans ce diff, chaque émission reconstruirait tous les
+     * marqueurs Leaflet pour un résultat identique.
+     */
+    private lastMapGeocacheRefs?: Map<number, Geocache>;
+
     protected handleFilteredDataChange(geocaches: Geocache[]): void {
         const mapWidget = this.findZoneMapWidget();
         if (!mapWidget) { return; }
-        const mapGeocaches = geocaches
-            .filter(gc => gc.latitude != null && gc.longitude != null)
-            .map(gc => this.toMapGeocache(gc));
-        mapWidget.loadGeocaches(mapGeocaches);
+        const withCoords = geocaches.filter(gc => gc.latitude != null && gc.longitude != null);
+        const previous = this.lastMapGeocacheRefs;
+        if (previous
+            && withCoords.length === previous.size
+            && withCoords.every(gc => previous.get(gc.id) === gc)) {
+            return;
+        }
+        this.lastMapGeocacheRefs = new Map(withCoords.map(gc => [gc.id, gc]));
+        mapWidget.loadGeocaches(withCoords.map(gc => this.toMapGeocache(gc)));
     }
 
     /**
