@@ -130,6 +130,8 @@ interface GeocachesTableProps {
      * quand cette liste diverge de son état interne.
      */
     selectedGeocacheIds?: number[];
+    /** Lignes en attente de suppression (fenêtre d'undo) : affichées estompées. */
+    pendingDeleteIds?: ReadonlySet<number>;
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
     /** État des scans par ami (pour détecter les caches non analysées). */
@@ -742,6 +744,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onFilteredDataChange,
     onSelectionChange,
     selectedGeocacheIds,
+    pendingDeleteIds,
     friendFinds,
     friendScans,
     activeFriends,
@@ -2358,8 +2361,15 @@ ${origin}`}
                                     + (hasOutingScope && outingScope.has(row.original.gc_code)
                                         ? ' geoapp-gc-table__row--outing'
                                         : '')
+                                    // En attente de suppression (fenêtre d'undo) :
+                                    // la ligne est encore là mais estompée.
+                                    + (pendingDeleteIds?.has(row.original.id)
+                                        ? ' geoapp-gc-table__row--pending-delete'
+                                        : '')
                                 }
-                                title={friendRowTitle.get(row.original.gc_code) ?? undefined}
+                                title={pendingDeleteIds?.has(row.original.id)
+                                    ? 'Suppression dans quelques secondes — « Annuler » dans la notification pour la conserver'
+                                    : (friendRowTitle.get(row.original.gc_code) ?? undefined)}
                             >
                                 {row.getVisibleCells().map(cell => (
                                     <td

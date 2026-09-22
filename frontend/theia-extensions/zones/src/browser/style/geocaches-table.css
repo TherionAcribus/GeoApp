@@ -459,3 +459,12 @@
     background: var(--theia-button-secondaryBackground, var(--theia-list-activeSelectionBackground));
     border-color: var(--theia-focusBorder);
 }
+
+/* Ligne en attente de suppression (fenêtre d'undo avant le DELETE réel). */
+.geoapp-gc-table__row--pending-delete {
+    opacity: 0.4;
+}
+
+.geoapp-gc-table__row--pending-delete .geoapp-gc-cell-name {
+    text-decoration: line-through;
+}

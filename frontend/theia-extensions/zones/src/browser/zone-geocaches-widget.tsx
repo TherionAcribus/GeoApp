@@ -109,6 +109,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected tableSorting: SortingState = [];
     /** Origine des distances de la zone courante (colonne « Distance », filtre `@distance:`). */
     protected distanceOrigin: DistanceOrigin | undefined;
+
+    /**
+     * Suppressions en attente d'undo : les lignes restent dans le tableau,
+     * estompées, jusqu'à l'échéance du délai — le DELETE part alors seulement.
+     */
+    protected pendingDeleteIds = new Set<number>();
+    protected pendingDeleteTimer?: number;
+    /** Lot courant : un toast d'un lot déjà exécuté ne doit rien annuler. */
+    private pendingDeleteBatch = 0;
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
@@ -386,6 +395,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             window.clearTimeout(this.reloadRowsDebounceTimer);
             this.reloadRowsDebounceTimer = undefined;
         }
+        // Une suppression confirmée ne se perd pas avec le widget : on l'exécute
+        // plutôt que d'attendre une échéance qui ne viendra plus.
+        void this.commitPendingDeletes();
         super.dispose();
     }
 
@@ -1173,6 +1185,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     /** Configure le widget avec l'ID et le nom de la zone */
     setZone(context: { zoneId: number; zoneName?: string }): void {
+        // Une suppression en attente appartient à la zone qu'on quitte : elle
+        // est confirmée, on l'exécute tout de suite plutôt que de la perdre.
+        void this.commitPendingDeletes();
         this.zoneId = context.zoneId;
         this.zoneName = context.zoneName;
         this.lastAccessTimestamp = Date.now();
@@ -1909,38 +1924,97 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    protected async handleDeleteSelected(ids: number[]): Promise<void> {
-        const dialog = new ConfirmDialog({
-            title: 'Supprimer les géocaches',
-            msg: `Voulez-vous vraiment supprimer ${ids.length} géocache(s) sélectionnée(s) ?`,
-            ok: Dialog.OK,
-            cancel: Dialog.CANCEL
-        });
-        
-        const confirmed = await dialog.open();
-        if (!confirmed) {
+    /**
+     * Fenêtre d'undo après une suppression : le toast reste affiché ce délai,
+     * « Annuler » y met fin sans que rien n'ait été supprimé.
+     */
+    protected static readonly DELETE_UNDO_MS = 10_000;
+
+    /**
+     * Programme la suppression de `ids` : les lignes passent en attente
+     * (estompées) et le DELETE part à l'échéance, sauf si « Annuler » est
+     * cliqué dans le toast. Plus de boîte de confirmation — l'undo la remplace.
+     *
+     * Un second lot pendant qu'un autre attend force le premier à partir tout
+     * de suite : pas de file d'attente invisible ni de toast concurrent.
+     */
+    protected scheduleDelete(ids: number[]): void {
+        void this.commitPendingDeletes();
+        const batch = ++this.pendingDeleteBatch;
+        for (const id of ids) {
+            this.pendingDeleteIds.add(id);
+        }
+        this.update();
+        this.pendingDeleteTimer = window.setTimeout(
+            () => { void this.commitPendingDeletes(); },
+            ZoneGeocachesWidget.DELETE_UNDO_MS
+        );
+        void this.announcePendingDelete(ids, batch);
+    }
+
+    private async announcePendingDelete(ids: number[], batch: number): Promise<void> {
+        const action = await this.messages.info(
+            ids.length === 1
+                ? 'Géocache supprimée — Annuler pour la conserver'
+                : `${ids.length} géocache(s) supprimée(s) — Annuler pour les conserver`,
+            'Annuler'
+        );
+        if (action !== 'Annuler') {
+            // Toast fermé sans action : le timer continue, la suppression
+            // partira à l'échéance prévue.
             return;
         }
+        // Le lot peut avoir déjà été exécuté — par un second « Supprimer » qui a
+        // forcé le commit, ou par le changement de zone : ce toast est périmé.
+        if (batch !== this.pendingDeleteBatch) {
+            return;
+        }
+        if (this.pendingDeleteTimer !== undefined) {
+            window.clearTimeout(this.pendingDeleteTimer);
+            this.pendingDeleteTimer = undefined;
+        }
+        for (const id of ids) {
+            this.pendingDeleteIds.delete(id);
+        }
+        this.update();
+    }
 
-        let deletedCount = 0;
+    /**
+     * Exécute les suppressions en attente. Appelé par le timer, par un nouveau
+     * lot (`scheduleDelete`), ou au changement de zone / fermeture : une
+     * suppression confirmée ne doit pas se perdre silencieusement.
+     */
+    protected async commitPendingDeletes(): Promise<void> {
+        if (this.pendingDeleteTimer !== undefined) {
+            window.clearTimeout(this.pendingDeleteTimer);
+            this.pendingDeleteTimer = undefined;
+        }
+        const ids = [...this.pendingDeleteIds];
+        this.pendingDeleteIds.clear();
+        // Invalide le lot : un « Annuler » cliqué après l'échéance ne doit pas
+        // faire croire à un undo sur des caches déjà supprimées.
+        this.pendingDeleteBatch++;
+        if (ids.length === 0) {
+            return;
+        }
         let errorCount = 0;
         await this.runBulkWithProgress(ids, async id => {
             try {
                 await this.geocachesService.delete(id);
-                deletedCount++;
             } catch (e) {
                 console.error('Delete error', e);
                 errorCount++;
             }
         }, { title: `Suppression de ${ids.length} géocache(s)…` });
-
+        this.update();
         await this.refreshZoneData();
-
-        if (errorCount === 0) {
-            this.messages.info(`${deletedCount} géocache(s) supprimée(s)`);
-        } else {
-            this.messages.warn(`${deletedCount} géocache(s) supprimée(s), ${errorCount} en erreur`);
+        if (errorCount > 0) {
+            this.messages.warn(`${ids.length - errorCount} géocache(s) supprimée(s), ${errorCount} en erreur`);
         }
+    }
+
+    protected handleDeleteSelected(ids: number[]): void {
+        this.scheduleDelete(ids);
     }
 
     protected async handleRefreshSelected(ids: number[]): Promise<void> {
@@ -1967,27 +2041,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    protected async handleDelete(id: number, gcCode: string): Promise<void> {
-        const dialog = new ConfirmDialog({
-            title: 'Supprimer la géocache',
-            msg: `Voulez-vous vraiment supprimer la géocache ${gcCode} ?`,
-            ok: Dialog.OK,
-            cancel: Dialog.CANCEL
-        });
-        
-        const confirmed = await dialog.open();
-        if (!confirmed) {
-            return;
-        }
-        
-        try {
-            await this.geocachesService.delete(id);
-            this.messages.info('Géocache supprimée');
-            await this.refreshZoneData();
-        } catch (e) {
-            console.error('Delete error', e);
-            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression'));
-        }
+    protected handleDelete(id: number, _gcCode: string): void {
+        this.scheduleDelete([id]);
     }
 
     protected async handleRefresh(id: number): Promise<void> {
@@ -2476,6 +2531,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onAddSelectionToOuting={ids => this.addSelectionToOutingCaches(ids)}
                 onExportGpxSelected={ids => this.handleExportGpxSelected(ids)}
                 onDelete={geocache => this.handleDelete(geocache.id, geocache.gc_code)}
+                pendingDeleteIds={this.pendingDeleteIds}
                 onRefresh={id => this.handleRefresh(id)}
                 onMove={(geocache, targetZoneId) => this.handleMove(geocache, targetZoneId)}
                 onCopy={(geocache, targetZoneId) => this.handleCopy(geocache, targetZoneId)}

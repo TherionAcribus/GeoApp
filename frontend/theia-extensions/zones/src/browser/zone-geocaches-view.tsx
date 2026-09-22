@@ -56,6 +56,8 @@ export interface ZoneGeocachesViewProps {
     /** Un export GPX est en cours : le bouton de la barre d'actions passe en attente. */
     exportingGpx?: boolean;
     onDelete: (geocache: Geocache) => void | Promise<void>;
+    /** Lignes en attente de suppression (fenêtre d'undo) : affichées estompées. */
+    pendingDeleteIds?: ReadonlySet<number>;
     onRefresh: (id: number) => void | Promise<void>;
     onMove: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
     onCopy: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
@@ -444,6 +446,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onExportGpxSelected={props.onExportGpxSelected}
                     exportingGpx={props.exportingGpx}
                     onDelete={geocache => props.onDelete(geocache)}
+                    pendingDeleteIds={props.pendingDeleteIds}
                     onRefresh={props.onRefresh}
                     onMove={props.onMove}
                     onCopy={props.onCopy}

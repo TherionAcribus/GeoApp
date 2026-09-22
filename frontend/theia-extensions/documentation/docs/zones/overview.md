@@ -66,6 +66,8 @@ Le tableau est aussi navigable au clavier : `Tab` place le focus sur la ligne co
 
 Les géocaches cochées s'affichent en surbrillance et la **barre d'actions** apparaît au-dessus du tableau : **Loguer**, **Analyser IA**, **Exporter GPX**, **Rafraîchir**, **Copier**, **Déplacer**, **Supprimer**… La sélection est aussi reflétée sur la carte de la zone.
 
+> 💡 **Supprimer est réversible quelques secondes** : les lignes s'estompent et une notification propose **« Annuler »** — le retrait définitif n'a lieu qu'à la fin du délai (ou immédiatement si vous changez de zone).
+
 > 💡 **Shift+clic** ajoute la plage à la sélection en cours : il ne décoche jamais. Si la ligne de départ a été filtrée entre-temps, le Shift+clic se comporte comme un clic simple.
 
 ### Filtrer et rechercher
