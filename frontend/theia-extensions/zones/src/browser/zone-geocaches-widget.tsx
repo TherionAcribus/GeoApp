@@ -36,6 +36,8 @@ import { ImportAroundService } from './import-around-service';
 import { OutingAnalysisController } from './outing-analysis-controller';
 import { OutingPlanService } from './outing-plan-service';
 import { OutingPlanCacheFlags } from './outing-plan-types';
+import type { SortingState } from '@tanstack/react-table';
+import { loadGeocacheSorting, saveGeocacheSorting } from './geocache-table-sorting-store';
 import {
     FriendAnalysisSummary,
     FriendFilter,
@@ -102,6 +104,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected importAroundDialogOpen = false;
     protected importAroundDialogInitialCenter?: ImportAroundCenter;
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
+    /** Tri du tableau, propre à la zone affichée : persisté dans `StorageService`. */
+    protected tableSorting: SortingState = [];
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
@@ -302,6 +306,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
         void this.preferenceService.set(this.tableVisibleColumnsPreferenceKey, normalized, PreferenceScope.User);
     };
+
+    /**
+     * Tri du tableau : appliqué tout de suite à l'affichage puis persisté pour
+     * la zone courante — chaque zone retrouve son propre tri à la réouverture.
+     */
+    protected readonly handleTableSortingChange = (sorting: SortingState): void => {
+        this.tableSorting = sorting;
+        this.update();
+        if (this.zoneId !== undefined) {
+            void saveGeocacheSorting(this.storageService, this.zoneId, sorting);
+        }
+    };
+
+    /**
+     * Recharge le tri de la zone affichée. Garde sur `zoneId` : la lecture peut
+     * se résoudre après un nouveau changement de zone.
+     */
+    protected async restoreTableSorting(zoneId: number): Promise<void> {
+        const stored = await loadGeocacheSorting(this.storageService, zoneId);
+        if (this.zoneId !== zoneId) {
+            return;
+        }
+        this.tableSorting = stored;
+        this.update();
+    }
 
     protected onAfterAttach(msg: any): void {
         super.onAfterAttach(msg);
@@ -1116,6 +1145,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.applyOuting(null);
         this.outingRestored = false;
         void this.restoreOuting(context.zoneId);
+        // Le tri appartient à la zone : celui de la zone précédente est
+        // remplacé par le tri enregistré de la nouvelle (ou par aucun tri).
+        this.tableSorting = [];
+        void this.restoreTableSorting(context.zoneId);
         this.update();
         // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
         // à jour via onDidChangeZoneList. load() ne s'en occupe plus.
@@ -2326,6 +2359,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 zones={this.zones}
                 currentZoneId={this.zoneId}
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
+                tableSorting={this.tableSorting}
+                onTableSortingChange={this.handleTableSortingChange}
                 loading={this.loading}
                 isImporting={this.isImporting}
                 isAddingGeocache={this.isAddingGeocache}

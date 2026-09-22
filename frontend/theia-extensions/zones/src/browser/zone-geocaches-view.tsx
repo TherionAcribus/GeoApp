@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { SortingState } from '@tanstack/react-table';
 import { GeocachesTable, Geocache, GeocachesTableColumnId } from './geocaches-table';
 import { OutingPlanCacheFlags } from './outing-plan-types';
 import type { FriendAnalysisSummary } from './friend-outing-state';
@@ -59,6 +60,9 @@ export interface ZoneGeocachesViewProps {
     onCopy: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
     onImportAround: (geocache: Geocache) => void | Promise<void>;
     onTableVisibleColumnIdsChange: (columnIds: GeocachesTableColumnId[]) => void;
+    /** Tri du tableau, persisté par zone dans le widget. */
+    tableSorting: SortingState;
+    onTableSortingChange: (sorting: SortingState) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
     onSelectionChange?: (geocacheIds: number[]) => void;
     selectedGeocacheIds?: number[];
@@ -441,6 +445,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     currentZoneId={props.currentZoneId}
                     visibleColumnIds={props.tableVisibleColumnIds}
                     onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
+                    sorting={props.tableSorting}
+                    onSortingChange={props.onTableSortingChange}
                     onFilteredDataChange={props.onFilteredDataChange}
                     onSelectionChange={props.onSelectionChange}
                     selectedGeocacheIds={props.selectedGeocacheIds}

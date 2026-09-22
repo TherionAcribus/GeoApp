@@ -7,6 +7,7 @@ import {
     ColumnOrderState,
     flexRender,
     SortingState,
+    OnChangeFn,
     Table,
     VisibilityState,
 } from '@tanstack/react-table';
@@ -115,6 +116,9 @@ interface GeocachesTableProps {
     currentZoneId?: number;
     visibleColumnIds?: GeocachesTableColumnId[];
     onVisibleColumnIdsChange?: (columnIds: GeocachesTableColumnId[]) => void;
+    /** Tri contrôlé de l'extérieur (persistance par zone) ; interne sinon. */
+    sorting?: SortingState;
+    onSortingChange?: (sorting: SortingState) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
     /** Identifiants des géocaches cochées (pour les mettre en évidence sur la carte). */
     onSelectionChange?: (geocacheIds: number[]) => void;
@@ -242,7 +246,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
 ];
 
-const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
+export const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
 const GEOCACHES_TABLE_COLUMN_DEFINITION_BY_ID = new Map<GeocachesTableColumnId, GeocachesTableColumnDefinition>(
     GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => [def.id, def])
 );
@@ -674,6 +678,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     currentZoneId,
     visibleColumnIds,
     onVisibleColumnIdsChange,
+    sorting: controlledSorting,
+    onSortingChange: onSortingChangeProp,
     onFilteredDataChange,
     onSelectionChange,
     selectedGeocacheIds,
@@ -688,7 +694,18 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onAddSelectionToOuting,
     outingFlags
 }) => {
-    const [sorting, setSorting] = React.useState<SortingState>([]);
+    // Tri contrôlé par le parent (persistance par zone) ou interne à défaut —
+    // le même composant sert dans les deux configurations.
+    const [internalSorting, setInternalSorting] = React.useState<SortingState>([]);
+    const sorting = controlledSorting ?? internalSorting;
+    const handleSortingChange = React.useCallback<OnChangeFn<SortingState>>(updater => {
+        const next = typeof updater === 'function' ? updater(sorting) : updater;
+        if (onSortingChangeProp) {
+            onSortingChangeProp(next);
+        } else {
+            setInternalSorting(next);
+        }
+    }, [sorting, onSortingChangeProp]);
     const [rowSelection, setRowSelection] = React.useState({});
     const [globalFilter, setGlobalFilter] = React.useState('');
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
@@ -1390,7 +1407,7 @@ ${origin}`}
             columnVisibility,
             columnOrder,
         },
-        onSortingChange: setSorting,
+        onSortingChange: handleSortingChange,
         onRowSelectionChange: setRowSelection,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
