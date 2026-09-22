@@ -782,6 +782,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         type="checkbox"
                         checked={row.getIsSelected()}
                         disabled={!row.getCanSelect()}
+                        // Hors ordre de tabulation : la ligne elle-même est
+                        // focalisable et Espace fait la même chose — sinon Tab
+                        // traverserait une case par ligne.
+                        tabIndex={-1}
                         onChange={row.getToggleSelectedHandler()}
                         onClick={e => {
                             e.stopPropagation();
@@ -1114,6 +1118,10 @@ ${origin}`}
                             <button
                                 onClick={() => onRefresh(row.original.id)}
                                 className="theia-button secondary"
+                                // Hors ordre de tabulation : la navigation
+                                // clavier se fait par ligne, les actions sont
+                                // dans la barre de sélection.
+                                tabIndex={-1}
                                 title="Rafraîchir cette géocache"
                                 aria-label="Rafraîchir cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em' }}
@@ -1125,6 +1133,7 @@ ${origin}`}
                             <button
                                 onClick={() => onDelete(row.original)}
                                 className="theia-button secondary"
+                                tabIndex={-1}
                                 title="Supprimer cette géocache"
                                 aria-label="Supprimer cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em', color: 'var(--theia-errorForeground)' }}
@@ -1302,11 +1311,133 @@ ${origin}`}
     }, [selectedGeocacheIds]);
 
     const tableScrollRef = React.useRef<HTMLDivElement>(null);
+    // Ligne focalisée au clavier (roving tabindex : une seule ligne est dans
+    // l'ordre de tabulation). Conservée par id pour survivre au tri/filtrage.
+    const [focusedRowId, setFocusedRowId] = React.useState<string | null>(null);
 
     const tableRows = table.getRowModel().rows;
     const { startIndex, endIndex, paddingTop, paddingBottom } = useRowVirtualizer(tableRows.length, tableScrollRef);
     const virtualRows = tableRows.slice(startIndex, endIndex);
     const visibleColumnCount = table.getVisibleLeafColumns().length;
+    // Roving tabindex : la ligne focalisée est le seul arrêt de Tab dans le
+    // tableau ; si elle n'est pas rendue (scroll, filtre), la première ligne
+    // visible prend le relais pour que le tableau reste atteignable.
+    const tabbableRowId = (focusedRowId && virtualRows.some(row => row.id === focusedRowId))
+        ? focusedRowId
+        : virtualRows[0]?.id;
+
+    /**
+     * Amène la ligne `index` dans la zone visible (défilement minimal, façon
+     * `scrollIntoView({ block: 'nearest' })` — nécessaire car la virtualisation
+     * ne rend que les lignes visibles : sans scroll, la ligne cible n'existe
+     * pas dans le DOM et ne peut pas recevoir le focus).
+     */
+    const scrollRowIntoView = (index: number): void => {
+        const el = tableScrollRef.current;
+        if (!el) {
+            return;
+        }
+        const top = index * VIRTUAL_ROW_HEIGHT;
+        const bottom = top + VIRTUAL_ROW_HEIGHT;
+        if (top < el.scrollTop) {
+            el.scrollTop = top;
+        } else if (bottom > el.scrollTop + el.clientHeight) {
+            el.scrollTop = bottom - el.clientHeight;
+        }
+    };
+
+    // Après un déplacement clavier, la ligne cible peut n'exister qu'au rendu
+    // suivant (virtualisation) : on la focalise dès qu'elle est dans le DOM,
+    // tant que le focus n'a pas quitté le tableau.
+    React.useEffect(() => {
+        if (!focusedRowId) {
+            return;
+        }
+        const scrollEl = tableScrollRef.current;
+        if (!scrollEl || !scrollEl.contains(document.activeElement)) {
+            return;
+        }
+        const rowEl = scrollEl.querySelector<HTMLElement>(`tr[data-row-id="${focusedRowId}"]`);
+        if (rowEl && document.activeElement !== rowEl) {
+            rowEl.focus();
+        }
+    });
+
+    /**
+     * Navigation clavier sur les lignes :
+     *   ↑ / ↓ / Début / Fin  déplacent le focus (Maj étend la sélection),
+     *   Espace               coche/décoche la ligne focalisée,
+     *   Entrée               ouvre la fiche de la géocache,
+     *   Ctrl/Cmd+A           coche ou décoche toutes les lignes.
+     * Les contrôles natifs dans les cellules (cases, boutons) gardent leurs
+     * propres touches : seules les flèches leur sont « empruntées » pour
+     * ramener le focus sur la ligne.
+     */
+    const handleTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+        if (event.defaultPrevented || tableRows.length === 0) {
+            return;
+        }
+        const target = event.target as HTMLElement;
+        const onNativeControl = target instanceof HTMLInputElement || target instanceof HTMLButtonElement;
+        const currentIndex = tableRows.findIndex(row => row.id === focusedRowId);
+
+        const moveFocus = (nextIndex: number, extendSelection: boolean): void => {
+            const clamped = Math.max(0, Math.min(tableRows.length - 1, nextIndex));
+            const nextRow = tableRows[clamped];
+            if (!nextRow) {
+                return;
+            }
+            if (extendSelection && focusedRowId && focusedRowId !== nextRow.id) {
+                // Point de départ de l'extension : la ligne focalisée quand Maj
+                // a été pressé — sans ancre existante, c'est elle qui l'est.
+                if (!rangeAnchorIdRef.current) {
+                    rangeAnchorIdRef.current = focusedRowId;
+                }
+                selectRowRange(table, rangeAnchorIdRef.current, nextRow.id);
+            }
+            setFocusedRowId(nextRow.id);
+            scrollRowIntoView(clamped);
+        };
+
+        switch (event.key) {
+            case 'ArrowDown':
+                event.preventDefault();
+                moveFocus(currentIndex < 0 ? 0 : currentIndex + 1, event.shiftKey);
+                return;
+            case 'ArrowUp':
+                event.preventDefault();
+                moveFocus(currentIndex < 0 ? 0 : currentIndex - 1, event.shiftKey);
+                return;
+            case 'Home':
+                event.preventDefault();
+                moveFocus(0, event.shiftKey);
+                return;
+            case 'End':
+                event.preventDefault();
+                moveFocus(tableRows.length - 1, event.shiftKey);
+                return;
+            case ' ':
+                if (onNativeControl || currentIndex < 0) {
+                    return;
+                }
+                event.preventDefault();
+                tableRows[currentIndex].toggleSelected();
+                rangeAnchorIdRef.current = tableRows[currentIndex].id;
+                return;
+            case 'Enter':
+                if (onNativeControl || currentIndex < 0) {
+                    return;
+                }
+                event.preventDefault();
+                onRowClick?.(tableRows[currentIndex].original);
+                return;
+            default:
+                if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A') && !onNativeControl) {
+                    event.preventDefault();
+                    table.toggleAllRowsSelected();
+                }
+        }
+    };
 
     const showContextMenu = (geocache: Geocache, event: React.MouseEvent) => {
         event.preventDefault();
@@ -1806,9 +1937,10 @@ ${origin}`}
             <div
                 ref={tableScrollRef}
                 className="geoapp-gc-table__scroll"
+                onKeyDown={handleTableKeyDown}
                 style={{ ['--geoapp-gc-row-height' as string]: `${VIRTUAL_ROW_HEIGHT}px` } as React.CSSProperties}
             >
-                <table className="geoapp-gc-table">
+                <table className="geoapp-gc-table" aria-label='Géocaches de la zone'>
                     <thead>
                         {table.getHeaderGroups().map(headerGroup => (
                             <tr key={headerGroup.id}>
@@ -1817,6 +1949,17 @@ ${origin}`}
                                         key={header.id}
                                         className={header.column.getCanSort() ? 'geoapp-gc-table__th geoapp-gc-table__th--sortable' : 'geoapp-gc-table__th'}
                                         onClick={header.column.getToggleSortingHandler()}
+                                        onKeyDown={header.column.getCanSort() ? event => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                header.column.getToggleSortingHandler()?.(event);
+                                            }
+                                        } : undefined}
+                                        tabIndex={header.column.getCanSort() ? 0 : undefined}
+                                        aria-sort={!header.column.getCanSort() ? undefined
+                                            : header.column.getIsSorted() === 'asc' ? 'ascending'
+                                            : header.column.getIsSorted() === 'desc' ? 'descending'
+                                            : 'none'}
                                         style={{ width: header.column.getSize() }}
                                     >
                                         <div className="geoapp-gc-table__th-inner">
@@ -1842,11 +1985,17 @@ ${origin}`}
                         {virtualRows.map(row => (
                             <tr
                                 key={row.id}
+                                data-row-id={row.id}
+                                tabIndex={row.id === tabbableRowId ? 0 : -1}
                                 // Clic simple : bascule immédiate (pas de debounce —
                                 // les deux clics d'un double-clic s'annulent avant
                                 // l'ouverture). Ctrl+clic suit le même chemin.
                                 // Shift+clic : coche la plage depuis l'ancre.
                                 onClick={e => {
+                                    // La ligne prend le focus : les flèches
+                                    // repartent d'ici, pas du haut du tableau.
+                                    e.currentTarget.focus();
+                                    setFocusedRowId(row.id);
                                     if (e.shiftKey && rangeAnchorIdRef.current
                                         && selectRowRange(table, rangeAnchorIdRef.current, row.id)) {
                                         return;

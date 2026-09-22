@@ -52,6 +52,18 @@ La première colonne contient des **cases à cocher**, mais toute la ligne réag
 
 La case du **tout premier en-tête** coche ou décoche toutes les lignes visibles.
 
+Le tableau est aussi navigable au clavier : `Tab` place le focus sur la ligne courante, puis :
+
+| Touche | Action |
+|---|---|
+| ↓ / ↑ | Ligne suivante / précédente |
+| `Maj`+↓ / `Maj`+↑ | Déplace le focus **en cochant** la plage parcourue |
+| `Début` / `Fin` | Première / dernière ligne |
+| `Espace` | Coche / décoche la ligne focalisée |
+| `Entrée` | Ouvre la fiche de la géocache |
+| `Ctrl`+`A` | Coche (ou décoche) toutes les lignes |
+| `Entrée` / `Espace` sur un en-tête | Trie par cette colonne |
+
 Les géocaches cochées s'affichent en surbrillance et la **barre d'actions** apparaît au-dessus du tableau : **Loguer**, **Analyser IA**, **Exporter GPX**, **Rafraîchir**, **Copier**, **Déplacer**, **Supprimer**… La sélection est aussi reflétée sur la carte de la zone.
 
 > 💡 **Shift+clic** ajoute la plage à la sélection en cours : il ne décoche jamais. Si la ligne de départ a été filtrée entre-temps, le Shift+clic se comporte comme un clic simple.

@@ -75,6 +75,25 @@
 }
 
 /*
+ * Focus clavier sur une ligne. box-shadow inset plutôt qu'outline : outline
+ * n'est pas rendu de façon fiable sur un <tr>. :focus-visible le réserve à la
+ * navigation clavier — un clic souris ne le fait pas apparaître.
+ */
+.geoapp-gc-table__row:focus {
+    outline: none;
+}
+
+.geoapp-gc-table__row:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--theia-focusBorder);
+}
+
+/* En-tête triable focalisé au clavier. */
+.geoapp-gc-table__th--sortable:focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+/*
  * Codes couleur « amis » sur les lignes.
  * Ces états ne s'appliquent que quand des données d'amis sont disponibles.
  * La sélection prend le dessus sur ces couleurs : ses règles sont déclarées
