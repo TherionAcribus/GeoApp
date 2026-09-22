@@ -2,7 +2,7 @@
 title: "Gérer les zones"
 description: "Le panneau Zones : créer, trier, déplier, déplacer, fusionner et supprimer zones et géocaches."
 order: 10
-tags: [zone, gestion, organisation, tri, déplacer, glisser-déposer, supprimer, clavier]
+tags: [zone, gestion, organisation, tri, déplacer, glisser-déposer, supprimer, clavier, tableau, sélection]
 ---
 
 # Gérer les zones
@@ -37,6 +37,28 @@ Le nombre de géocaches de chaque zone est affiché entre parenthèses.
 ## Ouvrir le tableau d'une zone
 
 **Double-clic** sur une zone → ouvre son **tableau de géocaches** (vue complète avec colonnes, tri, filtres, export). Vous pouvez aussi utiliser **Ouvrir** dans le menu contextuel.
+
+### Sélectionner des géocaches dans le tableau
+
+La première colonne contient des **cases à cocher**, mais toute la ligne réagit :
+
+| Geste | Action |
+|---|---|
+| **Clic** sur une ligne (ou sa case) | Coche / décoche la géocache |
+| **Ctrl+clic** | Coche / décoche une géocache sans toucher aux autres |
+| **Shift+clic** | Coche toute la **plage** entre la dernière géocache cliquée et celle-ci (dans l'ordre affiché à l'écran) |
+| **Double-clic** sur une ligne | Ouvre la fiche de la géocache (et la carte) |
+| **Clic** sur le code GC (lien souligné) | Ouvre la fiche de la géocache (et la carte) |
+
+La case du **tout premier en-tête** coche ou décoche toutes les lignes visibles.
+
+Les géocaches cochées s'affichent en surbrillance et la **barre d'actions** apparaît au-dessus du tableau : **Loguer**, **Analyser IA**, **Exporter GPX**, **Rafraîchir**, **Copier**, **Déplacer**, **Supprimer**… La sélection est aussi reflétée sur la carte de la zone.
+
+> 💡 **Shift+clic** ajoute la plage à la sélection en cours : il ne décoche jamais. Si la ligne de départ a été filtrée entre-temps, le Shift+clic se comporte comme un clic simple.
+
+### Rafraîchissement du tableau
+
+Quand une action recharge la liste (import, suppression, rafraîchissement…), le tableau **reste affiché** : votre tri, vos filtres, votre sélection et votre position de défilement sont conservés. Un badge **« Mise à jour… »** en haut à droite indique que les données se rafraîchissent en arrière-plan.
 
 ## Trier les géocaches d'une zone
 

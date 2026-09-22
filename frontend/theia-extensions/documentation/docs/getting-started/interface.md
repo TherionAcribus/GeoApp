@@ -50,7 +50,7 @@ En haut de l'onglet, une barre d'outils propose : traduction, analyse IA, ouvert
 
 ### Onglet Table de géocaches (zone)
 
-S'ouvre en double-cliquant sur une zone. Affiche toutes les géocaches de la zone sous forme de tableau triable/filtrable.
+S'ouvre en double-cliquant sur une zone. Affiche toutes les géocaches de la zone sous forme de tableau triable/filtrable, avec sélection multiple (clic, Ctrl+clic, Shift+clic) et actions en masse — voir [Gérer les zones](../zones/overview.md#ouvrir-le-tableau-dune-zone).
 
 ### Onglet Carte
 

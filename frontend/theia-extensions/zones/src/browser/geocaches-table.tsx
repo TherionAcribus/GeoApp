@@ -7,6 +7,7 @@ import {
     ColumnOrderState,
     flexRender,
     SortingState,
+    Table,
     VisibilityState,
 } from '@tanstack/react-table';
 import { ContextMenu, ContextMenuItem } from './context-menu';
@@ -456,6 +457,30 @@ const SelectAllCheckbox: React.FC<{
 };
 
 /**
+ * Shift+clic : coche toutes les lignes entre `anchorRowId` et `targetRowId`
+ * dans l'ordre du rowModel courant (tri et filtres appliqués — la plage suit
+ * ce que l'utilisateur voit). Union avec la sélection existante : un Shift+clic
+ * ne décoche jamais, ce sont des cases à cocher et non une sélection exclusive.
+ * Retourne faux si une des bornes n'est pas visible — l'appelant retombe alors
+ * sur un simple toggle.
+ */
+function selectRowRange(table: Table<Geocache>, anchorRowId: string, targetRowId: string): boolean {
+    const rows = table.getRowModel().rows;
+    const from = rows.findIndex(row => row.id === anchorRowId);
+    const to = rows.findIndex(row => row.id === targetRowId);
+    if (from < 0 || to < 0 || from === to) {
+        return false;
+    }
+    const [start, end] = from < to ? [from, to] : [to, from];
+    const added: Record<string, boolean> = {};
+    for (const row of rows.slice(start, end + 1)) {
+        added[row.id] = true;
+    }
+    table.setRowSelection(previous => ({ ...(previous as Record<string, boolean>), ...added }));
+    return true;
+}
+
+/**
  * Filtres propres au mode « sortie » (périmètre et état des trouvailles).
  *
  * Ils vivent dans la barre de filtres du tableau, pas dans le panneau latéral :
@@ -582,6 +607,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [columnDragTarget, setColumnDragTarget] = React.useState<{ id: GeocachesTableColumnId; position: 'before' | 'after' } | null>(null);
     const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
     const [advancedClauses, setAdvancedClauses] = React.useState<AdvancedFilterClause[]>([]);
+    // Ancre du Shift+clic : dernière ligne (dé)sélectionnée sans Shift. Une
+    // sélection de plage part de cette ligne — elle survit aux changements de
+    // tri/filtre tant que la ligne reste visible dans le rowModel courant.
+    const rangeAnchorIdRef = React.useRef<string | null>(null);
     // Filtre rapide « caches de la sortie seulement » : un état d'affichage, au même
     // titre que la recherche — il vit avec le tableau, pas avec la sortie persistée.
     const [outingScopeOnly, setOutingScopeOnly] = React.useState(false);
@@ -748,13 +777,28 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         onChange={table.getToggleAllRowsSelectedHandler()}
                     />
                 ),
-                cell: ({ row }) => (
+                cell: ({ row, table }) => (
                     <input
                         type="checkbox"
                         checked={row.getIsSelected()}
                         disabled={!row.getCanSelect()}
                         onChange={row.getToggleSelectedHandler()}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={e => {
+                            e.stopPropagation();
+                            // Le clic sans Shift met à jour l'ancre puis laisse
+                            // onChange basculer la case ; avec Shift on annule le
+                            // toggle natif pour cocher toute la plage.
+                            if (!e.shiftKey) {
+                                rangeAnchorIdRef.current = row.id;
+                                return;
+                            }
+                            e.preventDefault();
+                            if (!rangeAnchorIdRef.current
+                                || !selectRowRange(table, rangeAnchorIdRef.current, row.id)) {
+                                row.toggleSelected();
+                                rangeAnchorIdRef.current = row.id;
+                            }
+                        }}
                     />
                 ),
                 size: 40,
@@ -1258,18 +1302,6 @@ ${origin}`}
     }, [selectedGeocacheIds]);
 
     const tableScrollRef = React.useRef<HTMLDivElement>(null);
-
-    // Debounce single/double-click pour éviter le décalage de layout entre les
-    // deux clicks d'un double-clic (l'action panel s'ouvre sur le single click
-    // et décale le tableau, faisant atterrir le 2e click sur une autre ligne).
-    const pendingClickRef = React.useRef<{ timer: ReturnType<typeof setTimeout>; rowId: string } | null>(null);
-    const tableRef = React.useRef(table);
-    tableRef.current = table;
-    React.useEffect(() => () => {
-        if (pendingClickRef.current) {
-            clearTimeout(pendingClickRef.current.timer);
-        }
-    }, []);
 
     const tableRows = table.getRowModel().rows;
     const { startIndex, endIndex, paddingTop, paddingBottom } = useRowVirtualizer(tableRows.length, tableScrollRef);
@@ -1810,25 +1842,20 @@ ${origin}`}
                         {virtualRows.map(row => (
                             <tr
                                 key={row.id}
-                                onClick={() => {
-                                    if (pendingClickRef.current?.rowId === row.id) {
-                                        clearTimeout(pendingClickRef.current.timer);
-                                        pendingClickRef.current = null;
-                                        onRowClick?.(row.original);
-                                    } else {
-                                        if (pendingClickRef.current) {
-                                            clearTimeout(pendingClickRef.current.timer);
-                                        }
-                                        const rowId = row.id;
-                                        pendingClickRef.current = {
-                                            rowId,
-                                            timer: setTimeout(() => {
-                                                tableRef.current.getRow(rowId)?.toggleSelected();
-                                                pendingClickRef.current = null;
-                                            }, 220),
-                                        };
+                                // Clic simple : bascule immédiate (pas de debounce —
+                                // les deux clics d'un double-clic s'annulent avant
+                                // l'ouverture). Ctrl+clic suit le même chemin.
+                                // Shift+clic : coche la plage depuis l'ancre.
+                                onClick={e => {
+                                    if (e.shiftKey && rangeAnchorIdRef.current
+                                        && selectRowRange(table, rangeAnchorIdRef.current, row.id)) {
+                                        return;
                                     }
+                                    row.toggleSelected();
+                                    rangeAnchorIdRef.current = row.id;
                                 }}
+                                onDoubleClick={() => onRowClick?.(row.original)}
+                                aria-selected={row.getIsSelected()}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
                                 className={
                                     (row.getIsSelected()
