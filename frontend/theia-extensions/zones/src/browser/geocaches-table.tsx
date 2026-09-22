@@ -695,6 +695,33 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [moveDialog, setMoveDialog] = React.useState<Geocache | null>(null);
     const [copyDialog, setCopyDialog] = React.useState<Geocache | null>(null);
     const [columnsMenuOpen, setColumnsMenuOpen] = React.useState(false);
+    const columnsMenuContainerRef = React.useRef<HTMLDivElement | null>(null);
+
+    // Le menu Colonnes se ferme au clic à l'extérieur et à Échap — sans ça il
+    // restait ouvert tant qu'on ne recliquait pas le bouton ou la croix.
+    React.useEffect(() => {
+        if (!columnsMenuOpen) {
+            return;
+        }
+        const onPointerDown = (event: MouseEvent) => {
+            const container = columnsMenuContainerRef.current;
+            if (container && !container.contains(event.target as Node)) {
+                setColumnsMenuOpen(false);
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setColumnsMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [columnsMenuOpen]);
+
     const [draggedColumnId, setDraggedColumnId] = React.useState<GeocachesTableColumnId | null>(null);
     const [columnDragTarget, setColumnDragTarget] = React.useState<{ id: GeocachesTableColumnId; position: 'before' | 'after' } | null>(null);
     const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
@@ -1717,9 +1744,11 @@ ${origin}`}
                         enumOptionsByField={enumOptionsByField}
                         resultCount={filteredData.length}
                     />
-                    <div style={{ position: 'relative' }}>
+                    <div ref={columnsMenuContainerRef} style={{ position: 'relative' }}>
                         <button
                             onClick={() => setColumnsMenuOpen(open => !open)}
+                            aria-expanded={columnsMenuOpen}
+                            aria-haspopup="dialog"
                             className="theia-button secondary"
                             title="Choisir les colonnes affichées"
                         >
@@ -1750,8 +1779,9 @@ ${origin}`}
                                         className="theia-button secondary"
                                         style={{ padding: '2px 6px' }}
                                         title="Fermer"
+                                        aria-label="Fermer le menu des colonnes"
                                     >
-                                        x
+                                        <span className="codicon codicon-close" />
                                     </button>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
