@@ -14,6 +14,15 @@ declare const global: any;
 
 require.extensions['.css'] = () => undefined;
 
+// Le module natif `canvas` n'est pas compilé sur ce poste : jsdom s'en passe
+// (il ne sert qu'au rendu <canvas>). Stub à {} pour qu'il soit « indisponible ».
+const Module = require('module');
+const originalLoad = Module._load;
+Module._load = function (request: string, ...rest: unknown[]) {
+    if (request === 'canvas') { return {}; }
+    return originalLoad.call(this, request, ...rest);
+};
+
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 global.window = dom.window;

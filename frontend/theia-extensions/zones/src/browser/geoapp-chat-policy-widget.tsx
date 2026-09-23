@@ -241,15 +241,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     @postConstruct()
     protected init(): void {
-        this.preferenceService.onPreferenceChanged(event => {
+        this.toDispose.push(this.preferenceService.onPreferenceChanged(event => {
             if (event.preferenceName?.startsWith('geoApp.chat.')) {
                 this.update();
             }
-        });
-        this.skillService?.onSkillsChanged(() => {
-            this.skillStatesLoaded = false;
-            this.update();
-        });
+        }));
+        if (this.skillService) {
+            this.toDispose.push(this.skillService.onSkillsChanged(() => {
+                this.skillStatesLoaded = false;
+                this.update();
+            }));
+        }
         this.update();
     }
 
