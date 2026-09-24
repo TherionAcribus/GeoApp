@@ -63,6 +63,10 @@ function createManager(services: {
     logsAnalysisService?: unknown;
     friendsService?: unknown;
     archiveService?: unknown;
+    mapService?: unknown;
+    outingPlanService?: unknown;
+    importAroundService?: unknown;
+    apiClient?: unknown;
 }): DocActionToolsManager {
     const manager = new Manager();
     for (const [key, value] of Object.entries(services)) {
@@ -462,6 +466,84 @@ async function testReadTools(): Promise<void> {
     assert.equal((archive.data as { exists: boolean }).exists, true);
 }
 
+// Carte : centrage + validation des coordonnees ; la carte est ouverte avant.
+async function testMapTools(): Promise<void> {
+    const centered: unknown[] = [];
+    const commands: string[] = [];
+    const manager = createManager({
+        commandService: { executeCommand: async (id: string) => { commands.push(id); } },
+        mapService: {
+            centerOnCoordinates: (lat: number, lon: number, zoom?: number) => { centered.push({ lat, lon, zoom }); },
+            centerOnGeocache: (g: { id: number }) => { centered.push({ geocache: g.id }); },
+            centerOnGeocaches: (list: unknown[]) => { centered.push({ count: list.length }); },
+        },
+        geocachesService: { get: async () => ({ id: 9, gc_code: 'GC9', name: 'M', latitude: 48.5, longitude: 2.3 }) },
+        zonesService: { listGeocachesTree: async () => [{ id: 1, latitude: 48, longitude: 2 }] },
+    });
+    const tools = manager.buildAllTools();
+
+    const bad = await call(findTool(tools, 'aide_map_center'), { latitude: 200, longitude: 2 });
+    assert.equal(bad.success, false);
+    assert.equal(centered.length, 0);
+
+    const okCenter = await call(findTool(tools, 'aide_map_center'), { latitude: 48.5, longitude: 2.3, zoom: 12 });
+    assert.equal(okCenter.success, true);
+    assert.deepEqual(centered[0], { lat: 48.5, lon: 2.3, zoom: 12 });
+    assert.ok(commands.includes('geoapp.map.toggle'));
+
+    const show = await call(findTool(tools, 'aide_map_show_geocache'), { geocache_id: 9 });
+    assert.equal(show.success, true);
+    assert.deepEqual(centered[1], { geocache: 9 });
+}
+
+// Checklists de sortie : liste compacte, maj des coches, suppression confirmee.
+async function testOutingTools(): Promise<void> {
+    const calls: Array<[number, unknown]> = [];
+    const manager = createManager({
+        outingPlanService: {
+            listPlans: async () => [{
+                id: 4, zone_name: 'Vosges', outing_date: '2026-09-05',
+                gc_codes: ['GC1', 'GC2'], checked: ['GC1'], source: 'tool', updated_at: 'x',
+            }],
+            setChecked: async (id: number, checked: string[]) => { calls.push([id, checked]); return { id }; },
+            deletePlan: async (id: number) => { calls.push([id, 'delete']); },
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const list = await call(findTool(tools, 'aide_list_outing_plans'), {});
+    const plans = list.data as Array<{ geocache_count: number; checked_count: number }>;
+    assert.equal(plans[0].geocache_count, 2);
+    assert.equal(plans[0].checked_count, 1);
+
+    await call(findTool(tools, 'aide_set_outing_plan_checked'), { plan_id: 4, checked_gc_codes: ['GC1', 'GC2'] });
+    assert.deepEqual(calls[0], [4, ['GC1', 'GC2']]);
+
+    assert.ok(findTool(tools, 'aide_delete_outing_plan').confirmAlwaysAllow);
+}
+
+// Import : la validation exige un centre ET une destination avant tout appel.
+async function testImportAroundValidation(): Promise<void> {
+    let ran = 0;
+    const manager = createManager({
+        importAroundService: {
+            resolveTargetZone: async () => ({ zoneId: 7, created: false }),
+            run: async () => { ran++; return 'Import OK'; },
+        },
+        widgetEventsService: { requestZonesRefresh: () => undefined },
+    });
+    const tools = manager.buildAllTools();
+    const tool = findTool(tools, 'aide_import_around');
+
+    assert.equal((await call(tool, { zone_id: 7 })).success, false);            // pas de centre
+    assert.equal((await call(tool, { gc_code: 'GC1' })).success, false);        // pas de destination
+    assert.equal(ran, 0);
+
+    const res = await call(tool, { gc_code: 'GC1', zone_id: 7, limit: 10 });
+    assert.equal(res.success, true);
+    assert.equal(ran, 1);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -476,6 +558,9 @@ async function run(): Promise<void> {
     await testStatusAndWaypointTools();
     await testBatchGeocacheTools();
     await testReadTools();
+    await testMapTools();
+    await testOutingTools();
+    await testImportAroundValidation();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

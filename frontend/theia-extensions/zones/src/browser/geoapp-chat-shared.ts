@@ -45,6 +45,25 @@ export const GeoAppChatAgentIdsByProfile: Record<GeoAppChatProfile, string> = {
     web: GeoAppChatWebAgentId,
 };
 
+export interface GeoAppChatPreset {
+    id: string;
+    label: string;
+    description: string;
+    behavior: GeoAppChatBehaviorProfile;
+    promptPack: GeoAppChatBehaviorProfile;
+    skillPack: GeoAppChatSkillPack;
+}
+
+// Presets combines : reglent d'un clic les trois axes (profil comportemental par
+// defaut, prompt pack, skill pack). Partages entre la vue Policy et le tool IA
+// `aide_apply_chat_preset`.
+export const GEOAPP_CHAT_PRESET_OPTIONS: GeoAppChatPreset[] = [
+    { id: 'discovery', label: 'Découverte', description: 'Aide active, confirmation sur les actions sensibles.', behavior: 'guided', promptPack: 'guided', skillPack: 'workflow' },
+    { id: 'autonomous', label: 'Autonome', description: 'Exécute davantage d\'étapes, toutes les skills exposées.', behavior: 'automation', promptPack: 'automation', skillPack: 'full' },
+    { id: 'cautious', label: 'Prudent', description: 'Peu d\'automatisation, skills essentielles seulement.', behavior: 'safe', promptPack: 'safe', skillPack: 'minimal' },
+    { id: 'offline', label: 'Hors-ligne', description: 'Aucun réseau ni checker, calculs locaux.', behavior: 'offline', promptPack: 'offline', skillPack: 'minimal' },
+];
+
 export interface GeoAppChatPreferenceValues {
     [GEOAPP_CHAT_DEFAULT_PROFILE_PREF]?: unknown;
     [GEOAPP_CHAT_SECRET_CODE_PROFILE_PREF]?: unknown;

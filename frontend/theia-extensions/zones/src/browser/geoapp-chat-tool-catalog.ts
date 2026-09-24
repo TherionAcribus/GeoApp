@@ -333,6 +333,24 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_archive_status': { registryId: 'aide_archive_status', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_friends': { registryId: 'aide_open_friends', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_friend_activity': { registryId: 'aide_open_friend_activity', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+
+    // Carte / sortie / systeme
+    'aide_map_show_geocache': { registryId: 'aide_map_show_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_map_center': { registryId: 'aide_map_center', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_map_show_zone': { registryId: 'aide_map_show_zone', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_outing_plans': { registryId: 'aide_list_outing_plans', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_outing_plan': { registryId: 'aide_get_outing_plan', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_set_outing_plan_checked': { registryId: 'aide_set_outing_plan_checked', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_outing_plan': { registryId: 'aide_delete_outing_plan', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_open_outing_plan': { registryId: 'aide_open_outing_plan', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_auth_status': { registryId: 'aide_get_auth_status', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_auth': { registryId: 'aide_open_auth', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_server_logs': { registryId: 'aide_open_server_logs', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_chat_policy': { registryId: 'aide_open_chat_policy', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_geocache_images': { registryId: 'aide_list_geocache_images', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_import_around': { registryId: 'aide_import_around', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_list_chat_presets': { registryId: 'aide_list_chat_presets', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_apply_chat_preset': { registryId: 'aide_apply_chat_preset', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
 };
 
 @injectable()

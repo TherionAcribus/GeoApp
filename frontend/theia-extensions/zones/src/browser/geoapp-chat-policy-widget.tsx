@@ -26,6 +26,8 @@ import {
     GEOAPP_CHAT_SKILL_PACK_PREF,
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
     GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
+    GEOAPP_CHAT_PRESET_OPTIONS,
+    GeoAppChatPreset,
     GeoAppChatBehaviorProfile,
     GeoAppChatSkillPack,
     GeoAppChatSessionKind,
@@ -73,23 +75,8 @@ const SKILL_PACK_OPTIONS: Array<{ value: GeoAppChatSkillPack; label: string }> =
     { value: 'disabled', label: 'Disabled' },
 ];
 
-interface GeoAppChatPreset {
-    id: string;
-    label: string;
-    description: string;
-    behavior: GeoAppChatBehaviorProfile;
-    promptPack: GeoAppChatBehaviorProfile;
-    skillPack: GeoAppChatSkillPack;
-}
-
-// Presets combines : reglent d'un clic les trois axes (profil comportemental par defaut,
-// prompt pack, skill pack) qui sont sinon a configurer separement.
-const PRESET_OPTIONS: GeoAppChatPreset[] = [
-    { id: 'discovery', label: 'Découverte', description: 'Aide active, confirmation sur les actions sensibles.', behavior: 'guided', promptPack: 'guided', skillPack: 'workflow' },
-    { id: 'autonomous', label: 'Autonome', description: 'Exécute davantage d\'étapes, toutes les skills exposées.', behavior: 'automation', promptPack: 'automation', skillPack: 'full' },
-    { id: 'cautious', label: 'Prudent', description: 'Peu d\'automatisation, skills essentielles seulement.', behavior: 'safe', promptPack: 'safe', skillPack: 'minimal' },
-    { id: 'offline', label: 'Hors-ligne', description: 'Aucun réseau ni checker, calculs locaux.', behavior: 'offline', promptPack: 'offline', skillPack: 'minimal' },
-];
+// Presets partages avec le tool IA `aide_apply_chat_preset` (source unique).
+const PRESET_OPTIONS = GEOAPP_CHAT_PRESET_OPTIONS;
 
 type GeoAppChatAgentModelKind = 'chat' | 'internal';
 

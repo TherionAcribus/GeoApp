@@ -18,6 +18,18 @@ import { GeocacheLogsFetchService } from 'theia-ide-zones-ext/lib/browser/geocac
 import { GeocacheLogsAnalysisService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-analysis-service';
 import { FriendsService } from 'theia-ide-zones-ext/lib/browser/friends-service';
 import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
+import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
+import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
+import { ImportAroundService } from 'theia-ide-zones-ext/lib/browser/import-around-service';
+import { BackendApiClient } from 'theia-ide-zones-ext/lib/browser/backend-api-client';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
+import {
+    GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_PRESET_OPTIONS,
+    GEOAPP_CHAT_PROMPT_PACK_PREF,
+    GEOAPP_CHAT_SKILL_PACK_PREF,
+} from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 import {
     buildGeocacheFullListingContext,
     GeocachePromptData,
@@ -185,6 +197,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(ArchiveManagerService)
     protected readonly archiveService!: ArchiveManagerService;
 
+    @inject(MapService)
+    protected readonly mapService!: MapService;
+
+    @inject(OutingPlanService)
+    protected readonly outingPlanService!: OutingPlanService;
+
+    @inject(ImportAroundService)
+    protected readonly importAroundService!: ImportAroundService;
+
+    @inject(BackendApiClient)
+    protected readonly apiClient!: BackendApiClient;
+
+    @inject(PreferenceService)
+    protected readonly preferenceService!: PreferenceService;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -211,6 +238,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildLogTools(),
             ...this.buildFriendTools(),
             ...this.buildArchiveTools(),
+            ...this.buildMapTools(),
+            ...this.buildOutingTools(),
+            ...this.buildSystemAndImportTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -2258,6 +2288,387 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         const status = await this.geocacheDetailsService.getArchiveStatus(String(args.gc_code));
                         return ok(status ?? { exists: false });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Carte ────────────────────────────────────────────────────────────────
+
+    private buildMapTools(): ToolRequest[] {
+        const openMap = async (): Promise<void> => {
+            await this.commandService.executeCommand('geoapp.map.toggle');
+        };
+        return [
+            {
+                id: 'aide_map_show_geocache',
+                name: 'aide_map_show_geocache',
+                description: 'Ouvre la carte et la centre sur une géocache (la sélectionne sur la carte).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    zoom: { type: 'number', description: 'Niveau de zoom (optionnel).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const raw = await this.geocachesService.get<Record<string, unknown>>(geocacheId);
+                        const latitude = Number(raw['latitude']);
+                        const longitude = Number(raw['longitude']);
+                        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+                            return err('Coordonnées de la géocache indisponibles.');
+                        }
+                        const selected: SelectedGeocache = {
+                            id: geocacheId,
+                            gc_code: String(raw['gc_code'] ?? ''),
+                            name: String(raw['name'] ?? ''),
+                            latitude,
+                            longitude,
+                            cache_type: String(raw['cache_type'] ?? raw['type'] ?? ''),
+                        };
+                        await openMap();
+                        this.mapService.centerOnGeocache(selected, args.zoom ? Number(args.zoom) : undefined);
+                        return ok(`Carte centrée sur ${selected.gc_code || geocacheId}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_center',
+                name: 'aide_map_center',
+                description: 'Ouvre la carte et la centre sur des coordonnées décimales (sans sélectionner de géocache).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    latitude: { type: 'number', description: 'Latitude décimale.', required: true },
+                    longitude: { type: 'number', description: 'Longitude décimale.', required: true },
+                    zoom: { type: 'number', description: 'Niveau de zoom (défaut : zoom courant ou 15).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const latitude = Number(args.latitude);
+                        const longitude = Number(args.longitude);
+                        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+                            || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+                            return err('Coordonnées invalides.');
+                        }
+                        await openMap();
+                        this.mapService.centerOnCoordinates(latitude, longitude, args.zoom ? Number(args.zoom) : undefined);
+                        return ok(`Carte centrée sur ${latitude}, ${longitude}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_show_zone',
+                name: 'aide_map_show_zone',
+                description: 'Ouvre la carte et affiche toutes les géocaches d\'une zone (centrage sur l\'étendue).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocaches = await this.zonesService.listGeocachesTree<Array<Record<string, unknown>>>(Number(args.zone_id));
+                        const selected = (geocaches ?? [])
+                            .filter(g => Number.isFinite(Number(g['latitude'])) && Number.isFinite(Number(g['longitude'])))
+                            .map(g => ({
+                                id: Number(g['id']),
+                                gc_code: String(g['gc_code'] ?? ''),
+                                name: String(g['name'] ?? ''),
+                                latitude: Number(g['latitude']),
+                                longitude: Number(g['longitude']),
+                                cache_type: String(g['cache_type'] ?? g['type'] ?? ''),
+                            } as SelectedGeocache));
+                        if (!selected.length) {
+                            return err('Aucune géocache avec coordonnées dans cette zone.');
+                        }
+                        await openMap();
+                        this.mapService.centerOnGeocaches(selected);
+                        return ok(`Carte centrée sur ${selected.length} géocache(s) de la zone ${args.zone_id}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Checklist de sortie ──────────────────────────────────────────────────
+
+    private buildOutingTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_outing_plans',
+                name: 'aide_list_outing_plans',
+                description: 'Liste les checklists de sortie enregistrées (id, titre, date, nombre de caches).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    limit: { type: 'number', description: 'Nombre max de plans (défaut 20).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const plans = await this.outingPlanService.listPlans({ limit: Number(args.limit) || 20 });
+                        return ok(plans.map(plan => ({
+                            id: plan.id,
+                            zone_name: plan.zone_name,
+                            outing_date: plan.outing_date,
+                            geocache_count: plan.gc_codes?.length ?? 0,
+                            checked_count: plan.checked?.length ?? 0,
+                            source: plan.source,
+                            updated_at: plan.updated_at,
+                        })));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_outing_plan',
+                name: 'aide_get_outing_plan',
+                description: 'Retourne le détail d\'une checklist de sortie (géocaches, état coché, rapport).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plan_id: { type: 'number', description: 'ID du plan.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.outingPlanService.getPlan(Number(args.plan_id)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_outing_plan_checked',
+                name: 'aide_set_outing_plan_checked',
+                description: 'Met à jour les cases cochées d\'une checklist de sortie ' +
+                    '(liste complète des codes GC cochés — remplace l\'état courant).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plan_id: { type: 'number', description: 'ID du plan.', required: true },
+                    checked_gc_codes: { type: 'array', description: 'Codes GC des caches marquées comme faites.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const checked = (args.checked_gc_codes as unknown[]).map(String);
+                        const plan = await this.outingPlanService.setChecked(Number(args.plan_id), checked);
+                        return ok({ id: plan.id, checked_count: checked.length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_outing_plan',
+                name: 'aide_delete_outing_plan',
+                description: 'Supprime définitivement une checklist de sortie. Irréversible.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plan_id: { type: 'number', description: 'ID du plan.', required: true },
+                }),
+                confirmAlwaysAllow: 'Supprimer cette checklist de sortie ? Cette action est irréversible.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.outingPlanService.deletePlan(Number(args.plan_id));
+                        return ok(`Checklist ${args.plan_id} supprimée.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_outing_plan',
+                name: 'aide_open_outing_plan',
+                description: 'Ouvre le panneau des checklists de sortie.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.outing.plan.open');
+                        return ok('Panneau des checklists de sortie ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Systeme, auth, images et import ──────────────────────────────────────
+
+    private buildSystemAndImportTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_get_auth_status',
+                name: 'aide_get_auth_status',
+                description: 'Retourne l\'état de connexion Geocaching.com (connecté, compte, statistiques).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.apiClient.requestJson('/api/auth/status'));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_auth',
+                name: 'aide_open_auth',
+                description: 'Ouvre le panneau de connexion Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.auth.open');
+                        return ok('Panneau de connexion ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_server_logs',
+                name: 'aide_open_server_logs',
+                description: 'Ouvre le terminal des logs du serveur backend GeoApp.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.serverLogs.open');
+                        return ok('Terminal des logs serveur ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_chat_policy',
+                name: 'aide_open_chat_policy',
+                description: 'Ouvre la vue « Policy Chat IA » : profils comportementaux, matrice des tools, ' +
+                    'skills, modèles et diagnostics. À proposer quand un tool est indisponible ou bloqué.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.chat.policy.open');
+                        return ok('Vue Policy Chat IA ouverte.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_chat_presets',
+                name: 'aide_list_chat_presets',
+                description: 'Liste les presets du Chat IA (Découverte, Autonome, Prudent, Hors-ligne) ' +
+                    'qui règlent en une fois profil comportemental, prompt pack et skill pack.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => ok(GEOAPP_CHAT_PRESET_OPTIONS.map(p => ({
+                    id: p.id, label: p.label, description: p.description,
+                    behavior: p.behavior, prompt_pack: p.promptPack, skill_pack: p.skillPack,
+                }))),
+            },
+            {
+                id: 'aide_apply_chat_preset',
+                name: 'aide_apply_chat_preset',
+                description: 'Applique un preset du Chat IA (voir aide_list_chat_presets) : règle les préférences ' +
+                    'geoApp.chat.behaviorProfile.default, promptPack et skillPack.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    preset: {
+                        type: 'string', required: true,
+                        description: 'ID du preset.',
+                        enum: GEOAPP_CHAT_PRESET_OPTIONS.map(p => p.id),
+                    },
+                }),
+                confirmAlwaysAllow: 'Appliquer ce preset Chat IA ? Il remplace les réglages comportement/prompt/skills actuels.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const preset = GEOAPP_CHAT_PRESET_OPTIONS.find(p => p.id === args.preset);
+                        if (!preset) { return err(`Preset inconnu : ${args.preset}.`); }
+                        await Promise.all([
+                            this.preferenceService.set(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, preset.behavior, PreferenceScope.User),
+                            this.preferenceService.set(GEOAPP_CHAT_PROMPT_PACK_PREF, preset.promptPack, PreferenceScope.User),
+                            this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, preset.skillPack, PreferenceScope.User),
+                        ]);
+                        return ok(`Preset « ${preset.label} » appliqué (${preset.behavior} / ${preset.promptPack} / ${preset.skillPack}).`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_geocache_images',
+                name: 'aide_list_geocache_images',
+                description: 'Liste les images d\'une géocache (id, url, légende) stockées ou liées à la fiche.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const images = await this.apiClient.requestJson<Array<Record<string, unknown>>>(
+                            `/api/geocaches/${geocacheId}/images`
+                        );
+                        return ok({
+                            geocache_id: geocacheId,
+                            count: images.length,
+                            images: images.slice(0, 50).map(img => ({
+                                id: img['id'],
+                                url: img['url'] ?? img['source_url'],
+                                caption: img['caption'] ?? img['name'],
+                            })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_around',
+                name: 'aide_import_around',
+                description: 'Importe dans GeoApp les géocaches situées autour d\'un point ou d\'une cache ' +
+                    '(accès réseau Geocaching.com). Destination : zone existante (zone_id) ou nouvelle zone (new_zone_name).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC servant de centre (ex: "GC8ABCD").', required: false },
+                    geocache_id: { type: 'number', description: 'ID de la géocache servant de centre.', required: false },
+                    latitude: { type: 'number', description: 'Latitude du centre (avec longitude).', required: false },
+                    longitude: { type: 'number', description: 'Longitude du centre (avec latitude).', required: false },
+                    zone_id: { type: 'number', description: 'ID de la zone de destination existante.', required: false },
+                    new_zone_name: { type: 'string', description: 'Nom de la nouvelle zone à créer si pas de zone_id.', required: false },
+                    radius_km: { type: 'number', description: 'Rayon de recherche en km (défaut : réglage de l\'app).', required: false },
+                    limit: { type: 'number', description: 'Nombre max de caches à importer (défaut 50).', required: false },
+                }),
+                confirmAlwaysAllow: 'Lancer un import de géocaches depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        let center;
+                        if (args.gc_code) {
+                            center = { type: 'gc_code' as const, gc_code: String(args.gc_code) };
+                        } else if (args.geocache_id) {
+                            center = { type: 'geocache_id' as const, geocache_id: Number(args.geocache_id) };
+                        } else if (args.latitude !== undefined && args.longitude !== undefined) {
+                            center = { type: 'point' as const, lat: Number(args.latitude), lon: Number(args.longitude) };
+                        } else {
+                            return err('Fournissez un centre : gc_code, geocache_id ou latitude+longitude.');
+                        }
+
+                        const zone_id = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
+                        const new_zone_name = args.new_zone_name ? String(args.new_zone_name) : undefined;
+                        if (zone_id === undefined && !new_zone_name) {
+                            return err('Fournissez zone_id ou new_zone_name pour la destination.');
+                        }
+
+                        const target = await this.importAroundService.resolveTargetZone(
+                            zone_id !== undefined
+                                ? { type: 'existing_zone', zone_id }
+                                : { type: 'new_zone', name: new_zone_name! }
+                        );
+                        const summary = await this.importAroundService.run(target.zoneId, {
+                            center,
+                            target: zone_id !== undefined
+                                ? { type: 'existing_zone', zone_id }
+                                : { type: 'new_zone', name: new_zone_name! },
+                            limit: Math.min(Math.max(Number(args.limit) || 50, 1), 500),
+                            radius_km: args.radius_km !== undefined ? Number(args.radius_km) : undefined,
+                        });
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok({
+                            zone_id: target.zoneId,
+                            zone_created: target.created,
+                            summary: summary ?? 'Import terminé.',
+                        });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

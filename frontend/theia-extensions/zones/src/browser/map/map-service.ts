@@ -363,6 +363,14 @@ export class MapService {
     }
 
     /**
+     * Centre la vue sur des coordonnées décimales sans sélectionner de géocache
+     * (utilisé par le tool IA `aide_map_center`).
+     */
+    centerOnCoordinates(latitude: number, longitude: number, zoom?: number): void {
+        this.updateView([longitude, latitude], zoom ?? this.currentView?.zoom ?? 15);
+    }
+
+    /**
      * Met à jour l'état de la vue de la carte
      */
     updateView(center: Coordinate, zoom: number): void {
