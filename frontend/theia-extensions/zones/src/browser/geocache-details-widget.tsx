@@ -62,7 +62,7 @@ import {
     GeoAppChatWorkflowKind
 } from './geoapp-chat-agent';
 import { FreeChatDialog, FreeChatDialogResult } from './geocache-free-chat-dialog';
-import { GeocacheDetailsHeaderActionRegistry } from './geocache-details-header-actions';
+import { GeocacheDetailsHeaderAction, GeocacheDetailsHeaderActionRegistry } from './geocache-details-header-actions';
 
 /**
  * Domaines qui refusent l'affichage dans une iframe (X-Frame-Options /
@@ -1478,6 +1478,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         window.open(url, '_blank', 'noopener,noreferrer');
     };
 
+    private openGeocachePage = (): void => {
+        const url = this.data?.url;
+        if (url) {
+            this.openExternalLink(url);
+        }
+    };
+
     private async confirmStoreAllImages(options: { geocacheId: number; pendingCount: number }): Promise<boolean> {
         const dialog = new ConfirmDialog({
             title: 'Stockage local des images',
@@ -1595,6 +1602,20 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         return this.cachedHiddenDomains;
     }
 
+    // Cache des actions de header : getActions() retourne un nouveau tableau à
+    // chaque appel, ce qui casserait React.memo sur le header. On ne recalcule
+    // que lorsque l'objet geocacheData change (les contributions sont enregistrées
+    // au démarrage et ne varient pas en cours de session).
+    private cachedExtraActionsFor?: GeocacheDto;
+    private cachedExtraActions: GeocacheDetailsHeaderAction[] = [];
+    private getStableExtraActions(d: GeocacheDto): GeocacheDetailsHeaderAction[] {
+        if (d !== this.cachedExtraActionsFor) {
+            this.cachedExtraActionsFor = d;
+            this.cachedExtraActions = this.headerActionRegistry.getActions({ geocacheData: d });
+        }
+        return this.cachedExtraActions;
+    }
+
     protected render(): React.ReactNode {
         const d = this.data;
         const displayDecodedHints = this.preferencesController.getDisplayDecodedHints();
@@ -1635,8 +1656,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onForceSyncArchive: this.forceSyncArchive,
                     onResolveOwnerGuid: this.resolveOwnerGuid,
                     onOpenOwnerUrl: this.openOwnerUrl,
-                    onOpenGeocachePage: () => { if (d?.url) { this.openExternalLink(d.url); } },
-                    extraActions: this.headerActionRegistry.getActions({ geocacheData: d! }),
+                    onOpenGeocachePage: this.openGeocachePage,
+                    extraActions: this.getStableExtraActions(d!),
                 }}
                 coordinatesEditorProps={{
                     geocacheData: d!,

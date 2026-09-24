@@ -26,6 +26,7 @@ type WaypointsEditorProps = React.ComponentProps<typeof WaypointsEditorWrapper>;
  * passees ici gardent des references stables (cf. geocache-details-widget), `React.memo`
  * evite de re-rendre la galerie d'images, l'editeur de description et les waypoints.
  */
+const MemoGeocacheDetailsHeader = React.memo(GeocacheDetailsHeader);
 const MemoCoordinatesEditor = React.memo(CoordinatesEditor);
 const MemoDescriptionEditor = React.memo(DescriptionEditor);
 const MemoGeocacheImagesPanel = React.memo(GeocacheImagesPanel);
@@ -107,7 +108,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                 }}
                 aria-busy={isLoading}
             >
-                <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+                <MemoGeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} isRefreshing={isRefreshing} />
 
                 {apiBaseUrl && geocacheData.id ? (
                     <GeocacheFriendFindsBanner geocacheId={geocacheData.id} apiBaseUrl={apiBaseUrl} />
