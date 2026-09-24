@@ -966,15 +966,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     }
 
     protected async loadArchiveStatus(): Promise<void> {
-        if (!this.data?.gc_code) {
+        // Capture dès le départ : l'utilisateur peut changer de géocache pendant l'appel.
+        const geocacheId = this.geocacheId;
+        const gcCode = this.data?.gc_code;
+        if (!gcCode) {
             this.applyArchiveState({ status: 'none' });
             return;
         }
         this.archiveStatus = 'loading';
         this.update();
         try {
-            this.applyArchiveState(await this.archiveController.loadArchiveState(this.data.gc_code));
+            const archiveState = await this.archiveController.loadArchiveState(gcCode);
+            // Ignorer si l'utilisateur a changé de géocache entre-temps.
+            if (this.geocacheId !== geocacheId) { return; }
+            this.applyArchiveState(archiveState);
         } catch {
+            if (this.geocacheId !== geocacheId) { return; }
             this.applyArchiveState({ status: 'none' });
         }
         this.update();
@@ -1450,17 +1457,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     private async refreshChatRoutingPreview(): Promise<void> {
+        // Capture dès le départ : l'utilisateur peut changer de géocache pendant l'appel.
+        const geocacheId = this.geocacheId;
         this.isChatRoutingPreviewLoading = true;
         this.update();
         try {
             const routingState = await this.chatController.resolveRoutingPreview(
-                this.geocacheId && this.data ? this.geocacheId : undefined
+                geocacheId && this.data ? geocacheId : undefined
             );
+            // Ignorer si l'utilisateur a changé de géocache entre-temps.
+            if (this.geocacheId !== geocacheId) { return; }
             this.chatWorkflowPreview = routingState.workflowPreview;
             this.chatProfilePreview = routingState.profilePreview;
         } catch (error) {
             console.warn('[GeocacheDetailsWidget] refreshChatRoutingPreview error', error);
             const routingState = await this.chatController.resolveRoutingPreview(undefined);
+            if (this.geocacheId !== geocacheId) { return; }
             this.chatWorkflowPreview = routingState.workflowPreview;
             this.chatProfilePreview = routingState.profilePreview;
         } finally {

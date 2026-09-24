@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { GeocacheDto, GeocacheSolvedStatus } from './geocache-details-types';
+import { parseFlexibleGCCoords } from './geocache-details-utils';
 
 export interface CoordinatesEditorProps {
     geocacheData: GeocacheDto;
@@ -28,6 +29,13 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     const displayCoords = geocacheData.coordinates_raw || geocacheData.original_coordinates_raw || '';
     const originalCoords = geocacheData.original_coordinates_raw || '';
     const isCorrected = geocacheData.is_corrected === true;
+
+    const coordsError = React.useMemo(() => {
+        const v = editedCoords.trim();
+        if (!v) { return null; }
+        return parseFlexibleGCCoords(v) ? null : 'Format attendu : N 48° 51.402 E 002° 21.048';
+    }, [editedCoords]);
+    const canSave = editedCoords.trim().length > 0 && !coordsError;
 
     React.useEffect(() => {
         setSolvedStatus(geocacheData.solved || 'not_solved');
@@ -159,18 +167,30 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                         type="text"
                         value={editedCoords}
                         onChange={(e) => setEditedCoords(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && canSave) {
+                                void saveCoordinates();
+                            } else if (e.key === 'Escape') {
+                                cancelEdit();
+                            }
+                        }}
                         placeholder="N 48° 51.402 E 002° 21.048"
                         style={{
                             width: '100%',
                             padding: 8,
                             backgroundColor: 'var(--theia-input-background)',
                             color: 'var(--theia-input-foreground)',
-                            border: '1px solid var(--theia-input-border)',
+                            border: `1px solid ${coordsError ? 'var(--theia-inputValidation-errorBorder)' : 'var(--theia-input-border)'}`,
                             borderRadius: 4,
                             fontFamily: 'monospace',
                             fontSize: 14
                         }}
                     />
+                    {coordsError && (
+                        <div style={{ fontSize: 11, color: 'var(--theia-inputValidation-errorForeground)', marginTop: 2 }}>
+                            {coordsError}
+                        </div>
+                    )}
 
                     {originalCoords && (
                         <div style={{ marginTop: 8 }}>
@@ -191,13 +211,15 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                     <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                         <button
                             onClick={saveCoordinates}
+                            disabled={!canSave}
                             style={{
                                 padding: '6px 16px',
                                 backgroundColor: 'var(--theia-button-background)',
                                 color: 'var(--theia-button-foreground)',
                                 border: 'none',
                                 borderRadius: 4,
-                                cursor: 'pointer'
+                                cursor: canSave ? 'pointer' : 'not-allowed',
+                                opacity: canSave ? 1 : 0.5
                             }}
                         >
                             Enregistrer
