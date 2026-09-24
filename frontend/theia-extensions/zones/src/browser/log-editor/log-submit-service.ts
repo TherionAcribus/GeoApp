@@ -68,7 +68,8 @@ async function compressImageForUpload(file: File): Promise<File> {
         return file;
     }
     try {
-        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        // 'from-image' (défaut de la spec) manque dans le type ImageOrientation de TS 4.9 : cast nécessaire.
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' as ImageOrientation });
         try {
             const scale = Math.min(1, IMAGE_MAX_DIMENSION_PX / Math.max(bitmap.width, bitmap.height));
             if (scale >= 1 && file.type === 'image/jpeg' && file.size <= IMAGE_MAX_SAFE_BYTES) {
