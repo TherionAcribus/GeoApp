@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { GeocacheDto, GeocacheSolvedStatus } from './geocache-details-types';
 import { parseFlexibleGCCoords } from './geocache-details-utils';
+import { handleMenuArrowKeys } from './context-menu';
+import '../../src/browser/style/geocache-details-header.css';
 
 export interface CoordinatesEditorProps {
     geocacheData: GeocacheDto;
@@ -9,6 +11,55 @@ export interface CoordinatesEditorProps {
     onResetCoordinates: () => Promise<void>;
     onPushCorrectedCoordinates: () => Promise<void>;
     onUpdateSolvedStatus: (newStatus: GeocacheSolvedStatus) => Promise<void>;
+    /** Ouverture des liens externes (les cartes en ligne sont forcées en fenêtre externe). */
+    onOpenExternalUrl?: (url: string) => void;
+}
+
+const mapMenuStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    minWidth: 220,
+    background: 'var(--theia-menu-background)',
+    border: '1px solid var(--theia-menu-border)',
+    borderRadius: 4,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+    zIndex: 100,
+    padding: '4px 0'
+};
+const mapMenuItemStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    textAlign: 'left',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '6px 12px',
+    fontSize: '0.9em'
+};
+
+/** Copie `text` dans le presse-papiers (fallback execCommand hors contexte sécurisé). */
+async function copyTextToClipboard(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch {
+            return false;
+        }
+    }
 }
 
 export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
@@ -17,11 +68,15 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     onSaveCoordinates,
     onResetCoordinates,
     onPushCorrectedCoordinates,
-    onUpdateSolvedStatus
+    onUpdateSolvedStatus,
+    onOpenExternalUrl
 }) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedCoords, setEditedCoords] = React.useState('');
     const [isSendingToGC, setIsSendingToGC] = React.useState(false);
+    const [isMapMenuOpen, setIsMapMenuOpen] = React.useState(false);
+    const [copiedFeedback, setCopiedFeedback] = React.useState(false);
+    const mapMenuRef = React.useRef<HTMLDivElement | null>(null);
     const [solvedStatus, setSolvedStatus] = React.useState<GeocacheSolvedStatus>(
         geocacheData.solved || 'not_solved'
     );
@@ -29,6 +84,68 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     const displayCoords = geocacheData.coordinates_raw || geocacheData.original_coordinates_raw || '';
     const originalCoords = geocacheData.original_coordinates_raw || '';
     const isCorrected = geocacheData.is_corrected === true;
+
+    // Coordonnées décimales des coordonnées affichées (corrigées si présentes) :
+    // champs numériques du DTO en priorité, sinon parsing du format GC affiché.
+    const decimalCoords = React.useMemo(() => {
+        if (typeof geocacheData.latitude === 'number' && typeof geocacheData.longitude === 'number') {
+            return { lat: geocacheData.latitude, lon: geocacheData.longitude };
+        }
+        return parseFlexibleGCCoords(displayCoords);
+    }, [geocacheData.latitude, geocacheData.longitude, displayCoords]);
+
+    const coordActions = React.useMemo(() => {
+        if (!decimalCoords) {
+            return [];
+        }
+        const lat = decimalCoords.lat.toFixed(6);
+        const lon = decimalCoords.lon.toFixed(6);
+        return [
+            { label: 'Google Maps', iconClass: 'codicon codicon-map', url: `https://www.google.com/maps?q=${lat},${lon}` },
+            { label: 'OpenStreetMap', iconClass: 'codicon codicon-globe', url: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}` },
+            { label: 'Waze', iconClass: 'codicon codicon-compass', url: `https://www.waze.com/ul?ll=${lat},${lon}&navigate=yes` },
+        ];
+    }, [decimalCoords]);
+
+    React.useEffect(() => {
+        if (!isMapMenuOpen) {
+            return;
+        }
+        const handleClickOutside = (event: MouseEvent) => {
+            if (mapMenuRef.current && !mapMenuRef.current.contains(event.target as Node)) {
+                setIsMapMenuOpen(false);
+            }
+        };
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsMapMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleEscape);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscape);
+        };
+    }, [isMapMenuOpen]);
+
+    const copyCoordinates = (text: string) => {
+        void copyTextToClipboard(text).then(ok => {
+            if (ok) {
+                setCopiedFeedback(true);
+                setTimeout(() => setCopiedFeedback(false), 1500);
+            }
+        });
+    };
+
+    const openMap = (url: string) => {
+        setIsMapMenuOpen(false);
+        if (onOpenExternalUrl) {
+            onOpenExternalUrl(url);
+        } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    };
 
     const coordsError = React.useMemo(() => {
         const v = editedCoords.trim();
@@ -165,6 +282,76 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                             </div>
                         </div>
                     )}
+
+                    {displayCoords ? (
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => copyCoordinates(displayCoords)}
+                                title={`Copier « ${displayCoords} » dans le presse-papiers`}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                            >
+                                <span className={`codicon ${copiedFeedback ? 'codicon-check' : 'codicon-copy'}`} aria-hidden='true' />
+                                {copiedFeedback ? 'Copié !' : 'Copier'}
+                            </button>
+                            {coordActions.length > 0 ? (
+                                <div ref={mapMenuRef} style={{ position: 'relative' }}>
+                                    <button
+                                        className='theia-button secondary'
+                                        onClick={() => setIsMapMenuOpen(open => !open)}
+                                        aria-haspopup='menu'
+                                        aria-expanded={isMapMenuOpen}
+                                        title='Ouvrir ces coordonnées dans une carte en ligne'
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        <span className='codicon codicon-location' aria-hidden='true' />
+                                        <span>Ouvrir dans</span>
+                                        <span className='codicon codicon-chevron-down' aria-hidden='true' style={{ fontSize: 10 }} />
+                                    </button>
+                                    {isMapMenuOpen && (
+                                        <div role='menu' aria-label='Ouvrir les coordonnées dans…' onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)} style={mapMenuStyle}>
+                                            {coordActions.map(target => (
+                                                <button
+                                                    key={target.label}
+                                                    type='button'
+                                                    role='menuitem'
+                                                    className='geoapp-menu-item'
+                                                    onClick={() => openMap(target.url)}
+                                                    style={mapMenuItemStyle}
+                                                >
+                                                    <span className={target.iconClass} aria-hidden='true' />
+                                                    <span>{target.label}</span>
+                                                </button>
+                                            ))}
+                                            <div style={{ height: 1, background: 'var(--theia-menu-separatorBackground)', margin: '4px 0' }} />
+                                            <button
+                                                type='button'
+                                                role='menuitem'
+                                                className='geoapp-menu-item'
+                                                onClick={() => { setIsMapMenuOpen(false); copyCoordinates(`${decimalCoords!.lat.toFixed(6)}, ${decimalCoords!.lon.toFixed(6)}`); }}
+                                                style={mapMenuItemStyle}
+                                            >
+                                                <span className='codicon codicon-copy' aria-hidden='true' />
+                                                <span>Copier en décimal</span>
+                                            </button>
+                                            {isCorrected && originalCoords ? (
+                                                <button
+                                                    type='button'
+                                                    role='menuitem'
+                                                    className='geoapp-menu-item'
+                                                    onClick={() => { setIsMapMenuOpen(false); copyCoordinates(originalCoords); }}
+                                                    style={mapMenuItemStyle}
+                                                >
+                                                    <span className='codicon codicon-copy' aria-hidden='true' />
+                                                    <span>Copier les originales</span>
+                                                </button>
+                                            ) : undefined}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : undefined}
+                        </div>
+                    ) : undefined}
                 </div>
             )}
 

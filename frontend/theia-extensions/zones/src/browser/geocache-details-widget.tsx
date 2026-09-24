@@ -70,7 +70,9 @@ import { GeocacheDetailsHeaderAction, GeocacheDetailsHeaderActionRegistry } from
  * affichent « a refusé de se connecter », on les ouvre donc directement
  * dans le navigateur externe.
  */
-const NON_FRAMABLE_DOMAINS = ['geocaching.com', 'coord.info'];
+// Domaines qui refusent l'iframe du mini-navigateur (X-Frame-Options / CSP
+// frame-ancestors) : ils basculent automatiquement en fenêtre externe.
+const NON_FRAMABLE_DOMAINS = ['geocaching.com', 'coord.info', 'google.com', 'openstreetmap.org', 'waze.com'];
 
 function isFramableUrl(url: string): boolean {
     try {
@@ -1700,6 +1702,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onResetCoordinates: this.handleResetCoordinates,
                     onPushCorrectedCoordinates: this.handlePushCorrectedCoordinates,
                     onUpdateSolvedStatus: this.handleUpdateSolvedStatus,
+                    onOpenExternalUrl: this.openExternalLink,
                 }}
                 descriptionEditorProps={{
                     geocacheData: d!,
