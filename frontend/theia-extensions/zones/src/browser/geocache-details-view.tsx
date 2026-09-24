@@ -89,10 +89,15 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
         {!isLoading && !geocacheData ? (
             <EmptyState icon='fa-map-marker' title='Aucune géocache sélectionnée' description='Sélectionnez une géocache pour afficher ses détails.' />
         ) : undefined}
+        {/* flex et pas grid : le containing block sticky d'un item de grid est sa
+            grid area (sa propre ligne), tandis que celui d'un item flex est le
+            content-box du conteneur. La colonne flex permet donc à la barre
+            d'outils de rester collée sur toute la hauteur de la fiche. */}
         {geocacheData ? (
             <div
                 style={{
-                    display: 'grid',
+                    display: 'flex',
+                    flexDirection: 'column',
                     gap: 12,
                     // Rechargement avec donnees existantes : on garde le contenu visible mais on
                     // signale discretement la mise a jour et on neutralise les interactions.

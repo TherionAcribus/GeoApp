@@ -269,12 +269,33 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
         alignItems: 'center',
     };
 
+    {/*
+     * Fragment sans wrapper : les trois blocs (titre, barre d'outils sticky, ligne
+     * d'info) deviennent des enfants directs du conteneur flex de la vue. La barre
+     * peut ainsi coller sur toute la hauteur de la fiche, au lieu d'être contrainte
+     * à un petit parent ~150px.
+     */}
     return (
-        <div style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <h3 style={{ margin: 0, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{geocacheData.name}</h3>
             </div>
 
+            {/*
+             * Barre d'outils sticky : sur les fiches longues (description + galerie +
+             * waypoints), Analyser / Chat IA / Logs restent accessibles sans remonter
+             * en haut. Les marges négatives compensent le padding `p-2` du conteneur
+             * pour que le fond opaque masque le contenu qui défile dessous.
+             */}
+            <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 5,
+                background: 'var(--theia-editor-background)',
+                margin: '0 -8px 8px',
+                padding: '4px 8px 6px',
+                borderBottom: '1px solid var(--theia-panel-border)',
+            }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
 
                 {/* ── Analyse ── */}
@@ -519,6 +540,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     </button>
                 </div>
             </div>
+            </div>
 
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 14, flexWrap: 'wrap' }}>
                 <span style={{ opacity: 0.7 }}>{geocacheData.gc_code}</span>
@@ -639,7 +661,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     </button>
                 ) : undefined}
             </div>
-        </div>
+        </>
     );
 };
 
