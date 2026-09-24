@@ -24,6 +24,46 @@ export interface ContextMenuProps {
     onClose: () => void;
 }
 
+/**
+ * Navigation clavier entre les items focusables d'un menu : ArrowDown/ArrowUp
+ * (cyclique), Home et End. `menu` doit porter role='menu' ; les items imbriqués
+ * dans un sous-menu (autre role='menu' descendant) sont ignorés, ce qui permet
+ * d'attacher le handler à chaque panneau sans interférence.
+ * Retourne true si la touche a été consommée.
+ */
+export function handleMenuArrowKeys(event: React.KeyboardEvent, menu: HTMLElement): boolean {
+    const key = event.key;
+    if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Home' && key !== 'End') {
+        return false;
+    }
+    const items = Array.from(
+        menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]')
+    ).filter(el =>
+        el.closest('[role="menu"]') === menu &&
+        el.tabIndex >= 0 &&
+        el.getAttribute('aria-disabled') !== 'true' &&
+        !(el instanceof HTMLButtonElement && el.disabled)
+    );
+    if (items.length === 0) {
+        return false;
+    }
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    let nextIndex: number;
+    if (key === 'Home') {
+        nextIndex = 0;
+    } else if (key === 'End') {
+        nextIndex = items.length - 1;
+    } else {
+        const delta = key === 'ArrowDown' ? 1 : -1;
+        nextIndex = currentIndex < 0
+            ? (delta > 0 ? 0 : items.length - 1)
+            : (currentIndex + delta + items.length) % items.length;
+    }
+    items[nextIndex].focus();
+    return true;
+}
+
 const MENU_PANEL_STYLE: React.CSSProperties = {
     background: 'var(--theia-menu-background)',
     border: '1px solid var(--theia-menu-border)',
@@ -64,8 +104,28 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = ({
                     >
                         <div
                             className={`geoapp-menu-item${item.disabled ? ' geoapp-menu-item--disabled' : ''}${isSubmenuOpen ? ' geoapp-menu-item--open' : ''}`}
+                            role='menuitem'
+                            tabIndex={item.disabled ? -1 : 0}
+                            aria-disabled={item.disabled || undefined}
                             onClick={() => {
                                 if (item.disabled || hasSubmenu) {
+                                    return;
+                                }
+                                if (item.action) {
+                                    item.action();
+                                    onClose();
+                                }
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key !== 'Enter' && e.key !== ' ') {
+                                    return;
+                                }
+                                e.preventDefault();
+                                if (item.disabled) {
+                                    return;
+                                }
+                                if (hasSubmenu) {
+                                    setOpenSubmenuIndex(index);
                                     return;
                                 }
                                 if (item.action) {
@@ -100,6 +160,8 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = ({
 
                         {hasSubmenu && isSubmenuOpen && (
                             <div
+                                role='menu'
+                                onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
                                 style={{
                                     ...MENU_PANEL_STYLE,
                                     position: 'absolute',
@@ -145,6 +207,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ items, x, y, onClose }
     return (
         <div
             ref={menuRef}
+            role='menu'
+            onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
             style={{
                 ...MENU_PANEL_STYLE,
                 position: 'fixed',

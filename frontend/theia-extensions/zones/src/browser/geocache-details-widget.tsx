@@ -142,11 +142,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isLogsSummaryLoading = false;
     private readonly geocacheChangeDisposable: { dispose: () => void };
 
+    /**
+     * Le scroll ne sert qu'à marquer l'onglet comme « consulté » (pin smart-replace) :
+     * une seule émission par fiche suffit, inutile de dispatcher un événement à
+     * chaque tick de scroll. Réarmé dans `setGeocache`.
+     */
+    private hasEmittedScrollInteraction = false;
+
     private readonly handleContentClick = (): void => {
         this.emitInteraction('click');
     };
 
     private readonly handleContentScroll = (): void => {
+        if (this.hasEmittedScrollInteraction) {
+            return;
+        }
+        this.hasEmittedScrollInteraction = true;
         this.emitInteraction('scroll');
     };
 
@@ -722,6 +733,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.consultedSinceSetGeocache = this.isVisible;
         this.lastAccessTimestamp = Date.now();
         this.notesCount = undefined;
+        this.hasEmittedScrollInteraction = false;
         this.archiveStatus = 'none';
         this.archiveUpdatedAt = undefined;
         this.logsSummaryEntries = [];
@@ -1031,6 +1043,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             console.error('[GeocacheDetailsWidget] openCheckerUrl error', e);
             window.open(url, '_blank');
         }
+    };
+
+    /** Liens externes (description, fiche GC.com) : mini-browser ou externe selon la préférence `externalLinks.openMode`. */
+    protected openExternalLink = (url: string): void => {
+        void this.openCheckerUrl(url, this.preferencesController.getExternalLinksOpenMode());
     };
 
     protected showCheckerContextMenu = (x: number, y: number, url: string): void => {
@@ -1601,6 +1618,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onForceSyncArchive: this.forceSyncArchive,
                     onResolveOwnerGuid: this.resolveOwnerGuid,
                     onOpenOwnerUrl: this.openOwnerUrl,
+                    onOpenGeocachePage: () => { if (d?.url) { this.openExternalLink(d.url); } },
                     extraActions: this.headerActionRegistry.getActions({ geocacheData: d! }),
                 }}
                 coordinatesEditorProps={{
@@ -1626,7 +1644,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onCancelTranslation: this.handleCancelTranslation,
                     translationProgress: this.translationProgress,
                     targetLanguage: this.preferencesController.getTranslationTargetLanguage(),
-                    externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
+                    onOpenExternalUrl: this.openExternalLink,
                 }}
                 displayedHints={displayedHints}
                 displayDecodedHints={displayDecodedHints}

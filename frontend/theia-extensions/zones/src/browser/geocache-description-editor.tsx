@@ -3,6 +3,7 @@ import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
+import { handleMenuArrowKeys } from './context-menu';
 import '../../src/browser/style/geocache-details-header.css';
 
 export interface DescriptionEditorProps {
@@ -20,7 +21,8 @@ export interface DescriptionEditorProps {
     onCancelTranslation: () => void;
     translationProgress?: TranslationProgress;
     targetLanguage: string;
-    externalLinksOpenMode: 'new-tab' | 'new-window';
+    /** Ouverture des liens externes de la description (mini-browser ou fenêtre externe selon la préférence). */
+    onOpenExternalUrl?: (url: string) => void;
 }
 
 const headerRowStyle: React.CSSProperties = {
@@ -216,7 +218,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     onCancelTranslation,
     translationProgress,
     targetLanguage,
-    externalLinksOpenMode
+    onOpenExternalUrl
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
     const [isEditing, setIsEditing] = React.useState(false);
@@ -402,10 +404,10 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 e.preventDefault();
                 e.stopPropagation();
 
-                if (externalLinksOpenMode === 'new-window') {
-                    window.open(link.href, '_blank', 'noopener,noreferrer');
+                if (onOpenExternalUrl) {
+                    onOpenExternalUrl(link.href);
                 } else {
-                    window.open(link.href, '_blank');
+                    window.open(link.href, '_blank', 'noopener,noreferrer');
                 }
             }
         };
@@ -418,7 +420,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
             };
         }
         return undefined;
-    }, [externalLinksOpenMode, effectiveHtml]);
+    }, [onOpenExternalUrl, effectiveHtml]);
 
     return (
         <div style={{ display: 'grid', gap: 8 }}>
@@ -492,7 +494,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             )}
                         </button>
                         {isTranslateMenuOpen && (
-                            <div role='menu' aria-label='Options de traduction' style={translateMenuStyle}>
+                            <div role='menu' aria-label='Options de traduction' onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)} style={translateMenuStyle}>
                                 <button
                                     type='button'
                                     role='menuitem'

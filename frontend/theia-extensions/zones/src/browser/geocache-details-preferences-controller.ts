@@ -7,8 +7,13 @@ export type GeocacheImagesStorageDefaultMode = 'never' | 'prompt' | 'always';
 export type GeocacheImagesGalleryThumbnailSize = 'small' | 'medium' | 'large';
 export type GeocacheOcrDefaultEngine = 'easyocr_ocr' | 'vision_ocr';
 export type GeocacheOcrVisionProvider = 'lmstudio' | 'openrouter';
-export type GeocacheExternalLinksOpenMode = 'new-tab' | 'new-window';
 export type CheckerLinkOpenMode = 'same-group' | 'new-group' | 'external-window';
+/**
+ * Mode d'ouverture des liens externes de la description : mêmes valeurs que les
+ * checkers (mini-browser Theia ou fenêtre externe). Les anciennes valeurs de la
+ * préférence ('new-tab', 'new-window') restent acceptées, cf. getExternalLinksOpenMode.
+ */
+export type GeocacheExternalLinksOpenMode = CheckerLinkOpenMode;
 export type GcPersonalNoteAutoSyncMode = 'manual' | 'onNotesOpen' | 'onDetailsOpen';
 
 @injectable()
@@ -63,8 +68,16 @@ export class GeocacheDetailsPreferencesController {
     }
 
     getExternalLinksOpenMode(): GeocacheExternalLinksOpenMode {
-        const raw = this.preferenceService.get(this.externalLinksOpenModePreferenceKey, 'new-tab') as string;
-        return raw === 'new-window' ? 'new-window' : 'new-tab';
+        const raw = this.preferenceService.get(this.externalLinksOpenModePreferenceKey, 'same-group') as string;
+        // Compat : 'new-window' ouvrait une fenêtre externe, 'new-tab' un onglet
+        // navigateur — désormais un onglet du mini-browser Theia.
+        if (raw === 'external-window' || raw === 'new-window') {
+            return 'external-window';
+        }
+        if (raw === 'new-group') {
+            return 'new-group';
+        }
+        return 'same-group';
     }
 
     getCheckerLinkOpenMode(): CheckerLinkOpenMode {

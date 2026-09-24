@@ -10,7 +10,7 @@ import {
     GeoAppChatWorkflowKind,
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
-import { ContextMenu, ContextMenuItem } from './context-menu';
+import { ContextMenu, ContextMenuItem, handleMenuArrowKeys } from './context-menu';
 import { buildOwnerMessageUrl, buildOwnerProfileUrl, openExternalUrl } from './geocaching-owner-links';
 import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
 import { LogsRecentSummary, LogSummaryEntry } from './geocache-logs-summary';
@@ -70,6 +70,8 @@ interface GeocacheDetailsHeaderProps {
     onRefresh?: () => void | Promise<void>;
     /** Rafraîchissement en cours : le bouton porte l'état (icône animée) au lieu d'une notification. */
     isRefreshing?: boolean;
+    /** Ouvre la fiche publique de la géocache (geocacheData.url), mini-browser ou externe selon la préférence. */
+    onOpenGeocachePage?: () => void;
     extraActions?: GeocacheDetailsHeaderAction[];
 }
 
@@ -105,6 +107,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenOwnerUrl,
     onRefresh,
     isRefreshing = false,
+    onOpenGeocachePage,
     extraActions = []
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
@@ -312,6 +315,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         <div
                             role='menu'
                             aria-label="Outils d'analyse"
+                            onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
                             style={{
                                 position: 'absolute',
                                 top: '100%',
@@ -414,6 +418,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         <div
                             role='menu'
                             aria-label='Profil de chat IA'
+                            onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
                             style={{
                                 position: 'absolute',
                                 top: '100%',
@@ -529,6 +534,18 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
 
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 14, flexWrap: 'wrap' }}>
                 <span style={{ opacity: 0.7 }}>{geocacheData.gc_code}</span>
+                {geocacheData.url && onOpenGeocachePage ? (
+                    <button
+                        className='theia-button secondary'
+                        onClick={onOpenGeocachePage}
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        title='Ouvrir la fiche sur Geocaching.com'
+                        aria-label='Ouvrir la fiche sur Geocaching.com'
+                    >
+                        <span className='codicon codicon-link-external' aria-hidden='true' />
+                        <span>GC.com</span>
+                    </button>
+                ) : undefined}
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
