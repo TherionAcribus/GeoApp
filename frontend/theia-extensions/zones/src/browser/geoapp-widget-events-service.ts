@@ -5,13 +5,16 @@ export interface GeocacheChangedEvent {
     geocacheId: number;
     reason:
         | 'waypoint-created'
+        | 'waypoint-updated'
         | 'waypoint-deleted'
         | 'corrected-coordinates-updated'
+        | 'coordinates-reset'
         | 'solved-status-updated'
         | 'note-created'
         | 'note-updated'
         | 'note-deleted'
         | 'refreshed'
+        | 'logs-refreshed'
         | 'deleted'
         | 'log-submitted';
     source: 'map' | 'details' | 'zones' | 'chat' | 'log-editor';

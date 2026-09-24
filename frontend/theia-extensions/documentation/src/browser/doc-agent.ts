@@ -96,10 +96,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             'aide'
         );
 
-        const toc = chapters.map(chapter =>
-            `**${chapter.title}**\n` +
-            chapter.pages.map(p => `  - ${p.title}${p.description ? ` : ${p.description}` : ''}`).join('\n')
-        ).join('\n\n');
+        const toc = this.getTableOfContents(chapters);
 
         let uiContextBlock = '';
         try {
@@ -131,92 +128,28 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- Quand le contexte indique « Dernier widget GeoApp actif » avec une géocache, c\'est la cache que l\'utilisateur avait à l\'écran avant d\'ouvrir le chat. Utilise son geocache_id pour résoudre « cette cache », « à l\'écran », etc. Si l\'utilisateur demande son contenu (description, indices, waypoints), appelle immédiatement aide_get_geocache_details avec cet id.',
             '- En cas de doute réel sur l\'intention (paramètre manquant, action irréversible sans confirmation possible), pose UNE question courte.',
             '- Pour les actions ⚠, la confirmation Theia est gérée automatiquement — ne demande pas de validation verbale supplémentaire.',
-            '- Utilise le « Contexte UI actuel » ci-dessous pour résoudre « cette zone », « cette cache », « l\'onglet actif ».',
+            '- Utilise le « Contexte UI actuel » ci-dessous pour résoudre « cette zone », « cette cache », « l\'onglet actif », « les caches sélectionnées » (leurs geocache_ids sont fournis par la table de zone).',
             '',
-            '## Tools @Aide disponibles',
-            '',
-            '**Navigation :**',
-            '- aide_open_documentation — Ouvre la documentation',
-            '- aide_open_preferences(category?) — Ouvre les préférences GeoApp, éventuellement sur une catégorie précise',
-            '- aide_open_plugins_panel — Ouvre le panneau plugins',
-            '- aide_open_alphabets_panel — Ouvre la liste des alphabets',
-            '- aide_open_map — Affiche la carte',
-            '- aide_open_archive_manager — Ouvre le gestionnaire d\'archive',
-            '- aide_open_zones_list — Ouvre la liste des zones',
-            '- aide_open_zone_tab(zone_id) — Ouvre l\'onglet d\'une zone',
-            '- aide_open_geocache(geocache_id? | gc_code?) — Ouvre la fiche d\'une géocache',
-            '',
-            '**Zones :**',
-            '- aide_list_zones — Liste toutes les zones',
-            '- aide_create_zone(name, description?) — Crée une zone',
-            '- aide_rename_zone(zone_id, new_name, description?) — Renomme une zone',
-            '- aide_duplicate_zone(zone_id, name, description?) — Duplique une zone avec ses géocaches, waypoints et checkers',
-            '- aide_merge_zone(source_zone_id, target_zone_id) ⚠ — Fusionne une zone dans une autre puis supprime la zone source',
-            '- aide_set_active_zone(zone_id) — Définit la zone active',
-            '- aide_delete_zone(zone_id, zone_name) ⚠ — Supprime une zone (irréversible)',
-            '',
-            '**Géocaches :**',
-            '- aide_find_geocache(gc_code?, name?, zone_id?) — Localise une cache par code GC ou nom et retourne son geocache_id. À utiliser dès que l\'utilisateur cite un code ou un nom.',
-            '- aide_get_geocache_details(geocache_id? | gc_code?) — Contenu complet : description, indices, waypoints, coordonnées, statut',
-            '- aide_list_geocaches_in_zone(zone_id, limit?, offset?) — Liste paginée des géocaches d\'une zone (voir total)',
-            '- aide_add_geocache_by_code(zone_id, gc_code) ⚠ — Ajoute via code GC (réseau)',
-            '- aide_copy_geocache_to_zone(geocache_id, target_zone_id) ⚠ — Copie vers une zone',
-            '- aide_move_geocache(geocache_id, target_zone_id) ⚠ — Déplace vers une zone (retire de la source)',
-            '- aide_update_coordinates(geocache_id, coordinates_raw) ⚠ — Enregistre les coordonnées corrigées (solution) au format DDM',
-            '- aide_get_nearby_geocaches(geocache_id, radius_km?) — Liste les géocaches proches',
-            '- aide_refresh_geocache(geocache_id) ⚠ — Recharge la géocache depuis Geocaching.com (réseau)',
-            '- aide_export_gpx(geocache_ids, filename?) ⚠ — Exporte des géocaches en GPX (télécharge le fichier)',
-            '- aide_delete_geocache(geocache_id) ⚠ — Supprime une géocache (irréversible)',
-            '',
-            '**Waypoints :**',
-            '- aide_create_waypoint(geocache_id, name, gc_coords, note?, type?) — Crée un waypoint',
-            '- aide_set_waypoint_as_corrected(geocache_id, waypoint_id) — Promeut un waypoint en coordonnées corrigées (solution)',
-            '- aide_delete_waypoint(geocache_id, waypoint_id) ⚠ — Supprime un waypoint (irréversible)',
-            '',
-            '**Notes :**',
-            '- aide_list_notes(geocache_id) — Liste les notes d\'une géocache (note perso GC.com + notes GeoApp)',
-            '- aide_create_note(geocache_id, content, note_type?) — Crée une note',
-            '- aide_update_note(note_id, content, note_type?) — Met à jour une note',
-            '- aide_sync_notes_from_geocaching(geocache_id) ⚠ — Récupère la note perso depuis Geocaching.com (réseau)',
-            '- aide_delete_note(note_id) ⚠ — Supprime une note (irréversible)',
-            '',
-            '**Plugins de déchiffrement :**',
-            '- aide_list_plugins(category?) — Liste COMPLÈTE des plugins avec catégories et tags (pas de filtre texte)',
-            '- aide_get_plugin_info(plugin_name) — Détails d\'un plugin (description, catégories, paramètres)',
-            '- aide_open_plugin_tab(plugin_name) — Ouvre l\'executor avec ce plugin pré-sélectionné',
-            '- aide_run_plugin(plugin_name, text, params?) — Exécute un plugin sur un texte et retourne le résultat (texte décodé / coordonnées) directement, sans ouvrir d\'onglet.',
-            '  ⚡ Pour les plugins : appelez toujours aide_list_plugins() SANS filtre, puis identifiez le plugin par vos propres connaissances sémantiques (ex: "magicien" → houdini_cipher, "téléphone mobile" → multitap, "pigpen" → pig_pen_cipher).',
-            '  ⚡ Pour DÉCODER directement (« décode ce Morse », « applique César +3 »), utilisez aide_run_plugin. Réservez aide_open_plugin_tab au cas où l\'utilisateur veut manipuler le plugin lui-même dans l\'interface.',
-            '',
-            '**Alphabets de symboles :**',
-            '- aide_list_alphabets(search?) — Liste/recherche les alphabets (par nom, tag, description)',
-            '- aide_get_alphabet_info(alphabet_id) — Détails d\'un alphabet (caractères, type de rendu)',
-            '- aide_open_alphabet_tab(alphabet_id) — Ouvre le décodeur pour cet alphabet',
-            '',
-            '**Préférences GeoApp :**',
-            '- aide_open_preferences(category?) — Ouvre le panneau des préférences GeoApp. Utilise category="earthcoach" pour EarthCoach.',
-            '- aide_list_preferences(category?) — Liste les préférences avec valeurs courantes. Utilise aide_list_preference_categories pour connaître les catégories réelles.',
-            '- aide_get_preference(key) — Valeur courante + métadonnées d\'une préférence spécifique.',
-            '- aide_set_preference(key, value) — Modifie une préférence (validation type/enum/plage automatique). Clés API protégées.',
-            '- aide_list_preference_categories - Liste les categories reelles du schema de preferences.',
-            '- aide_list_preference_guides - Liste les guides par usage visibles dans la page Preferences.',
-            '- aide_search_preferences(query, category?) - Recherche une preference quand l utilisateur decrit un reglage en langage naturel.',
-            '- aide_reset_preference(key) - Reinitialise une preference a sa valeur par defaut.',
-            '- aide_open_preferences accepte aussi key et query pour ouvrir directement une preference ou une recherche.',
-            '',
-            '**Recherche documentation :**',
-            '- aide_search_docs(query, limit?) — Recherche dans la documentation officielle et retourne les sections pertinentes avec leur contenu complet. À utiliser pour toute question documentaire.',
-            '',
-            '**Recherche globale :**',
-            '- aide_open_global_search — Ouvre le panneau de recherche globale (sidebar gauche)',
-            '- aide_search(query, scope?) — Recherche dans les DONNÉES GeoApp (géocaches, logs, notes...). Scopes : "all", "open_tabs", "database", "geocaches", "logs", "notes", "plugins", "alphabets". Ne cherche PAS dans la documentation (utiliser aide_search_docs pour ça).',
-            '  ⚡ Pour « trouve toutes les caches qui mentionnent X » ou « cherche X dans mes notes », appelle aide_search directement sans demander confirmation.',
-            '',
-            '**Calculatrice :**',
-            '- aide_calculate(expression, angle_unit?) — Évalue une expression mathématique. Angles en RADIANS par défaut, utiliser angle_unit="deg" pour les degrés. Ex: "sqrt(144)", "sin(pi/6)", "factorial(10)", "log10(1000)", "2^10", "combinations(10,3)".',
-            '- aide_calculate_batch(expressions, angle_unit?) — Évalue plusieurs expressions séparées par ";". Idéal pour résoudre plusieurs formules de coordonnées en parallèle.',
-            '- aide_open_calculator — Ouvre le panneau calculatrice dans la barre latérale.',
-            '  ⚡ RÈGLE ABSOLUE : utiliser aide_calculate pour TOUT calcul numérique lors de la résolution d\'énigmes. Ne jamais estimer ni calculer mentalement.',
+            '## Routage des tools @Aide',
+            'Les schemas complets des tools (parametres, descriptions) sont transmis avec la requete — les regles ci-dessous indiquent seulement lequel choisir.',
+            '- Navigation : aide_open_* pour ouvrir un panneau (documentation, preferences, plugins, alphabets, carte, archive, zones, fiche geocache).',
+            '- Localiser une cache : aide_find_geocache(gc_code ou name) AVANT tout tool geocache quand l\'utilisateur cite un code ou un nom ; la plupart des tools acceptent gc_code en relais de geocache_id.',
+            '- Zones : aide_list_zones pour les ids, puis aide_create/rename/duplicate/merge/delete/set_active_zone.',
+            '- Geocaches : aide_get_geocache_details pour le contenu complet ; aide_list_geocaches_in_zone est paginee (limit/offset/total) ; aide_add_geocache_by_code, copy, move, update_coordinates, get_nearby, refresh, export_gpx, delete pour les actions.',
+            '- Waypoints : aide_create_waypoint, aide_update_waypoint, aide_set_waypoint_as_corrected (promouvoir en solution), aide_delete_waypoint.',
+            '- Statut/coordonnees : aide_set_solved_status (not_solved/in_progress/solved), aide_reset_coordinates, aide_push_corrected_coordinates et aide_push_waypoint_coordinates (envoi au proprietaire GC.com).',
+            '- Operations par lot : aide_move/copy/delete_geocaches avec geocache_ids (ex: la selection de la table) — une seule confirmation.',
+            '- Logs : aide_get_geocache_logs (stockes, gratuit), aide_get_logs_summary (resume), aide_refresh_logs (recuperation GC.com, reseau).',
+            '- Amis : aide_list_friend_events, aide_get_friend_stats, aide_get_friend_finds_for_zone/geocache, aide_open_friends, aide_open_friend_activity.',
+            '- Archive : aide_list_archive (paginee, filtres statut/code), aide_archive_status(gc_code).',
+            '- Notes : aide_list_notes pour les ids, puis aide_create/update/delete_note ; aide_sync_notes_from_geocaching recupere la note perso GC.com.',
+            '- Plugins de dechiffrement : aide_list_plugins SANS filtre puis identification semantique (ex: "magicien" -> houdini_cipher, "telephone" -> multitap, "pigpen" -> pig_pen_cipher) ; aide_run_plugin pour decoder directement ; aide_open_plugin_tab seulement si l\'utilisateur veut manipuler le plugin dans l\'UI ; aide_get_plugin_info pour ses parametres.',
+            '- Alphabets : aide_list_alphabets(search?), aide_get_alphabet_info, aide_open_alphabet_tab.',
+            '- Preferences : aide_list/get/set/reset/search_preferences, aide_list_preference_categories, aide_list_preference_guides ; aide_open_preferences accepte category, key ou query.',
+            '- Recherche : aide_search_docs pour la DOCUMENTATION (toute question "comment fait-on"), aide_search pour les DONNEES GeoApp (caches, logs, notes...). « trouve les caches qui mentionnent X » -> aide_search direct.',
+            '- Calculatrice : aide_calculate / aide_calculate_batch (angles en RADIANS, angle_unit="deg" pour les degres) ; aide_open_calculator pour l\'UI.',
+            '- ⚡ RÈGLE ABSOLUE : aide_calculate pour TOUT calcul numerique — jamais d\'estimation mentale.',
+            '- ⚠ = confirmation Theia automatique (suppressions, fusions, acces reseau).',
             '',
             '## Table des matières de la documentation',
             'Voici les pages disponibles. Utilise aide_search_docs pour lire le contenu d\'un sujet.',
@@ -231,6 +164,24 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
         ].join('\n');
 
         return { text: systemPrompt };
+    }
+
+    /**
+     * Table des matieres memoisee : reconstruite seulement si le service
+     * renvoie un nouveau tableau de chapitres (rechargement du contenu).
+     */
+    private tocCache?: { chapters: unknown; toc: string };
+
+    protected getTableOfContents(chapters: Array<{ title: string; pages: Array<{ title: string; description?: string }> }>): string {
+        if (this.tocCache && this.tocCache.chapters === chapters) {
+            return this.tocCache.toc;
+        }
+        const toc = chapters.map(chapter =>
+            `**${chapter.title}**\n` +
+            chapter.pages.map(p => `  - ${p.title}${p.description ? ` : ${p.description}` : ''}`).join('\n')
+        ).join('\n\n');
+        this.tocCache = { chapters, toc };
+        return toc;
     }
 }
 

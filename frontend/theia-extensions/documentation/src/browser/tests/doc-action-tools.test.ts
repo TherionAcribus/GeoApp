@@ -58,6 +58,11 @@ function createManager(services: {
     docContentService?: unknown;
     commandService?: unknown;
     toolRegistry?: unknown;
+    geocacheDetailsService?: unknown;
+    logsFetchService?: unknown;
+    logsAnalysisService?: unknown;
+    friendsService?: unknown;
+    archiveService?: unknown;
 }): DocActionToolsManager {
     const manager = new Manager();
     for (const [key, value] of Object.entries(services)) {
@@ -353,6 +358,110 @@ async function testRequiredParamsValidation(): Promise<void> {
     assert.equal(called, 1);
 }
 
+// Nouveaux tools statut/coordonnees : appels service + evenements de refresh.
+async function testStatusAndWaypointTools(): Promise<void> {
+    const events: string[] = [];
+    const calls: Array<[number, unknown]> = [];
+    const manager = createManager({
+        geocachesService: { getByCode: async () => ({ id: 9 }) },
+        geocacheDetailsService: {
+            updateSolvedStatus: async (id: number, status: string) => { calls.push([id, status]); },
+            saveWaypoint: async (id: number, wpId: number, payload: unknown) => { calls.push([wpId, payload]); },
+        },
+        widgetEventsService: {
+            notifyGeocacheChanged: (e: { reason: string }) => { events.push(e.reason); },
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const status = await call(findTool(tools, 'aide_set_solved_status'), { gc_code: 'GC9', status: 'solved' });
+    assert.equal(status.success, true);
+    assert.deepEqual(calls[0], [9, 'solved']);
+
+    const invalid = await call(findTool(tools, 'aide_set_solved_status'), { geocache_id: 9, status: 'bof' });
+    assert.equal(invalid.success, false);
+
+    const wp = await call(findTool(tools, 'aide_update_waypoint'), {
+        geocache_id: 9, waypoint_id: 5, name: 'Final', note: 'x',
+    });
+    assert.equal(wp.success, true);
+    assert.deepEqual(calls[1], [5, { name: 'Final', note: 'x' }]);
+
+    assert.deepEqual(events, ['solved-status-updated', 'waypoint-updated']);
+}
+
+// Operations par lot : poursuite apres echec + resume succeeded/failed.
+async function testBatchGeocacheTools(): Promise<void> {
+    let refreshCount = 0;
+    const deleted: number[] = [];
+    const events: string[] = [];
+    const manager = createManager({
+        geocachesService: {
+            delete: async (id: number) => {
+                if (id === 2) { throw new Error('verrouillée'); }
+                deleted.push(id);
+            },
+            move: async () => undefined,
+        },
+        widgetEventsService: {
+            requestZonesRefresh: () => { refreshCount++; },
+            notifyGeocacheChanged: (e: { reason: string }) => { events.push(e.reason); },
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const res = await call(findTool(tools, 'aide_delete_geocaches'), { geocache_ids: [1, 2, 3] });
+    assert.equal(res.success, true);
+    const summary = res.data as { succeeded: number[]; failed: Array<{ id: number }> };
+    assert.deepEqual(summary.succeeded, [1, 3]);
+    assert.equal(summary.failed.length, 1);
+    assert.equal(summary.failed[0].id, 2);
+    assert.equal(refreshCount, 1);
+    assert.deepEqual(events, ['deleted', 'deleted']);
+
+    // Sans geocache_ids, la validation bloque avant tout appel.
+    const missing = await call(findTool(tools, 'aide_delete_geocaches'), {});
+    assert.equal(missing.success, false);
+    assert.deepEqual(deleted, [1, 3]);
+}
+
+// Lectures logs/amis/archive : passthrough compact, sans confirmation.
+async function testReadTools(): Promise<void> {
+    const manager = createManager({
+        geocachesService: { getByCode: async () => ({ id: 9 }) },
+        logsAnalysisService: {
+            collectLogsToAnalyze: async () => ({
+                storedCount: 2,
+                totalAvailable: 10,
+                logs: [
+                    { id: 1, author: 'Bob', date: '2025-01-01', log_type: 'Found it', text: 'TFTC' },
+                    { id: 2, author: 'Al', date: '2025-01-02', log_type: 'Note', text: 'x'.repeat(500) },
+                ],
+            }),
+        },
+        friendsService: {
+            loadGeocacheFinds: async () => ({ success: true, friends: [{ name: 'Sam' }] }),
+        },
+        geocacheDetailsService: {
+            getArchiveStatus: async () => ({ exists: true, needs_sync: false }),
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const logs = await call(findTool(tools, 'aide_get_geocache_logs'), { gc_code: 'GC9' });
+    assert.equal(logs.success, true);
+    const logsData = logs.data as { logs: Array<{ text: string }> };
+    assert.equal(logsData.logs.length, 2);
+    assert.ok(logsData.logs[1].text.length <= 400);
+
+    const finds = await call(findTool(tools, 'aide_get_friend_finds_for_geocache'), { gc_code: 'GC9' });
+    assert.equal(finds.success, true);
+
+    const archive = await call(findTool(tools, 'aide_archive_status'), { gc_code: 'GC9' });
+    assert.equal(archive.success, true);
+    assert.equal((archive.data as { exists: boolean }).exists, true);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -364,6 +473,9 @@ async function run(): Promise<void> {
     await testWaypointAndNoteEvents();
     await testGetGeocacheDetailsListing();
     await testRequiredParamsValidation();
+    await testStatusAndWaypointTools();
+    await testBatchGeocacheTools();
+    await testReadTools();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

@@ -13,6 +13,11 @@ import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-n
 import { GeocacheTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-tabs-manager';
 import { ZoneTabsManager } from 'theia-ide-zones-ext/lib/browser/zone-tabs-manager';
 import { GeoAppWidgetEventsService } from 'theia-ide-zones-ext/lib/browser/geoapp-widget-events-service';
+import { GeocacheDetailsService } from 'theia-ide-zones-ext/lib/browser/geocache-details-service';
+import { GeocacheLogsFetchService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-fetch-service';
+import { GeocacheLogsAnalysisService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-analysis-service';
+import { FriendsService } from 'theia-ide-zones-ext/lib/browser/friends-service';
+import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
 import {
     buildGeocacheFullListingContext,
     GeocachePromptData,
@@ -165,6 +170,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(DocContentService)
     protected readonly docContentService!: DocContentService;
 
+    @inject(GeocacheDetailsService)
+    protected readonly geocacheDetailsService!: GeocacheDetailsService;
+
+    @inject(GeocacheLogsFetchService)
+    protected readonly logsFetchService!: GeocacheLogsFetchService;
+
+    @inject(GeocacheLogsAnalysisService)
+    protected readonly logsAnalysisService!: GeocacheLogsAnalysisService;
+
+    @inject(FriendsService)
+    protected readonly friendsService!: FriendsService;
+
+    @inject(ArchiveManagerService)
+    protected readonly archiveService!: ArchiveManagerService;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -187,6 +207,10 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildAlphabetTools(),
             ...this.buildPreferenceTools(),
             ...this.buildSearchTools(),
+            ...this.buildStatusAndBatchTools(),
+            ...this.buildLogTools(),
+            ...this.buildFriendTools(),
+            ...this.buildArchiveTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -199,7 +223,13 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         const required = Array.isArray(tool.parameters?.required)
             ? tool.parameters.required as string[]
             : [];
-        if (!required.length) { return tool; }
+        const properties = (tool.parameters?.properties ?? {}) as Record<
+            string, { type?: string; enum?: unknown[] }
+        >;
+        const constrained = Object.entries(properties)
+            .filter(([, prop]) => (prop.enum?.length ?? 0) > 0 || prop.type === 'number' || prop.type === 'array')
+            .map(([key]) => key);
+        if (!required.length && !constrained.length) { return tool; }
         const handler = tool.handler;
         return {
             ...tool,
@@ -213,6 +243,19 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 const missing = required.filter(key => args[key] === undefined || args[key] === null);
                 if (missing.length) {
                     return err(`Parametre(s) manquant(s) : ${missing.join(', ')}.`);
+                }
+                for (const [key, prop] of Object.entries(properties)) {
+                    const value = args[key];
+                    if (value === undefined || value === null) { continue; }
+                    if (prop.enum?.length && !prop.enum.includes(value)) {
+                        return err(`Parametre "${key}" invalide : attendu parmi ${prop.enum.join(', ')}.`);
+                    }
+                    if (prop.type === 'number' && !Number.isFinite(Number(value))) {
+                        return err(`Parametre "${key}" invalide : nombre attendu.`);
+                    }
+                    if (prop.type === 'array' && !Array.isArray(value)) {
+                        return err(`Parametre "${key}" invalide : liste attendue.`);
+                    }
                 }
                 return handler.call(tool, argString, ctx);
             },
@@ -1750,6 +1793,471 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             })),
                         };
                         return ok(result);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Statut, coordonnees corrigees et operations par lot ──────────────────
+
+    /** Execute `fn` sur chaque id sans s'arreter au premier echec ; resume le resultat. */
+    protected async runBatch(
+        ids: unknown,
+        fn: (id: number) => Promise<unknown>,
+    ): Promise<{ succeeded: number[]; failed: Array<{ id: number; error: string }> }> {
+        const succeeded: number[] = [];
+        const failed: Array<{ id: number; error: string }> = [];
+        const list = Array.isArray(ids) ? ids : [];
+        for (const raw of list.slice(0, 200)) {
+            const id = Number(raw);
+            if (!Number.isFinite(id) || id <= 0) {
+                failed.push({ id: 0, error: `id invalide: ${JSON.stringify(raw)}` });
+                continue;
+            }
+            try {
+                await fn(id);
+                succeeded.push(id);
+            } catch (e: any) {
+                failed.push({ id, error: e?.message ?? String(e) });
+            }
+        }
+        return { succeeded, failed };
+    }
+
+    private buildStatusAndBatchTools(): ToolRequest[] {
+        const geocacheRef: Record<string, { type: string; description: string; required: boolean }> = {
+            geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+            gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
+        };
+        return [
+            {
+                id: 'aide_set_solved_status',
+                name: 'aide_set_solved_status',
+                description: 'Change le statut de résolution d\'une géocache : "not_solved" (non résolue), ' +
+                    '"in_progress" (en cours) ou "solved" (résolue).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    status: {
+                        type: 'string', required: true,
+                        description: 'Nouveau statut.',
+                        enum: ['not_solved', 'in_progress', 'solved'],
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const status = args.status as 'not_solved' | 'in_progress' | 'solved';
+                        await this.geocacheDetailsService.updateSolvedStatus(geocacheId, status);
+                        this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'solved-status-updated', source: 'chat' });
+                        return ok(`Statut de la géocache ${geocacheId} défini à "${status}".`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_reset_coordinates',
+                name: 'aide_reset_coordinates',
+                description: 'Réinitialise les coordonnées corrigées d\'une géocache : la solution enregistrée ' +
+                    '(coordonnées modifiées) est effacée et les coordonnées d\'origine sont restaurées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRef }),
+                confirmAlwaysAllow: 'Réinitialiser les coordonnées corrigées de cette géocache ? La solution enregistrée sera effacée.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        await this.geocacheDetailsService.resetCoordinates(geocacheId);
+                        this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'coordinates-reset', source: 'chat' });
+                        return ok(`Coordonnées de la géocache ${geocacheId} réinitialisées.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_push_corrected_coordinates',
+                name: 'aide_push_corrected_coordinates',
+                description: 'Envoie les coordonnées corrigées de la géocache au propriétaire sur Geocaching.com ' +
+                    '(requiert une session Geocaching.com connectée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRef }),
+                confirmAlwaysAllow: 'Envoyer les coordonnées corrigées sur Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const result = await this.geocacheDetailsService.pushCorrectedCoordinates(geocacheId);
+                        if (result && typeof (result as { error?: string }).error === 'string') {
+                            return err((result as { error?: string }).error!);
+                        }
+                        return ok(`Coordonnées corrigées envoyées pour la géocache ${geocacheId}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_update_waypoint',
+                name: 'aide_update_waypoint',
+                description: 'Met à jour un waypoint existant : nom, coordonnées (format GC "N 48° 51.500 E 002° 17.600"), ' +
+                    'note et type. Seuls les champs fournis sont modifiés.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    waypoint_id: { type: 'number', description: 'ID du waypoint à modifier.', required: true },
+                    name: { type: 'string', description: 'Nouveau nom.', required: false },
+                    gc_coords: { type: 'string', description: 'Nouvelles coordonnées au format DDM.', required: false },
+                    note: { type: 'string', description: 'Nouvelle note.', required: false },
+                    type: { type: 'string', description: 'Nouveau type (ex: "Final Location").', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const payload: Record<string, unknown> = {};
+                        for (const key of ['name', 'gc_coords', 'note', 'type'] as const) {
+                            if (args[key] !== undefined) { payload[key] = args[key]; }
+                        }
+                        await this.geocacheDetailsService.saveWaypoint(geocacheId, Number(args.waypoint_id), payload);
+                        this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'waypoint-updated', source: 'chat' });
+                        return ok(`Waypoint ${args.waypoint_id} de la géocache ${geocacheId} mis à jour.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_push_waypoint_coordinates',
+                name: 'aide_push_waypoint_coordinates',
+                description: 'Envoie les coordonnées d\'un waypoint au propriétaire sur Geocaching.com ' +
+                    '(requiert une session Geocaching.com connectée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    waypoint_id: { type: 'number', description: 'ID du waypoint.', required: true },
+                }),
+                confirmAlwaysAllow: 'Envoyer les coordonnées de ce waypoint sur Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const result = await this.geocacheDetailsService.pushWaypointCoordinates(geocacheId, Number(args.waypoint_id));
+                        if (result && typeof (result as { error?: string }).error === 'string') {
+                            return err((result as { error?: string }).error!);
+                        }
+                        return ok(`Coordonnées du waypoint ${args.waypoint_id} envoyées.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_move_geocaches',
+                name: 'aide_move_geocaches',
+                description: 'Déplace plusieurs géocaches vers une zone cible en une seule action ' +
+                    '(retirées de leur zone d\'origine). Une seule confirmation pour tout le lot.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'Liste des geocache_id à déplacer (ex: sélection de la table).', required: true },
+                    target_zone_id: { type: 'number', description: 'ID de la zone cible.', required: true },
+                }),
+                confirmAlwaysAllow: 'Déplacer les géocaches sélectionnées vers la zone cible ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const target = Number(args.target_zone_id);
+                        const summary = await this.runBatch(args.geocache_ids, id => this.geocachesService.move(id, target));
+                        for (const id of summary.succeeded) {
+                            this.widgetEventsService.notifyGeocacheChanged({ geocacheId: id, reason: 'refreshed', source: 'chat' });
+                        }
+                        if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        return ok(summary);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_copy_geocaches',
+                name: 'aide_copy_geocaches',
+                description: 'Copie plusieurs géocaches vers une zone cible en une seule action (les originales restent).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'Liste des geocache_id à copier.', required: true },
+                    target_zone_id: { type: 'number', description: 'ID de la zone cible.', required: true },
+                }),
+                confirmAlwaysAllow: 'Copier les géocaches sélectionnées vers la zone cible ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const target = Number(args.target_zone_id);
+                        const summary = await this.runBatch(args.geocache_ids, id => this.geocachesService.copy(id, target));
+                        if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        return ok(summary);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_geocaches',
+                name: 'aide_delete_geocaches',
+                description: 'Supprime définitivement plusieurs géocaches en une seule action. Irréversible.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'Liste des geocache_id à supprimer.', required: true },
+                }),
+                confirmAlwaysAllow: 'Supprimer définitivement les géocaches sélectionnées ? Cette action est irréversible.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const summary = await this.runBatch(args.geocache_ids, id => this.geocachesService.delete(id));
+                        for (const id of summary.succeeded) {
+                            this.widgetEventsService.notifyGeocacheChanged({ geocacheId: id, reason: 'deleted', source: 'chat' });
+                        }
+                        if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        return ok(summary);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Logs Geocaching.com ──────────────────────────────────────────────────
+
+    private buildLogTools(): ToolRequest[] {
+        const geocacheRef: Record<string, { type: string; description: string; required: boolean }> = {
+            geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+            gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
+        };
+        return [
+            {
+                id: 'aide_get_geocache_logs',
+                name: 'aide_get_geocache_logs',
+                description: 'Lit les logs STOCKÉS localement d\'une géocache (gratuit, sans accès réseau). ' +
+                    'Pour récupérer les logs manquants depuis Geocaching.com, utiliser aide_refresh_logs.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    limit: { type: 'number', description: 'Nombre max de logs retournés (défaut 50, max 200).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const limit = Math.min(Math.max(Number(args.limit) || 50, 1), 200);
+                        const selection = await this.logsAnalysisService.collectLogsToAnalyze(geocacheId, limit);
+                        return ok({
+                            geocache_id: geocacheId,
+                            stored_count: selection.storedCount,
+                            total_available: selection.totalAvailable ?? null,
+                            logs: selection.logs.map(log => ({
+                                id: log.id,
+                                author: log.author,
+                                date: log.date,
+                                log_type: log.log_type,
+                                is_friend_log: log.is_friend_log,
+                                is_own_log: log.is_own_log,
+                                text: (log.text || '').substring(0, 400),
+                            })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_logs_summary',
+                name: 'aide_get_logs_summary',
+                description: 'Résumé des logs récents d\'une géocache (types, auteurs, dates, extraits) ' +
+                    'sans charger le texte intégral.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    count: { type: 'number', description: 'Nombre de logs récents à résumer (défaut 20).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const count = Math.min(Math.max(Number(args.count) || 20, 1), 100);
+                        const summary = await this.geocacheDetailsService.getRecentLogsSummary(geocacheId, count);
+                        return ok(summary ?? { logs: [] });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_refresh_logs',
+                name: 'aide_refresh_logs',
+                description: 'Récupère les logs d\'une géocache depuis Geocaching.com et les stocke en base ' +
+                    '(accès réseau, requiert une session connectée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRef,
+                    count: { type: 'number', description: 'Nombre de logs à récupérer (défaut : préférence de l\'app).', required: false },
+                }),
+                confirmAlwaysAllow: 'Récupérer les logs depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const options = args.count ? { count: Number(args.count) } : {};
+                        const result = await this.logsFetchService.refresh(geocacheId, options);
+                        this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'logs-refreshed', source: 'chat' });
+                        return ok(result);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Amis Geocaching.com ──────────────────────────────────────────────────
+
+    private buildFriendTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_friend_events',
+                name: 'aide_list_friend_events',
+                description: 'Liste les événements d\'activité récents des amis Geocaching.com ' +
+                    '(trouvailles, logs) déjà synchronisés en base.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    limit: { type: 'number', description: 'Nombre max d\'événements (défaut 30, max 100).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const limit = Math.min(Math.max(Number(args.limit) || 30, 1), 100);
+                        return ok(await this.friendsService.loadEvents(limit));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_friend_stats',
+                name: 'aide_get_friend_stats',
+                description: 'Statistiques globales des amis (trouvailles synchronisées, couverture, fraîcheur des données).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.friendsService.loadStats());
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_friend_finds_for_zone',
+                name: 'aide_get_friend_finds_for_zone',
+                description: 'Pour chaque géocache d\'une zone, indique quels amis l\'ont trouvée ' +
+                    '(données synchronisées en base, pas d\'accès réseau).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const finds = await this.friendsService.loadZoneFinds(Number(args.zone_id));
+                        const entries = Object.entries(finds);
+                        const capped = entries.slice(0, 200);
+                        return ok({
+                            zone_id: Number(args.zone_id),
+                            total: entries.length,
+                            finds: Object.fromEntries(capped),
+                            truncated: entries.length > capped.length,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_friend_finds_for_geocache',
+                name: 'aide_get_friend_finds_for_geocache',
+                description: 'Indique quels amis ont trouvé une géocache donnée (données synchronisées en base).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        return ok(await this.friendsService.loadGeocacheFinds(geocacheId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_friends',
+                name: 'aide_open_friends',
+                description: 'Ouvre le panneau des amis Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.friends.open');
+                        return ok('Panneau des amis ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_friend_activity',
+                name: 'aide_open_friend_activity',
+                description: 'Ouvre le panneau d\'activité des amis Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.friends.activity.open');
+                        return ok('Panneau d\'activité des amis ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Archive de résolutions ───────────────────────────────────────────────
+
+    private buildArchiveTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_archive',
+                name: 'aide_list_archive',
+                description: 'Liste les géocaches archivées (résolutions conservées après suppression de la zone), ' +
+                    'paginées et filtrables par statut ou code GC.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    page: { type: 'number', description: 'Numéro de page (défaut 1).', required: false },
+                    per_page: { type: 'number', description: 'Entrées par page (défaut 20, max 100).', required: false },
+                    solved_status: { type: 'string', description: 'Filtre de statut (ex: "solved").', required: false },
+                    gc_code: { type: 'string', description: 'Filtre par code GC.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const response = await this.archiveService.listArchives({
+                            page: Math.max(Number(args.page) || 1, 1),
+                            perPage: Math.min(Math.max(Number(args.per_page) || 20, 1), 100),
+                            solvedStatus: args.solved_status ? String(args.solved_status) : undefined,
+                            gcCode: args.gc_code ? String(args.gc_code) : undefined,
+                        });
+                        return ok({
+                            total: response.total,
+                            page: response.page,
+                            pages: response.pages,
+                            archives: response.archives.map(entry => ({
+                                gc_code: entry.gc_code,
+                                name: entry.name,
+                                cache_type: entry.cache_type,
+                                difficulty: entry.difficulty,
+                                terrain: entry.terrain,
+                                solved_status: entry.solved_status,
+                                solved_coordinates_raw: entry.solved_coordinates_raw,
+                                updated_at: entry.updated_at,
+                            })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_status',
+                name: 'aide_archive_status',
+                description: 'Indique si un code GC possède une archive de résolution et si elle a besoin d\'une synchronisation.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD").', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const status = await this.geocacheDetailsService.getArchiveStatus(String(args.gc_code));
+                        return ok(status ?? { exists: false });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

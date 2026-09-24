@@ -310,6 +310,29 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_add_geocache_by_code': { registryId: 'aide_add_geocache_by_code', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
     'aide_refresh_geocache': { registryId: 'aide_refresh_geocache', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_sync_notes_from_geocaching': { registryId: 'aide_sync_notes_from_geocaching', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_push_corrected_coordinates': { registryId: 'aide_push_corrected_coordinates', category: 'coordinates', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_push_waypoint_coordinates': { registryId: 'aide_push_waypoint_coordinates', category: 'coordinates', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_refresh_logs': { registryId: 'aide_refresh_logs', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+
+    // Statut / coordonnees / lots
+    'aide_set_solved_status': { registryId: 'aide_set_solved_status', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_reset_coordinates': { registryId: 'aide_reset_coordinates', category: 'coordinates', risk: 'high', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_update_waypoint': { registryId: 'aide_update_waypoint', category: 'coordinates', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_move_geocaches': { registryId: 'aide_move_geocaches', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_copy_geocaches': { registryId: 'aide_copy_geocaches', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_geocaches': { registryId: 'aide_delete_geocaches', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Logs / amis / archive (lectures)
+    'aide_get_geocache_logs': { registryId: 'aide_get_geocache_logs', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_logs_summary': { registryId: 'aide_get_logs_summary', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_friend_events': { registryId: 'aide_list_friend_events', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_friend_stats': { registryId: 'aide_get_friend_stats', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_friend_finds_for_zone': { registryId: 'aide_get_friend_finds_for_zone', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_friend_finds_for_geocache': { registryId: 'aide_get_friend_finds_for_geocache', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_archive': { registryId: 'aide_list_archive', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_archive_status': { registryId: 'aide_archive_status', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_friends': { registryId: 'aide_open_friends', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_friend_activity': { registryId: 'aide_open_friend_activity', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
 };
 
 @injectable()

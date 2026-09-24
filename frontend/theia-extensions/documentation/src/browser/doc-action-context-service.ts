@@ -1,15 +1,17 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ApplicationShell } from '@theia/core/lib/browser';
 import { ZonesService } from 'theia-ide-zones-ext/lib/browser/zones-service';
-import { DocActionUiContext } from './doc-action-types';
+import { DocActionUiContext, DocActionWidgetKind } from './doc-action-types';
 
 interface WidgetInfo {
-    kind: string;
+    kind: DocActionWidgetKind;
     geocacheId?: number;
     gcCode?: string;
     geocacheName?: string;
     zoneId?: number;
     zoneName?: string;
+    selection?: number[];
+    pluginName?: string;
 }
 
 @injectable()
@@ -90,11 +92,53 @@ export class DocActionContextService {
             const result: WidgetInfo = { kind: 'zone-geocaches' };
             if (widget?.zoneId) { result.zoneId = widget.zoneId; }
             if (widget?.zoneName) { result.zoneName = widget.zoneName; }
+            // Selection cochee de la table : permet « les caches selectionnees ».
+            const selection = widget?.selectedGeocacheIds;
+            if (Array.isArray(selection) && selection.length) {
+                result.selection = selection.slice(0, 200);
+            }
             return result;
         }
 
-        if (widgetId === 'zones.widget') { return { kind: 'zones-list' }; }
+        if (widgetId === 'zones.widget' || widgetId === 'zones.tree.widget') { return { kind: 'zones-list' }; }
         if (widgetId === 'geoapp-documentation') { return { kind: 'documentation' }; }
+        if (widgetId.startsWith('geoapp-map')) { return { kind: 'map' }; }
+        if (widgetId === 'geoapp.archive.manager') { return { kind: 'archive' }; }
+        if (widgetId === 'geoapp.outing.plan') { return { kind: 'outing-plan' }; }
+        if (widgetId === 'geoapp-server-log-terminal') { return { kind: 'server-logs' }; }
+        if (widgetId === 'geocaching-friends-widget') { return { kind: 'friends' }; }
+        if (widgetId === 'geocaching-friend-activity-widget') { return { kind: 'friend-activity' }; }
+        if (widgetId === 'geocaching-auth-widget') { return { kind: 'auth' }; }
+        if (widgetId === 'alphabets-list') { return { kind: 'alphabets' }; }
+
+        if (widgetId.startsWith('plugin-executor-widget')) {
+            const result: WidgetInfo = { kind: 'plugin-executor' };
+            if (typeof widget?.selectedPlugin === 'string' && widget.selectedPlugin) {
+                result.pluginName = widget.selectedPlugin;
+            }
+            return result;
+        }
+
+        if (widgetId.startsWith('geocache.logEditor.widget')) {
+            const result: WidgetInfo = { kind: 'log-editor' };
+            const editor = widget?.activeEditor;
+            if (editor?.type === 'per-cache' && typeof editor.geocacheId === 'number') {
+                result.geocacheId = editor.geocacheId;
+            }
+            return result;
+        }
+
+        if (widgetId.startsWith('geocache.logs.widget')
+            || widgetId.startsWith('geocache.notes.widget')
+            || widgetId.startsWith('geocache.image.editor.widget')) {
+            const kind = widgetId.startsWith('geocache.logs.widget') ? 'logs'
+                : widgetId.startsWith('geocache.notes.widget') ? 'notes' : 'image-editor';
+            const result: WidgetInfo = { kind };
+            if (typeof widget?.geocacheId === 'number') { result.geocacheId = widget.geocacheId; }
+            if (typeof widget?.gcCode === 'string') { result.gcCode = widget.gcCode; }
+            return result;
+        }
+
         return { kind: 'other' };
     }
 
@@ -117,6 +161,17 @@ export class DocActionContextService {
                     `${context.activeWidget.zoneName ? ` nom="${context.activeWidget.zoneName}"` : ''}`
                 );
             }
+            if (context.activeWidget.selection?.length) {
+                const sel = context.activeWidget.selection;
+                parts.push(
+                    `  → Sélection : ${sel.length} géocache(s) cochée(s) — geocache_ids=${JSON.stringify(sel.slice(0, 50))}` +
+                    `${sel.length > 50 ? ` (+${sel.length - 50} autres)` : ''}`
+                );
+                parts.push('  → « les caches sélectionnées » = cette liste d\'ids.');
+            }
+            if (context.activeWidget.pluginName) {
+                parts.push(`  → Plugin ouvert : ${context.activeWidget.pluginName}`);
+            }
         } else {
             parts.push('Widget actif : aucun widget GeoApp (le chat IA est en focus)');
         }
@@ -138,6 +193,16 @@ export class DocActionContextService {
                     `${lgw.zoneName ? ` nom="${lgw.zoneName}"` : ''}`
                 );
             }
+            if (lgw.selection?.length) {
+                const sel = lgw.selection;
+                parts.push(
+                    `  → Sélection : ${sel.length} géocache(s) cochée(s) — geocache_ids=${JSON.stringify(sel.slice(0, 50))}` +
+                    `${sel.length > 50 ? ` (+${sel.length - 50} autres)` : ''}`
+                );
+            }
+            if (lgw.pluginName) {
+                parts.push(`  → Plugin ouvert : ${lgw.pluginName}`);
+            }
         }
 
         if (context.activeZone?.id) {
@@ -158,6 +223,12 @@ export class DocActionContextService {
                 }
                 if (tab.zoneId) {
                     line += ` (zone id:${tab.zoneId}${tab.zoneName ? ` "${tab.zoneName}"` : ''})`;
+                }
+                if (tab.selection?.length) {
+                    line += ` [${tab.selection.length} cochée(s)]`;
+                }
+                if (tab.pluginName) {
+                    line += ` [plugin: ${tab.pluginName}]`;
                 }
                 parts.push(line);
             }
