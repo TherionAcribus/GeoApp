@@ -71,3 +71,75 @@
     outline: 1px solid var(--theia-focusBorder);
     outline-offset: -1px;
 }
+
+/* ── Aperçu dépliable des notes sous le header ── */
+.geoapp-gcd-note-preview {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    overflow: hidden;
+}
+
+.geoapp-gcd-note-preview-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 10px;
+    border: none;
+    background: transparent;
+    color: var(--theia-foreground);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.geoapp-gcd-note-preview-toggle:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-gcd-note-preview-toggle:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.geoapp-gcd-note-count {
+    background: var(--theia-badge-background, #0078d4);
+    color: var(--theia-badge-foreground, #fff);
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    padding: 1px 5px;
+}
+
+.geoapp-gcd-note-preview-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gcd-note-kind {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--theia-descriptionForeground);
+    margin-bottom: 2px;
+}
+
+/* Extrait limité à quelques lignes — le panneau Notes garde le texte complet. */
+.geoapp-gcd-note-text {
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}

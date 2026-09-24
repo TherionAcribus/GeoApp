@@ -1379,6 +1379,9 @@ def get_geocache_details(geocache_id: int):
                 .filter(GeocacheNote.geocache_id == geocache_id)
                 .scalar()
             )
+            # La note perso Geocaching.com n'est pas une ligne GeocacheNote :
+            # flag séparé pour décider d'afficher l'aperçu « Note perso ».
+            result['has_personal_note'] = bool((geocache.gc_personal_note or '').strip())
 
             recent_logs_count = min(request.args.get('recent_logs_count', 5, type=int), 20)
             recent_logs = (

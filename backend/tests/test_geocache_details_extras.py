@@ -39,10 +39,12 @@ def test_details_extras_are_absent_without_flag(app):
 
     assert 'notes_count' not in payload
     assert 'recent_logs_summary' not in payload
+    assert 'has_personal_note' not in payload
 
 
 def test_details_extras_return_notes_count_and_logs_summary(app):
     geocache = Geocache.query.get(app.geocache_id)
+    geocache.gc_personal_note = 'mon parking préféré'
     geocache.notes.append(Note(content='indice', note_type='user'))
     geocache.notes.append(Note(content='autre', note_type='user'))
     db.session.add_all([
@@ -60,6 +62,7 @@ def test_details_extras_return_notes_count_and_logs_summary(app):
     ).get_json()
 
     assert payload['notes_count'] == 2
+    assert payload['has_personal_note'] is True
     summary = payload['recent_logs_summary']
     assert summary['total_count'] == 3
     # Tri décroissant par date, limité à `recent_logs_count`.

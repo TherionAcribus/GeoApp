@@ -9,6 +9,8 @@ import {
     GeocacheOverviewSection
 } from './geocache-details-sections';
 import { GeocacheDto } from './geocache-details-types';
+import { GeocacheNotePreview } from './geocache-note-preview';
+import { GeocacheNotesApiResponse } from './geocache-notes-types';
 import { GeocacheFriendFindsBanner } from './geocache-friend-finds-banner';
 import { GeocacheImagesPanel } from './geocache-images-panel';
 import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
@@ -51,6 +53,11 @@ interface GeocacheDetailsViewProps {
     logsSummaryTotalCount?: number;
     isLogsSummaryLoading?: boolean;
     onOpenLogs?: () => void;
+    /** Nombre de notes GeoApp (extra `notes_count`), pour l'aperçu dépliable. */
+    notesCount?: number;
+    /** Chargement lazy du contenu des notes au premier dépliage de l'aperçu. */
+    onFetchNotes?: () => Promise<GeocacheNotesApiResponse>;
+    onOpenNotes?: () => void;
     checkerLinkOpenMode?: 'same-group' | 'new-group' | 'external-window';
     onOpenCheckerUrl?: (url: string, mode: 'same-group' | 'new-group' | 'external-window') => void;
     checkerContextMenu?: { x: number; y: number; url: string } | null;
@@ -77,6 +84,9 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     logsSummaryTotalCount,
     isLogsSummaryLoading,
     onOpenLogs,
+    notesCount,
+    onFetchNotes,
+    onOpenNotes,
     checkerLinkOpenMode,
     onOpenCheckerUrl,
     checkerContextMenu,
@@ -109,6 +119,16 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                 aria-busy={isLoading}
             >
                 <MemoGeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} isRefreshing={isRefreshing} />
+
+                {geocacheData.id && onFetchNotes && onOpenNotes ? (
+                    <GeocacheNotePreview
+                        geocacheId={geocacheData.id}
+                        notesCount={notesCount ?? geocacheData.notes_count}
+                        hasPersonalNote={geocacheData.has_personal_note}
+                        fetchNotes={onFetchNotes}
+                        onOpenNotes={onOpenNotes}
+                    />
+                ) : undefined}
 
                 {apiBaseUrl && geocacheData.id ? (
                     <GeocacheFriendFindsBanner geocacheId={geocacheData.id} apiBaseUrl={apiBaseUrl} />

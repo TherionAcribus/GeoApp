@@ -68,6 +68,8 @@ export type GeocacheDto = {
     checkers?: GeocacheChecker[];
     /** Extras de fiche détail (présents seulement avec `?details_extras=1`). */
     notes_count?: number;
+    /** Note perso Geocaching.com présente (extra de fiche ; hors `notes_count`). */
+    has_personal_note?: boolean;
     recent_logs_summary?: {
         total_count: number;
         entries: import('./geocache-logs-summary').LogSummaryEntry[];

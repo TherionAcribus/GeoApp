@@ -1485,6 +1485,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     };
 
+    /** Chargement lazy des notes pour l'aperçu dépliable sous le header. */
+    private fetchNotesForPreview = (): Promise<import('./geocache-notes-types').GeocacheNotesApiResponse> =>
+        this.notesController.loadNotes(this.geocacheId!);
+
     private async confirmStoreAllImages(options: { geocacheId: number; pendingCount: number }): Promise<boolean> {
         const dialog = new ConfirmDialog({
             title: 'Stockage local des images',
@@ -1725,6 +1729,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 logsSummaryTotalCount={this.logsSummaryTotalCount}
                 isLogsSummaryLoading={this.isLogsSummaryLoading}
                 onOpenLogs={this.openLogs}
+                notesCount={this.notesCount}
+                onFetchNotes={this.fetchNotesForPreview}
+                onOpenNotes={this.openNotes}
                 checkerLinkOpenMode={this.preferencesController.getCheckerLinkOpenMode()}
                 onOpenCheckerUrl={this.openCheckerUrl}
                 checkerContextMenu={this.checkerContextMenu}
