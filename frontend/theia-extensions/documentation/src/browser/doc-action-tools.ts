@@ -718,6 +718,39 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 },
             },
             {
+                id: 'aide_open_formula_solver',
+                name: 'aide_open_formula_solver',
+                description: 'Ouvre le panneau Formula Solver (résolution de formules de coordonnées).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('formula-solver:open');
+                        return ok('Formula Solver ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_solve_formula_for_geocache',
+                name: 'aide_solve_formula_for_geocache',
+                description: 'Charge une géocache dans le Formula Solver et lance son workflow de résolution ' +
+                    '(le panneau s\'ouvre ; l\'utilisateur valide ensuite les étapes dans le widget).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
+                }),
+                confirmAlwaysAllow: 'Charger cette géocache dans le Formula Solver et lancer le workflow ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        await this.commandService.executeCommand('formula-solver:solve-from-geocache', geocacheId);
+                        return ok(`Géocache ${geocacheId} chargée dans le Formula Solver.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_set_table_filter',
                 name: 'aide_set_table_filter',
                 description: 'Applique un filtre de recherche et/ou un tri à la table des géocaches d\'une zone ouverte. ' +

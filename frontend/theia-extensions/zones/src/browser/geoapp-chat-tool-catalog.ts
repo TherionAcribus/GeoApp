@@ -254,6 +254,8 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_open_zones_list': { registryId: 'aide_open_zones_list', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_open_zone_tab': { registryId: 'aide_open_zone_tab', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_set_table_filter': { registryId: 'aide_set_table_filter', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_formula_solver': { registryId: 'aide_open_formula_solver', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_solve_formula_for_geocache': { registryId: 'aide_solve_formula_for_geocache', category: 'formula', risk: 'local_write', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_preferences': { registryId: 'aide_open_preferences', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_open_global_search': { registryId: 'aide_open_global_search', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_geocache': { registryId: 'aide_open_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

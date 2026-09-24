@@ -135,6 +135,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             'Les schemas complets des tools (parametres, descriptions) sont transmis avec la requete — les regles ci-dessous indiquent seulement lequel choisir.',
             '- Navigation : aide_open_* pour ouvrir un panneau (documentation, preferences, plugins, alphabets, carte, archive, zones, fiche geocache).',
             '- Table de zone : aide_set_table_filter pour filtrer (tokens @champ:valeur, ex "@type:mystery @solved:not_solved") ou trier la table ouverte ; search_query vide efface le filtre.',
+            '- Formula Solver : aide_solve_formula_for_geocache charge une cache dans le solveur (workflow guidé) ; aide_open_formula_solver ouvre juste le panneau.',
             '- Localiser une cache : aide_find_geocache(gc_code ou name) AVANT tout tool geocache quand l\'utilisateur cite un code ou un nom ; la plupart des tools acceptent gc_code en relais de geocache_id.',
             '- Zones : aide_list_zones pour les ids, puis aide_create/rename/duplicate/merge/delete/set_active_zone.',
             '- Geocaches : aide_get_geocache_details pour le contenu complet ; aide_list_geocaches_in_zone est paginee (limit/offset/total) ; aide_add_geocache_by_code, copy, move, update_coordinates, get_nearby, refresh, export_gpx, delete pour les actions.',

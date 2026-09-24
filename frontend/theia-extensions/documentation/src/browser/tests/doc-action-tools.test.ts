@@ -638,6 +638,30 @@ async function testTableFilterTool(): Promise<void> {
     assert.equal(requests[1].sortBy, undefined);
 }
 
+// §29 : aide_solve_formula_for_geocache résout le code GC et appelle la commande dédiée.
+async function testFormulaSolverTools(): Promise<void> {
+    const commands: Array<{ id: string; args: unknown[] }> = [];
+    const manager = createManager({
+        commandService: {
+            executeCommand: async (id: string, ...args: unknown[]) => { commands.push({ id, args }); },
+        },
+        geocachesService: {
+            getByCode: async (code: string) => (code === 'GC9XYZ' ? { id: 77 } : undefined),
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const res = await call(findTool(tools, 'aide_solve_formula_for_geocache'), { gc_code: 'GC9XYZ' });
+    assert.equal(res.success, true);
+    assert.deepEqual(commands, [{ id: 'formula-solver:solve-from-geocache', args: [77] }]);
+
+    await call(findTool(tools, 'aide_open_formula_solver'), {});
+    assert.equal(commands[1].id, 'formula-solver:open');
+
+    // Sans id ni code : erreur propre.
+    assert.equal((await call(findTool(tools, 'aide_solve_formula_for_geocache'), {})).success, false);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -658,6 +682,7 @@ async function run(): Promise<void> {
     await testMutationFeedback();
     await testDryRun();
     await testTableFilterTool();
+    await testFormulaSolverTools();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }
