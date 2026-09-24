@@ -385,7 +385,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             const isNew = waypointId === 'new' || waypointId === undefined;
             const result = await this.geocacheDetailsService.saveWaypoint<{ id?: number }>(this.geocacheId, waypointId, payload);
-            await this.load();
+            await this.load({ secondary: false });
             this.notifyGeocacheChanged(isNew ? 'waypoint-created' : 'corrected-coordinates-updated');
             this.messages.info('Waypoint sauvegardé');
             return isNew ? result?.id : undefined;
@@ -404,7 +404,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             await this.geocacheDetailsService.updateDescription(this.geocacheId, payload);
             this.descriptionVariant = 'modified';
-            await this.load();
+            await this.load({ secondary: false });
             this.messages.info('Description mise à jour');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] saveDescriptionOverrides error', error);
@@ -421,7 +421,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             await this.geocacheDetailsService.resetDescription(this.geocacheId);
             this.descriptionVariant = 'original';
-            await this.load();
+            await this.load({ secondary: false });
             this.messages.info('Description, indices et notes de waypoints réinitialisés');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] resetDescriptionOverrides error', error);
@@ -437,7 +437,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         try {
             await this.geocachesService.updateCoordinates(this.geocacheId, coordinatesRaw);
-            await this.load();
+            await this.load({ secondary: false });
             this.notifyGeocacheChanged('corrected-coordinates-updated');
             this.messages.info('Coordonnées mises à jour');
         } catch (error) {
@@ -454,7 +454,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         try {
             await this.geocacheDetailsService.resetCoordinates(this.geocacheId);
-            await this.load();
+            await this.load({ secondary: false });
             this.notifyGeocacheChanged('corrected-coordinates-updated');
             this.messages.info('Coordonnées réinitialisées');
         } catch (error) {
@@ -520,7 +520,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 gc_coords: gcCoords,
                 note: note || ''
             });
-            await this.load();
+            await this.load({ secondary: false });
             this.notifyGeocacheChanged('waypoint-created');
             this.messages.info('Waypoint créé automatiquement depuis le plugin');
         } catch (error) {
@@ -831,7 +831,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
             this.descriptionVariant = 'modified';
             this.chatController.invalidateRoutingPreview(geocacheId);
-            await this.load();
+            await this.load({ secondary: false });
             this.messages.info('Traduction enregistrée dans la description modifiée');
         } catch (e) {
             if (this.translationCts?.token.isCancellationRequested) {
@@ -871,8 +871,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.setGeocache({ geocacheId: state.geocacheId });
     }
 
-    protected async load(): Promise<void> {
+    /**
+     * Recharge la fiche. `secondary: false` saute les chargements qui ne dépendent
+     * pas des mutations locales (synchro de la note perso vers GC.com, aperçu de
+     * routage du chat) : réservé aux rechargements après une édition dans la fiche.
+     * Le premier chargement et les modifications externes restent en `secondary: true`.
+     */
+    protected async load(options?: { secondary?: boolean }): Promise<void> {
         if (!this.geocacheId) { return; }
+        const secondary = options?.secondary !== false;
         const geocacheId = this.geocacheId;
         this.isLoading = true;
         this.update();
@@ -911,11 +918,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             } else {
                 void this.loadLogsSummary();
             }
-            void this.notesController.autoSyncFromDetailsIfEnabled(geocacheId).catch(err => {
-                console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
-            });
+            if (secondary) {
+                void this.notesController.autoSyncFromDetailsIfEnabled(geocacheId).catch(err => {
+                    console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
+                });
+                void this.refreshChatRoutingPreview();
+            }
+            // Le statut d'archive reflète les mutations (coordonnées corrigées,
+            // description modifiée rendent l'archive obsolète) : toujours rechargé.
             void this.loadArchiveStatus();
-            void this.refreshChatRoutingPreview();
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error('GeocacheDetailsWidget: load error', e);
@@ -1128,7 +1139,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         
         try {
             await this.geocachesService.setWaypointAsCorrectedCoords(this.geocacheId, waypointId);
-            await this.load();
+            await this.load({ secondary: false });
             this.notifyGeocacheChanged('corrected-coordinates-updated');
             this.messages.info(`Coordonnées corrigées mises à jour depuis "${waypointName}"`);
         } catch (e) {
@@ -1332,7 +1343,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
             this.descriptionVariant = 'modified';
             this.chatController.invalidateRoutingPreview(geocacheId);
-            await this.load();
+            await this.load({ secondary: false });
             if (result.failed.length > 0) {
                 this.messages.warn(
                     `Traduction partielle : ${result.translated.join(', ')} enregistré(s), non traduit : ${result.failed.join(', ')}`
