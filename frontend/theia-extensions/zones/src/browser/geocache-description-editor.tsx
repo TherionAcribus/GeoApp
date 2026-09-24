@@ -3,6 +3,7 @@ import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
+import '../../src/browser/style/geocache-details-header.css';
 
 export interface DescriptionEditorProps {
     geocacheData: GeocacheDto;
@@ -101,11 +102,9 @@ const translateMenuItemStyle: React.CSSProperties = {
     gap: 10,
     width: '100%',
     textAlign: 'left',
-    background: 'transparent',
     border: 'none',
     cursor: 'pointer',
-    padding: '8px 12px',
-    color: 'var(--theia-menu-foreground)'
+    padding: '8px 12px'
 };
 const translateMenuIconStyle: React.CSSProperties = { fontSize: 16, lineHeight: '18px', flexShrink: 0 };
 const translateMenuTextColStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2 };
@@ -497,10 +496,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                                 <button
                                     type='button'
                                     role='menuitem'
+                                    className='geoapp-menu-item'
                                     onClick={() => runTranslate(onTranslateToFrench)}
                                     style={translateMenuItemStyle}
-                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }}
-                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                 >
                                     <span aria-hidden='true' style={translateMenuIconStyle}>📝</span>
                                     <span style={translateMenuTextColStyle}>
@@ -511,10 +509,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                                 <button
                                     type='button'
                                     role='menuitem'
+                                    className='geoapp-menu-item'
                                     onClick={() => runTranslate(onTranslateAllToFrench)}
                                     style={translateMenuItemStyle}
-                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }}
-                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                 >
                                     <span aria-hidden='true' style={translateMenuIconStyle}>🌍</span>
                                     <span style={translateMenuTextColStyle}>

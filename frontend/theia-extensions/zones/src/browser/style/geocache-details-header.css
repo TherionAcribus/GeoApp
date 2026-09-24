@@ -22,3 +22,52 @@
         animation-duration: 2.5s;
     }
 }
+
+/* ── Items de menu déroulant (Analyser, profil IA, traduction, menu propriétaire) ──
+   Survol et focus clavier gérés en CSS : pas de mutation de style en JS, et les
+   états restent themables via les variables Theia. */
+.geoapp-menu-item {
+    background: transparent;
+    color: var(--theia-menu-foreground);
+}
+
+.geoapp-menu-item:hover:not(.geoapp-menu-item--disabled):not([aria-disabled='true']),
+.geoapp-menu-item:focus-visible:not(.geoapp-menu-item--disabled):not([aria-disabled='true']) {
+    background: var(--theia-menu-selectionBackground);
+    color: var(--theia-menu-selectionForeground, var(--theia-menu-foreground));
+}
+
+.geoapp-menu-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+/* Item de menu dont le sous-menu est déroulé : le surlignage persiste. */
+.geoapp-menu-item.geoapp-menu-item--open {
+    background: var(--theia-menu-selectionBackground);
+}
+
+/* Item de menu coché (ex. profil IA actif, role='menuitemradio'). */
+.geoapp-menu-item[aria-checked='true'],
+.geoapp-menu-item[aria-checked='true']:hover,
+.geoapp-menu-item[aria-checked='true']:focus-visible {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+/* ── Split button « Chat IA » ──
+   Les deux moitiés partagent le fond du bouton ; le hover/focus est en CSS. */
+.geoapp-gcd-split-btn {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.geoapp-gcd-split-btn:hover,
+.geoapp-gcd-split-btn:focus-visible {
+    background: var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff));
+}
+
+.geoapp-gcd-split-btn:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import '../../src/browser/style/geocache-details-header.css';
 
 export interface ContextMenuItem {
     label?: string;
@@ -62,6 +63,7 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = ({
                         onMouseEnter={() => setOpenSubmenuIndex(hasSubmenu ? index : null)}
                     >
                         <div
+                            className={`geoapp-menu-item${item.disabled ? ' geoapp-menu-item--disabled' : ''}${isSubmenuOpen ? ' geoapp-menu-item--open' : ''}`}
                             onClick={() => {
                                 if (item.disabled || hasSubmenu) {
                                     return;
@@ -82,19 +84,8 @@ const MenuList: React.FC<{ items: ContextMenuItem[]; onClose: () => void }> = ({
                                     ? 'var(--theia-errorForeground)'
                                     : item.disabled
                                         ? 'var(--theia-descriptionForeground)'
-                                        : 'var(--theia-menu-foreground)',
+                                        : undefined,
                                 opacity: item.disabled ? 0.5 : 1,
-                                background: isSubmenuOpen ? 'var(--theia-menu-selectionBackground)' : 'transparent',
-                            }}
-                            onMouseEnter={(e) => {
-                                if (!item.disabled) {
-                                    (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)';
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                if (!isSubmenuOpen) {
-                                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                                }
                             }}
                         >
                             <span style={{ width: 14, display: 'inline-flex', justifyContent: 'center' }}>

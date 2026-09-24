@@ -248,20 +248,16 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const tbIconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
     const vSep: React.CSSProperties = { width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px', flexShrink: 0 };
 
-    // Bouton de la moitié principale du split Chat IA
+    // Bouton de la moitié principale du split Chat IA (fond/hover : .geoapp-gcd-split-btn)
     const splitMainStyle: React.CSSProperties = {
         ...toolbarBtnStyle,
         ...tbIconBtn,
-        background: 'var(--theia-button-background)',
-        color: 'var(--theia-button-foreground)',
         border: 'none',
         borderRight: '1px solid rgba(0,0,0,0.18)',
         cursor: 'pointer',
     };
     // Moitié droite (▾) du split
     const splitArrowStyle: React.CSSProperties = {
-        background: 'var(--theia-button-background)',
-        color: 'var(--theia-button-foreground)',
         border: 'none',
         padding: '4px 8px',
         cursor: 'pointer',
@@ -341,6 +337,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                         onClick={activate}
                                         onKeyDown={(e) => handleMenuItemKeyDown(e, activate)}
                                         title={item.title}
+                                        className='geoapp-menu-item'
                                         style={{
                                             padding: '7px 12px',
                                             cursor: item.disabled ? 'not-allowed' : 'pointer',
@@ -348,11 +345,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             alignItems: 'center',
                                             gap: 8,
                                             fontSize: 12,
-                                            color: 'var(--theia-menu-foreground)',
                                             opacity: item.disabled ? 0.5 : 1,
                                         }}
-                                        onMouseEnter={(e) => { if (!item.disabled) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; } }}
-                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                                     >
                                         <span className={item.iconClass} aria-hidden='true' />
                                         <span>{item.label}</span>
@@ -379,11 +373,10 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         overflow: 'hidden',
                     }}>
                         <button
+                            className='geoapp-gcd-split-btn'
                             onClick={() => { void onOpenAiChat(); }}
                             style={splitMainStyle}
                             title={`Chat IA dédié à cette géocache — profil : ${effectiveChatProfile}, workflow : ${chatWorkflowPreview}`}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff))'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-background)'; }}
                         >
                             <i className='fa fa-comments' aria-hidden='true' />
                             <span>Chat IA</span>
@@ -404,14 +397,13 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             </span>
                         </button>
                         <button
+                            className='geoapp-gcd-split-btn'
                             onClick={onToggleChatProfileMenu}
                             style={splitArrowStyle}
                             aria-label={`Choisir le profil de chat IA (actuel : ${chatProfileOverrideLabel})`}
                             aria-haspopup='menu'
                             aria-expanded={isChatProfileMenuOpen}
                             title={`Choisir le profil de chat IA (actuel : ${chatProfileOverrideLabel})`}
-                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff))'; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-background)'; }}
                         >
                             <i className='fa fa-caret-down' style={{ fontSize: 11 }} aria-hidden='true' />
                         </button>
@@ -449,6 +441,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                         tabIndex={0}
                                         onClick={() => onSelectChatProfileOverride(option.value)}
                                         onKeyDown={(e) => handleMenuItemKeyDown(e, () => onSelectChatProfileOverride(option.value))}
+                                        className='geoapp-menu-item'
                                         style={{
                                             fontSize: 12,
                                             padding: '7px 12px',
@@ -456,18 +449,10 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 8,
-                                            background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
-                                            color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'var(--theia-menu-foreground)',
                                         }}
                                         title={option.value === 'default'
                                             ? `Profil déterminé automatiquement par le workflow (${chatProfilePreview})${option.description ? ` — ${option.description}` : ''}`
                                             : `Forcer le profil ${option.label}${option.description ? ` — ${option.description}` : ''}`}
-                                        onMouseEnter={(e) => {
-                                            if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }
-                                        }}
-                                        onMouseLeave={(e) => {
-                                            if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'transparent'; }
-                                        }}
                                     >
                                         <i
                                             className={isSelected ? 'fa fa-dot-circle-o' : 'fa fa-circle-o'}
