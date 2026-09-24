@@ -143,3 +143,31 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
+
+/* ── Chevron de repli des sections de la fiche ── */
+.geoapp-gcd-collapse-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--theia-foreground);
+    cursor: pointer;
+    padding: 0 4px 0 0;
+    font-size: 13px;
+    opacity: 0.7;
+}
+
+.geoapp-gcd-collapse-toggle:hover:not(:disabled) {
+    opacity: 1;
+}
+
+.geoapp-gcd-collapse-toggle:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.geoapp-gcd-collapse-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}

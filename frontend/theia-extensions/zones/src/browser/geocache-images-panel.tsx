@@ -7,6 +7,7 @@ import { MessageService } from '@theia/core';
 import { ConfirmDialog, ConfirmSaveDialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
+import { SectionCollapseToggle } from './geocache-section-collapse';
 import '../../src/browser/style/geocache-images-panel.css';
 
 export type GeocacheImageV2Dto = {
@@ -75,6 +76,9 @@ export interface GeocacheImagesPanelProps {
      */
     maxChatImages?: number;
     onAnalyzeImages?: (images: GeocacheImageChatSelection[]) => Promise<void> | void;
+    /** Section repliée (persisté en préférence par le widget parent). */
+    collapsed?: boolean;
+    onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
 }
 
 // ---- ThumbnailItem ----------------------------------------------------------
@@ -244,6 +248,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     ocrOpenRouterModel = 'openai/gpt-4o-mini',
     maxChatImages = 5,
     onAnalyzeImages,
+    collapsed,
+    onSectionCollapsedChange,
 }) => {
     const [images, setImages] = React.useState<GeocacheImageV2Dto[]>([]);
     const [isLoading, setIsLoading] = React.useState(false);
@@ -2292,6 +2298,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             <header className='geoapp-images-header'>
                 <div className='geoapp-images-title-block'>
                     <div className='geoapp-images-title'>
+                        <SectionCollapseToggle
+                            sectionId='images'
+                            collapsed={collapsed ?? false}
+                            onSectionCollapsedChange={onSectionCollapsedChange}
+                        />
                         Galerie
                         {isRefreshing ? (
                             <span className='codicon codicon-loading codicon-modifier-spin geoapp-images-refresh-indicator' title='Mise à jour…' aria-label='Mise à jour de la galerie en cours' />
@@ -2375,6 +2386,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 </div>
             </header>
 
+            {/* display:none (pas de démontage) pour conserver les sélections et l'état interne */}
+            <div style={{ display: collapsed ? 'none' : 'contents' }}>
             {onAnalyzeImages && selectedChatImages.length > 0 ? (
                 <div className='geoapp-images-hidden-strip'>
                     <span>
@@ -2753,6 +2766,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 };

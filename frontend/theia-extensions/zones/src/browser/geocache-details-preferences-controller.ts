@@ -33,6 +33,7 @@ export class GeocacheDetailsPreferencesController {
     private readonly ocrLmstudioModelPreferenceKey = 'geoApp.ocr.lmstudio.model';
     private readonly ocrOpenRouterModelPreferenceKey = 'geoApp.ocr.openRouter.model';
     private readonly translationTargetLanguagePreferenceKey = 'geoApp.translation.targetLanguage';
+    private readonly collapsedSectionsPreferenceKey = 'geoApp.geocache.details.collapsedSections';
 
     constructor(
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService
@@ -179,6 +180,16 @@ export class GeocacheDetailsPreferencesController {
             return 5;
         }
         return Math.max(1, Math.min(50, Math.floor(parsed)));
+    }
+
+    /** Sections repliées de la fiche détail ('description', 'images', 'waypoints', …). */
+    getCollapsedSections(): string[] {
+        const raw = this.preferenceService.get(this.collapsedSectionsPreferenceKey, [] as unknown);
+        return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : [];
+    }
+
+    async setCollapsedSections(sectionIds: string[]): Promise<void> {
+        await this.preferenceService.set(this.collapsedSectionsPreferenceKey, sectionIds, PreferenceScope.User);
     }
 
     getTranslationTargetLanguage(): string {

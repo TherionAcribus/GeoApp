@@ -197,6 +197,20 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             ['default', 'enabled', 'disabled'],
             'Overrides par skill (cle = nom de skill). Valeurs : default, enabled, disabled.'),
 
+        // --- Fiche detail geocache ---
+        'geoApp.geocache.externalLinks.openMode': {
+            type: 'string',
+            enum: ['same-group', 'new-group', 'external-window'],
+            default: 'same-group',
+            description: 'Ouverture des liens externes de la fiche geocache (description, GC.com) : onglet mini-navigateur dans le groupe courant, nouveau groupe, ou fenetre externe.',
+        },
+        'geoApp.geocache.details.collapsedSections': {
+            type: 'array',
+            default: [],
+            items: { type: 'string' },
+            description: 'Sections repliees de la fiche detail geocache (details, description, hints, images, waypoints, checkers).',
+        },
+
     },
 };
 

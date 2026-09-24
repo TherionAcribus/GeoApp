@@ -65,6 +65,9 @@ interface GeocacheDetailsViewProps {
     onCloseCheckerContextMenu?: () => void;
     /** URL du backend, pour le bandeau « amis ayant trouvé » (masqué si absente). */
     apiBaseUrl?: string;
+    /** Ids des sections repliées (persisté en préférence). */
+    collapsedSections?: ReadonlySet<string>;
+    onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
 }
 
 export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
@@ -92,7 +95,9 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     checkerContextMenu,
     onShowCheckerContextMenu,
     onCloseCheckerContextMenu,
-    apiBaseUrl
+    apiBaseUrl,
+    collapsedSections,
+    onSectionCollapsedChange
 }) => (
     <div className='p-2' style={{ position: 'relative' }}>
         {/* Premier chargement uniquement : aucune donnee a afficher encore */}
@@ -143,20 +148,40 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     onOpenLogs={onOpenLogs}
                 />
 
-                <MemoGeocacheDetailedInfoSection geocacheData={geocacheData} />
+                <MemoGeocacheDetailedInfoSection
+                    geocacheData={geocacheData}
+                    collapsed={collapsedSections?.has('details')}
+                    onSectionCollapsedChange={onSectionCollapsedChange}
+                />
 
-                <MemoDescriptionEditor {...descriptionEditorProps} />
+                <MemoDescriptionEditor
+                    {...descriptionEditorProps}
+                    collapsed={collapsedSections?.has('description')}
+                    onSectionCollapsedChange={onSectionCollapsedChange}
+                />
 
                 <GeocacheHintsSection
                     displayedHints={displayedHints}
                     displayDecodedHints={displayDecodedHints}
                     onToggleDisplayMode={onToggleHintsDisplayMode}
+                    collapsed={collapsedSections?.has('hints')}
+                    onSectionCollapsedChange={onSectionCollapsedChange}
                 />
 
-                {imagesPanelProps ? <MemoGeocacheImagesPanel {...imagesPanelProps} /> : undefined}
+                {imagesPanelProps ? (
+                    <MemoGeocacheImagesPanel
+                        {...imagesPanelProps}
+                        collapsed={collapsedSections?.has('images')}
+                        onSectionCollapsedChange={onSectionCollapsedChange}
+                    />
+                ) : undefined}
 
                 <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 12 }}>
-                    <MemoWaypointsEditorWrapper {...waypointsEditorProps} />
+                    <MemoWaypointsEditorWrapper
+                        {...waypointsEditorProps}
+                        collapsed={collapsedSections?.has('waypoints')}
+                        onSectionCollapsedChange={onSectionCollapsedChange}
+                    />
                 </div>
 
                 <GeocacheCheckersSection
@@ -166,6 +191,8 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     contextMenu={checkerContextMenu}
                     onShowContextMenu={onShowCheckerContextMenu}
                     onCloseContextMenu={onCloseCheckerContextMenu}
+                    collapsed={collapsedSections?.has('checkers')}
+                    onSectionCollapsedChange={onSectionCollapsedChange}
                 />
             </div>
         ) : undefined}

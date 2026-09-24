@@ -4,6 +4,7 @@ import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
 import { handleMenuArrowKeys } from './context-menu';
+import { SectionCollapseToggle } from './geocache-section-collapse';
 import '../../src/browser/style/geocache-details-header.css';
 
 export interface DescriptionEditorProps {
@@ -23,6 +24,9 @@ export interface DescriptionEditorProps {
     targetLanguage: string;
     /** Ouverture des liens externes de la description (mini-browser ou fenêtre externe selon la préférence). */
     onOpenExternalUrl?: (url: string) => void;
+    /** Section repliée (persisté en préférence par le widget parent). */
+    collapsed?: boolean;
+    onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
 }
 
 const headerRowStyle: React.CSSProperties = {
@@ -218,7 +222,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     onCancelTranslation,
     translationProgress,
     targetLanguage,
-    onOpenExternalUrl
+    onOpenExternalUrl,
+    collapsed,
+    onSectionCollapsedChange
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
     const [isEditing, setIsEditing] = React.useState(false);
@@ -426,6 +432,15 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
         <div style={{ display: 'grid', gap: 8 }}>
             <div style={headerRowStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    {/* Le contenu édité vit dans le DOM (contentEditable) : replier
+                        pendant l'édition démonterait la zone et perdrait le texte. */}
+                    <SectionCollapseToggle
+                        sectionId='description'
+                        collapsed={collapsed ?? false}
+                        onSectionCollapsedChange={onSectionCollapsedChange}
+                        disabled={isEditing}
+                        title={isEditing ? 'Terminez l\'édition avant de replier la section' : undefined}
+                    />
                     <strong>Description</strong>
 
                     {/* Bascule de version (segmented control) */}
@@ -468,6 +483,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                     )}
                 </div>
 
+                {!collapsed ? (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     {/* Menu de traduction */}
                     <div ref={translateMenuRef} style={{ position: 'relative' }}>
@@ -537,6 +553,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         </button>
                     ) : undefined}
                 </div>
+                ) : undefined}
             </div>
 
             {/* Bannière de progression de la traduction */}
@@ -575,7 +592,8 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 </div>
             ) : undefined}
 
-            {!isEditing ? (
+            {!collapsed ? (
+            !isEditing ? (
                 <div
                     ref={descriptionRef}
                     style={{ ...descBoxStyle, opacity: isAnyTranslating ? 0.55 : 1 }}
@@ -719,7 +737,8 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         </div>
                     </div>
                 </div>
-            )}
+            )
+            ) : undefined}
         </div>
     );
 };

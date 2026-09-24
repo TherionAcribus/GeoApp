@@ -13,6 +13,7 @@ import {
     parseFlexibleGCCoords,
     toGCFormat
 } from './geocache-details-utils';
+import { SectionCollapseToggle } from './geocache-section-collapse';
 
 interface WaypointsEditorProps {
     waypoints?: GeocacheWaypoint[];
@@ -22,6 +23,9 @@ interface WaypointsEditorProps {
     onDeleteWaypoint: (id: number, name: string) => Promise<void>;
     onSetAsCorrectedCoords: (waypointId: number, waypointName: string) => Promise<void>;
     onPushWaypointToGeocaching: (waypointId: number, waypointName: string) => Promise<void>;
+    /** Section repliée (persisté en préférence par le widget parent). */
+    collapsed?: boolean;
+    onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
 }
 
 interface WaypointsEditorWrapperProps extends WaypointsEditorProps {
@@ -55,7 +59,7 @@ interface WaypointsEditorWithRefProps extends WaypointsEditorProps {
 }
 
 const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStartEditRef, onPushWaypointToGeocaching, ...props }) => {
-    const { waypoints, geocacheData, onSaveWaypoint, messages, onDeleteWaypoint, onSetAsCorrectedCoords } = props;
+    const { waypoints, geocacheData, onSaveWaypoint, messages, onDeleteWaypoint, onSetAsCorrectedCoords, collapsed, onSectionCollapsedChange } = props;
     const [editingId, setEditingId] = React.useState<number | 'new' | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<GeocacheWaypoint>>({});
     const [projectionParams, setProjectionParams] = React.useState({ distance: 100, unit: 'm', bearing: 0 });
@@ -278,7 +282,14 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     return (
         <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ margin: 0 }}>Waypoints</h4>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <SectionCollapseToggle
+                        sectionId='waypoints'
+                        collapsed={collapsed ?? false}
+                        onSectionCollapsedChange={onSectionCollapsedChange}
+                    />
+                    <h4 style={{ margin: 0 }}>Waypoints</h4>
+                </div>
                 <button
                     className='theia-button'
                     onClick={() => startEdit()}
@@ -290,6 +301,8 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 </button>
             </div>
 
+            {/* display:none (pas de démontage) pour conserver l'état d'édition en cours */}
+            <div style={{ display: collapsed ? 'none' : 'contents' }}>
             {editingId !== null && (
                 <div style={{
                     border: '1px solid var(--theia-foreground)',
@@ -588,6 +601,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                     </tbody>
                 </table>
             ) : undefined}
+            </div>
         </div>
     );
 };

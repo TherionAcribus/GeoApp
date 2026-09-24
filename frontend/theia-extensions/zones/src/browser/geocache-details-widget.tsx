@@ -158,6 +158,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected logsSummaryTotalCount = 0;
     protected isLogsSummaryLoading = false;
     private readonly geocacheChangeDisposable: { dispose: () => void };
+    private readonly preferenceChangeDisposable: { dispose: () => void };
 
     /**
      * Le scroll ne sert qu'à marquer l'onglet comme « consulté » (pin smart-replace) :
@@ -217,6 +218,14 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 void this.load();
             }
         });
+        // Synchronise le cache des sections repliées si la préférence change
+        // ailleurs (autre fiche détail ouverte, édition via les settings).
+        this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged(event => {
+            if (event.preferenceName === 'geoApp.geocache.details.collapsedSections') {
+                this.collapsedSections = undefined;
+                this.update();
+            }
+        });
     }
 
     protected onAfterAttach(msg: any): void {
@@ -233,6 +242,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     dispose(): void {
         this.geocacheChangeDisposable.dispose();
+        this.preferenceChangeDisposable.dispose();
         super.dispose();
     }
 
@@ -1606,6 +1616,26 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         return this.cachedHiddenDomains;
     }
 
+    /** Sections repliées de la fiche (persisté en préférence, chargé une fois). */
+    private collapsedSections?: Set<string>;
+    private getCollapsedSections(): Set<string> {
+        if (!this.collapsedSections) {
+            this.collapsedSections = new Set(this.preferencesController.getCollapsedSections());
+        }
+        return this.collapsedSections;
+    }
+
+    private handleSectionCollapsedChange = (sectionId: string, collapsed: boolean): void => {
+        const sections = this.getCollapsedSections();
+        if (collapsed) {
+            sections.add(sectionId);
+        } else {
+            sections.delete(sectionId);
+        }
+        void this.preferencesController.setCollapsedSections(Array.from(sections));
+        this.update();
+    };
+
     // Cache des actions de header : getActions() retourne un nouveau tableau à
     // chaque appel, ce qui casserait React.memo sur le header. On ne recalcule
     // que lorsque l'objet geocacheData change (les contributions sont enregistrées
@@ -1737,6 +1767,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 checkerContextMenu={this.checkerContextMenu}
                 onShowCheckerContextMenu={this.showCheckerContextMenu}
                 onCloseCheckerContextMenu={this.closeCheckerContextMenu}
+                collapsedSections={this.getCollapsedSections()}
+                onSectionCollapsedChange={this.handleSectionCollapsedChange}
             />
             {this.isFreeChatDialogOpen && this.data ? (
                 <FreeChatDialog
