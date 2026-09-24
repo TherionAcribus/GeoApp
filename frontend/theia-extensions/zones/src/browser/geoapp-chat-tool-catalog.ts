@@ -12,10 +12,21 @@ export type GeoAppAiToolCategory =
     | 'image'
     | 'web'
     | 'plugins'
+    | 'navigation'
+    | 'app'
     | 'utility'
     | 'debug';
 
 export type GeoAppAiToolRisk = 'read_only' | 'local_write' | 'network' | 'auth' | 'high';
+
+/**
+ * Agent auquel un tool est expose quand la policy l'active :
+ * - 'chat'   : agents de resolution GeoApp (fiche geocache, sessions workflow) ;
+ * - 'aide'   : @Aide, pilotage applicatif (zones, preferences, navigation) ;
+ * - 'outing' : agent d'analyse de sortie.
+ * Absent = expose a tous les agents qui appliquent la policy.
+ */
+export type GeoAppChatToolScope = 'chat' | 'aide' | 'outing';
 
 export interface GeoAppAiToolMetadata {
     registryId: string;
@@ -24,6 +35,7 @@ export interface GeoAppAiToolMetadata {
     risk: GeoAppAiToolRisk;
     provider?: string;
     workflowKinds?: GeoAppChatWorkflowKind[];
+    scopes?: GeoAppChatToolScope[];
     network?: boolean;
     writesLocal?: boolean;
     requiresAuth?: boolean;
@@ -86,6 +98,7 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         category: 'utility',
         risk: 'local_write',
         workflowKinds: ['general'],
+        scopes: ['outing'],
         writesLocal: true,
         defaultEnabled: true,
     },
@@ -214,6 +227,14 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         defaultEnabled: true,
     },
+    // Enregistre par l'extension calculatrice (pas par DocActionToolsManager).
+    'aide_open_calculator': {
+        registryId: 'aide_open_calculator',
+        category: 'navigation',
+        risk: 'read_only',
+        workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
+        defaultEnabled: true,
+    },
     'geoapp.plugins.ai.score': {
         registryId: 'geoapp.plugins.ai.score',
         category: 'plugins',
@@ -222,6 +243,73 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         network: true,
         defaultEnabled: false,
     },
+
+    /* --- Pilotage applicatif (@Aide, extension documentation) --- */
+    /* scopes : 'aide' seul pour l'administration (zones, preferences) ; 'aide'+'chat'
+     * pour ce qui sert aussi la resolution (lecture de fiche, waypoints, notes).
+     * 'outing' n'y figure jamais : l'analyse de sortie n'a pas a piloter l'app. */
+
+    // Navigation — ouvertures de vues, lecture seule
+    'aide_open_documentation': { registryId: 'aide_open_documentation', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_zones_list': { registryId: 'aide_open_zones_list', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_zone_tab': { registryId: 'aide_open_zone_tab', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_preferences': { registryId: 'aide_open_preferences', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_global_search': { registryId: 'aide_open_global_search', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_geocache': { registryId: 'aide_open_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_map': { registryId: 'aide_open_map', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_archive_manager': { registryId: 'aide_open_archive_manager', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_plugins_panel': { registryId: 'aide_open_plugins_panel', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_alphabet_tab': { registryId: 'aide_open_alphabet_tab', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_alphabets_panel': { registryId: 'aide_open_alphabets_panel', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_plugin_tab': { registryId: 'aide_open_plugin_tab', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+
+    // Lecture applicative
+    'aide_find_geocache': { registryId: 'aide_find_geocache', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_zones': { registryId: 'aide_list_zones', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_geocaches_in_zone': { registryId: 'aide_list_geocaches_in_zone', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_geocache_details': { registryId: 'aide_get_geocache_details', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_nearby_geocaches': { registryId: 'aide_get_nearby_geocaches', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_notes': { registryId: 'aide_list_notes', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_plugins': { registryId: 'aide_list_plugins', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_plugin_info': { registryId: 'aide_get_plugin_info', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_run_plugin': { registryId: 'aide_run_plugin', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_alphabets': { registryId: 'aide_list_alphabets', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_alphabet_info': { registryId: 'aide_get_alphabet_info', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_search_docs': { registryId: 'aide_search_docs', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_search': { registryId: 'aide_search', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_preferences': { registryId: 'aide_list_preferences', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_get_preference': { registryId: 'aide_get_preference', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_list_preference_categories': { registryId: 'aide_list_preference_categories', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_list_preference_guides': { registryId: 'aide_list_preference_guides', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_search_preferences': { registryId: 'aide_search_preferences', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+
+    // Ecritures applicatives
+    'aide_create_zone': { registryId: 'aide_create_zone', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_rename_zone': { registryId: 'aide_rename_zone', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_duplicate_zone': { registryId: 'aide_duplicate_zone', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_merge_zone': { registryId: 'aide_merge_zone', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_zone': { registryId: 'aide_delete_zone', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_set_active_zone': { registryId: 'aide_set_active_zone', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_set_preference': { registryId: 'aide_set_preference', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_reset_preference': { registryId: 'aide_reset_preference', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_create_note': { registryId: 'aide_create_note', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_update_note': { registryId: 'aide_update_note', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_delete_note': { registryId: 'aide_delete_note', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_copy_geocache_to_zone': { registryId: 'aide_copy_geocache_to_zone', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_move_geocache': { registryId: 'aide_move_geocache', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_geocache': { registryId: 'aide_delete_geocache', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_export_gpx': { registryId: 'aide_export_gpx', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Ecritures coordonnees / waypoints (utiles aussi en resolution)
+    'aide_update_coordinates': { registryId: 'aide_update_coordinates', category: 'coordinates', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_create_waypoint': { registryId: 'aide_create_waypoint', category: 'coordinates', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_set_waypoint_as_corrected': { registryId: 'aide_set_waypoint_as_corrected', category: 'coordinates', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_delete_waypoint': { registryId: 'aide_delete_waypoint', category: 'coordinates', risk: 'high', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+
+    // Reseau / compte Geocaching.com
+    'aide_add_geocache_by_code': { registryId: 'aide_add_geocache_by_code', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_refresh_geocache': { registryId: 'aide_refresh_geocache', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_sync_notes_from_geocaching': { registryId: 'aide_sync_notes_from_geocaching', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
 };
 
 @injectable()

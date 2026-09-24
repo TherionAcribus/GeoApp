@@ -193,6 +193,55 @@ function testWorkflowSpecificBehaviorProfile(): void {
     assert.equal(policy.enabledToolIds.has('plugin.coordinate_projection'), true);
 }
 
+// Les tools @Aide sont cataloguees avec un scope : l'administration des zones et
+// des preferences ne doit jamais fuiter dans une session de resolution ni dans
+// l'analyse de sortie, qui garde pourtant save_outing_plan.
+function testToolScopesRestrictExposurePerAgent(): void {
+    const tools = [
+        ...createTools(),
+        tool('aide_list_zones', 'aide_list_zones'),
+        tool('aide_delete_zone', 'aide_delete_zone'),
+        tool('aide_open_preferences', 'aide_open_preferences'),
+        tool('geoapp.outing.save-plan', 'save_outing_plan'),
+        tool('aide_calculate', 'aide_calculate'),
+    ];
+    const { policyService } = createServices({}, tools);
+    const policy = policyService.resolvePolicy();
+
+    const chatIds = policyService.getManagedToolRequests(policy, 'chat').map(request => request.id);
+    const aideIds = policyService.getManagedToolRequests(policy, 'aide').map(request => request.id);
+    const outingIds = policyService.getManagedToolRequests(policy, 'outing').map(request => request.id);
+
+    assert.ok(chatIds.includes('aide_list_zones'));
+    assert.equal(chatIds.includes('aide_delete_zone'), false);
+    assert.equal(chatIds.includes('aide_open_preferences'), false);
+    assert.equal(chatIds.includes('save_outing_plan'), false);
+    assert.ok(chatIds.includes('aide_calculate'));
+
+    assert.ok(aideIds.includes('aide_delete_zone'));
+    assert.ok(aideIds.includes('aide_open_preferences'));
+    assert.ok(aideIds.includes('run_checker'));
+    assert.equal(aideIds.includes('save_outing_plan'), false);
+
+    assert.equal(outingIds.includes('aide_list_zones'), false);
+    assert.ok(outingIds.includes('save_outing_plan'));
+    assert.ok(outingIds.includes('aide_calculate'));
+}
+
+// Quand la policy exige une confirmation et que le tool porte deja un libelle
+// explicite (les aide_* nomment l'action), on conserve ce libelle plutot que
+// l'avertissement generique.
+function testConfirmationPrefersToolSpecificMessage(): void {
+    const deleteZone = tool('aide_delete_zone', 'aide_delete_zone');
+    (deleteZone as { confirmAlwaysAllow?: string }).confirmAlwaysAllow = 'Supprimer la zone ?';
+
+    const { policyService } = createServices({}, [deleteZone]);
+    const policy = policyService.resolvePolicy();
+    const exposed = policyService.getManagedToolRequests(policy, 'aide');
+
+    assert.equal(exposed[0]?.confirmAlwaysAllow, 'Supprimer la zone ?');
+}
+
 function testGeoAppSkillDefinitionsAreValid(): void {
     assert.equal(GeoAppChatSkills.length, 6);
     for (const skill of GeoAppChatSkills) {
@@ -253,6 +302,8 @@ async function run(): Promise<void> {
     testOverridesDisableAndForceConfirmationByRegistryId();
     testSkillPackAndOverrides();
     testWorkflowSpecificBehaviorProfile();
+    testToolScopesRestrictExposurePerAgent();
+    testConfirmationPrefersToolSpecificMessage();
     testGeoAppSkillDefinitionsAreValid();
     await testRuntimeDiagnosticsReportMissingToolsAndSkills();
     await testSystemPromptPreviewIncludesResolvedPromptAndPolicy();

@@ -89,6 +89,16 @@ export class GeocachesService {
         );
     }
 
+    /** Recherche une géocache par son code GC (ex: "GC8ABCD"), optionnellement dans une zone. */
+    async getByCode<T = unknown>(gcCode: string, zoneId?: number): Promise<T> {
+        const zoneQuery = zoneId != null ? `?zone_id=${encodeURIComponent(String(zoneId))}` : '';
+        return this.apiClient.requestJson<T>(
+            `/api/geocaches/by-code/${encodeURIComponent(gcCode)}${zoneQuery}`,
+            {},
+            'Erreur lors de la recherche de la géocache'
+        );
+    }
+
     /**
      * Vue légère de plusieurs géocaches en une requête (`to_summary()` côté backend).
      * Passer `full: true` pour les champs complets (description, hint, waypoints).

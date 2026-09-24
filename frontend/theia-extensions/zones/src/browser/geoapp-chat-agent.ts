@@ -60,6 +60,7 @@ import {
     GeoAppChatSystemPromptVariants,
 } from './geoapp-chat-system-prompts';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
+import { GeoAppChatToolScope } from './geoapp-chat-tool-catalog';
 
 export const GeoAppChatLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -129,6 +130,12 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
     protected readonly chatPolicyService!: GeoAppChatPolicyService;
 
     /**
+     * Sous-ensemble du catalogue expose a cet agent : 'chat' pour les agents de
+     * resolution, 'outing' pour l'analyse de sortie, 'aide' pour @Aide.
+     */
+    protected readonly toolScope: GeoAppChatToolScope = 'chat';
+
+    /**
      * Theia's chat confirmation layer matches streamed tool calls by ToolRequest.id,
      * while OpenAI-compatible models stream the public function name. GeoApp keeps
      * stable registry ids such as "geoapp.plugins.workflow.resolve", so normalize
@@ -144,7 +151,7 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
     ): Promise<LanguageModelResponse> {
         const policy = this.chatPolicyService.resolvePolicy(request);
         const nonManagedToolRequests = this.chatPolicyService.filterNonManagedToolRequests(toolRequests);
-        const geoAppToolRequests = this.chatPolicyService.getManagedToolRequests(policy);
+        const geoAppToolRequests = this.chatPolicyService.getManagedToolRequests(policy, this.toolScope);
 
         return super.sendLlmRequest(
             request,
@@ -170,7 +177,7 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
             text: [
                 resolvedPrompt.text,
                 '',
-                this.chatPolicyService.describePolicyForPrompt(policy)
+                this.chatPolicyService.describePolicyForPrompt(policy, this.toolScope)
             ].join('\n'),
             functionDescriptions: resolvedPrompt.functionDescriptions,
             promptVariantId: variantInfo?.variantId || promptVariantId,

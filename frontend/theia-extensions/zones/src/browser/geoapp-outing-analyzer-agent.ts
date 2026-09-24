@@ -20,6 +20,7 @@ import { Agent, AgentService, AIVariableContext } from '@theia/ai-core';
 import { ChatSessionContext, SystemMessageDescription } from '@theia/ai-chat/lib/common/chat-agents';
 import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
 import { BaseGeoAppChatAgent, GeoAppChatLanguageModelRequirements } from './geoapp-chat-agent';
+import { GeoAppChatToolScope } from './geoapp-chat-tool-catalog';
 import {
     GEOAPP_OUTING_SYSTEM_PROMPT_ID,
     GEOAPP_OUTING_SYSTEM_PROMPT_VARIANT_ID,
@@ -58,6 +59,13 @@ export class GeoAppOutingAnalyzerAgent extends BaseGeoAppChatAgent {
     protected override systemPromptId = GEOAPP_OUTING_SYSTEM_PROMPT_ID;
 
     /**
+     * Le suivi d'un rapport de sortie n'a pas a piloter l'application : on restreint
+     * le catalogue aux tools exposes au scope 'outing' (save_outing_plan et les
+     * tools sans restriction de scope), jamais aux aide_* de pilotage applicatif.
+     */
+    protected override readonly toolScope: GeoAppChatToolScope = 'outing';
+
+    /**
      * Prompt de préparation de sortie, suivi de la policy de tools active.
      *
      * La policy est conservée : sans elle, le modèle ignorerait quels tools il a le droit
@@ -88,7 +96,7 @@ export class GeoAppOutingAnalyzerAgent extends BaseGeoAppChatAgent {
             text: [
                 resolvedPrompt.text,
                 '',
-                this.chatPolicyService.describePolicyForPrompt(policy),
+                this.chatPolicyService.describePolicyForPrompt(policy, this.toolScope),
             ].join('\n'),
             functionDescriptions: resolvedPrompt.functionDescriptions,
             promptVariantId: variantInfo?.variantId || GEOAPP_OUTING_SYSTEM_PROMPT_VARIANT_ID,

@@ -9,6 +9,10 @@ export interface GeocacheChangedEvent {
         | 'corrected-coordinates-updated'
         | 'solved-status-updated'
         | 'note-created'
+        | 'note-updated'
+        | 'note-deleted'
+        | 'refreshed'
+        | 'deleted'
         | 'log-submitted';
     source: 'map' | 'details' | 'zones' | 'chat' | 'log-editor';
 }

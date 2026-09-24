@@ -22,7 +22,7 @@ import {
     normalizeGeoAppChatBehaviorProfile,
     resolveGeoAppChatBehaviorProfileForWorkflow,
 } from './geoapp-chat-shared';
-import { GeoAppAiToolCatalog, GeoAppAiToolCatalogEntry, getStaticGeoAppToolMetadata } from './geoapp-chat-tool-catalog';
+import { GeoAppAiToolCatalog, GeoAppAiToolCatalogEntry, GeoAppChatToolScope, getStaticGeoAppToolMetadata } from './geoapp-chat-tool-catalog';
 import {
     GeoAppChatSkillMetadata,
     GeoAppChatSkillName,
@@ -175,9 +175,10 @@ export class GeoAppChatPolicyService {
         };
     }
 
-    getManagedToolRequests(policy: GeoAppChatPolicy): ToolRequest[] {
+    getManagedToolRequests(policy: GeoAppChatPolicy, scope: GeoAppChatToolScope = 'chat'): ToolRequest[] {
         return policy.entries
             .filter(entry => policy.enabledToolIds.has(entry.registryId))
+            .filter(entry => !entry.scopes || entry.scopes.includes(scope))
             .map(entry => this.toPolicyToolRequest(entry, policy));
     }
 
@@ -185,8 +186,10 @@ export class GeoAppChatPolicyService {
         return toolRequests.filter(tool => !this.catalog.isGeoAppManagedTool(tool));
     }
 
-    describePolicyForPrompt(policy: GeoAppChatPolicy): string {
-        const enabled = policy.entries.filter(entry => policy.enabledToolIds.has(entry.registryId));
+    describePolicyForPrompt(policy: GeoAppChatPolicy, scope?: GeoAppChatToolScope): string {
+        const enabled = policy.entries
+            .filter(entry => policy.enabledToolIds.has(entry.registryId))
+            .filter(entry => !scope || !entry.scopes || entry.scopes.includes(scope));
         const byCategory = new Map<string, string[]>();
         for (const entry of enabled) {
             const current = byCategory.get(entry.category) || [];
@@ -216,6 +219,7 @@ export class GeoAppChatPolicyService {
         if (policy.confirmToolIds.size > 0) {
             const names = policy.entries
                 .filter(entry => policy.confirmToolIds.has(entry.registryId))
+                .filter(entry => !scope || !entry.scopes || entry.scopes.includes(scope))
                 .map(entry => `~${entry.publicName}`)
                 .sort();
             lines.push('', `Tools sensibles avec confirmation Theia : ${names.join(', ')}`);
@@ -366,7 +370,10 @@ export class GeoAppChatPolicyService {
         return {
             ...entry.tool,
             id: entry.publicName,
-            confirmAlwaysAllow: confirm ? warning : entry.tool.confirmAlwaysAllow,
+            // Quand le tool porte deja un libelle de confirmation explicite (les
+            // aide_* nomment l'action, ex. "Supprimer la zone ?"), on le conserve :
+            // il est plus informatif que l'avertissement generique de la policy.
+            confirmAlwaysAllow: confirm ? (entry.tool.confirmAlwaysAllow ?? warning) : entry.tool.confirmAlwaysAllow,
         };
     }
 

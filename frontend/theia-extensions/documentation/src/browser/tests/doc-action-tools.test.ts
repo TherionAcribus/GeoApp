@@ -103,6 +103,7 @@ function testConfirmationFlags(): void {
 
     for (const id of [
         'aide_list_zones',
+        'aide_find_geocache',
         'aide_create_zone',
         'aide_rename_zone',
         'aide_duplicate_zone',
@@ -190,11 +191,123 @@ async function testSetPreferenceValidation(): Promise<void> {
     assert.equal((await call(setPref, { key: 'geoApp.chat.promptPack', value: 'safe' })).success, true);
 }
 
+// §7 : aide_find_geocache résout d'abord par code GC, puis par nom via la
+// recherche globale ; les autres tools acceptent gc_code en relais de geocache_id.
+async function testFindGeocacheByCodeAndName(): Promise<void> {
+    const searchCalls: string[] = [];
+    const manager = createManager({
+        geocachesService: {
+            getByCode: async (code: string) => code === 'GC8ABCD'
+                ? { id: 42, gc_code: 'GC8ABCD', name: 'La Cache', zone_id: 3 }
+                : Promise.reject(new Error('404')),
+        },
+        globalSearchService: {
+            searchDirect: async (query: string) => {
+                searchCalls.push(query);
+                return {
+                    geocacheResults: [
+                        { id: 7, gc_code: 'GC111', name: 'Chêne creux', zone_id: 1 },
+                        { id: 8, gc_code: 'GC222', name: 'Chêne creux bis', zone_id: 2 },
+                    ],
+                    counts: { geocaches: 2 },
+                };
+            },
+        },
+    });
+    const tools = manager.buildAllTools();
+    const find = findTool(tools, 'aide_find_geocache');
+
+    const byCode = await call(find, { gc_code: 'gc8abcd' });
+    assert.equal(byCode.success, true);
+    assert.equal((byCode.data as { geocaches: Array<{ id: number }> }).geocaches[0].id, 42);
+    assert.equal(searchCalls.length, 0);
+
+    const byName = await call(find, { name: 'chêne creux', zone_id: 2 });
+    assert.deepEqual((byName.data as { geocaches: Array<{ id: number }> }).geocaches.map(g => g.id), [8]);
+
+    const notFound = await call(find, { gc_code: 'GCXXXXX' });
+    assert.equal(notFound.success, false);
+}
+
+// gc_code est accepté en relais de geocache_id sur open/get_details.
+async function testOpenGeocacheAcceptsGcCode(): Promise<void> {
+    const opened: number[] = [];
+    const manager = createManager({
+        geocachesService: { getByCode: async () => ({ id: 42 }) },
+        geocacheTabsManager: { openGeocacheDetails: async (opts: { geocacheId: number }) => { opened.push(opts.geocacheId); } },
+    });
+    const tools = manager.buildAllTools();
+
+    const result = await call(findTool(tools, 'aide_open_geocache'), { gc_code: 'GC8ABCD' });
+    assert.equal(result.success, true);
+    assert.deepEqual(opened, [42]);
+}
+
+// §8 : aide_list_geocaches_in_zone est paginé et annonce le total.
+async function testListGeocachesPagination(): Promise<void> {
+    const geocaches = Array.from({ length: 120 }, (_, i) => ({ id: i + 1, gc_code: `GC${i}`, name: `Cache ${i}` }));
+    const manager = createManager({
+        zonesService: { listGeocachesTree: async () => geocaches },
+    });
+    const tools = manager.buildAllTools();
+
+    const page1 = await call(findTool(tools, 'aide_list_geocaches_in_zone'), { zone_id: 1 });
+    const data1 = page1.data as { total: number; limit: number; geocaches: unknown[] };
+    assert.equal(data1.total, 120);
+    assert.equal(data1.geocaches.length, 50);
+
+    const page3 = await call(findTool(tools, 'aide_list_geocaches_in_zone'), { zone_id: 1, limit: 50, offset: 100 });
+    const data3 = page3.data as { geocaches: Array<{ id: number }> };
+    assert.equal(data3.geocaches.length, 20);
+    assert.equal(data3.geocaches[0].id, 101);
+}
+
+// §6 : les mutations waypoints/notes notifient les widgets pour rafraîchir la fiche.
+async function testWaypointAndNoteEvents(): Promise<void> {
+    const events: Array<{ geocacheId: number; reason: string }> = [];
+    const manager = createManager({
+        geocachesService: {
+            createWaypoint: async () => ({ id: 5 }),
+            deleteWaypoint: async () => undefined,
+        },
+        notesService: {
+            createNote: async () => undefined,
+            updateNote: async () => undefined,
+            deleteNote: async () => undefined,
+        },
+        widgetEventsService: {
+            notifyGeocacheChanged: (event: { geocacheId: number; reason: string }) => { events.push(event); },
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    await call(findTool(tools, 'aide_create_waypoint'), { geocache_id: 9, name: 'Final', gc_coords: 'N 48° 51.500 E 002° 17.600' });
+    await call(findTool(tools, 'aide_delete_waypoint'), { geocache_id: 9, waypoint_id: 5 });
+    await call(findTool(tools, 'aide_create_note'), { geocache_id: 9, content: 'test' });
+    await call(findTool(tools, 'aide_update_note'), { note_id: 3, content: 'x', geocache_id: 9 });
+    await call(findTool(tools, 'aide_delete_note'), { note_id: 3, geocache_id: 9 });
+    // Sans geocache_id, update/delete ne notifient pas (l'id de cache est inconnu).
+    await call(findTool(tools, 'aide_update_note'), { note_id: 3, content: 'x' });
+
+    assert.deepEqual(events.map(e => e.reason), [
+        'waypoint-created',
+        'waypoint-deleted',
+        'note-created',
+        'note-updated',
+        'note-deleted',
+    ]);
+    assert.ok(events.every(e => e.geocacheId === 9));
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
     await testSetActiveZoneAcceptsNull();
     await testSetPreferenceValidation();
+    await testFindGeocacheByCodeAndName();
+    await testOpenGeocacheAcceptsGcCode();
+    await testListGeocachesPagination();
+    await testWaypointAndNoteEvents();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

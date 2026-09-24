@@ -40,33 +40,59 @@ Object.defineProperty(global, 'navigator', {
 const { GeoAppDocAgent: Agent } = require('../doc-agent') as {
     GeoAppDocAgent: typeof GeoAppDocAgent;
 };
+const { GeoAppChatPolicyService } = require('theia-ide-zones-ext/lib/browser/geoapp-chat-policy-service');
+const { GeoAppAiToolCatalog } = require('theia-ide-zones-ext/lib/browser/geoapp-chat-tool-catalog');
 
-function tool(id: string, name?: string): ToolRequest {
+function tool(id: string, confirmMessage?: string): ToolRequest {
     return {
         id,
-        name: name ?? id,
+        name: id,
         description: '',
         providerName: 'test',
         parameters: {},
+        confirmAlwaysAllow: confirmMessage,
         handler: async () => undefined,
     } as unknown as ToolRequest;
 }
 
-function createAgent(options: {
-    docTools?: ToolRequest[];
-    registryTools?: Map<string, ToolRequest>;
-}): { agent: GeoAppDocAgent; captured: { tools?: ToolRequest[] } } {
-    const agent = new Agent();
-    const docTools = options.docTools ?? [tool('aide_list_zones'), tool('aide_delete_zone')];
-    const registryTools = options.registryTools ?? new Map<string, ToolRequest>([
-        ['aide_calculate', tool('aide_calculate')],
-        ['aide_calculate_batch', tool('aide_calculate_batch')],
-        ['aide_open_calculator', tool('aide_open_calculator')],
-    ]);
+class FakeToolInvocationRegistry {
+    constructor(readonly tools: ToolRequest[]) {}
+    getAllFunctions(): ToolRequest[] {
+        return this.tools;
+    }
+}
 
-    (agent as any).actionToolsManager = {
-        buildAllTools: () => docTools,
-    };
+class FakePreferenceService {
+    constructor(readonly values: Record<string, unknown> = {}) {}
+    get<T>(key: string, defaultValue?: T): T {
+        return (this.values[key] as T | undefined) ?? (defaultValue as T);
+    }
+}
+
+function createPolicyService(registryTools: ToolRequest[], preferences: Record<string, unknown> = {}): InstanceType<typeof GeoAppChatPolicyService> {
+    const catalog = new GeoAppAiToolCatalog();
+    (catalog as any).toolRegistry = new FakeToolInvocationRegistry(registryTools);
+    const policyService = new GeoAppChatPolicyService();
+    (policyService as any).catalog = catalog;
+    (policyService as any).preferenceService = new FakePreferenceService(preferences);
+    return policyService;
+}
+
+function createAgent(options: {
+    registryTools?: ToolRequest[];
+    preferences?: Record<string, unknown>;
+}): { agent: GeoAppDocAgent; captured: { tools?: ToolRequest[] } } {
+    const registryTools = options.registryTools ?? [
+        tool('aide_list_zones'),
+        tool('aide_delete_zone', 'Supprimer la zone et toutes ses geocaches ?'),
+        tool('aide_refresh_geocache', 'Rafraîchir la géocache depuis Geocaching.com ?'),
+        tool('aide_calculate'),
+        tool('aide_calculate_batch'),
+        tool('aide_open_calculator'),
+    ];
+
+    const agent = new Agent();
+    (agent as any).actionToolsManager = { buildAllTools: () => [] };
     (agent as any).actionContextService = {
         collectContext: async () => ({}),
         formatContextForPrompt: () => '## Contexte UI actuel\nTest.',
@@ -75,9 +101,7 @@ function createAgent(options: {
         initialize: async () => undefined,
         getChapters: () => [{ title: 'Chapitre', pages: [{ title: 'Page', description: 'desc' }] }],
     };
-    (agent as any).toolRegistry = {
-        getFunctions: (...ids: string[]) => ids.map(id => registryTools.get(id)).filter(Boolean),
-    };
+    (agent as any).chatPolicyService = createPolicyService(registryTools, options.preferences ?? {});
 
     const captured: { tools?: ToolRequest[] } = {};
     (agent as any).languageModelService = {
@@ -97,23 +121,66 @@ function createRequest(): any {
     };
 }
 
-// Régression : le prompt annonce aide_calculate/aide_calculate_batch/aide_open_calculator,
-// ils doivent réellement partir au modèle (résolus via le registry Theia).
-async function testAuxiliaryCalculatorToolsAreInjected(): Promise<void> {
+// Régression §1 : aide_calculate/aide_calculate_batch/aide_open_calculator, annonces
+// dans le prompt, partent reellement au modele (via le catalogue, scope 'aide').
+async function testCalculatorToolsReachTheModel(): Promise<void> {
     const { agent, captured } = createAgent({});
 
     await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
 
     const ids = (captured.tools ?? []).map(t => t.id);
-    for (const expected of Agent.AUXILIARY_TOOL_IDS) {
-        assert.ok(ids.includes(expected), `tool auxiliaire absent : ${expected} (reçus: ${ids.join(', ')})`);
+    for (const expected of ['aide_calculate', 'aide_calculate_batch', 'aide_open_calculator']) {
+        assert.ok(ids.includes(expected), `tool absent : ${expected} (reçus: ${ids.join(', ')})`);
     }
     assert.ok(ids.includes('aide_list_zones'));
 }
 
-// Un tool non géré par @Aide (ex: référencé via ~{tool} dans le prompt utilisateur)
-// doit être conservé ; un tool déjà injecté ne doit pas être dupliqué.
-async function testNonDocToolsAreKeptWithoutDuplicates(): Promise<void> {
+// §3 : sous le profil guided par defaut, les tools destructeurs recoivent une
+// confirmation ; le libelle specifique du tool est conserve (pas l'avertissement
+// generique). Les tools reseau/auth passent aussi par confirmation.
+async function testGuidedProfileConfirmsDestructiveAideTools(): Promise<void> {
+    const { agent, captured } = createAgent({});
+
+    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+
+    const byId = new Map((captured.tools ?? []).map(t => [t.id, t]));
+    assert.equal(
+        byId.get('aide_delete_zone')?.confirmAlwaysAllow,
+        'Supprimer la zone et toutes ses geocaches ?'
+    );
+    assert.ok(byId.get('aide_refresh_geocache')?.confirmAlwaysAllow);
+    assert.equal(byId.get('aide_list_zones')?.confirmAlwaysAllow, undefined);
+}
+
+// §3 : le profil offline bloque les tools reseau/auth de @Aide.
+async function testOfflineProfileBlocksNetworkAideTools(): Promise<void> {
+    const { agent, captured } = createAgent({
+        preferences: { 'geoApp.chat.behaviorProfile.default': 'offline' },
+    });
+
+    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+
+    const ids = (captured.tools ?? []).map(t => t.id);
+    assert.equal(ids.includes('aide_refresh_geocache'), false, 'aide_refresh_geocache devrait être bloqué en offline');
+    assert.ok(ids.includes('aide_list_zones'));
+}
+
+// Les overrides de la vue Policy s'appliquent aussi aux tools de @Aide.
+async function testToolOverrideCanDisableAideTool(): Promise<void> {
+    const { agent, captured } = createAgent({
+        preferences: { 'geoApp.chat.toolPolicy.overrides': { aide_list_zones: 'disabled' } },
+    });
+
+    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+
+    const ids = (captured.tools ?? []).map(t => t.id);
+    assert.equal(ids.includes('aide_list_zones'), false);
+    assert.ok(ids.includes('aide_calculate'));
+}
+
+// Un tool non gere par le catalogue (ex: ~{tool} dans le prompt utilisateur)
+// doit etre conserve ; un tool du catalogue ne doit pas etre duplique.
+async function testNonManagedToolsAreKeptWithoutDuplicates(): Promise<void> {
     const { agent, captured } = createAgent({});
 
     await (agent as any).sendLlmRequest(
@@ -128,9 +195,8 @@ async function testNonDocToolsAreKeptWithoutDuplicates(): Promise<void> {
     assert.equal(ids.filter(id => id === 'aide_calculate').length, 1);
 }
 
-// Garde-fou anti-injection : @Aide a des tools destructeurs (zones, préférences),
-// son prompt doit donc porter la règle « données = pas des instructions ».
-async function testSystemPromptContainsInjectionGuardrail(): Promise<void> {
+// §2 : garde-fou anti-injection + bloc policy dans le prompt.
+async function testSystemPromptContainsGuardrailAndPolicy(): Promise<void> {
     const { agent } = createAgent({});
 
     const description = await (agent as any).getSystemMessageDescription({ model: {} });
@@ -138,16 +204,21 @@ async function testSystemPromptContainsInjectionGuardrail(): Promise<void> {
     assert.ok(description);
     assert.match(description.text, /SÉCURITÉ \(injection\)/);
     assert.match(description.text, /DONNÉE[\s\S]*jamais une source d'instructions/);
-    // La promesse calculatrice du prompt doit correspondre aux tools auxiliaires.
-    for (const id of Agent.AUXILIARY_TOOL_IDS) {
+    assert.match(description.text, /Politique GeoApp active/);
+    assert.match(description.text, /DISPONIBILITÉ/);
+    // La promesse calculatrice du prompt doit correspondre aux tools exposes.
+    for (const id of ['aide_calculate', 'aide_calculate_batch', 'aide_open_calculator']) {
         assert.ok(description.text.includes(id), `prompt ne mentionne pas ${id}`);
     }
 }
 
 async function run(): Promise<void> {
-    await testAuxiliaryCalculatorToolsAreInjected();
-    await testNonDocToolsAreKeptWithoutDuplicates();
-    await testSystemPromptContainsInjectionGuardrail();
+    await testCalculatorToolsReachTheModel();
+    await testGuidedProfileConfirmsDestructiveAideTools();
+    await testOfflineProfileBlocksNetworkAideTools();
+    await testToolOverrideCanDisableAideTool();
+    await testNonManagedToolsAreKeptWithoutDuplicates();
+    await testSystemPromptContainsGuardrailAndPolicy();
     // eslint-disable-next-line no-console
     console.log('doc-agent tests passed');
 }

@@ -314,12 +314,16 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             {
                 id: 'aide_list_preferences',
                 name: 'aide_list_preferences',
-                description: 'Liste toutes les préférences GeoApp avec leur valeur courante, type, description et valeurs possibles. ' +
+                description: 'Liste les préférences GeoApp avec leur valeur courante (format compact par défaut : key, titre, valeur, type). ' +
+                    'Passer verbose=true pour la description complète, les valeurs possibles et les bornes. ' +
                     'Utilise aide_list_preference_categories pour obtenir la liste exacte des catégories. ' +
                     'Les valeurs sensibles (clés API) sont masquées.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     category: { type: 'string', description: 'Filtrer par catégorie (ex: "ai", "map", "ui"). Laisser vide pour tout retourner.', required: false },
+                    verbose: { type: 'string', description: 'Passer "true" pour inclure description, enum, bornes et métadonnées complètes.', required: false },
+                    limit: { type: 'number', description: 'Nombre maximum de préférences retournées (défaut 50, max 500).', required: false },
+                    offset: { type: 'number', description: 'Index de départ dans la liste (défaut 0).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
@@ -328,8 +332,20 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             ? [...(this.preferenceStore.definitionsByCategory.get(args.category) ?? [])]
                             : this.preferenceStore.definitions;
                         const snapshot = this.preferenceStore.getSnapshot();
-                        return ok(entries.map(({ key, definition }) => {
+                        const verbose = args.verbose === true || args.verbose === 'true';
+                        const limit = Math.min(Math.max(Number(args.limit) || 50, 1), 500);
+                        const offset = Math.max(Number(args.offset) || 0, 0);
+                        const preferences = entries.slice(offset, offset + limit).map(({ key, definition }) => {
                             const def = definition as GeoPreferenceDefinition;
+                            if (!verbose) {
+                                return {
+                                    key,
+                                    title: def.title,
+                                    category: def['x-category'],
+                                    type: def.type,
+                                    value: def['x-sensitive'] ? '***' : snapshot[key],
+                                };
+                            }
                             return {
                                 key,
                                 title: def.title,
@@ -347,7 +363,8 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 value: def['x-sensitive'] ? '***' : snapshot[key],
                                 sensitive: def['x-sensitive'] ?? false,
                             };
-                        }));
+                        });
+                        return ok({ total: entries.length, offset, limit, preferences });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -571,14 +588,16 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 description: 'Ouvre la fiche de détails d\'une géocache.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    geocache_id: { type: 'number', description: 'ID de la géocache à ouvrir.', required: true },
+                    geocache_id: { type: 'number', description: 'ID de la géocache à ouvrir (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
                     name: { type: 'string', description: 'Nom optionnel de la géocache (pour l\'onglet).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        await this.geocacheTabsManager.openGeocacheDetails({ geocacheId: args.geocache_id, name: args.name });
-                        return ok(`Géocache ${args.geocache_id} ouverte.`);
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        await this.geocacheTabsManager.openGeocacheDetails({ geocacheId, name: args.name });
+                        return ok(`Géocache ${geocacheId} ouverte.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -587,18 +606,38 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     // ─── Plugins ──────────────────────────────────────────────────────────────
 
+    /** Tags MetaSolver mis en cache (60 s) : évite un appel /eligible à chaque liste. */
+    private pluginTagsCache?: { at: number; map: Map<string, string[]> };
+
+    protected async getPluginTagsMap(): Promise<Map<string, string[]>> {
+        if (this.pluginTagsCache && Date.now() - this.pluginTagsCache.at < 60_000) {
+            return this.pluginTagsCache.map;
+        }
+        const map = new Map<string, string[]>();
+        try {
+            const eligible = await this.pluginsService.getMetasolverEligiblePlugins('all');
+            for (const ep of eligible.plugins) {
+                map.set(ep.name, ep.tags);
+            }
+        } catch { /* tags optionnels */ }
+        this.pluginTagsCache = { at: Date.now(), map };
+        return map;
+    }
+
     private buildPluginTools(): ToolRequest[] {
         return [
             {
                 id: 'aide_list_plugins',
                 name: 'aide_list_plugins',
-                description: 'Retourne la liste complète des plugins disponibles avec leurs catégories et tags. ' +
+                description: 'Retourne les plugins disponibles avec leurs catégories et tags (paginé : limit/offset, voir total). ' +
                     'Ne filtre PAS par texte : pour trouver un plugin à partir d\'un concept sémantique ' +
-                    '(ex: "magie", "téléphone", "morse"), récupérez la liste complète puis identifiez ' +
+                    '(ex: "magie", "téléphone", "morse"), parcourez la liste puis identifiez ' +
                     'le plugin par vos propres connaissances. Filtre optionnel par catégorie API uniquement.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     category: { type: 'string', description: 'Filtrer par catégorie API (ex: "cipher", "encoding", "morse"). Laisser vide pour tout retourner.', required: false },
+                    limit: { type: 'number', description: 'Nombre maximum de plugins retournés (défaut 100, max 500).', required: false },
+                    offset: { type: 'number', description: 'Index de départ dans la liste (défaut 0).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
@@ -606,21 +645,19 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         const filters: any = {};
                         if (args.category) { filters.category = args.category; }
                         const plugins = await this.pluginsService.listPlugins(filters);
-                        let tagsMap: Map<string, string[]> = new Map();
-                        try {
-                            const eligible = await this.pluginsService.getMetasolverEligiblePlugins('all');
-                            for (const ep of eligible.plugins) {
-                                tagsMap.set(ep.name, ep.tags);
-                            }
-                        } catch { /* tags optionnels */ }
-                        return ok(plugins.map(p => ({
+                        const all = Array.isArray(plugins) ? plugins : [];
+                        const tagsMap = await this.getPluginTagsMap();
+                        const limit = Math.min(Math.max(Number(args.limit) || 100, 1), 500);
+                        const offset = Math.max(Number(args.offset) || 0, 0);
+                        const page = all.slice(offset, offset + limit).map(p => ({
                             name: p.name,
                             description: p.description,
                             categories: p.categories,
                             tags: tagsMap.get(p.name) ?? [],
                             source: p.source,
                             enabled: p.enabled,
-                        })));
+                        }));
+                        return ok({ total: all.length, offset, limit, plugins: page });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -932,7 +969,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 description: 'Définit la zone active (sélectionnée) dans GeoApp. Passer null pour désactiver.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    zone_id: { type: 'number', description: 'ID de la zone à activer (ou null pour désactiver).', required: true },
+                    zone_id: { type: 'number', description: 'ID de la zone à activer. Omettre ou passer null pour désactiver la zone active.', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
@@ -948,8 +985,72 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     // ─── Géocaches ───────────────────────────────────────────────────────────
 
+    /**
+     * Résout l'id d'une géocache : `geocache_id` direct, ou `gc_code` (ex: "GC8ABCD")
+     * via GET /api/geocaches/by-code. Lève une erreur si aucun n'est exploitable.
+     */
+    protected async resolveGeocacheId(args: Record<string, any>): Promise<number> {
+        const direct = Number(args.geocache_id);
+        if (Number.isFinite(direct) && direct > 0) {
+            return direct;
+        }
+        const gcCode = typeof args.gc_code === 'string' ? args.gc_code.trim() : '';
+        if (!gcCode) {
+            throw new Error('Fournissez geocache_id ou gc_code.');
+        }
+        const found = await this.geocachesService.getByCode<Record<string, unknown>>(gcCode);
+        const id = Number(found?.['id']);
+        if (!Number.isFinite(id) || id <= 0) {
+            throw new Error(`Aucune géocache trouvée pour le code "${gcCode}".`);
+        }
+        return id;
+    }
+
     private buildGeocacheTools(): ToolRequest[] {
         return [
+            {
+                id: 'aide_find_geocache',
+                name: 'aide_find_geocache',
+                description: 'Localise une géocache par code GC (ex: "GC8ABCD") ou par nom (recherche plein texte dans la base). ' +
+                    'Retourne son geocache_id et sa zone pour enchaîner avec les autres tools. ' +
+                    'À appeler avant toute action quand l\'utilisateur cite un code GC ou un nom de cache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC exact (ex: "GC8ABCD"). Prioritaire si fourni.', required: false },
+                    name: { type: 'string', description: 'Nom (ou partie du nom) de la géocache, utilisé si gc_code absent ou introuvable.', required: false },
+                    zone_id: { type: 'number', description: 'Restreindre à une zone (optionnel).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    const gcCode = typeof args.gc_code === 'string' ? args.gc_code.trim().toUpperCase() : '';
+                    const name = typeof args.name === 'string' ? args.name.trim() : '';
+                    try {
+                        if (gcCode) {
+                            try {
+                                const found = await this.geocachesService.getByCode<Record<string, unknown>>(gcCode, args.zone_id);
+                                return ok({
+                                    match: 'gc_code',
+                                    geocaches: [{
+                                        id: found['id'],
+                                        gc_code: found['gc_code'],
+                                        name: found['name'],
+                                        zone_id: found['zone_id'],
+                                    }],
+                                });
+                            } catch {
+                                if (!name) { return err(`Aucune géocache trouvée pour le code "${gcCode}".`); }
+                            }
+                        }
+                        if (!name) { return err('Fournissez gc_code ou name.'); }
+                        const results = await this.globalSearchService.searchDirect(name, 'geocaches');
+                        const geocaches = (results.geocacheResults || [])
+                            .filter(g => args.zone_id == null || g.zone_id === args.zone_id)
+                            .slice(0, 10)
+                            .map(g => ({ id: g.id, gc_code: g.gc_code, name: g.name, zone_id: g.zone_id }));
+                        return ok({ match: 'name', total: results.counts?.geocaches ?? geocaches.length, geocaches });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
             {
                 id: 'aide_get_geocache_details',
                 name: 'aide_get_geocache_details',
@@ -958,12 +1059,14 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     'À appeler quand l\'utilisateur demande le contenu de "cette cache" ou "la cache à l\'écran".',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const raw = await this.geocachesService.get<Record<string, unknown>>(args.geocache_id);
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const raw = await this.geocachesService.get<Record<string, unknown>>(geocacheId);
                         const desc = typeof raw['description_raw'] === 'string' ? raw['description_raw']
                             : typeof raw['description'] === 'string' ? raw['description'] : null;
                         const hint = raw['hints_decoded'] ?? raw['hint_raw'] ?? raw['hint'] ?? raw['hints'] ?? null;
@@ -999,16 +1102,22 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             {
                 id: 'aide_list_geocaches_in_zone',
                 name: 'aide_list_geocaches_in_zone',
-                description: 'Liste les géocaches d\'une zone avec leurs id, code GC et noms.',
+                description: 'Liste les géocaches d\'une zone avec leurs id, code GC et noms. ' +
+                    'La réponse est paginée : utilisez limit/offset et lisez total pour savoir s\'il reste des résultats.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    limit: { type: 'number', description: 'Nombre maximum de géocaches retournées (défaut 50, max 500).', required: false },
+                    offset: { type: 'number', description: 'Index de départ dans la liste (défaut 0).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
                         const geocaches = await this.zonesService.listGeocachesTree<{ id: number; gc_code: string; name: string }>(args.zone_id);
-                        return ok(geocaches);
+                        const all = Array.isArray(geocaches) ? geocaches : [];
+                        const limit = Math.min(Math.max(Number(args.limit) || 50, 1), 500);
+                        const offset = Math.max(Number(args.offset) || 0, 0);
+                        return ok({ total: all.length, offset, limit, geocaches: all.slice(offset, offset + limit) });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -1064,6 +1173,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.geocachesService.delete(args.geocache_id);
                         this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'deleted',
+                            source: 'chat',
+                        });
                         return ok(`Géocache ${args.geocache_id} supprimée.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1163,6 +1277,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.geocachesService.refresh(args.geocache_id);
                         this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'refreshed',
+                            source: 'chat',
+                        });
                         return ok(`Géocache ${args.geocache_id} rechargée depuis Geocaching.com.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1234,6 +1353,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             note: args.note,
                             type: args.type,
                         });
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'waypoint-created',
+                            source: 'chat',
+                        });
                         return ok(result ?? { created: true });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1252,6 +1376,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     const args = parseArgs(argString);
                     try {
                         await this.geocachesService.deleteWaypoint(args.geocache_id, args.waypoint_id);
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'waypoint-deleted',
+                            source: 'chat',
+                        });
                         return ok(`Waypoint ${args.waypoint_id} supprimé.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1342,6 +1471,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             note_type: noteType,
                             source: 'user',
                         });
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'note-created',
+                            source: 'chat',
+                        });
                         return ok('Note créée.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1360,6 +1494,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         required: false,
                         enum: ['user', 'system'],
                     },
+                    geocache_id: { type: 'number', description: 'ID de la géocache concernée (recommandé : permet de rafraîchir sa fiche).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
@@ -1369,6 +1504,14 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             content: args.content,
                             note_type: noteType,
                         });
+                        const geocacheId = Number(args.geocache_id);
+                        if (Number.isFinite(geocacheId) && geocacheId > 0) {
+                            this.widgetEventsService.notifyGeocacheChanged({
+                                geocacheId,
+                                reason: 'note-updated',
+                                source: 'chat',
+                            });
+                        }
                         return ok('Note mise à jour.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1380,12 +1523,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     note_id: { type: 'number', description: 'ID de la note à supprimer.', required: true },
+                    geocache_id: { type: 'number', description: 'ID de la géocache concernée (recommandé : permet de rafraîchir sa fiche).', required: false },
                 }),
                 confirmAlwaysAllow: 'Supprimer cette note ? Action irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
                         await this.notesService.deleteNote(args.note_id);
+                        const geocacheId = Number(args.geocache_id);
+                        if (Number.isFinite(geocacheId) && geocacheId > 0) {
+                            this.widgetEventsService.notifyGeocacheChanged({
+                                geocacheId,
+                                reason: 'note-deleted',
+                                source: 'chat',
+                            });
+                        }
                         return ok(`Note ${args.note_id} supprimée.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1403,6 +1555,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     const args = parseArgs(argString);
                     try {
                         const result = await this.notesService.syncFromGeocaching(args.geocache_id);
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'note-updated',
+                            source: 'chat',
+                        });
                         return ok({
                             geocache_id: result.geocache_id,
                             gc_code: result.gc_code,
