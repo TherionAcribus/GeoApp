@@ -79,12 +79,12 @@ interface PluginAddWaypointDetail {
     decimalLongitude?: number;
 }
 
-const GEOAPP_CHAT_PROFILE_MENU_OPTIONS: Array<{ value: GeoAppChatWorkflowProfile; label: string }> = [
-    { value: 'default', label: 'Auto' },
-    { value: 'fast', label: 'Fast' },
-    { value: 'strong', label: 'Strong' },
-    { value: 'web', label: 'Web' },
-    { value: 'local', label: 'Local' },
+const GEOAPP_CHAT_PROFILE_MENU_OPTIONS: Array<{ value: GeoAppChatWorkflowProfile; label: string; description: string }> = [
+    { value: 'default', label: 'Auto', description: 'Profil choisi automatiquement selon le workflow détecté' },
+    { value: 'fast', label: 'Fast', description: 'Modèle rapide et économique — questions simples, réponses courtes' },
+    { value: 'strong', label: 'Strong', description: 'Modèle le plus puissant — raisonnement complexe, résolution multi-étapes' },
+    { value: 'web', label: 'Web', description: 'Modèle avec accès web — utile pour rechercher des infos externes' },
+    { value: 'local', label: 'Local', description: 'Modèle local — aucune donnée envoyée vers un service externe' },
 ];
 
 interface SerializedGeocacheDetailsState {

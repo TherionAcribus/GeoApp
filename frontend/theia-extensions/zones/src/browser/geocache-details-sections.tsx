@@ -21,6 +21,7 @@ type ArchiveStatus = 'synced' | 'needs_sync' | 'none' | 'loading';
 type ChatProfileOption = {
     value: GeoAppChatWorkflowProfile;
     label: string;
+    description?: string;
 };
 
 const cardStyle: React.CSSProperties = {
@@ -438,8 +439,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'var(--theia-menu-foreground)',
                                         }}
                                         title={option.value === 'default'
-                                            ? `Profil déterminé automatiquement par le workflow (${chatProfilePreview})`
-                                            : `Forcer le profil ${option.label}`}
+                                            ? `Profil déterminé automatiquement par le workflow (${chatProfilePreview})${option.description ? ` — ${option.description}` : ''}`
+                                            : `Forcer le profil ${option.label}${option.description ? ` — ${option.description}` : ''}`}
                                         onMouseEnter={(e) => {
                                             if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }
                                         }}

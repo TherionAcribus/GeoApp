@@ -67,8 +67,11 @@ function createManager(services: {
     outingPlanService?: unknown;
     importAroundService?: unknown;
     apiClient?: unknown;
+    messageService?: unknown;
 }): DocActionToolsManager {
     const manager = new Manager();
+    // §34 : les handlers de mutation notifient via MessageService — no-op par défaut.
+    (manager as any).messageService = { info: () => undefined, warn: () => undefined, error: () => undefined };
     for (const [key, value] of Object.entries(services)) {
         if (value !== undefined) {
             (manager as any)[key] = value;
@@ -544,6 +547,36 @@ async function testImportAroundValidation(): Promise<void> {
     assert.equal(ran, 1);
 }
 
+// §34 : les mutations notifient l'utilisateur via MessageService.
+async function testMutationFeedback(): Promise<void> {
+    const infos: string[] = [];
+    const messageService = { info: (m: string) => infos.push(m), warn: () => undefined, error: () => undefined };
+    const manager = createManager({
+        zonesService: {
+            create: async (p: { name: string }) => ({ id: 1, ...p }),
+            delete: async () => undefined,
+        },
+        widgetEventsService: { requestZonesRefresh: () => undefined },
+        messageService,
+    });
+    const tools = manager.buildAllTools();
+
+    await call(findTool(tools, 'aide_create_zone'), { name: 'MaZone' });
+    await call(findTool(tools, 'aide_delete_zone'), { zone_id: 1, zone_name: 'MaZone' });
+    assert.equal(infos.length, 2);
+    assert.ok(infos[0].includes('MaZone'));
+    assert.ok(infos[1].includes('supprimée'));
+
+    // Les lectures ne notifient pas.
+    infos.length = 0;
+    const manager2 = createManager({
+        zonesService: { list: async () => [] },
+        messageService,
+    });
+    await call(findTool(manager2.buildAllTools(), 'aide_list_zones'), {});
+    assert.equal(infos.length, 0);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -561,6 +594,7 @@ async function run(): Promise<void> {
     await testMapTools();
     await testOutingTools();
     await testImportAroundValidation();
+    await testMutationFeedback();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

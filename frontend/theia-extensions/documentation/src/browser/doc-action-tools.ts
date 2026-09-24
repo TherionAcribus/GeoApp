@@ -1,5 +1,5 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { CommandService } from '@theia/core';
+import { CommandService, MessageService } from '@theia/core';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     ToolInvocationRegistry,
@@ -211,6 +211,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;
+
+    @inject(MessageService)
+    protected readonly messageService!: MessageService;
 
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
@@ -977,6 +980,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             description: args.description,
                         });
                         this.widgetEventsService.requestZonesRefresh();
+                        this.messageService.info(`Zone « ${zone.name} » créée.`);
                         return ok(zone);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1046,6 +1050,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             target_zone_id: args.target_zone_id,
                         });
                         this.widgetEventsService.requestZonesRefresh();
+                        this.messageService.info('Zones fusionnées.');
                         return ok(result);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1065,6 +1070,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.zonesService.delete(args.zone_id);
                         this.widgetEventsService.requestZonesRefresh();
+                        this.messageService.info(`Zone « ${args.zone_name} » supprimée.`);
                         return ok(`Zone "${args.zone_name}" (id:${args.zone_id}) supprimée.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1855,6 +1861,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         return { succeeded, failed };
     }
 
+    /** Toast utilisateur apres une operation par lot : visibilite hors du chat. */
+    protected notifyBatchResult(action: string, summary: { succeeded: number[]; failed: unknown[] }): void {
+        const suffix = summary.failed.length ? `, ${summary.failed.length} échec(s)` : '';
+        this.messageService.info(`${action} : ${summary.succeeded.length} réussie(s)${suffix}.`);
+    }
+
     private buildStatusAndBatchTools(): ToolRequest[] {
         const geocacheRef: Record<string, { type: string; description: string; required: boolean }> = {
             geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
@@ -1882,6 +1894,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         const status = args.status as 'not_solved' | 'in_progress' | 'solved';
                         await this.geocacheDetailsService.updateSolvedStatus(geocacheId, status);
                         this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'solved-status-updated', source: 'chat' });
+                        this.messageService.info(`Statut « ${status} » enregistré pour la géocache.`);
                         return ok(`Statut de la géocache ${geocacheId} défini à "${status}".`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -1995,6 +2008,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             this.widgetEventsService.notifyGeocacheChanged({ geocacheId: id, reason: 'refreshed', source: 'chat' });
                         }
                         if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        this.notifyBatchResult('Déplacement', summary);
                         return ok(summary);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -2015,6 +2029,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         const target = Number(args.target_zone_id);
                         const summary = await this.runBatch(args.geocache_ids, id => this.geocachesService.copy(id, target));
                         if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        this.notifyBatchResult('Copie', summary);
                         return ok(summary);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -2036,6 +2051,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             this.widgetEventsService.notifyGeocacheChanged({ geocacheId: id, reason: 'deleted', source: 'chat' });
                         }
                         if (summary.succeeded.length) { this.widgetEventsService.requestZonesRefresh(); }
+                        this.notifyBatchResult('Suppression', summary);
                         return ok(summary);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -2664,6 +2680,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             radius_km: args.radius_km !== undefined ? Number(args.radius_km) : undefined,
                         });
                         this.widgetEventsService.requestZonesRefresh();
+                        this.messageService.info(summary ?? 'Import terminé.');
                         return ok({
                             zone_id: target.zoneId,
                             zone_created: target.created,
