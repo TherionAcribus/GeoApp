@@ -74,6 +74,13 @@ interface GeocacheDetailsHeaderProps {
     /** Ouvre la fiche publique de la géocache (geocacheData.url), mini-browser ou externe selon la préférence. */
     onOpenGeocachePage?: () => void;
     extraActions?: GeocacheDetailsHeaderAction[];
+    /** Navigation ‹ › dans la zone (index 0-based ; -1/absent = pas de navigation). */
+    zoneNavIndex?: number;
+    zoneNavTotal?: number;
+    zoneNavPreviousName?: string;
+    zoneNavNextName?: string;
+    onNavigateZonePrevious?: () => void;
+    onNavigateZoneNext?: () => void;
 }
 
 export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
@@ -109,7 +116,13 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onRefresh,
     isRefreshing = false,
     onOpenGeocachePage,
-    extraActions = []
+    extraActions = [],
+    zoneNavIndex,
+    zoneNavTotal,
+    zoneNavPreviousName,
+    zoneNavNextName,
+    onNavigateZonePrevious,
+    onNavigateZoneNext
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
     const archiveColor = getArchiveColor(archiveStatus);
@@ -530,6 +543,38 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         )}
                     </button>
                 </div>
+
+                {/* ── Navigation ‹ › dans la zone (ordre gc_code) ── */}
+                {typeof zoneNavIndex === 'number' && zoneNavIndex >= 0 && (zoneNavTotal ?? 0) > 1 ? (
+                    <div className='geoapp-gcd-zone-nav'>
+                        <button
+                            type='button'
+                            className='geoapp-gcd-zone-nav-btn'
+                            onClick={onNavigateZonePrevious}
+                            disabled={zoneNavIndex <= 0}
+                            title={zoneNavPreviousName ? `Précédente : ${zoneNavPreviousName}` : 'Géocache précédente de la zone'}
+                            aria-label='Géocache précédente dans la zone'
+                        >
+                            <span className='codicon codicon-chevron-left' aria-hidden='true' />
+                        </button>
+                        <span
+                            className='geoapp-gcd-zone-nav-pos'
+                            title={`Position dans la zone : ${zoneNavIndex + 1} sur ${zoneNavTotal}`}
+                        >
+                            {zoneNavIndex + 1}/{zoneNavTotal}
+                        </span>
+                        <button
+                            type='button'
+                            className='geoapp-gcd-zone-nav-btn'
+                            onClick={onNavigateZoneNext}
+                            disabled={zoneNavIndex >= (zoneNavTotal ?? 0) - 1}
+                            title={zoneNavNextName ? `Suivante : ${zoneNavNextName}` : 'Géocache suivante de la zone'}
+                            aria-label='Géocache suivante dans la zone'
+                        >
+                            <span className='codicon codicon-chevron-right' aria-hidden='true' />
+                        </button>
+                    </div>
+                ) : undefined}
             </div>
             </div>
 

@@ -37,6 +37,7 @@ import {
 } from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
+import { ZonesService } from './zones-service';
 import { GeocacheLogsFetchService } from './geocache-logs-fetch-service';
 import {
     GeocacheDetailsService,
@@ -193,6 +194,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
         @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(GeocacheDetailsArchiveController) protected readonly archiveController: GeocacheDetailsArchiveController,
@@ -935,6 +937,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             // Le code GC et le nom n'étaient pas connus au `setGeocache` : les
             // panneaux qui suivent cet onglet peuvent enfin les afficher.
             this.notifyTabChanged();
+            // Liste ordonnée de la zone pour la navigation ‹ › (fetch léger,
+            // mis en cache tant qu'on reste dans la même zone).
+            this.ensureZoneNavigation(this.data.zone_id, geocacheId);
 
             // Données principales prêtes : on masque l'overlay et on rend une seule fois.
             // Les chargements secondaires partent ensuite en parallèle ; leurs préfixes
@@ -1638,6 +1643,59 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
     };
 
+    // --- Navigation précédente/suivante dans la zone -------------------------
+    // Liste ordonnée par gc_code (endpoint allégé `/geocaches/tree`), chargée
+    // une fois par zone et réutilisée tant qu'on reste dedans.
+
+    protected zoneNavZoneId?: number;
+    protected zoneNavItems: { id: number; name: string; gc_code?: string }[] = [];
+
+    private ensureZoneNavigation(zoneId: number | undefined, geocacheId: number): void {
+        if (zoneId === undefined) {
+            this.zoneNavZoneId = undefined;
+            this.zoneNavItems = [];
+            return;
+        }
+        const needsFetch = this.zoneNavZoneId !== zoneId || !this.zoneNavItems.some(i => i.id === geocacheId);
+        if (!needsFetch) {
+            return;
+        }
+        if (this.zoneNavZoneId !== zoneId) {
+            this.zoneNavZoneId = undefined;
+            this.zoneNavItems = [];
+        }
+        void this.zonesService.listGeocachesTree<{ id: number; name: string; gc_code?: string }>(zoneId)
+            .then(items => {
+                // Garde anti-race : l'utilisateur a pu changer de fiche ou la
+                // géocache a pu changer de zone pendant le fetch.
+                if (this.geocacheId !== geocacheId || this.data?.zone_id !== zoneId) {
+                    return;
+                }
+                this.zoneNavZoneId = zoneId;
+                this.zoneNavItems = items;
+                this.update();
+            })
+            .catch(err => console.error('[GeocacheDetailsWidget] zone navigation load error', err));
+    }
+
+    private navigateToAdjacentGeocache = (delta: -1 | 1): void => {
+        const index = this.zoneNavItems.findIndex(i => i.id === this.geocacheId);
+        const target = this.zoneNavItems[index + delta];
+        if (!target) {
+            return;
+        }
+        this.setGeocache({ geocacheId: target.id, name: target.name });
+    };
+
+    // Callbacks stables (React.memo sur le header compare les props une à une).
+    private navigateZonePrevious = (): void => this.navigateToAdjacentGeocache(-1);
+    private navigateZoneNext = (): void => this.navigateToAdjacentGeocache(1);
+
+    /** Index de la géocache courante dans la liste de zone, -1 si absent/inconnu. */
+    private getZoneNavIndex(): number {
+        return this.zoneNavItems.findIndex(i => i.id === this.geocacheId);
+    }
+
     // Cache des actions de header : getActions() retourne un nouveau tableau à
     // chaque appel, ce qui casserait React.memo sur le header. On ne recalcule
     // que lorsque l'objet geocacheData change (les contributions sont enregistrées
@@ -1694,6 +1752,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onOpenOwnerUrl: this.openOwnerUrl,
                     onOpenGeocachePage: this.openGeocachePage,
                     extraActions: this.getStableExtraActions(d!),
+                    zoneNavIndex: this.getZoneNavIndex(),
+                    zoneNavTotal: this.zoneNavItems.length,
+                    zoneNavPreviousName: this.zoneNavItems[this.getZoneNavIndex() - 1]?.name,
+                    zoneNavNextName: this.zoneNavItems[this.getZoneNavIndex() + 1]?.name,
+                    onNavigateZonePrevious: this.navigateZonePrevious,
+                    onNavigateZoneNext: this.navigateZoneNext,
                 }}
                 coordinatesEditorProps={{
                     geocacheData: d!,
