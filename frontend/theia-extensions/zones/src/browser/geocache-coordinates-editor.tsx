@@ -112,7 +112,17 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                                         opacity: isSendingToGC ? 0.6 : 1
                                     }}
                                 >
-                                    {isSendingToGC ? '⏳ Envoi…' : `📡 Envoyer vers GC.com${gcCode ? ` (${gcCode})` : ''}`}
+                                    {isSendingToGC ? (
+                                        <>
+                                            <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
+                                            {' Envoi…'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className='codicon codicon-cloud-upload' aria-hidden='true' />
+                                            {` Envoyer vers GC.com${gcCode ? ` (${gcCode})` : ''}`}
+                                        </>
+                                    )}
                                 </button>
                             )}
                             <button

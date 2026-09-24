@@ -214,7 +214,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
             if (newId !== undefined) {
                 await onSetAsCorrectedCoords(newId, waypointName);
             } else {
-                messages.warn('Waypoint sauvegardé. Cliquez sur 🎯 pour définir comme coordonnées corrigées.');
+                messages.warn('Waypoint sauvegardé. Cliquez sur l\'icône de cible pour définir comme coordonnées corrigées.');
             }
         } else if (capturedEditingId !== null) {
             if (coordsOverride) {
@@ -532,7 +532,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 title='Éditer'
                                                 aria-label='Éditer'
                                             >
-                                                ✏️
+                                                <span className='codicon codicon-edit' aria-hidden='true' />
                                             </button>
                                             <button
                                                 className='theia-button secondary'
@@ -542,7 +542,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 title='Dupliquer'
                                                 aria-label='Dupliquer'
                                             >
-                                                📄
+                                                <span className='codicon codicon-copy' aria-hidden='true' />
                                             </button>
                                             <button
                                                 className='theia-button secondary'
@@ -552,7 +552,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 title='Utiliser comme coordonnées corrigées'
                                                 aria-label='Utiliser comme coordonnées corrigées'
                                             >
-                                                {rowPending === 'correct' ? '⏳' : '🎯'}
+                                                {rowPending === 'correct'
+                                                    ? <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
+                                                    : <span className='codicon codicon-target' aria-hidden='true' />}
                                             </button>
                                             <button
                                                 className='theia-button secondary'
@@ -562,7 +564,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 title='Envoyer vers Geocaching.com'
                                                 aria-label='Envoyer vers Geocaching.com'
                                             >
-                                                {rowPending === 'push' ? '⏳' : '📡'}
+                                                {rowPending === 'push'
+                                                    ? <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
+                                                    : <span className='codicon codicon-cloud-upload' aria-hidden='true' />}
                                             </button>
                                             <button
                                                 className='theia-button secondary'
@@ -572,7 +576,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 title='Supprimer'
                                                 aria-label='Supprimer'
                                             >
-                                                {rowPending === 'delete' ? '⏳' : '🗑️'}
+                                                {rowPending === 'delete'
+                                                    ? <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
+                                                    : <span className='codicon codicon-trash' aria-hidden='true' />}
                                             </button>
                                         </div>
                                     </td>

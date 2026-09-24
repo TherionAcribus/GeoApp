@@ -525,6 +525,12 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
+                {(geocacheData.difficulty !== undefined || geocacheData.terrain !== undefined) && (
+                    <>
+                        <span style={{ opacity: 0.7 }}>{`D ${geocacheData.difficulty ?? '?'}/T ${geocacheData.terrain ?? '?'}`}</span>
+                        <span style={{ opacity: 0.7 }}>|</span>
+                    </>
+                )}
                 {ownerName ? (
                     <span style={{ opacity: 0.7, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         Par
@@ -654,7 +660,7 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
     isLogsSummaryLoading,
     onOpenLogs,
 }) => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 12 }}>
         <div style={cardStyle}>
             <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Statistiques</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -745,11 +751,11 @@ export const GeocacheHintsSection: React.FC<GeocacheHintsSectionProps> = ({
     }
 
     return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 12 }}>
-                <h4 style={{ margin: '8px 0' }}>Indices</h4>
+        <div style={cardStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h4 style={{ margin: 0, fontSize: 16 }}>Indices</h4>
                 <button
-                    className='theia-button'
+                    className='theia-button secondary'
                     onClick={() => { void onToggleDisplayMode(); }}
                     title={displayDecodedHints ? 'Coder (ROT13)' : 'Decoder (ROT13)'}
                 >
@@ -831,8 +837,8 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
     };
 
     return (
-        <div>
-            <h4 style={{ margin: '8px 0' }}>Checkers</h4>
+        <div style={cardStyle}>
+            <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Checkers</h4>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {checkers.map((checker, index) => (
                     <li key={checker.id ?? index} style={{ marginBottom: 4 }}>
