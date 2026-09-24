@@ -64,6 +64,23 @@ import {
 import { FreeChatDialog, FreeChatDialogResult } from './geocache-free-chat-dialog';
 import { GeocacheDetailsHeaderActionRegistry } from './geocache-details-header-actions';
 
+/**
+ * Domaines qui refusent l'affichage dans une iframe (X-Frame-Options /
+ * CSP frame-ancestors). Le mini-browser Theia est une iframe : ces sites y
+ * affichent « a refusé de se connecter », on les ouvre donc directement
+ * dans le navigateur externe.
+ */
+const NON_FRAMABLE_DOMAINS = ['geocaching.com', 'coord.info'];
+
+function isFramableUrl(url: string): boolean {
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        return !NON_FRAMABLE_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`));
+    } catch {
+        return true;
+    }
+}
+
 interface PluginAddWaypointDetail {
     gcCoords: string;
     pluginName?: string;
@@ -1028,7 +1045,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected openCheckerUrl = async (url: string, mode: CheckerLinkOpenMode): Promise<void> => {
         this.checkerContextMenu = null;
         this.update();
-        if (mode === 'external-window') {
+        if (mode === 'external-window' || !isFramableUrl(url)) {
             window.open(url, '_blank', 'noopener,noreferrer');
             return;
         }
