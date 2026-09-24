@@ -25,6 +25,18 @@ export interface OpenZoneRequest {
     zoneName?: string;
 }
 
+/**
+ * Demande de pilotage de la table de géocaches d'une zone (filtre de recherche
+ * `@champ:valeur` + tri). `zoneId` absent = la table de la zone active ou
+ * toute table de zone actuellement visible.
+ */
+export interface TableFilterRequest {
+    zoneId?: number;
+    searchQuery?: string;
+    sortBy?: string;
+    sortDesc?: boolean;
+}
+
 @injectable()
 export class GeoAppWidgetEventsService {
     protected readonly onDidRequestZonesRefreshEmitter = new Emitter<void>();
@@ -45,6 +57,10 @@ export class GeoAppWidgetEventsService {
     protected readonly onDidChangeZoneListEmitter = new Emitter<void>();
     readonly onDidChangeZoneList: TheiaEvent<void> = this.onDidChangeZoneListEmitter.event;
 
+    /** Pilote le filtre/tri de la table de géocaches d'une zone (tools IA §26). */
+    protected readonly onDidRequestTableFilterEmitter = new Emitter<TableFilterRequest>();
+    readonly onDidRequestTableFilter: TheiaEvent<TableFilterRequest> = this.onDidRequestTableFilterEmitter.event;
+
     requestZonesRefresh(): void {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
@@ -61,10 +77,15 @@ export class GeoAppWidgetEventsService {
         this.onDidChangeZoneListEmitter.fire();
     }
 
+    requestTableFilter(request: TableFilterRequest): void {
+        this.onDidRequestTableFilterEmitter.fire(request);
+    }
+
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
         this.onDidRequestOpenZoneEmitter.dispose();
         this.onDidChangeGeocacheEmitter.dispose();
         this.onDidChangeZoneListEmitter.dispose();
+        this.onDidRequestTableFilterEmitter.dispose();
     }
 }

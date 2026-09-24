@@ -121,6 +121,13 @@ function buildParams(
     return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
 }
 
+/** §35 : paramètre commun aux actions destructrices — simule sans exécuter. */
+const DRY_RUN_PARAM = {
+    type: 'boolean',
+    description: 'Simulation : retourne un aperçu de ce qui serait fait, sans rien modifier.',
+    required: false,
+};
+
 function parseArgs(argString: string): Record<string, any> {
     try {
         return JSON.parse(argString || '{}');
@@ -710,6 +717,42 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
+            {
+                id: 'aide_set_table_filter',
+                name: 'aide_set_table_filter',
+                description: 'Applique un filtre de recherche et/ou un tri à la table des géocaches d\'une zone ouverte. ' +
+                    'La requête accepte les tokens @champ:valeur (ex: "@type:mystery @solved:not_solved", "@found:true", "@diff:>=3", "@notes:oui") ' +
+                    'et du texte libre ; une chaîne vide efface le filtre. Sans zone_id, la requête vise la table visible.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    search_query: { type: 'string', description: 'Requête de recherche complète (tokens @champ:valeur et/ou texte libre). "" efface le filtre.', required: false },
+                    zone_id: { type: 'number', description: 'ID de la zone dont la table doit être filtrée. Omettre = table visible.', required: false },
+                    sort_by: { type: 'string', description: 'Colonne de tri (id, ex: "name", "difficulty", "terrain", "favorites_count", "placed_at").', required: false },
+                    sort_dir: { type: 'string', description: 'Direction du tri.', required: false, enum: ['asc', 'desc'] },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.search_query === undefined && !args.sort_by) {
+                            return err('Rien à appliquer : fournir search_query et/ou sort_by.');
+                        }
+                        this.widgetEventsService.requestTableFilter({
+                            zoneId: args.zone_id !== undefined ? Number(args.zone_id) : undefined,
+                            searchQuery: args.search_query !== undefined ? String(args.search_query) : undefined,
+                            sortBy: args.sort_by ? String(args.sort_by) : undefined,
+                            sortDesc: args.sort_dir === 'desc',
+                        });
+                        return ok({
+                            applied: {
+                                search_query: args.search_query,
+                                sort_by: args.sort_by,
+                                sort_dir: args.sort_dir,
+                                zone_id: args.zone_id ?? 'visible',
+                            },
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 
@@ -1041,11 +1084,22 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 parameters: buildParams({
                     source_zone_id: { type: 'number', description: 'ID de la zone source à fusionner puis supprimer.', required: true },
                     target_zone_id: { type: 'number', description: 'ID de la zone cible qui recevra les géocaches.', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Fusionner ces zones ? Les géocaches uniques seront déplacées vers la cible, puis la zone source sera supprimée.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            const zones = await this.zonesService.list<{ id: number; name: string; geocaches_count?: number }>();
+                            const source = zones.find(z => z.id === args.source_zone_id);
+                            const target = zones.find(z => z.id === args.target_zone_id);
+                            return this.dryRunOk('merge_zone', {
+                                source: source ?? { id: args.source_zone_id },
+                                target: target ?? { id: args.target_zone_id },
+                                consequence: 'Les géocaches uniques seraient déplacées vers la cible, puis la zone source supprimée.',
+                            });
+                        }
                         const result = await this.zonesService.merge(args.source_zone_id, {
                             target_zone_id: args.target_zone_id,
                         });
@@ -1063,11 +1117,25 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 parameters: buildParams({
                     zone_id: { type: 'number', description: 'ID de la zone à supprimer.', required: true },
                     zone_name: { type: 'string', description: 'Nom de la zone (pour confirmation).', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer la zone et toutes ses géocaches ? Cette action est irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            let geocacheCount: number | undefined;
+                            try {
+                                const geocaches = await this.zonesService.listGeocaches<unknown[]>(args.zone_id);
+                                geocacheCount = geocaches.length;
+                            } catch { /* comptage best-effort */ }
+                            return this.dryRunOk('delete_zone', {
+                                zone_id: args.zone_id,
+                                zone_name: args.zone_name,
+                                geocaches_count: geocacheCount,
+                                consequence: 'La zone et toutes ses géocaches seraient définitivement supprimées.',
+                            });
+                        }
                         await this.zonesService.delete(args.zone_id);
                         this.widgetEventsService.requestZonesRefresh();
                         this.messageService.info(`Zone « ${args.zone_name} » supprimée.`);
@@ -1307,11 +1375,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     geocache_id: { type: 'number', description: 'ID de la géocache à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer cette géocache et toutes ses données (waypoints, notes) ? Action irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            let geocache: { name?: string; code?: string } | undefined;
+                            try { geocache = await this.geocachesService.get(args.geocache_id); } catch { /* best-effort */ }
+                            return this.dryRunOk('delete_geocache', {
+                                geocache_id: args.geocache_id,
+                                geocache,
+                                consequence: 'La géocache et toutes ses données (waypoints, notes) seraient définitivement supprimées.',
+                            });
+                        }
                         await this.geocachesService.delete(args.geocache_id);
                         this.widgetEventsService.requestZonesRefresh();
                         this.widgetEventsService.notifyGeocacheChanged({
@@ -1511,11 +1589,19 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 parameters: buildParams({
                     geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
                     waypoint_id: { type: 'number', description: 'ID du waypoint à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer ce waypoint ? Action irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            return this.dryRunOk('delete_waypoint', {
+                                geocache_id: args.geocache_id,
+                                waypoint_id: args.waypoint_id,
+                                consequence: 'Le waypoint serait définitivement supprimé.',
+                            });
+                        }
                         await this.geocachesService.deleteWaypoint(args.geocache_id, args.waypoint_id);
                         this.widgetEventsService.notifyGeocacheChanged({
                             geocacheId: args.geocache_id,
@@ -1665,11 +1751,19 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 parameters: buildParams({
                     note_id: { type: 'number', description: 'ID de la note à supprimer.', required: true },
                     geocache_id: { type: 'number', description: 'ID de la géocache concernée (recommandé : permet de rafraîchir sa fiche).', required: false },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer cette note ? Action irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            return this.dryRunOk('delete_note', {
+                                note_id: args.note_id,
+                                geocache_id: args.geocache_id,
+                                consequence: 'La note serait définitivement supprimée.',
+                            });
+                        }
                         await this.notesService.deleteNote(args.note_id);
                         const geocacheId = Number(args.geocache_id);
                         if (Number.isFinite(geocacheId) && geocacheId > 0) {
@@ -1861,6 +1955,11 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         return { succeeded, failed };
     }
 
+    /** §35 : réponse standard d'une simulation (dry_run) — rien n'a été modifié. */
+    protected dryRunOk(action: string, details: Record<string, unknown>): string {
+        return ok({ dry_run: true, action, ...details });
+    }
+
     /** Toast utilisateur apres une operation par lot : visibilite hors du chat. */
     protected notifyBatchResult(action: string, summary: { succeeded: number[]; failed: unknown[] }): void {
         const suffix = summary.failed.length ? `, ${summary.failed.length} échec(s)` : '';
@@ -1905,12 +2004,18 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 description: 'Réinitialise les coordonnées corrigées d\'une géocache : la solution enregistrée ' +
                     '(coordonnées modifiées) est effacée et les coordonnées d\'origine sont restaurées.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
-                parameters: buildParams({ ...geocacheRef }),
+                parameters: buildParams({ ...geocacheRef, dry_run: DRY_RUN_PARAM }),
                 confirmAlwaysAllow: 'Réinitialiser les coordonnées corrigées de cette géocache ? La solution enregistrée sera effacée.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
                         const geocacheId = await this.resolveGeocacheId(args);
+                        if (args.dry_run) {
+                            return this.dryRunOk('reset_coordinates', {
+                                geocache_id: geocacheId,
+                                consequence: 'Les coordonnées corrigées seraient effacées et les coordonnées d\'origine restaurées.',
+                            });
+                        }
                         await this.geocacheDetailsService.resetCoordinates(geocacheId);
                         this.widgetEventsService.notifyGeocacheChanged({ geocacheId, reason: 'coordinates-reset', source: 'chat' });
                         return ok(`Coordonnées de la géocache ${geocacheId} réinitialisées.`);
@@ -2041,11 +2146,22 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     geocache_ids: { type: 'array', description: 'Liste des geocache_id à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer définitivement les géocaches sélectionnées ? Cette action est irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            let batch: { geocaches: Array<{ id: number; name?: string; code?: string }>; missing: number[] } | undefined;
+                            try { batch = await this.geocachesService.getBatch(args.geocache_ids); } catch { /* best-effort */ }
+                            return this.dryRunOk('delete_geocaches', {
+                                geocache_ids: args.geocache_ids,
+                                resolved: batch?.geocaches.map(g => ({ id: g.id, name: g.name, code: g.code })),
+                                missing: batch?.missing,
+                                consequence: `${args.geocache_ids.length} géocache(s) et leurs données seraient définitivement supprimées.`,
+                            });
+                        }
                         const summary = await this.runBatch(args.geocache_ids, id => this.geocachesService.delete(id));
                         for (const id of summary.succeeded) {
                             this.widgetEventsService.notifyGeocacheChanged({ geocacheId: id, reason: 'deleted', source: 'chat' });
@@ -2479,11 +2595,25 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     plan_id: { type: 'number', description: 'ID du plan.', required: true },
+                    dry_run: DRY_RUN_PARAM,
                 }),
                 confirmAlwaysAllow: 'Supprimer cette checklist de sortie ? Cette action est irréversible.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
+                        if (args.dry_run) {
+                            let plan: { zone_name?: string; outing_date?: string; gc_codes?: string[] } | undefined;
+                            try { plan = await this.outingPlanService.getPlan(Number(args.plan_id)); } catch { /* best-effort */ }
+                            return this.dryRunOk('delete_outing_plan', {
+                                plan_id: args.plan_id,
+                                plan: plan && {
+                                    zone_name: plan.zone_name,
+                                    outing_date: plan.outing_date,
+                                    geocache_count: plan.gc_codes?.length,
+                                },
+                                consequence: 'La checklist de sortie serait définitivement supprimée.',
+                            });
+                        }
                         await this.outingPlanService.deletePlan(Number(args.plan_id));
                         return ok(`Checklist ${args.plan_id} supprimée.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }

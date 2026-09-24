@@ -132,6 +132,12 @@ interface GeocachesTableProps {
     selectedGeocacheIds?: number[];
     /** Lignes en attente de suppression (fenêtre d'undo) : affichées estompées. */
     pendingDeleteIds?: ReadonlySet<number>;
+    /**
+     * Requête de filtre poussée de l'extérieur (tool IA `aide_set_table_filter`).
+     * `seq` identifie chaque requête : le tableau applique `value` dans le champ
+     * de recherche à chaque nouveau seq, puis l'utilisateur reste libre d'éditer.
+     */
+    appliedSearchQuery?: { value: string; seq: number };
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
     /** État des scans par ami (pour détecter les caches non analysées). */
@@ -744,6 +750,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onFilteredDataChange,
     onSelectionChange,
     selectedGeocacheIds,
+    appliedSearchQuery,
     pendingDeleteIds,
     friendFinds,
     friendScans,
@@ -783,6 +790,15 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         const handle = window.setTimeout(() => setDebouncedGlobalFilter(globalFilter), SEARCH_DEBOUNCE_MS);
         return () => window.clearTimeout(handle);
     }, [globalFilter]);
+    // Filtre poussé de l'extérieur (§26, tool IA) : chaque `seq` nouveau applique
+    // la requête dans le champ de recherche.
+    const lastAppliedSeq = React.useRef<number>(-1);
+    React.useEffect(() => {
+        if (appliedSearchQuery && appliedSearchQuery.seq !== lastAppliedSeq.current) {
+            lastAppliedSeq.current = appliedSearchQuery.seq;
+            setGlobalFilter(appliedSearchQuery.value);
+        }
+    }, [appliedSearchQuery]);
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [moveDialog, setMoveDialog] = React.useState<Geocache | null>(null);
     const [copyDialog, setCopyDialog] = React.useState<Geocache | null>(null);

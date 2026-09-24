@@ -75,6 +75,8 @@ export interface ZoneGeocachesViewProps {
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
     onSelectionChange?: (geocacheIds: number[]) => void;
     selectedGeocacheIds?: number[];
+    /** Requête de filtre poussée par l'IA (§26) : chaque `seq` applique `value`. */
+    appliedSearchQuery?: { value: string; seq: number };
     onImportGpx: (file: File, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onImportBookmarkList: (bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onImportPocketQuery: (pqCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
@@ -463,6 +465,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onFilteredDataChange={props.onFilteredDataChange}
                     onSelectionChange={props.onSelectionChange}
                     selectedGeocacheIds={props.selectedGeocacheIds}
+                    appliedSearchQuery={props.appliedSearchQuery}
                     friendFinds={props.friendFinds}
                     friendScans={props.friendScans}
                     activeFriends={props.activeFriends}

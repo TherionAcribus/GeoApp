@@ -253,6 +253,7 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_open_documentation': { registryId: 'aide_open_documentation', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_zones_list': { registryId: 'aide_open_zones_list', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_open_zone_tab': { registryId: 'aide_open_zone_tab', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_set_table_filter': { registryId: 'aide_set_table_filter', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_preferences': { registryId: 'aide_open_preferences', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_open_global_search': { registryId: 'aide_open_global_search', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_geocache': { registryId: 'aide_open_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

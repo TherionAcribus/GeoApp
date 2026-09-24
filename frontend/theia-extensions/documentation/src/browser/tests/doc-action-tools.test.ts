@@ -577,6 +577,67 @@ async function testMutationFeedback(): Promise<void> {
     assert.equal(infos.length, 0);
 }
 
+// §35 : dry_run simule sans exécuter — aucun service de mutation appelé.
+async function testDryRun(): Promise<void> {
+    let deleted = 0;
+    let merged = 0;
+    const manager = createManager({
+        zonesService: {
+            list: async () => [{ id: 1, name: 'Source' }, { id: 2, name: 'Cible' }],
+            listGeocaches: async () => [{ id: 10 }, { id: 11 }],
+            delete: async () => { deleted++; },
+            merge: async () => { merged++; return {}; },
+        },
+        geocachesService: {
+            delete: async () => { deleted++; },
+            getBatch: async (ids: number[]) => ({ geocaches: ids.map(id => ({ id, name: `G${id}` })), missing: [] }),
+        },
+        widgetEventsService: { requestZonesRefresh: () => undefined, notifyGeocacheChanged: () => undefined },
+    });
+    const tools = manager.buildAllTools();
+
+    const res = await call(findTool(tools, 'aide_delete_zone'), { zone_id: 1, zone_name: 'Source', dry_run: true });
+    assert.equal(res.success, true);
+    const data = res.data as { dry_run?: boolean; geocaches_count?: number };
+    assert.equal(data.dry_run, true);
+    assert.equal(data.geocaches_count, 2);
+    assert.equal(deleted, 0);
+
+    const merge = await call(findTool(tools, 'aide_merge_zone'), { source_zone_id: 1, target_zone_id: 2, dry_run: true });
+    assert.equal(merge.success, true);
+    assert.equal((merge.data as { dry_run?: boolean }).dry_run, true);
+    assert.equal(merged, 0);
+
+    const batch = await call(findTool(tools, 'aide_delete_geocaches'), { geocache_ids: [5, 6], dry_run: true });
+    assert.equal((batch.data as { resolved?: unknown[] }).resolved?.length, 2);
+    assert.equal(deleted, 0);
+}
+
+// §26 : aide_set_table_filter pousse filtre et tri vers la table de zone.
+async function testTableFilterTool(): Promise<void> {
+    const requests: Array<{ zoneId?: number; searchQuery?: string; sortBy?: string; sortDesc?: boolean }> = [];
+    const manager = createManager({
+        widgetEventsService: { requestTableFilter: (r: unknown) => requests.push(r as typeof requests[0]) },
+    });
+    const tool = findTool(manager.buildAllTools(), 'aide_set_table_filter');
+
+    assert.equal((await call(tool, {})).success, false); // rien à appliquer
+
+    const res = await call(tool, { search_query: '@type:mystery @found:false', zone_id: 3, sort_by: 'difficulty', sort_dir: 'desc' });
+    assert.equal(res.success, true);
+    assert.deepEqual(requests, [{
+        zoneId: 3,
+        searchQuery: '@type:mystery @found:false',
+        sortBy: 'difficulty',
+        sortDesc: true,
+    }]);
+
+    // Effacement du filtre sans tri.
+    await call(tool, { search_query: '' });
+    assert.equal(requests[1].searchQuery, '');
+    assert.equal(requests[1].sortBy, undefined);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -595,6 +656,8 @@ async function run(): Promise<void> {
     await testOutingTools();
     await testImportAroundValidation();
     await testMutationFeedback();
+    await testDryRun();
+    await testTableFilterTool();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

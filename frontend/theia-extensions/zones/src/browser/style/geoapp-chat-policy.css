@@ -29,6 +29,91 @@
     gap: 16px;
 }
 
+.geoapp-chat-policy-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--theia-layout-color3);
+}
+
+.geoapp-chat-policy-tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--theia-ui-font-color2);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 14px;
+}
+
+.geoapp-chat-policy-tab:hover {
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-chat-policy-tab.active {
+    border-bottom-color: var(--theia-brand-color0, var(--theia-accentColor0, #0a7aca));
+    color: var(--theia-ui-font-color1);
+    font-weight: 600;
+}
+
+.geoapp-chat-policy-prompt-diff summary {
+    cursor: pointer;
+    font-size: 12px;
+    margin-top: 6px;
+}
+
+.geoapp-chat-policy-diff-view {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-layout-color3);
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 6px 0 0;
+    max-height: 420px;
+    overflow: auto;
+    padding: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.geoapp-chat-policy-diff-line {
+    display: flex;
+    gap: 6px;
+}
+
+.geoapp-chat-policy-diff-marker {
+    flex-shrink: 0;
+    user-select: none;
+    width: 10px;
+}
+
+.geoapp-chat-policy-diff-line.add {
+    background: rgba(46, 160, 67, 0.15);
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-chat-policy-diff-line.add .geoapp-chat-policy-diff-marker {
+    color: #2ea043;
+}
+
+.geoapp-chat-policy-diff-line.del {
+    background: rgba(248, 81, 73, 0.15);
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-chat-policy-diff-line.del .geoapp-chat-policy-diff-marker {
+    color: #f85149;
+}
+
+.geoapp-chat-policy-diff-line.same {
+    color: var(--theia-ui-font-color3, var(--theia-ui-font-color2));
+}
+
+.geoapp-chat-policy-diff-fold {
+    color: var(--theia-ui-font-color2);
+    font-style: italic;
+    padding: 2px 0 2px 16px;
+}
+
 .geoapp-chat-policy-header h2,
 .geoapp-chat-policy-category h3 {
     margin: 0;

@@ -107,6 +107,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
     /** Tri du tableau, propre à la zone affichée : persisté dans `StorageService`. */
     protected tableSorting: SortingState = [];
+    /** Requête de filtre IA à appliquer au champ de recherche de la table (§26). */
+    protected appliedSearchQuery?: { value: string; seq: number };
+    private appliedSearchQuerySeq = 0;
     /** Origine des distances de la zone courante (colonne « Distance », filtre `@distance:`). */
     protected distanceOrigin: DistanceOrigin | undefined;
 
@@ -288,6 +291,27 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 if (this.rows.some(row => row.id === event.geocacheId)) {
                     this.scheduleReloadRows();
                 }
+            })
+        );
+
+        // §26 : un tool IA (aide_set_table_filter) pilote le filtre/tri de la
+        // table. Sans zoneId explicite, seule la table de la zone active ou
+        // visible applique la requête — évite de filtrer un onglet en arrière-plan.
+        this.toDispose.push(
+            this.widgetEventsService.onDidRequestTableFilter(request => {
+                if (request.zoneId !== undefined && request.zoneId !== this.zoneId) {
+                    return;
+                }
+                if (request.zoneId === undefined && !this.isVisible) {
+                    return;
+                }
+                if (request.searchQuery !== undefined) {
+                    this.appliedSearchQuery = { value: request.searchQuery, seq: ++this.appliedSearchQuerySeq };
+                }
+                if (request.sortBy) {
+                    this.handleTableSortingChange([{ id: request.sortBy, desc: Boolean(request.sortDesc) }]);
+                }
+                this.update();
             })
         );
 
@@ -2469,6 +2493,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 currentZoneId={this.zoneId}
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
                 tableSorting={this.tableSorting}
+                appliedSearchQuery={this.appliedSearchQuery}
                 onTableSortingChange={this.handleTableSortingChange}
                 distanceOrigin={this.distanceOrigin}
                 onSetDistanceOrigin={this.handleSetDistanceOrigin}

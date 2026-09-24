@@ -121,6 +121,14 @@ const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
 
 type GeoAppChatToolStatusFilter = 'all' | 'enabled' | 'confirm' | 'blocked';
 type GeoAppChatToolSkillFilter = 'all' | 'recommended' | 'blocked_recommended';
+type GeoAppChatPolicyTab = 'general' | 'tools' | 'prompts' | 'system';
+
+const POLICY_TABS: Array<{ id: GeoAppChatPolicyTab; label: string; title: string }> = [
+    { id: 'general', label: 'Réglages', title: 'Presets, profil comportemental, skill pack et skills actifs' },
+    { id: 'tools', label: 'Tools', title: 'Matrice des tools exposés au modèle et overrides' },
+    { id: 'prompts', label: 'Prompts', title: 'Aperçu du prompt système et édition des variantes' },
+    { id: 'system', label: 'Système', title: 'Modèles par agent, diagnostics et import/export' },
+];
 
 interface GeoAppChatPromptPackRow {
     pack: string;
@@ -198,6 +206,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected agentModels = new Map<string, string>();
     protected agentModelsLoading = false;
     protected agentModelsLoaded = false;
+    protected activeTab: GeoAppChatPolicyTab = 'general';
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
@@ -275,93 +284,133 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     </div>
                 </header>
 
-                {this.renderPresets()}
+                <nav className='geoapp-chat-policy-tabs' role='tablist' aria-label='Sections de la policy'>
+                    {POLICY_TABS.map(tab => (
+                        <button
+                            key={tab.id}
+                            type='button'
+                            role='tab'
+                            aria-selected={this.activeTab === tab.id}
+                            title={tab.title}
+                            className={`geoapp-chat-policy-tab${this.activeTab === tab.id ? ' active' : ''}`}
+                            onClick={() => this.setActiveTab(tab.id)}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
 
-                <section className='geoapp-chat-policy-controls'>
-                    <label>
-                        Workflow
-                        <select value={this.workflowKind} onChange={event => this.setWorkflowKind(event.currentTarget.value as GeoAppChatWorkflowKind)}>
-                            {WORKFLOW_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                    </label>
-                    <label>
-                        Session
-                        <select value={this.sessionKind} onChange={event => this.setSessionKind(event.currentTarget.value as GeoAppChatSessionKind)}>
-                            <option value='auto'>Auto</option>
-                            <option value='libre'>Libre</option>
-                        </select>
-                    </label>
-                    <label>
-                        Profil preview
-                        <select value={this.behaviorOverride} onChange={event => this.setBehaviorOverride(event.currentTarget.value as GeoAppChatWorkflowBehaviorProfile)}>
-                            {BEHAVIOR_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                    </label>
-                    <label>
-                        Skill pack
-                        <select value={policy.skillPack} onChange={event => { void this.setSkillPack(event.currentTarget.value as GeoAppChatSkillPack); }}>
-                            {SKILL_PACK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                    </label>
-                </section>
+                {this.activeTab === 'general' && (
+                    <>
+                        {this.renderPresets()}
 
-                <section className='geoapp-chat-policy-summary'>
-                    <div><span>Comportement</span><strong>{policy.behaviorProfile}</strong></div>
-                    <div><span>Prompt pack</span><strong>{policy.promptPack}</strong></div>
-                    <div><span>Workflow</span><strong>{policy.workflowKind || 'general'}</strong></div>
-                    <div><span>Tools actifs</span><strong>{enabledCount}</strong></div>
-                    <div><span>Confirmation</span><strong>{confirmCount}</strong></div>
-                    <div><span>Bloques</span><strong>{disabledCount}</strong></div>
-                    <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
-                </section>
-
-                {this.renderAgentModels()}
-                {this.renderPolicyHelp()}
-                {this.renderDiagnostics()}
-                {this.renderPromptPreview(policy)}
-                {this.renderPromptPackEditor()}
-
-                <section className='geoapp-chat-policy-skills'>
-                    <h3>Skills GeoApp actifs</h3>
-                    {this.skillStatesLoading && <p className='geoapp-chat-policy-muted'>Analyse des versions de skills en cours...</p>}
-                    <div className='geoapp-chat-policy-skill-badges'>
-                        {policy.recommendedSkillNames.map(skillName => <span key={skillName}>{skillName}</span>)}
-                    </div>
-                    {this.renderSkillTable(policy)}
-                </section>
-
-                <section className='geoapp-chat-policy-import'>
-                    <textarea
-                        value={this.importText}
-                        rows={4}
-                        spellCheck={false}
-                        placeholder='Coller une configuration JSON complète ou une ancienne policy JSON exportée ici...'
-                        onChange={event => this.setImportText(event.currentTarget.value)}
-                    />
-                    {this.renderImportPreview()}
-                    <button className='theia-button secondary' type='button' disabled={!this.importText.trim()} onClick={() => { void this.importPolicyConfiguration(); }}>
-                        Importer
-                    </button>
-                </section>
-
-                {this.renderToolFilters(policy.entries.length, filteredEntries.length)}
-
-                <div className='geoapp-chat-policy-matrix'>
-                    {CATEGORY_ORDER.map(category => {
-                        const entries = entriesByCategory.get(category) || [];
-                        if (!entries.length) {
-                            return undefined;
-                        }
-                        return this.renderCategoryTable(category, entries, policy, skillRecommendations);
-                    })}
-                    {!filteredEntries.length && (
-                        <section className='geoapp-chat-policy-empty'>
-                            Aucun tool ne correspond aux filtres courants.
+                        <section className='geoapp-chat-policy-controls'>
+                            <label>
+                                Workflow
+                                <select value={this.workflowKind} onChange={event => this.setWorkflowKind(event.currentTarget.value as GeoAppChatWorkflowKind)}>
+                                    {WORKFLOW_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                </select>
+                            </label>
+                            <label>
+                                Session
+                                <select value={this.sessionKind} onChange={event => this.setSessionKind(event.currentTarget.value as GeoAppChatSessionKind)}>
+                                    <option value='auto'>Auto</option>
+                                    <option value='libre'>Libre</option>
+                                </select>
+                            </label>
+                            <label>
+                                Profil preview
+                                <select value={this.behaviorOverride} onChange={event => this.setBehaviorOverride(event.currentTarget.value as GeoAppChatWorkflowBehaviorProfile)}>
+                                    {BEHAVIOR_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                </select>
+                            </label>
+                            <label>
+                                Skill pack
+                                <select value={policy.skillPack} onChange={event => { void this.setSkillPack(event.currentTarget.value as GeoAppChatSkillPack); }}>
+                                    {SKILL_PACK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                </select>
+                            </label>
                         </section>
-                    )}
-                </div>
+
+                        <section className='geoapp-chat-policy-summary'>
+                            <div><span>Comportement</span><strong>{policy.behaviorProfile}</strong></div>
+                            <div><span>Prompt pack</span><strong>{policy.promptPack}</strong></div>
+                            <div><span>Workflow</span><strong>{policy.workflowKind || 'general'}</strong></div>
+                            <div><span>Tools actifs</span><strong>{enabledCount}</strong></div>
+                            <div><span>Confirmation</span><strong>{confirmCount}</strong></div>
+                            <div><span>Bloques</span><strong>{disabledCount}</strong></div>
+                            <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
+                        </section>
+
+                        <section className='geoapp-chat-policy-skills'>
+                            <h3>Skills GeoApp actifs</h3>
+                            {this.skillStatesLoading && <p className='geoapp-chat-policy-muted'>Analyse des versions de skills en cours...</p>}
+                            <div className='geoapp-chat-policy-skill-badges'>
+                                {policy.recommendedSkillNames.map(skillName => <span key={skillName}>{skillName}</span>)}
+                            </div>
+                            {this.renderSkillTable(policy)}
+                        </section>
+                    </>
+                )}
+
+                {this.activeTab === 'tools' && (
+                    <>
+                        {this.renderToolFilters(policy.entries.length, filteredEntries.length)}
+
+                        <div className='geoapp-chat-policy-matrix'>
+                            {CATEGORY_ORDER.map(category => {
+                                const entries = entriesByCategory.get(category) || [];
+                                if (!entries.length) {
+                                    return undefined;
+                                }
+                                return this.renderCategoryTable(category, entries, policy, skillRecommendations);
+                            })}
+                            {!filteredEntries.length && (
+                                <section className='geoapp-chat-policy-empty'>
+                                    Aucun tool ne correspond aux filtres courants.
+                                </section>
+                            )}
+                        </div>
+                    </>
+                )}
+
+                {this.activeTab === 'prompts' && (
+                    <>
+                        {this.renderPromptPreview(policy)}
+                        {this.renderPromptPackEditor()}
+                    </>
+                )}
+
+                {this.activeTab === 'system' && (
+                    <>
+                        {this.renderAgentModels()}
+                        {this.renderPolicyHelp()}
+                        {this.renderDiagnostics()}
+
+                        <section className='geoapp-chat-policy-import'>
+                            <textarea
+                                value={this.importText}
+                                rows={4}
+                                spellCheck={false}
+                                placeholder='Coller une configuration JSON complète ou une ancienne policy JSON exportée ici...'
+                                onChange={event => this.setImportText(event.currentTarget.value)}
+                            />
+                            {this.renderImportPreview()}
+                            <button className='theia-button secondary' type='button' disabled={!this.importText.trim()} onClick={() => { void this.importPolicyConfiguration(); }}>
+                                Importer
+                            </button>
+                        </section>
+                    </>
+                )}
             </div>
         );
+    }
+
+    protected setActiveTab(tab: GeoAppChatPolicyTab): void {
+        if (this.activeTab !== tab) {
+            this.activeTab = tab;
+            this.update();
+        }
     }
 
     protected renderPresets(): React.ReactNode {
@@ -588,8 +637,77 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <span>Actif : {activeStats.lines} ligne(s), {activeStats.characters} caractère(s)</span>
                 <span>GeoApp : {builtInStats.lines} ligne(s), {builtInStats.characters} caractère(s)</span>
                 {firstDiffLine !== undefined && <small>Première différence détectée à la ligne {firstDiffLine}.</small>}
+                {firstDiffLine !== undefined && (
+                    <details className='geoapp-chat-policy-prompt-diff'>
+                        <summary>Diff ligne à ligne (GeoApp → actif)</summary>
+                        {this.renderPromptLineDiff(builtIn.template, row.template)}
+                    </details>
+                )}
             </div>
         );
+    }
+
+    /**
+     * Diff ligne à ligne minimal (LCS) entre la version GeoApp et la version
+     * active. Les lignes identiques sont repliées sauf 1 ligne de contexte
+     * autour des changements ; la sortie est plafonnée.
+     */
+    protected renderPromptLineDiff(before: string, after: string): React.ReactNode {
+        interface DiffOp { type: 'same' | 'del' | 'add'; text: string; }
+        const a = before.split(/\r\n|\r|\n/);
+        const b = after.split(/\r\n|\r|\n/);
+        const dp: number[][] = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+        for (let i = a.length - 1; i >= 0; i--) {
+            for (let j = b.length - 1; j >= 0; j--) {
+                dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        const ops: DiffOp[] = [];
+        let i = 0;
+        let j = 0;
+        while (i < a.length && j < b.length) {
+            if (a[i] === b[j]) { ops.push({ type: 'same', text: a[i] }); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ type: 'del', text: a[i] }); i++; }
+            else { ops.push({ type: 'add', text: b[j] }); j++; }
+        }
+        while (i < a.length) { ops.push({ type: 'del', text: a[i++] }); }
+        while (j < b.length) { ops.push({ type: 'add', text: b[j++] }); }
+
+        // Marque les lignes "same" a conserver : 1 ligne de contexte autour des changements.
+        const changed = ops.map(op => op.type !== 'same');
+        const keepSame = ops.map((op, idx) => op.type !== 'same'
+            || (idx > 0 && changed[idx - 1])
+            || (idx < ops.length - 1 && changed[idx + 1]));
+
+        const rows: React.ReactNode[] = [];
+        let hidden = 0;
+        let emitted = 0;
+        const MAX_ROWS = 400;
+        ops.forEach((op, idx) => {
+            if (emitted >= MAX_ROWS) { return; }
+            if (op.type === 'same' && !keepSame[idx]) {
+                hidden++;
+                return;
+            }
+            if (hidden > 0) {
+                rows.push(<div key={`fold-${idx}`} className='geoapp-chat-policy-diff-fold'>⋮ {hidden} ligne(s) identique(s)</div>);
+                hidden = 0;
+            }
+            emitted++;
+            const marker = op.type === 'del' ? '−' : op.type === 'add' ? '+' : ' ';
+            rows.push(
+                <div key={idx} className={`geoapp-chat-policy-diff-line ${op.type}`}>
+                    <span className='geoapp-chat-policy-diff-marker'>{marker}</span>{op.text}
+                </div>
+            );
+        });
+        if (hidden > 0) {
+            rows.push(<div key='fold-end' className='geoapp-chat-policy-diff-fold'>⋮ {hidden} ligne(s) identique(s)</div>);
+        }
+        if (emitted >= MAX_ROWS) {
+            rows.push(<div key='trunc' className='geoapp-chat-policy-diff-fold'>Diff tronqué après {MAX_ROWS} lignes affichées.</div>);
+        }
+        return <pre className='geoapp-chat-policy-diff-view'>{rows}</pre>;
     }
 
     protected getTextStats(value: string): { lines: number; characters: number } {
