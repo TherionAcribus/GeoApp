@@ -13,6 +13,10 @@ import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-n
 import { GeocacheTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-tabs-manager';
 import { ZoneTabsManager } from 'theia-ide-zones-ext/lib/browser/zone-tabs-manager';
 import { GeoAppWidgetEventsService } from 'theia-ide-zones-ext/lib/browser/geoapp-widget-events-service';
+import {
+    buildGeocacheFullListingContext,
+    GeocachePromptData,
+} from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
 import { AlphabetsService } from '@mysterai/theia-alphabets/lib/browser/services/alphabets-service';
@@ -183,7 +187,36 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildAlphabetTools(),
             ...this.buildPreferenceTools(),
             ...this.buildSearchTools(),
-        ];
+        ].map(tool => this.withRequiredParamsValidation(tool));
+    }
+
+    /**
+     * Valide les parametres `required` du schema avant d'executer le handler :
+     * un appel incomplet renvoie une erreur explicite au modele au lieu d'un
+     * echec backend cryptique (zone_id undefined, note_id manquant...).
+     */
+    protected withRequiredParamsValidation(tool: ToolRequest): ToolRequest {
+        const required = Array.isArray(tool.parameters?.required)
+            ? tool.parameters.required as string[]
+            : [];
+        if (!required.length) { return tool; }
+        const handler = tool.handler;
+        return {
+            ...tool,
+            handler: async (argString: string, ctx?: unknown) => {
+                let args: Record<string, unknown>;
+                try {
+                    args = JSON.parse(argString || '{}');
+                } catch {
+                    return err('Arguments JSON invalides.');
+                }
+                const missing = required.filter(key => args[key] === undefined || args[key] === null);
+                if (missing.length) {
+                    return err(`Parametre(s) manquant(s) : ${missing.join(', ')}.`);
+                }
+                return handler.call(tool, argString, ctx);
+            },
+        };
     }
 
     // ─── Preferences ──────────────────────────────────────────────────────────
@@ -1006,6 +1039,46 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         return id;
     }
 
+    /** Mappe la reponse GET /api/geocaches/<id> (to_dict complet) vers GeocachePromptData. */
+    protected toPromptData(raw: Record<string, unknown>): GeocachePromptData {
+        const waypoints = (Array.isArray(raw['waypoints']) ? raw['waypoints'] : []) as Array<Record<string, unknown>>;
+        const checkers = (Array.isArray(raw['checkers']) ? raw['checkers'] : []) as Array<Record<string, unknown>>;
+        return {
+            id: Number(raw['id']) || 0,
+            gc_code: raw['gc_code'] as string | undefined,
+            name: String(raw['name'] ?? ''),
+            type: (raw['cache_type'] ?? raw['type']) as string | undefined,
+            size: raw['size'] as string | undefined,
+            owner: raw['owner'] as string | undefined,
+            difficulty: raw['difficulty'] as number | undefined,
+            terrain: raw['terrain'] as number | undefined,
+            coordinates_raw: raw['coordinates_raw'] as string | undefined,
+            original_coordinates_raw: raw['original_coordinates_raw'] as string | undefined,
+            placed_at: raw['placed_at'] as string | undefined,
+            status: raw['status'] as string | undefined,
+            description_html: (raw['description_html'] ?? raw['description_raw'] ?? raw['description']) as string | undefined,
+            hints: raw['hints'] as string | undefined,
+            hints_decoded: raw['hints_decoded'] as string | undefined,
+            hints_decoded_override: raw['hints_decoded_override'] as string | undefined,
+            favorites_count: raw['favorites_count'] as number | undefined,
+            logs_count: raw['logs_count'] as number | undefined,
+            waypoints: waypoints.map(w => ({
+                prefix: w['prefix'] as string | undefined,
+                lookup: w['lookup'] as string | undefined,
+                name: w['name'] as string | undefined,
+                type: w['type'] as string | undefined,
+                gc_coords: w['gc_coords'] as string | undefined,
+                latitude: typeof w['latitude'] === 'number' ? w['latitude'] : undefined,
+                longitude: typeof w['longitude'] === 'number' ? w['longitude'] : undefined,
+                note: w['note'] as string | undefined,
+            })),
+            checkers: checkers.map(c => ({
+                name: c['name'] as string | undefined,
+                url: c['url'] as string | undefined,
+            })),
+        };
+    }
+
     private buildGeocacheTools(): ToolRequest[] {
         return [
             {
@@ -1054,47 +1127,36 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             {
                 id: 'aide_get_geocache_details',
                 name: 'aide_get_geocache_details',
-                description: 'Retourne le contenu complet d\'une géocache : nom, code GC, type, difficulté, terrain, coordonnées, ' +
-                    'description (texte brut), indices, waypoints et statut résolu/trouvé. ' +
+                description: 'Retourne le contenu complet d\'une géocache : métadonnées (nom, code GC, D/T, statut), ' +
+                    'description intégrale en texte, indices décodés, waypoints détaillés et checkers. ' +
                     'À appeler quand l\'utilisateur demande le contenu de "cette cache" ou "la cache à l\'écran".',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
                     gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
+                    max_chars: { type: 'number', description: 'Taille max de la description retournée (défaut 12000).', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
                         const geocacheId = await this.resolveGeocacheId(args);
                         const raw = await this.geocachesService.get<Record<string, unknown>>(geocacheId);
-                        const desc = typeof raw['description_raw'] === 'string' ? raw['description_raw']
-                            : typeof raw['description'] === 'string' ? raw['description'] : null;
-                        const hint = raw['hints_decoded'] ?? raw['hint_raw'] ?? raw['hint'] ?? raw['hints'] ?? null;
-                        const waypoints = (Array.isArray(raw['waypoints']) ? raw['waypoints'] : [])
-                            .map((w: Record<string, unknown>) => ({
-                                id: w['id'],
-                                name: w['name'],
-                                type: w['type'],
-                                gc_coords: w['gc_coords'],
-                                note: w['note'],
-                            }));
+                        const maxChars = Math.min(Math.max(Number(args.max_chars) || 12000, 500), 60000);
+                        // Meme rendu que le tool de resolution get_geocache_listing : description
+                        // integrale, indices decodes (ROT13), waypoints et checkers formattes.
+                        const listing = buildGeocacheFullListingContext(this.toPromptData(raw), {
+                            maxDescriptionChars: maxChars,
+                        });
                         return ok({
                             id: raw['id'],
                             gc_code: raw['gc_code'],
                             name: raw['name'],
-                            owner: raw['owner'],
-                            cache_type: raw['cache_type'] ?? raw['type'],
-                            difficulty: raw['difficulty'],
-                            terrain: raw['terrain'],
-                            size: raw['size'],
+                            zone_id: raw['zone_id'],
                             solved: raw['solved'],
                             found: raw['found'],
-                            favorites_count: raw['favorites_count'],
-                            coordinates_raw: raw['coordinates_raw'],
                             is_corrected: raw['is_corrected'],
-                            description: typeof desc === 'string' ? desc.substring(0, 3000) : null,
-                            hint,
-                            waypoints,
+                            description_truncated: listing.descriptionTruncated,
+                            listing: listing.text,
                         });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

@@ -299,6 +299,60 @@ async function testWaypointAndNoteEvents(): Promise<void> {
     assert.ok(events.every(e => e.geocacheId === 9));
 }
 
+// §9 : aide_get_geocache_details rend le listing complet (description HTML
+// nettoyee, indices decodes, waypoints, checkers) partage avec l'agent GeoApp.
+async function testGetGeocacheDetailsListing(): Promise<void> {
+    const manager = createManager({
+        geocachesService: {
+            getByCode: async () => ({ id: 9 }),
+            get: async () => ({
+                id: 9,
+                gc_code: 'GC9',
+                name: 'Mystery',
+                description_html: '<p>Indice &agrave; chercher <b>ici</b></p>',
+                hints_decoded: 'sous le pont',
+                waypoints: [{ prefix: 'FI', name: 'Final', type: 'Final Location', gc_coords: 'N 48 51.500 E 002 17.600' }],
+                checkers: [{ name: 'Certitude', url: 'https://certitudes.org/x' }],
+            }),
+        },
+    });
+    const tools = manager.buildAllTools();
+    const res = await call(findTool(tools, 'aide_get_geocache_details'), { gc_code: 'GC9' });
+    assert.equal(res.success, true);
+    const data = res.data as { listing: string; description_truncated: boolean };
+    assert.match(data.listing, /LISTING COMPLET/);
+    assert.match(data.listing, /Indice à chercher ici/);
+    assert.match(data.listing, /sous le pont/);
+    assert.match(data.listing, /Certitude: https:\/\/certitudes.org\/x/);
+    assert.equal(data.description_truncated, false);
+}
+
+// §11 : les parametres `required` du schema sont verifies avant l'execution
+// du handler — un appel incomplet renvoie une erreur explicite.
+async function testRequiredParamsValidation(): Promise<void> {
+    let called = 0;
+    const manager = createManager({
+        zonesService: { delete: async () => { called++; } },
+        widgetEventsService: { requestZonesRefresh: () => undefined },
+    });
+    const tools = manager.buildAllTools();
+    const del = findTool(tools, 'aide_delete_zone');
+
+    const missing = await call(del, {});
+    assert.equal(missing.success, false);
+    assert.match(missing.error!, /zone_id/);
+    assert.equal(called, 0);
+
+    const partial = await call(del, { zone_id: 3 });
+    assert.equal(partial.success, false);
+    assert.match(partial.error!, /zone_name/);
+    assert.equal(called, 0);
+
+    const completed = await call(del, { zone_id: 3, zone_name: 'Bretagne' });
+    assert.equal(completed.success, true);
+    assert.equal(called, 1);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -308,6 +362,8 @@ async function run(): Promise<void> {
     await testOpenGeocacheAcceptsGcCode();
     await testListGeocachesPagination();
     await testWaypointAndNoteEvents();
+    await testGetGeocacheDetailsListing();
+    await testRequiredParamsValidation();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

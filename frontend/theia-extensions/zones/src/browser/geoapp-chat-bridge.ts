@@ -480,8 +480,10 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             candidates.push(universal);
         }
 
+        // Repli limite aux agents GeoApp : un agent tiers (Coder, ...) serait
+        // epingle sans les tools ni le prompt GeoApp attendus par la session.
         for (const agent of available) {
-            if (!candidates.includes(agent)) {
+            if (!candidates.includes(agent) && this.isGeoAppAgent(agent)) {
                 candidates.push(agent);
             }
         }
@@ -492,7 +494,15 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             }
         }
 
-        return candidates[0];
+        // Aucun candidat pret (aucun modele assigne) : preferer l'agent GeoApp
+        // principal plutot qu'un agent tiers sans contexte GeoApp.
+        return geoApp ?? candidates.find(candidate => this.isGeoAppAgent(candidate)) ?? candidates[0];
+    }
+
+    protected isGeoAppAgent(agent: ChatAgent): boolean {
+        const id = (agent.id || '').toLowerCase();
+        return id === GeoAppChatAgentId.toLowerCase()
+            || Object.values(GeoAppChatAgentIdsByProfile).some(agentId => agentId.toLowerCase() === id);
     }
 
     protected resolveRequestedProfile(detail?: GeoAppOpenChatRequestDetail): GeoAppChatProfile | undefined {

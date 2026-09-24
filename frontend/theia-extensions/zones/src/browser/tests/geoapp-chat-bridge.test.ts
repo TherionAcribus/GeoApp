@@ -528,11 +528,61 @@ async function testOutingSessionIsPinnedAndMatchedByTitle(): Promise<void> {
     assert.equal(chatService.sessions.length, 2);
 }
 
+/**
+ * §14 : le repli ne doit jamais epingler un agent tiers. Un agent etranger
+ * (Coder...) pret mais non configure n'est plus propose ; sans aucun modele
+ * disponible on retombe sur un agent GeoApp plutot que sur le premier candidat.
+ */
+async function testFallbackNeverSelectsForeignAgent(): Promise<void> {
+    const { bridge, chatService } = createBridge({
+        agents: [
+            { id: 'theia-coder', name: 'Coder' },
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+        ],
+        preferences: { 'geoApp.chat.defaultProfile': 'fast' },
+        readyAgentIds: ['theia-coder'],
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GC11111',
+        prompt: 'Fallback etranger',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, GeoAppChatFastAgentId);
+}
+
+async function testFallbackPrefersGeoAppWhenNothingReady(): Promise<void> {
+    const { bridge, chatService } = createBridge({
+        agents: [
+            { id: 'GeoApp', name: 'GeoApp' },
+            { id: 'universal-chat', name: 'Universal Agent' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'fast',
+            [DEFAULT_CHAT_AGENT_PREF]: 'universal-chat',
+        },
+        readyAgentIds: [],
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GC22222',
+        prompt: 'Rien de pret',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, 'GeoApp');
+}
+
 async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
     await testFallsBackToConfiguredReadyAgent();
     await testPreferredAgentIdWinsOverWorkflowProfile();
+    await testFallbackNeverSelectsForeignAgent();
+    await testFallbackPrefersGeoAppWhenNothingReady();
     await testBridgeLifecycleHandlesWindowEventsAndStop();
     await testBridgeRemovesSessionMetadataOnDeletedEvent();
     await testBridgeAcceptsGeocacheDetailsPayloadBuilder();
