@@ -68,7 +68,7 @@ export const LogsScopeBanner: React.FC<LogsScopeBannerProps> = ({
                         onClick={() => onShow(active!)}
                         title={`Afficher les logs de ${describeGeocacheTab(active!)}`}
                     >
-                        <i className='fa fa-sync-alt' />
+                        <i className='fa fa-refresh' />
                         Afficher les logs de {describeGeocacheTab(active!)}
                     </button>
                 )}

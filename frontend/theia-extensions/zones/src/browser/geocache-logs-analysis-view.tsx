@@ -76,7 +76,7 @@ export const LogsAnalysisPanel: React.FC<LogsAnalysisPanelProps> = ({
         <div className='geoapp-logs-analysis'>
             <div className='geoapp-logs-analysis__header'>
                 <h4 className='geoapp-logs-analysis__title'>
-                    <i className='fa fa-brain' />
+                    <i className='fa fa-magic' />
                     Analyse IA des logs
                 </h4>
                 <div className='geoapp-logs-analysis__actions'>
@@ -94,7 +94,7 @@ export const LogsAnalysisPanel: React.FC<LogsAnalysisPanelProps> = ({
                         disabled={isAnalyzing}
                         title="Relancer l'analyse sur les logs actuels"
                     >
-                        <i className={`fa ${isAnalyzing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} aria-hidden='true' />
+                        <i className={`fa ${isAnalyzing ? 'fa-spinner fa-spin' : 'fa-refresh'}`} aria-hidden='true' />
                     </button>
                     <button
                         className='geoapp-logs-analysis__action geoapp-logs-analysis__action--danger'

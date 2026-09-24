@@ -108,7 +108,7 @@ export const GeocacheFriendFindsBanner: React.FC<GeocacheFriendFindsBannerProps>
                 background: 'var(--theia-editor-background)'
             }}
         >
-            <i className='fa fa-user-friends' style={{ marginTop: 3, opacity: 0.8 }} aria-hidden='true' />
+            <i className='fa fa-users' style={{ marginTop: 3, opacity: 0.8 }} aria-hidden='true' />
             <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 'bold', marginBottom: 6 }}>
                     {friends.length === 1
@@ -161,7 +161,7 @@ export const GeocacheFriendFindsBanner: React.FC<GeocacheFriendFindsBannerProps>
                                         lineHeight: 1
                                     }}
                                 >
-                                    <i className='fa fa-comment-dots' aria-hidden='true' />
+                                    <i className='fa fa-comment-o' aria-hidden='true' />
                                 </button>
                             )}
                         </span>

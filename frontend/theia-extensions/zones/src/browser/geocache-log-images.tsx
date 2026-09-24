@@ -159,7 +159,7 @@ export const LogImages: React.FC<LogImagesProps> = ({
                     disabled={isDownloading}
                     title='Télécharger ces photos pour les consulter, y compris hors ligne'
                 >
-                    <i className={`fa ${isDownloading ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} />
+                    <i className={`fa ${isDownloading ? 'fa-spinner fa-spin' : 'fa-cloud-download'}`} />
                     {isDownloading ? 'Téléchargement…' : 'Télécharger les photos'}
                 </button>
             </div>
@@ -195,7 +195,7 @@ export const LogImages: React.FC<LogImagesProps> = ({
                     disabled={isDownloading}
                     title='Réessayer les photos qui manquent'
                 >
-                    <i className={`fa ${isDownloading ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} />
+                    <i className={`fa ${isDownloading ? 'fa-spinner fa-spin' : 'fa-cloud-download'}`} />
                     {isDownloading
                         ? 'Téléchargement…'
                         : `${images.length - stored.length} photo${images.length - stored.length > 1 ? 's' : ''} non téléchargée${images.length - stored.length > 1 ? 's' : ''}`}

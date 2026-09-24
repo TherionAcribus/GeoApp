@@ -93,7 +93,7 @@ export const LogsRecentSummary: React.FC<LogsRecentSummaryProps> = ({
                         onClick={onOpenLogs}
                         title='Ouvrir le panneau des logs'
                     >
-                        <i className='fa fa-external-link-alt' />
+                        <i className='fa fa-external-link' />
                         Voir tout
                     </button>
                 )}

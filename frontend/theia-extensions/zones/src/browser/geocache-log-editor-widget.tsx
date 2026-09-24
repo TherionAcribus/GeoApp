@@ -354,7 +354,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.title.label = 'Logs';
         this.title.caption = 'Édition de logs';
         this.title.closable = true;
-        this.title.iconClass = 'fa fa-pen';
+        this.title.iconClass = 'fa fa-pencil';
         this.addClass('theia-geocache-log-editor-widget');
     }
 

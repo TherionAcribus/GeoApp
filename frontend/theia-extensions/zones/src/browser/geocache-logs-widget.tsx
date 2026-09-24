@@ -175,7 +175,7 @@ const LogItem: React.FC<LogItemProps> = ({
                                     className='geoapp-log-card__own-badge'
                                     title='Log écrit avec votre compte Geocaching.com'
                                 >
-                                    <i className='fa fa-user-check' />
+                                    <i className='fa fa-user' />
                                     vous
                                 </span>
                             )}
@@ -184,7 +184,7 @@ const LogItem: React.FC<LogItemProps> = ({
                                     className='geoapp-log-card__friend-badge'
                                     title='Log écrit par un de vos amis Geocaching.com'
                                 >
-                                    <i className='fa fa-user-friends' />
+                                    <i className='fa fa-users' />
                                     ami
                                 </span>
                             )}
@@ -289,7 +289,7 @@ const LogsList: React.FC<LogsListProps> = ({
                         onClick={onRefresh}
                         disabled={isRefreshing}
                     >
-                        <i className={`fa ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} />
+                        <i className={`fa ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-refresh'}`} />
                         {isRefreshing ? 'Rafraîchissement...' : 'Récupérer les logs'}
                     </button>
                 }
@@ -375,7 +375,7 @@ const RemoteLogsBanner: React.FC<RemoteLogsBannerProps> = ({
     return (
         <div className='geoapp-logs-remote-banner'>
             <div className='geoapp-logs-remote-banner__text'>
-                <i className='fa fa-cloud-download-alt' />
+                <i className='fa fa-cloud-download' />
                 Cette géocache compte <strong>{totalAvailable}</strong> logs sur Geocaching.com,
                 dont <strong>{storedCount}</strong> chargé{storedCount > 1 ? 's' : ''} ici.
             </div>
@@ -393,7 +393,7 @@ const RemoteLogsBanner: React.FC<RemoteLogsBannerProps> = ({
                     onClick={onLoadAll}
                     disabled={isRefreshing}
                 >
-                    <i className='fa fa-cloud-download-alt' />
+                    <i className='fa fa-cloud-download' />
                     Tout charger ({totalAvailable})
                 </button>
             </div>
@@ -1317,7 +1317,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                                     ? 'Aucun log à vous détecté sur cette géocache (rafraîchissez les logs pour vérifier)'
                                     : "N'afficher que vos propres logs"}
                             >
-                                <i className='fa fa-user-check' />
+                                <i className='fa fa-user' />
                                 {`Mes logs${this.ownCount > 0 ? ` (${this.ownCount})` : ''}`}
                             </button>
                             <button
@@ -1330,7 +1330,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                                     : `N'afficher que les logs de vos amis Geocaching.com `
                                         + `(${this.friendsFindersCount} ami(s), ${this.friendsCount} log(s))`}
                             >
-                                <i className='fa fa-user-friends' />
+                                <i className='fa fa-users' />
                                 {`Amis${this.friendsFindersCount > 0 ? ` (${this.friendsFindersCount})` : ''}`}
                             </button>
                             <button
@@ -1339,7 +1339,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                                 disabled={this.isAnalyzing || this.storedLogsCount === 0}
                                 title={analyzeTitle}
                             >
-                                <i className={`fa ${this.isAnalyzing ? 'fa-spinner fa-spin' : 'fa-brain'}`} />
+                                <i className={`fa ${this.isAnalyzing ? 'fa-spinner fa-spin' : 'fa-magic'}`} />
                                 {this.isAnalyzing ? 'Analyse...' : (this.analysis ? "Relancer l'analyse" : 'Analyser avec IA')}
                             </button>
                             <button
@@ -1348,7 +1348,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                                 disabled={this.isRefreshing}
                                 title='Récupérer les logs depuis Geocaching.com'
                             >
-                                <i className={`fa ${this.isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} />
+                                <i className={`fa ${this.isRefreshing ? 'fa-spinner fa-spin' : 'fa-refresh'}`} />
                                 {this.isRefreshing ? 'Rafraîchissement...' : 'Rafraîchir'}
                             </button>
                         </div>

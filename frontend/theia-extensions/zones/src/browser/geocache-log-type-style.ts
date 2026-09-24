@@ -63,7 +63,7 @@ export function getLogTypeIcon(logType: string): string {
         return 'fa-play';
     }
     if (type === 'attended' || type === 'will attend') {
-        return 'fa-calendar-check';
+        return 'fa-calendar-check-o';
     }
     if (type === 'webcam') {
         return 'fa-camera';

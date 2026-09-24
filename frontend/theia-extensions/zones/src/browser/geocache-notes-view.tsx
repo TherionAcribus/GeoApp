@@ -498,7 +498,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     style={props.isSyncingFromGc ? syncFromGcButtonWaitingStyle : syncFromGcButtonActiveStyle}
                     title='Importer la note personnelle depuis Geocaching.com'
                 >
-                    <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} aria-hidden='true' />
+                    <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download'}`} aria-hidden='true' />
                     {props.isSyncingFromGc ? 'Synchronisation...' : 'Importer note GC.com'}
                 </button>
             </div>
