@@ -66,4 +66,10 @@ export type GeocacheDto = {
     solved?: GeocacheSolvedStatus;
     waypoints?: GeocacheWaypoint[];
     checkers?: GeocacheChecker[];
+    /** Extras de fiche détail (présents seulement avec `?details_extras=1`). */
+    notes_count?: number;
+    recent_logs_summary?: {
+        total_count: number;
+        entries: import('./geocache-logs-summary').LogSummaryEntry[];
+    };
 };

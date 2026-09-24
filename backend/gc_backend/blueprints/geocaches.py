@@ -14,7 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from ..database import db
-from ..geocaches.models import Geocache, GeocacheNote
+from ..geocaches.models import Geocache, GeocacheLog, GeocacheNote
 from ..geocaches.importer import GeocacheImporter
 from ..geocaches.archive_service import ArchiveService
 from ..geocaches.scraper import GeocachingScraper
@@ -1368,6 +1368,39 @@ def get_geocache_details(geocache_id: int):
 
         # Retourner le to_dict() complet qui inclut waypoints et checkers
         result = geocache.to_dict()
+
+        # Extras opt-in (`?details_extras=1`) : données affichées par la fiche détail
+        # qui nécessiteraient sinon une requête HTTP dédiée chacune (nombre de notes,
+        # résumé des logs récents). Deux COUNT + un LIMIT, tous sur colonnes indexées.
+        if request.args.get('details_extras'):
+            result['notes_count'] = (
+                db.session.query(func.count())
+                .select_from(GeocacheNote)
+                .filter(GeocacheNote.geocache_id == geocache_id)
+                .scalar()
+            )
+
+            recent_logs_count = min(request.args.get('recent_logs_count', 5, type=int), 20)
+            recent_logs = (
+                GeocacheLog.query
+                .filter_by(geocache_id=geocache_id)
+                .order_by(GeocacheLog.date.desc())
+                .limit(recent_logs_count)
+                .all()
+            )
+            result['recent_logs_summary'] = {
+                'total_count': GeocacheLog.query.filter_by(geocache_id=geocache_id).count(),
+                'entries': [
+                    {
+                        'log_type': log.log_type,
+                        'date': log.date.isoformat() if log.date else None,
+                        'author': log.author,
+                        'is_favorite': log.is_favorite,
+                        'is_own_log': bool(log.is_own_log),
+                    }
+                    for log in recent_logs
+                ],
+            }
 
         logger.info(f"Returning details for geocache {geocache.gc_code} (id={geocache_id})")
         return jsonify(result)

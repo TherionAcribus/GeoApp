@@ -81,9 +81,17 @@ export class GeocachesService {
         );
     }
 
-    async get<T>(id: number): Promise<T> {
+    /**
+     * Détails complets d'une géocache.
+     * `options.recentLogsCount` active les extras de fiche détail (nombre de notes,
+     * résumé des logs récents) calculés côté serveur dans la même requête.
+     */
+    async get<T>(id: number, options?: { recentLogsCount?: number }): Promise<T> {
+        const params = options
+            ? `?details_extras=1&recent_logs_count=${encodeURIComponent(String(options.recentLogsCount ?? 5))}`
+            : '';
         return this.apiClient.requestJson<T>(
-            `/api/geocaches/${id}`,
+            `/api/geocaches/${id}${params}`,
             {},
             'Erreur lors du chargement de la géocache'
         );

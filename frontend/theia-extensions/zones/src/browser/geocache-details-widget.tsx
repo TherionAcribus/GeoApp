@@ -877,7 +877,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.isLoading = true;
         this.update();
         try {
-            this.data = await this.geocachesService.get<GeocacheDto>(geocacheId);
+            const recentLogsCount = this.preferenceService.get<number>('geoApp.logs.recentSummaryCount', 5);
+            this.data = await this.geocachesService.get<GeocacheDto>(geocacheId, { recentLogsCount });
             if (this.data && this.descriptionVariantGeocacheId !== geocacheId) {
                 this.descriptionVariant = this.preferencesController.getDefaultDescriptionVariant(this.data);
                 this.descriptionVariantGeocacheId = geocacheId;
@@ -894,13 +895,27 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.isLoading = false;
             this.update();
 
-            this.loadNotesCount(geocacheId);
+            // Extras embarqués dans la réponse principale (`?details_extras=1`) : un seul
+            // aller-retour au lieu de requêtes dédiées. Repli sur les endpoints séparés
+            // si le backend ne les fournit pas.
+            if (typeof this.data.notes_count === 'number') {
+                this.notesCount = this.data.notes_count;
+            } else {
+                this.loadNotesCount(geocacheId);
+            }
+            if (this.data.recent_logs_summary) {
+                this.logsSummaryEntries = this.data.recent_logs_summary.entries;
+                this.logsSummaryTotalCount = this.data.recent_logs_summary.total_count;
+                this.isLogsSummaryLoading = false;
+                this.update();
+            } else {
+                void this.loadLogsSummary();
+            }
             void this.notesController.autoSyncFromDetailsIfEnabled(geocacheId).catch(err => {
                 console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
             });
             void this.loadArchiveStatus();
             void this.refreshChatRoutingPreview();
-            void this.loadLogsSummary();
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error('GeocacheDetailsWidget: load error', e);
