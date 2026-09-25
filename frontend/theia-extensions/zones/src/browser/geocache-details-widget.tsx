@@ -1758,6 +1758,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     zoneNavNextName: this.zoneNavItems[this.getZoneNavIndex() + 1]?.name,
                     onNavigateZonePrevious: this.navigateZonePrevious,
                     onNavigateZoneNext: this.navigateZoneNext,
+                    onUpdateSolvedStatus: this.handleUpdateSolvedStatus,
                 }}
                 coordinatesEditorProps={{
                     geocacheData: d!,

@@ -3,7 +3,8 @@ import { getAttributeIconUrl } from './geocache-attributes-icons-data';
 import {
     GeocacheAttribute,
     GeocacheChecker,
-    GeocacheDto
+    GeocacheDto,
+    GeocacheSolvedStatus
 } from './geocache-details-types';
 import {
     GeoAppChatProfile,
@@ -81,6 +82,8 @@ interface GeocacheDetailsHeaderProps {
     zoneNavNextName?: string;
     onNavigateZonePrevious?: () => void;
     onNavigateZoneNext?: () => void;
+    /** Change le statut de résolution depuis le badge du header. */
+    onUpdateSolvedStatus?: (status: GeocacheSolvedStatus) => void | Promise<void>;
 }
 
 export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
@@ -122,7 +125,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     zoneNavPreviousName,
     zoneNavNextName,
     onNavigateZonePrevious,
-    onNavigateZoneNext
+    onNavigateZoneNext,
+    onUpdateSolvedStatus
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
     const archiveColor = getArchiveColor(archiveStatus);
@@ -132,6 +136,41 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
     const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
     const chatProfileMenuRef = React.useRef<HTMLDivElement>(null);
+
+    // --- Badge statut de résolution (menu Non résolu / En cours / Résolu) ---
+    const solvedStatus = geocacheData.solved ?? 'not_solved';
+    const [solvedMenuOpen, setSolvedMenuOpen] = React.useState(false);
+    const solvedMenuRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (!solvedMenuOpen) { return; }
+        const handleClickOutside = (event: MouseEvent): void => {
+            if (solvedMenuRef.current && !solvedMenuRef.current.contains(event.target as Node)) {
+                setSolvedMenuOpen(false);
+            }
+        };
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') { setSolvedMenuOpen(false); }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [solvedMenuOpen]);
+
+    const solvedMeta: Record<GeocacheSolvedStatus, { label: string; iconClass: string; color: string; filled: boolean }> = {
+        solved: { label: 'Résolu', iconClass: 'codicon codicon-check', color: 'var(--theia-charts-green, #10b981)', filled: true },
+        in_progress: { label: 'En cours', iconClass: 'fa fa-hourglass-half', color: 'var(--theia-charts-orange, #d18616)', filled: true },
+        not_solved: { label: 'Non résolu', iconClass: 'codicon codicon-circle-outline', color: 'var(--theia-descriptionForeground)', filled: false },
+    };
+    const solvedOptions: { value: GeocacheSolvedStatus; label: string; iconClass: string }[] = [
+        { value: 'not_solved', label: 'Non résolu', iconClass: 'codicon codicon-circle-outline' },
+        { value: 'in_progress', label: 'En cours', iconClass: 'fa fa-hourglass-half' },
+        { value: 'solved', label: 'Résolu', iconClass: 'codicon codicon-check' },
+    ];
+    const solvedBadge = solvedMeta[solvedStatus];
 
     // --- Menu du proprietaire (message / fiche sur Geocaching.com) ---
     const ownerName = (geocacheData.owner || '').trim();
@@ -641,6 +680,82 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     />
                 ) : undefined}
                 {renderFoundBadge(geocacheData)}
+                {onUpdateSolvedStatus ? (
+                    <span ref={solvedMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+                        <button
+                            type='button'
+                            onClick={() => setSolvedMenuOpen(open => !open)}
+                            aria-haspopup='menu'
+                            aria-expanded={solvedMenuOpen}
+                            title='Statut de résolution — cliquer pour changer'
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                borderRadius: 12,
+                                padding: '2px 10px',
+                                fontSize: 12,
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                border: `1px solid ${solvedBadge.filled ? solvedBadge.color : 'var(--theia-panel-border)'}`,
+                                background: solvedBadge.filled ? solvedBadge.color : 'transparent',
+                                color: solvedBadge.filled ? 'var(--theia-editor-background)' : solvedBadge.color,
+                                opacity: solvedBadge.filled ? 1 : 0.85,
+                            }}
+                        >
+                            <span className={solvedBadge.iconClass} aria-hidden='true' />
+                            <span>{solvedBadge.label}</span>
+                            <span className='codicon codicon-chevron-down' aria-hidden='true' style={{ fontSize: 9, opacity: 0.8 }} />
+                        </button>
+                        {solvedMenuOpen && (
+                            <div
+                                role='menu'
+                                aria-label='Statut de résolution'
+                                onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
+                                style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    marginTop: 4,
+                                    minWidth: 150,
+                                    background: 'var(--theia-menu-background)',
+                                    border: '1px solid var(--theia-menu-border)',
+                                    borderRadius: 4,
+                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                                    zIndex: 100,
+                                    padding: '4px 0',
+                                }}
+                            >
+                                {solvedOptions.map(option => (
+                                    <button
+                                        key={option.value}
+                                        type='button'
+                                        role='menuitemradio'
+                                        aria-checked={solvedStatus === option.value}
+                                        className='geoapp-menu-item'
+                                        onClick={() => {
+                                            setSolvedMenuOpen(false);
+                                            if (option.value !== solvedStatus) {
+                                                void onUpdateSolvedStatus(option.value);
+                                            }
+                                        }}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                                            textAlign: 'left', border: 'none', cursor: 'pointer',
+                                            padding: '6px 12px', fontSize: '0.9em',
+                                        }}
+                                    >
+                                        <span className={option.iconClass} aria-hidden='true' />
+                                        <span style={{ flex: 1 }}>{option.label}</span>
+                                        {solvedStatus === option.value ? (
+                                            <span className='codicon codicon-check' aria-hidden='true' />
+                                        ) : undefined}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </span>
+                ) : undefined}
                 {geocacheData.status === 'archived' && (
                     <span style={{
                         background: 'var(--theia-inputValidation-errorBackground)',
