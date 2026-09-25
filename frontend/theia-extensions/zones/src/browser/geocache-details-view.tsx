@@ -99,7 +99,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     collapsedSections,
     onSectionCollapsedChange
 }) => (
-    <div className='p-2' style={{ position: 'relative' }}>
+    <div className='p-2' style={{ position: 'relative', paddingLeft: 16, paddingRight: 16 }}>
         {/* Premier chargement uniquement : aucune donnée à afficher encore */}
         {isLoading && !geocacheData ? <LoadingState /> : undefined}
         {!isLoading && !geocacheData ? (

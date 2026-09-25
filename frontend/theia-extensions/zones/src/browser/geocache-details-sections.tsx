@@ -336,16 +336,17 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
             {/*
              * Barre d'outils sticky : sur les fiches longues (description + galerie +
              * waypoints), Analyser / Chat IA / Logs restent accessibles sans remonter
-             * en haut. Les marges négatives compensent le padding `p-2` du conteneur
-             * pour que le fond opaque masque le contenu qui défile dessous.
+             * en haut. Les marges négatives compensent le padding horizontal (16px)
+             * du conteneur pour que le fond opaque masque le contenu qui défile
+             * dessous, et le padding droit dégage la scrollbar overlay.
              */}
             <div style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 5,
                 background: 'var(--theia-editor-background)',
-                margin: '0 -8px 8px',
-                padding: '4px 8px 6px',
+                margin: '0 -16px 8px',
+                padding: '4px 22px 6px 16px',
                 borderBottom: '1px solid var(--theia-panel-border)',
             }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
