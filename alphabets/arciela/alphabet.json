@@ -19,5 +19,8 @@
       "numbers": [],
       "special": {}
     }
-  }
+  },
+  "families": [
+    "fiction"
+  ]
 }

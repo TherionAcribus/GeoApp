@@ -109,6 +109,7 @@ const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
     description: 'Convertir une valeur en symbole, ou composer un symbole pour retrouver sa valeur.',
     type: 'numeral-tool',
     tags: ['numeral', 'cistercien', 'geocaching'],
+    families: ['numeric'],
     alphabetConfig: {
         type: 'images',
         hasUpperCase: false,
@@ -575,6 +576,10 @@ export class AlphabetsListWidget extends ReactWidget {
     private recentAlphabetIds: string[] = [];
     private loadRequestSeq: number = 0;
     private persistListPreferencesTimer: NodeJS.Timeout | null = null;
+    // Les badges dependent uniquement du contenu de l'alphabet : les memoiser
+    // par objet garde la meme reference entre deux renders et preserve
+    // l'efficacite du React.memo sur AlphabetListItem.
+    private readonly badgeCache = new WeakMap<Alphabet, string[]>();
 
     @postConstruct()
     protected init(): void {
@@ -869,16 +874,19 @@ export class AlphabetsListWidget extends ReactWidget {
      * Rendu du widget.
      */
     protected render(): React.ReactNode {
+        // Filtre + tri calcules une seule fois par rendu, partages entre le
+        // compteur de l'en-tete et la liste.
+        const displayedAlphabets = this.getDisplayedAlphabets();
         return (
-            <div className='alphabets-list-container' style={{ 
-                height: '100%', 
+            <div className='alphabets-list-container' style={{
+                height: '100%',
                 overflow: 'auto',
                 padding: '10px',
                 backgroundColor: 'var(--theia-layout-color1)'
             }}>
-                {this.renderHeader()}
+                {this.renderHeader(displayedAlphabets.length)}
                 {this.filtersExpanded && this.renderExampleControls()}
-                {this.renderContent()}
+                {this.renderContent(displayedAlphabets)}
             </div>
         );
     }
@@ -886,7 +894,7 @@ export class AlphabetsListWidget extends ReactWidget {
     /**
      * Rendu de l'en-tête avec recherche.
      */
-    private renderHeader(): React.ReactNode {
+    private renderHeader(displayedCount: number): React.ReactNode {
         return (
             <div style={{ marginBottom: '15px' }}>
                 <div style={{ 
@@ -950,7 +958,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 </div>
                 
                 <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
-                    {this.getDisplayedAlphabets().length} alphabet(s) disponible(s)
+                    {displayedCount} alphabet(s) disponible(s)
                 </div>
 
                 {this.renderFiltersToggle()}
@@ -1376,7 +1384,7 @@ export class AlphabetsListWidget extends ReactWidget {
     /**
      * Rendu du contenu (liste des alphabets ou loading).
      */
-    private renderContent(): React.ReactNode {
+    private renderContent(displayedAlphabets: Alphabet[]): React.ReactNode {
         // Spinner plein ecran uniquement pour le tout premier chargement (rien a
         // montrer encore). Pour une recherche/actualisation ulterieure, on garde
         // la liste precedente affichee (this.alphabets n'est ecrase qu'a la
@@ -1385,8 +1393,6 @@ export class AlphabetsListWidget extends ReactWidget {
         if (this.loading && this.alphabets.length === 0) {
             return <LoadingState />;
         }
-
-        const displayedAlphabets = this.getDisplayedAlphabets();
 
         if (displayedAlphabets.length === 0) {
             return (
@@ -1412,6 +1418,16 @@ export class AlphabetsListWidget extends ReactWidget {
     /**
      * Rendu d'un item d'alphabet.
      */
+    private getAlphabetBadges(alphabet: Alphabet, isCistercianTool: boolean): string[] {
+        const cached = this.badgeCache.get(alphabet);
+        if (cached) {
+            return cached;
+        }
+        const badges = computeAlphabetBadges(alphabet, isCistercianTool);
+        this.badgeCache.set(alphabet, badges);
+        return badges;
+    }
+
     private renderAlphabetItem(alphabet: Alphabet, previewText: string): React.ReactNode {
         const isCistercianTool = alphabet.id === CISTERCIAN_TOOL_ID;
         return (
@@ -1421,7 +1437,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 isCistercianTool={isCistercianTool}
                 isCompact={this.viewMode === 'compact'}
                 isFavorite={this.isFavorite(alphabet.id)}
-                badges={computeAlphabetBadges(alphabet, isCistercianTool)}
+                badges={this.getAlphabetBadges(alphabet, isCistercianTool)}
                 previewText={previewText}
                 previewMode={this.previewMode}
                 fontSize={this.fontSize}
@@ -1542,6 +1558,12 @@ export class AlphabetsListWidget extends ReactWidget {
     private matchesFamilyFilter(alphabet: Alphabet): boolean {
         if (this.familyFilter === 'all') {
             return true;
+        }
+
+        // Classification déclarée dans alphabet.json : déterministe. Sinon on
+        // retombe sur l'heuristique par mots-clés (anciens payloads).
+        if (Array.isArray(alphabet.families) && alphabet.families.length > 0) {
+            return alphabet.families.includes(this.familyFilter);
         }
 
         const family = FAMILY_FILTERS.find(filter => filter.id === this.familyFilter);

@@ -29,5 +29,9 @@
     "ancien",
     "runes",
     "hobbit"
+  ],
+  "families": [
+    "fiction",
+    "runes"
   ]
 }

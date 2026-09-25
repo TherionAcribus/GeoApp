@@ -26,5 +26,8 @@
     "signaux",
     "telegraphe",
     "communication"
+  ],
+  "families": [
+    "communication"
   ]
 }

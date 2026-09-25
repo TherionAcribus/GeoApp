@@ -1,6 +1,15 @@
 {
   "name": "Dagger Code",
   "description": "Dagger Code",
+  "tags": [
+    "dagger",
+    "poignard",
+    "symboles",
+    "code"
+  ],
+  "families": [
+    "visual"
+  ],
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",

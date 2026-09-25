@@ -236,10 +236,21 @@ function validateImages(alphabetId, alphabetDir, config, characters) {
     }
 }
 
+const ALPHABET_ID_PATTERN = /^[a-z0-9_-]+$/;
+const ALPHABET_FAMILIES = new Set(['fiction', 'runes', 'communication', 'numeric', 'tactile', 'visual']);
+
 for (const alphabetId of fs.readdirSync(alphabetsRoot)) {
     const alphabetDir = path.join(alphabetsRoot, alphabetId);
     const configPath = path.join(alphabetDir, 'alphabet.json');
     if (!fs.existsSync(configPath)) {
+        continue;
+    }
+
+    // L'id d'un alphabet est le nom de son dossier : il circule dans les URLs
+    // d'API, les ids de widgets et les noms de font-family. On impose des
+    // identifiants URL-safe (pas d'espace ni de caractere special).
+    if (!ALPHABET_ID_PATTERN.test(alphabetId)) {
+        addError(alphabetId, `alphabet directory name must match ${ALPHABET_ID_PATTERN}`);
         continue;
     }
 
@@ -259,6 +270,12 @@ for (const alphabetId of fs.readdirSync(alphabetsRoot)) {
 
     if (Object.prototype.hasOwnProperty.call(config, 'special')) {
         addError(alphabetId, 'alphabetConfig.special must be moved to alphabetConfig.characters.special');
+    }
+
+    if (alphabet.families !== undefined) {
+        if (!Array.isArray(alphabet.families) || alphabet.families.some(f => !ALPHABET_FAMILIES.has(f))) {
+            addError(alphabetId, `families must be an array of: ${[...ALPHABET_FAMILIES].join(', ')}`);
+        }
     }
 
     const characters = config.characters;

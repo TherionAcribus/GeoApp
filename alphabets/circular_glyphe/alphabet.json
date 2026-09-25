@@ -23,5 +23,8 @@
     "graphique",
     "circulaire",
     "symboles"
+  ],
+  "families": [
+    "visual"
   ]
 }

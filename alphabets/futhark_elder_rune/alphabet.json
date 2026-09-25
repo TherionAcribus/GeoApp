@@ -19,5 +19,8 @@
     "ancien",
     "runes",
     "futhark"
+  ],
+  "families": [
+    "runes"
   ]
 }

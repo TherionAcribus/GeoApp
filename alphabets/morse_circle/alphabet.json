@@ -31,5 +31,9 @@
         "?": "question"
       }
     }
-  }
+  },
+  "families": [
+    "communication",
+    "visual"
+  ]
 }

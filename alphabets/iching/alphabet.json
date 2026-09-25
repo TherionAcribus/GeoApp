@@ -83,5 +83,9 @@
     "nombres",
     "ancien",
     "iching"
+  ],
+  "families": [
+    "runes",
+    "numeric"
   ]
 }

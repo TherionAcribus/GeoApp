@@ -90,5 +90,8 @@
     "nombres",
     "geocaching",
     "attributs"
+  ],
+  "families": [
+    "numeric"
   ]
 }

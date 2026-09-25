@@ -14,6 +14,13 @@ export interface Alphabet {
     category?: string;
     version?: string;
     tags?: string[];
+    /**
+     * Familles de classification de l'alphabet (ex. "fiction", "runes",
+     * "numeric"). Valeurs déclarées dans `alphabet.json`, validées par
+     * `scripts/validate-alphabets.js`. Quand le champ est absent, la liste
+     * retombe sur une heuristique par mots-clés.
+     */
+    families?: string[];
     sources?: AlphabetSource[];
     alphabetConfig: AlphabetConfig;
     source?: 'official' | 'custom';
@@ -102,6 +109,17 @@ export interface DistanceInfo {
     meters: number;
     miles: number;
     status: 'ok' | 'warning' | 'far';
+}
+
+/**
+ * Référence d'une géocache exposée par un onglet de fiche géocache. Même
+ * contrat que `GeocacheDetailsTracker` dans l'extension zones : repérage par
+ * duck-typing sur `getGeocacheRef()`, pas d'import croisé entre extensions.
+ */
+export interface GeocacheTabRef {
+    geocacheId: number;
+    gcCode?: string;
+    name?: string;
 }
 
 /**

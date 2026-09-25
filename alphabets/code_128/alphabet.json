@@ -23,5 +23,8 @@
     "code barre",
     "nombres",
     "standard"
+  ],
+  "families": [
+    "numeric"
   ]
 }

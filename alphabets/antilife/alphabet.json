@@ -19,5 +19,9 @@
     "fiction",
     "comics",
     "symboles"
+  ],
+  "families": [
+    "fiction",
+    "runes"
   ]
 }

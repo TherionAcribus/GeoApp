@@ -6,12 +6,13 @@ import * as React from '@theia/core/shared/react';
 import { injectable, postConstruct, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { ApplicationShell, StatefulWidget, WidgetManager } from '@theia/core/lib/browser';
+import { ApplicationShell, StatefulWidget, Widget, WidgetManager } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
+import { MarkdownRenderer, MarkdownRenderResult } from '@theia/core/lib/browser/markdown-rendering/markdown-renderer';
 import { AlphabetsService } from './services/alphabets-service';
 import { LoadingState } from './state-views';
-import { Alphabet, ZoomState, PinnedState, AssociatedGeocache, DistanceInfo, DetectedCoordinates } from '../common/alphabet-protocol';
+import { Alphabet, ZoomState, PinnedState, AssociatedGeocache, DistanceInfo, DetectedCoordinates, GeocacheTabRef } from '../common/alphabet-protocol';
 import { CoordinatesDetector } from './components/coordinates-detector';
 import { GeocacheAssociation } from './components/geocache-association';
 import { SymbolContextMenu } from './components/symbol-context-menu';
@@ -21,7 +22,8 @@ import {
     getAlphabetLetters,
     getAlphabetNumbers,
     getFontFamily,
-    getSpecialCharactersMap
+    getSpecialCharactersMap,
+    isConfiguredCharacterSupported
 } from './alphabet-symbol-resolver';
 import './font-api';
 
@@ -34,7 +36,19 @@ const HISTORY_SNAPSHOT_DEBOUNCE_MS = 400;
 interface SerializedAlphabetViewerState {
     alphabetId?: string;
     lastAccessTimestamp?: number;
+    enteredChars?: string[];
+    pinnedState?: Partial<PinnedState>;
+    associatedGeocache?: AssociatedGeocache;
 }
+
+interface GeocacheTabWidgetLike extends Widget {
+    getGeocacheRef(): GeocacheTabRef | undefined;
+}
+
+const isGeocacheTabLike = (widget: Widget | undefined | null): widget is GeocacheTabWidgetLike =>
+    !!widget && typeof (widget as unknown as Partial<GeocacheTabWidgetLike>).getGeocacheRef === 'function';
+
+const GEOCACHE_DETAILS_TAB_CHANGED_EVENT = 'geoapp-geocache-details-tab-changed';
 
 @injectable()
 export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget {
@@ -55,6 +69,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
 
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;
+
+    @inject(MarkdownRenderer)
+    protected readonly markdownRenderer!: MarkdownRenderer;
 
     private alphabet: Alphabet | null = null;
     private alphabetId: string;
@@ -86,6 +103,15 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     private detectedCoordinates: DetectedCoordinates | null = null;
     private hasActiveCoordinateHighlight = false;
     private lastOpenedGeocacheCode?: string;
+
+    // Fiches géocache ouvertes (pour l'association rapide)
+    private openGeocacheTabs: GeocacheTabRef[] = [];
+    private activeGeocacheTabRef?: GeocacheTabRef;
+
+    // README de l'alphabet (chargé à la demande)
+    private readmeContent: string | null = null;
+    private showReadme: boolean = false;
+    private readmeRenderResult?: MarkdownRenderResult;
     
     // Polices chargées
     private fontLoaded: boolean = false;
@@ -144,6 +170,23 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             }
         }));
 
+        // Suivre les fiches géocache ouvertes : quand l'onglet courant est une
+        // fiche, sa géocache devient candidate à l'association rapide.
+        this.refreshOpenGeocacheTabs();
+        this.toDispose.push(this.shell.onDidChangeCurrentWidget(({ newValue }) => {
+            if (isGeocacheTabLike(newValue)) {
+                this.activeGeocacheTabRef = newValue.getGeocacheRef();
+            }
+            this.refreshOpenGeocacheTabs();
+            this.update();
+        }));
+        if (typeof window !== 'undefined') {
+            window.addEventListener(GEOCACHE_DETAILS_TAB_CHANGED_EVENT, this.handleGeocacheTabChanged);
+            this.toDispose.push({
+                dispose: () => window.removeEventListener(GEOCACHE_DETAILS_TAB_CHANGED_EVENT, this.handleGeocacheTabChanged)
+            });
+        }
+
         this.update();
 
         // Initialiser de manière asynchrone sans bloquer la construction
@@ -176,9 +219,20 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Gestionnaire des événements clavier.
      */
     private handleKeyDown = (e: KeyboardEvent): void => {
-        // Vérifier si le focus est dans un textarea (édition normale)
-        const activeElement = document.activeElement;
-        const isTextareaFocused = activeElement && activeElement.tagName === 'TEXTAREA';
+        // Si le focus est dans un champ éditable (input, zone contenteditable),
+        // tous les raccourcis du viewer sont désactivés : Backspace, Ctrl+Z,
+        // Ctrl+E… doivent garder leur comportement natif dans le champ
+        // (ex. le champ "Code géocache").
+        const activeElement = document.activeElement as HTMLElement | null;
+        const tagName = activeElement?.tagName;
+        const isEditableField = tagName === 'INPUT' || activeElement?.isContentEditable === true;
+        if (isEditableField) {
+            return;
+        }
+        // Dans le textarea du texte décodé, seule la frappe libre (Backspace)
+        // reste native : l'undo y reste celui du viewer car le contenu du
+        // textarea est dérivé de `enteredChars`.
+        const isTextareaFocused = tagName === 'TEXTAREA';
 
         // Undo: Ctrl+Z (ou Cmd+Z sur Mac)
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -210,7 +264,42 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             e.preventDefault();
             this.importState();
         }
+        // Frappe libre hors champ de saisie : une lettre/chiffre/symbole
+        // supporté ajoute le symbole correspondant, sans passer par la palette.
+        else if (!e.ctrlKey && !e.metaKey && !e.altKey && !isTextareaFocused && e.key.length === 1) {
+            const typed = this.resolveTypedSymbol(e.key);
+            if (typed !== null) {
+                e.preventDefault();
+                this.addSymbol(typed);
+            }
+        }
     };
+
+    /**
+     * Caractère à insérer pour une touche frappée, ou `null` si l'alphabet ne
+     * le supporte pas. Pour `upperCaseOnly`, une frappe minuscule ajoute la
+     * majuscule correspondante.
+     */
+    private resolveTypedSymbol(key: string): string | null {
+        const config = this.alphabet?.alphabetConfig;
+        if (!config) {
+            return null;
+        }
+        if (key === ' ') {
+            return ' ';
+        }
+        const special = getSpecialCharactersMap(config);
+        if (key in special) {
+            return key;
+        }
+        if (/^\d$/.test(key) && isConfiguredCharacterSupported(config.characters?.numbers, key)) {
+            return key;
+        }
+        if (/^[a-zA-Z]$/.test(key) && isConfiguredCharacterSupported(config.characters?.letters, key)) {
+            return config.upperCaseOnly ? key.toUpperCase() : key;
+        }
+        return null;
+    }
 
     private addInteractionListeners(): void {
         if (typeof window === 'undefined') {
@@ -280,7 +369,10 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         this.lastAccessTimestamp = Date.now();
         const state: SerializedAlphabetViewerState = {
             alphabetId: this.alphabetId,
-            lastAccessTimestamp: this.lastAccessTimestamp
+            lastAccessTimestamp: this.lastAccessTimestamp,
+            enteredChars: [...this.enteredChars],
+            pinnedState: { ...this.pinnedState },
+            associatedGeocache: this.associatedGeocache
         };
         return state;
     }
@@ -294,6 +386,95 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             this.lastAccessTimestamp = state.lastAccessTimestamp;
         }
         this.setAlphabet(state.alphabetId);
+
+        // Restaurer le travail en cours après le reset de setAlphabet : symboles
+        // entrés, sections épinglées et géocache associée survivent ainsi à un
+        // rechargement de l'application.
+        if (Array.isArray(state.enteredChars)) {
+            this.enteredChars = state.enteredChars.filter(
+                (char): char is string => typeof char === 'string'
+            );
+        }
+        if (state.pinnedState && typeof state.pinnedState === 'object') {
+            this.pinnedState = {
+                symbols: Boolean(state.pinnedState.symbols),
+                text: Boolean(state.pinnedState.text),
+                coordinates: Boolean(state.pinnedState.coordinates)
+            };
+        }
+        if (state.associatedGeocache && typeof state.associatedGeocache === 'object'
+            && typeof state.associatedGeocache.code === 'string') {
+            this.associatedGeocache = state.associatedGeocache;
+        }
+        this.update();
+    }
+
+    /**
+     * Une fiche a changé de géocache sans changer d'onglet (remplacement
+     * intelligent) : rescanne les onglets ouverts et la fiche active.
+     */
+    private handleGeocacheTabChanged = (): void => {
+        this.refreshOpenGeocacheTabs();
+        this.update();
+    };
+
+    /**
+     * Liste les géocaches des fiches ouvertes dans la zone principale, sans
+     * doublon. Repère l'onglet actif s'il s'agit d'une fiche.
+     */
+    private refreshOpenGeocacheTabs(): void {
+        const seen = new Set<number>();
+        const refs: GeocacheTabRef[] = [];
+        for (const widget of this.shell.getWidgets('main')) {
+            if (!isGeocacheTabLike(widget) || widget.isDisposed) {
+                continue;
+            }
+            const ref = widget.getGeocacheRef();
+            if (!ref || seen.has(ref.geocacheId)) {
+                continue;
+            }
+            seen.add(ref.geocacheId);
+            refs.push(ref);
+        }
+        this.openGeocacheTabs = refs;
+
+        const current = this.shell.currentWidget;
+        if (isGeocacheTabLike(current)) {
+            this.activeGeocacheTabRef = current.getGeocacheRef();
+        } else if (this.activeGeocacheTabRef && !seen.has(this.activeGeocacheTabRef.geocacheId)) {
+            this.activeGeocacheTabRef = undefined;
+        }
+    }
+
+    /**
+     * Associe la géocache d'une fiche ouverte : on recharge les données
+     * complètes (coordonnées DDM) via l'API, la fiche ne porte que l'identité.
+     */
+    private handleAssociateTabRef = async (ref: GeocacheTabRef): Promise<void> => {
+        try {
+            const geocache = ref.gcCode
+                ? await this.alphabetsService.getGeocacheByCode(ref.gcCode)
+                : await this.alphabetsService.getGeocacheById(ref.geocacheId);
+            this.associatedGeocache = geocache;
+            this.lastOpenedGeocacheCode = geocache.code;
+            this.update();
+            if (this.detectedCoordinates) {
+                this.highlightDetectedCoordinateOnMap(this.detectedCoordinates);
+            }
+        } catch (error) {
+            console.error('[AlphabetViewerWidget] Erreur association géocache ouverte:', error);
+            this.messageService.error(`Impossible d'associer ${ref.gcCode ?? `la géocache #${ref.geocacheId}`}`);
+        }
+    };
+
+    private async fetchReadme(): Promise<void> {
+        try {
+            const readme = await this.alphabetsService.getAlphabetReadme(this.alphabetId);
+            this.readmeContent = readme.trim() ? readme : null;
+            this.update();
+        } catch {
+            this.readmeContent = null;
+        }
     }
 
     private formatGeocachingCoordinates(lat: number, lon: number): string {
@@ -338,6 +519,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             this.alphabet = alphabet;
             this.title.label = this.alphabet.name;
             this.title.caption = this.alphabet.description;
+            this.readmeContent = null;
+            this.showReadme = false;
+            void this.fetchReadme();
             
             // Si alphabet basé sur police, charger la police
             if (this.alphabet.alphabetConfig.type === 'font') {
@@ -831,6 +1015,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 position: 'relative'
             }}>
                 {this.renderHeader()}
+                {this.renderReadmeSection()}
                 {this.renderToolbar()}
                 {this.showGeocachePanel && this.renderGeocacheAssociation()}
 
@@ -1071,6 +1256,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 <GeocacheAssociation
                     alphabetsService={this.alphabetsService}
                     associatedGeocache={this.associatedGeocache}
+                    openTabs={this.openGeocacheTabs}
+                    activeTabGeocacheId={this.activeGeocacheTabRef?.geocacheId}
+                    onAssociateRef={this.handleAssociateTabRef}
                     onAssociate={(geocache) => {
                         this.associatedGeocache = geocache;
                         this.lastOpenedGeocacheCode = geocache.code;
@@ -1138,6 +1326,86 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     }
 
     /**
+     * Section repliable affichant le README de l'alphabet, s'il en a un.
+     */
+    private renderReadmeSection(): React.ReactNode {
+        if (!this.readmeContent) {
+            return null;
+        }
+
+        return (
+            <div style={{
+                borderBottom: '1px solid var(--theia-panel-border)',
+                backgroundColor: 'var(--theia-sideBar-background)'
+            }}>
+                <button
+                    onClick={() => {
+                        this.showReadme = !this.showReadme;
+                        this.update();
+                    }}
+                    aria-expanded={this.showReadme}
+                    className='alpha-btn alpha-btn--ghost'
+                    style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '8px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: 'var(--theia-foreground)',
+                        fontSize: '12px'
+                    }}
+                >
+                    <i
+                        className={`fa fa-chevron-${this.showReadme ? 'down' : 'right'}`}
+                        aria-hidden='true'
+                        style={{ fontSize: '10px', width: '10px' }}
+                    ></i>
+                    <i className='fa fa-book' aria-hidden='true'></i>
+                    Documentation
+                </button>
+                {this.showReadme && (
+                    <div
+                        className='alphabet-readme'
+                        style={{ padding: '0 16px 16px', fontSize: '13px', overflowX: 'auto' }}
+                        ref={el => this.renderReadmeInto(el)}
+                    />
+                )}
+            </div>
+        );
+    }
+
+    /**
+     * Rend le README markdown dans le conteneur via le MarkdownRenderer de
+     * Theia. Les liens s'ouvrent dans un nouvel onglet pour ne pas naviguer
+     * l'application.
+     */
+    private renderReadmeInto(el: HTMLDivElement | null): void {
+        if (!el || !this.readmeContent) {
+            return;
+        }
+        // Le ref callback est invoqué à chaque render() : ne pas re-rendre le
+        // markdown tant que le contenu n'a pas changé.
+        if (el.dataset.readmeFor === this.alphabetId) {
+            return;
+        }
+        el.innerHTML = '';
+        try {
+            this.readmeRenderResult?.dispose();
+            this.readmeRenderResult = this.markdownRenderer.render({ value: this.readmeContent });
+            el.appendChild(this.readmeRenderResult.element);
+            el.querySelectorAll('a').forEach(link => {
+                link.setAttribute('target', '_blank');
+                link.setAttribute('rel', 'noopener noreferrer');
+            });
+            el.dataset.readmeFor = this.alphabetId;
+        } catch (error) {
+            console.error('[AlphabetViewerWidget] Erreur de rendu du README', error);
+            el.textContent = this.readmeContent;
+        }
+    }
+
+    /**
      * Rendu des symboles entrés.
      */
     private renderEnteredSymbols(isPinned: boolean): React.ReactNode {
@@ -1185,7 +1453,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                             className={`alpha-btn alpha-btn--primary${this.pinnedState.symbols ? ' alpha-btn--active' : ''}`}
                             style={{ padding: '4px 8px' }}
                         >
-                            📌
+                            <i className='fa fa-thumbtack' aria-hidden='true'></i>
                         </button>
                         <button
                             onClick={() => this.clearSymbols()}
@@ -1243,6 +1511,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         symbolIndex={this.contextMenu.symbolIndex}
                         onDelete={() => this.deleteSymbol(this.contextMenu!.symbolIndex)}
                         onDuplicate={() => this.duplicateSymbol(this.contextMenu!.symbolIndex)}
+                        onInsertBefore={() => this.insertBefore(this.contextMenu!.symbolIndex)}
+                        onInsertAfter={() => this.insertAfter(this.contextMenu!.symbolIndex)}
                         onClose={this.closeContextMenu}
                     />
                 )}
@@ -1296,7 +1566,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                             className={`alpha-btn alpha-btn--primary${this.pinnedState.text ? ' alpha-btn--active' : ''}`}
                             style={{ padding: '4px 8px' }}
                         >
-                            📌
+                            <i className='fa fa-thumbtack' aria-hidden='true'></i>
                         </button>
                     </div>
                 </div>
@@ -1305,7 +1575,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     onChange={e => {
                         // Synchroniser le textarea avec le tableau des caractères
                         // (snapshot d'historique différé pour regrouper la frappe).
-                        this.commitTypedChars(e.target.value.split(''));
+                        this.commitTypedChars(Array.from(e.target.value));
                     }}
                     placeholder='Le texte décodé apparaîtra ici...'
                     style={{
@@ -1356,7 +1626,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         className={`alpha-btn alpha-btn--primary${this.pinnedState.coordinates ? ' alpha-btn--active' : ''}`}
                         style={{ padding: '4px 8px' }}
                     >
-                        📌
+                        <i className='fa fa-thumbtack' aria-hidden='true'></i>
                     </button>
                 </div>
                 <CoordinatesDetector
@@ -1988,6 +2258,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     dispose(): void {
         this.clearPendingHistorySnapshot();
+        this.readmeRenderResult?.dispose();
+        this.readmeRenderResult = undefined;
         super.dispose();
     }
 }

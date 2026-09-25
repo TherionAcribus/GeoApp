@@ -28,5 +28,9 @@
         "chiffres": "chiffres"
       }
     }
-  }
+  },
+  "families": [
+    "communication",
+    "visual"
+  ]
 }

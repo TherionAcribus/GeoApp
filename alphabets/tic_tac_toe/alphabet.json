@@ -20,5 +20,9 @@
   "tags": [
     "nombres",
     "graphique"
+  ],
+  "families": [
+    "numeric",
+    "visual"
   ]
 }

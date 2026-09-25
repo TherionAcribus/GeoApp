@@ -132,6 +132,12 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
+/* Symboles de la palette accessibles au clavier (role="button"). */
+.alphabet-symbol-item:focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 2px;
+}
+
 .alphabet-symbol-item:active {
     cursor: move;
     opacity: 0.7;

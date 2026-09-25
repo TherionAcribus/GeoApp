@@ -7,6 +7,8 @@ export interface SymbolContextMenuProps {
     symbolIndex: number;
     onDelete: () => void;
     onDuplicate: () => void;
+    onInsertBefore?: () => void;
+    onInsertAfter?: () => void;
     onClose: () => void;
 }
 
@@ -112,6 +114,28 @@ export class SymbolContextMenu extends React.Component<SymbolContextMenuProps> {
                     <i className='fa fa-copy' aria-hidden='true' style={{ width: '16px' }}></i>
                     <span>Dupliquer</span>
                 </button>
+                {this.props.onInsertBefore && (
+                    <button
+                        style={menuItemStyle}
+                        onClick={() => this.handleMenuItemClick(this.props.onInsertBefore!)}
+                        onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'var(--theia-menu-selectionBackground)')}
+                        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                        <i className='fa fa-arrow-left' aria-hidden='true' style={{ width: '16px' }}></i>
+                        <span>Insérer un espace avant</span>
+                    </button>
+                )}
+                {this.props.onInsertAfter && (
+                    <button
+                        style={menuItemStyle}
+                        onClick={() => this.handleMenuItemClick(this.props.onInsertAfter!)}
+                        onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'var(--theia-menu-selectionBackground)')}
+                        onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                        <i className='fa fa-arrow-right' aria-hidden='true' style={{ width: '16px' }}></i>
+                        <span>Insérer un espace après</span>
+                    </button>
+                )}
             </div>
         );
     }

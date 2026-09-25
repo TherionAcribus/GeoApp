@@ -23,5 +23,8 @@
     "nombres",
     "chinois",
     "batons"
+  ],
+  "families": [
+    "numeric"
   ]
 }

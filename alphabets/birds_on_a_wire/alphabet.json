@@ -19,5 +19,8 @@
     "graphique",
     "oiseaux",
     "musique"
+  ],
+  "families": [
+    "visual"
   ]
 }

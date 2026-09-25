@@ -67,6 +67,16 @@ export class SymbolItem extends React.Component<SymbolItemProps> {
         }
     };
 
+    private handleKeyDown = (e: React.KeyboardEvent) => {
+        if (!this.props.onClick) {
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            this.props.onClick(this.props.char);
+        }
+    };
+
     render(): React.ReactNode {
         const { char, index, scale, size = 96, fontFamily, imagePath, isDraggable, showIndex, compact = false, showValue, valueLabel } = this.props;
 
@@ -117,6 +127,10 @@ export class SymbolItem extends React.Component<SymbolItemProps> {
             <span>{char}</span>
         );
 
+        // Un symbole cliquable est un bouton pour le clavier et les lecteurs
+        // d'écran ; un symbole entré (draggable, sans onClick) reste inerte.
+        const clickable = Boolean(this.props.onClick);
+
         return (
             <div
                 draggable={isDraggable}
@@ -125,6 +139,10 @@ export class SymbolItem extends React.Component<SymbolItemProps> {
                 onDragEnd={this.handleDragEnd}
                 onContextMenu={this.handleContextMenu}
                 onClick={this.handleClick}
+                onKeyDown={clickable ? this.handleKeyDown : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+                aria-label={clickable ? (valueText === char ? char : `${char} (${valueText})`) : undefined}
                 style={symbolStyle}
                 title={showIndex ? `Position: ${index + 1}` : char}
                 className='alphabet-symbol-item'

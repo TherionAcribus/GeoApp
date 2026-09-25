@@ -11,12 +11,33 @@ const BACKEND_BASE_URL_PREF = 'geoApp.backend.apiBaseUrl';
 const DEFAULT_API_BASE_URL = 'http://localhost:8000';
 
 interface BackendGeocache {
-    id?: string;
+    id?: string | number;
     database_id?: number;
     gc_code: string;
     name: string;
     gc_lat?: string;
     gc_lon?: string;
+    /** Coordonnées affichées au format Geocaching ("N 48° 35.220 E 006° 29.770"). */
+    coordinates_raw?: string;
+}
+
+/**
+ * Découpe `coordinates_raw` ("N 48° 35.220 E 006° 29.770") en ses deux moitiés.
+ * L'API geocache n'expose pas `gc_lat`/`gc_lon` séparés : ils viennent d'ici.
+ */
+function splitRawCoordinates(raw: string | undefined): { lat?: string; lon?: string } {
+    if (!raw || !raw.trim()) {
+        return {};
+    }
+    const tokens = raw.trim().split(/\s+/);
+    const lonStart = tokens.findIndex((token, index) => index > 0 && /^[EW]$/i.test(token));
+    if (lonStart <= 0) {
+        return {};
+    }
+    return {
+        lat: tokens.slice(0, lonStart).join(' ').replace(/,+$/, ''),
+        lon: tokens.slice(lonStart).join(' ').replace(/,+$/, '')
+    };
 }
 
 @injectable()
@@ -222,15 +243,38 @@ export class AlphabetsService {
         const response = await this.client.get<BackendGeocache>(
             `/api/geocaches/by-code/${encodeURIComponent(normalizedCode)}`
         );
-        const data = response.data;
+        return this.mapBackendGeocache(response.data);
+    }
+
+    async getGeocacheById(geocacheId: number): Promise<AssociatedGeocache> {
+        const response = await this.client.get<BackendGeocache>(
+            `/api/geocaches/${encodeURIComponent(geocacheId)}`
+        );
+        return this.mapBackendGeocache(response.data);
+    }
+
+    private mapBackendGeocache(data: BackendGeocache): AssociatedGeocache {
+        // gc_lat/gc_lon sont optionnels côté API : à défaut on les déduit de
+        // coordinates_raw, qui porte le format DDM attendu par le détecteur.
+        const raw = splitRawCoordinates(data.coordinates_raw);
         return {
-            id: data.id,
-            databaseId: data.database_id,
+            id: typeof data.id === 'string' ? data.id : undefined,
+            databaseId: data.database_id ?? (typeof data.id === 'number' ? data.id : undefined),
             code: data.gc_code,
             name: data.name,
-            gc_lat: data.gc_lat,
-            gc_lon: data.gc_lon
+            gc_lat: data.gc_lat ?? raw.lat,
+            gc_lon: data.gc_lon ?? raw.lon
         };
+    }
+
+    /**
+     * Récupère le README (markdown) d'un alphabet, chaîne vide si absent.
+     */
+    async getAlphabetReadme(alphabetId: string): Promise<string> {
+        const response = await this.client.get<{ readme?: string }>(
+            `/api/alphabets/${encodeURIComponent(alphabetId)}/readme`
+        );
+        return response.data.readme ?? '';
     }
 
     /**

@@ -434,15 +434,14 @@ def get_alphabets():
 @alphabets_bp.route('/api/alphabets/<alphabet_id>', methods=['GET'])
 def get_alphabet(alphabet_id):
     """Récupère la configuration complète d'un alphabet spécifique."""
-    alphabet_dir = os.path.join(_get_alphabets_dir(), alphabet_id)
-    
-    if not os.path.exists(alphabet_dir):
+    alphabet_dir = resolve_alphabet_directory(alphabet_id)
+    if alphabet_dir is None:
         return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
-        
+
     config = load_alphabet_config(alphabet_id)
     if not config:
         return jsonify({"error": "Configuration de l'alphabet invalide"}), 500
-        
+
     return jsonify(config)
 
 
@@ -510,6 +509,9 @@ def get_alphabet_font(alphabet_id):
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/sources', methods=['GET'])
 def get_alphabet_sources(alphabet_id):
     """Récupère les sources et crédits d'un alphabet."""
+    if resolve_alphabet_directory(alphabet_id) is None:
+        return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
+
     config = load_alphabet_config(alphabet_id)
     if not config:
         return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
@@ -525,11 +527,9 @@ def get_alphabet_sources(alphabet_id):
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/readme', methods=['GET'])
 def get_alphabet_readme(alphabet_id):
     """Récupère le contenu du README d'un alphabet."""
-    alphabet_dir = os.path.join(_get_alphabets_dir(), alphabet_id)
-    
-    if not os.path.exists(alphabet_dir):
+    if resolve_alphabet_directory(alphabet_id) is None:
         return jsonify({"error": f"Alphabet {alphabet_id} not found"}), 404
-    
+
     readme_content = load_alphabet_readme(alphabet_id)
     
     return jsonify({

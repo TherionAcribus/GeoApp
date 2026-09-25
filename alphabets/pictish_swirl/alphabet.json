@@ -19,5 +19,9 @@
     "ancien",
     "graphique",
     "symboles"
+  ],
+  "families": [
+    "runes",
+    "visual"
   ]
 }

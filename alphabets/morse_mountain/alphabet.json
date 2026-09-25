@@ -24,5 +24,8 @@
     "signaux",
     "morse",
     "communication"
+  ],
+  "families": [
+    "communication"
   ]
 }

@@ -3,7 +3,7 @@
  * Permet de sélectionner une géocache pour récupérer les coordonnées d'origine.
  */
 import * as React from '@theia/core/shared/react';
-import { AssociatedGeocache, DistanceInfo } from '../../common/alphabet-protocol';
+import { AssociatedGeocache, DistanceInfo, GeocacheTabRef } from '../../common/alphabet-protocol';
 import { AlphabetsService } from '../services/alphabets-service';
 
 export interface GeocacheAssociationProps {
@@ -13,6 +13,11 @@ export interface GeocacheAssociationProps {
     onClear: () => void;
     onShowMap?: (geocache: AssociatedGeocache) => void;
     distanceInfo?: DistanceInfo;
+    /** Géocaches des fiches ouvertes dans la zone principale (association en 1 clic). */
+    openTabs?: GeocacheTabRef[];
+    /** Géocache de l'onglet de fiche au premier plan (mise en avant dans la liste). */
+    activeTabGeocacheId?: number;
+    onAssociateRef?: (ref: GeocacheTabRef) => void;
 }
 
 export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
@@ -21,10 +26,14 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
     onAssociate,
     onClear,
     onShowMap,
-    distanceInfo
+    distanceInfo,
+    openTabs = [],
+    activeTabGeocacheId,
+    onAssociateRef
 }) => {
     const [gcCode, setGcCode] = React.useState('');
     const [loading, setLoading] = React.useState(false);
+    const [loadingRefId, setLoadingRefId] = React.useState<number | null>(null);
     const [error, setError] = React.useState<string | null>(null);
 
     const handleAssociate = async () => {
@@ -55,6 +64,19 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
         }
     };
 
+    const handleAssociateRef = async (ref: GeocacheTabRef) => {
+        if (!onAssociateRef) {
+            return;
+        }
+        try {
+            setLoadingRefId(ref.geocacheId);
+            setError(null);
+            await onAssociateRef(ref);
+        } finally {
+            setLoadingRefId(null);
+        }
+    };
+
     return (
         <div style={{
             padding: '16px',
@@ -69,6 +91,56 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
 
             {!associatedGeocache ? (
                 <div>
+                    {openTabs.length > 0 && (
+                        <div style={{ marginBottom: '12px' }}>
+                            <div style={{
+                                fontSize: '11px',
+                                color: 'var(--theia-descriptionForeground)',
+                                marginBottom: '6px'
+                            }}>
+                                Géocaches ouvertes dans des fiches :
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {openTabs.map(ref => {
+                                    const isActive = ref.geocacheId === activeTabGeocacheId;
+                                    const label = ref.gcCode
+                                        ? `${ref.gcCode}${ref.name ? ` — ${ref.name}` : ''}`
+                                        : (ref.name ?? `Géocache #${ref.geocacheId}`);
+                                    return (
+                                        <button
+                                            key={ref.geocacheId}
+                                            onClick={() => void handleAssociateRef(ref)}
+                                            disabled={loadingRefId !== null}
+                                            className='alpha-btn alpha-btn--outline'
+                                            title={isActive ? 'Géocache de la fiche active' : 'Associer cette géocache'}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                padding: '6px 10px',
+                                                fontSize: '12px',
+                                                textAlign: 'left'
+                                            }}
+                                        >
+                                            {loadingRefId === ref.geocacheId
+                                                ? <i className='fa fa-spinner fa-spin' aria-hidden='true'></i>
+                                                : isActive
+                                                    ? <i className='fa fa-star' aria-hidden='true' style={{ color: 'var(--theia-button-background)' }}></i>
+                                                    : <i className='fa fa-map-marker' aria-hidden='true'></i>}
+                                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {label}
+                                            </span>
+                                            {isActive && (
+                                                <span style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
+                                                    fiche active
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <p style={{
                         fontSize: '12px',
                         color: 'var(--theia-descriptionForeground)',
