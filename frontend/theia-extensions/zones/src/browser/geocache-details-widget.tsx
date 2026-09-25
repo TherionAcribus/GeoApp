@@ -140,13 +140,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isTranslatingAllContent = false;
     /** Source d'annulation de la traduction en cours (description seule ou tout le contenu). */
     protected translationCts: CancellationTokenSource | undefined;
-    /** Progression detaillee de la traduction en cours, affichee dans la banniere. */
+    /** Progression détaillée de la traduction en cours, affichée dans la bannière. */
     protected translationProgress: TranslationProgress | undefined;
     protected lastAccessTimestamp: number = Date.now();
     protected archiveStatus: GeocacheArchiveStatus = 'none';
     protected archiveUpdatedAt: string | undefined = undefined;
     protected isSyncingArchive = false;
-    /** Rafraichissement de la geocache en cours : anime l'icone du bouton de l'en-tete. */
+    /** Rafraîchissement de la géocache en cours : anime l'icône du bouton de l'en-tête. */
     protected isRefreshing = false;
     protected chatWorkflowPreview: GeoAppChatWorkflowKind = 'general';
     protected chatProfilePreview: GeoAppChatProfile = 'fast';
@@ -406,7 +406,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!this.geocacheId) {
             return;
         }
-        // Le listing a change : l'apercu de routage du chat cache pour cette geocache
+        // Le listing a changé : l'aperçu de routage du chat caché pour cette géocache
         // n'est plus fiable, on le laisse se recalculer au prochain refresh.
         this.chatController.invalidateRoutingPreview(this.geocacheId);
         this.widgetEventsService.notifyGeocacheChanged({
@@ -1201,13 +1201,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     private openGeocacheAIChat = async (): Promise<void> => {
         if (!this.geocacheId || !this.data) {
-            this.messages.warn('Aucune geocache selectionnee pour ouvrir le chat IA.');
+            this.messages.warn('Aucune géocache sélectionnée pour ouvrir le chat IA.');
             return;
         }
         try {
             this.isChatProfileMenuOpen = false;
-            // Garantir un workflow a jour meme si l'apercu de routage initial n'est pas
-            // encore resolu (clic rapide apres l'ouverture). L'appel est mis en cache.
+            // Garantir un workflow à jour même si l'aperçu de routage initial n'est pas
+            // encore résolu (clic rapide après l'ouverture). L'appel est mis en cache.
             const routing = await this.chatController.resolveRoutingPreview(this.geocacheId);
             this.chatWorkflowPreview = routing.workflowPreview;
             this.chatProfilePreview = routing.profilePreview;
@@ -1221,7 +1221,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     private openFreeChatDialog = async (): Promise<void> => {
         if (!this.geocacheId || !this.data) {
-            this.messages.warn('Aucune geocache selectionnee pour ouvrir le Chat Libre.');
+            this.messages.warn('Aucune géocache sélectionnée pour ouvrir le Chat Libre.');
             return;
         }
         this.freeChatDialogDraft = this.chatController.buildFreeChatDraft(this.data);
@@ -1270,7 +1270,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     private openSelectedImagesChat = async (images: GeocacheImageChatSelection[]): Promise<void> => {
         if (!this.data) {
-            this.messages.warn('Aucune geocache selectionnee pour analyser les images.');
+            this.messages.warn('Aucune géocache sélectionnée pour analyser les images.');
             return;
         }
         const imageContexts: GeoAppChatImageContext[] = images.map(image => ({
@@ -1281,7 +1281,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             description: image.note || undefined,
         }));
         if (!imageContexts.length) {
-            this.messages.warn('Aucune image selectionnee ne peut etre envoyee au chat.');
+            this.messages.warn('Aucune image sélectionnée ne peut être envoyée au chat.');
             return;
         }
         this.chatController.openImagesChat(this.data, imageContexts, this.chatProfileOverride);
@@ -1397,7 +1397,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             await this.load({ secondary: false });
             if (result.failed.length > 0) {
                 this.messages.warn(
-                    `Traduction partielle : ${result.translated.join(', ')} enregistré(s), non traduit : ${result.failed.join(', ')}`
+                    `Traduction partielle : ${result.translated.join(', ')} enregistré(s), non traduit(s) : ${result.failed.join(', ')}`
                 );
             } else {
                 this.messages.info(`Traduction enregistrée (${result.translated.join(', ')})`);
@@ -1456,11 +1456,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     /**
-     * GUID Geocaching du proprietaire, pour le menu contextuel du nom.
+     * GUID Geocaching du propriétaire, pour le menu contextuel du nom.
      *
-     * Les geocaches importees avant l'ajout de la colonne `owner_guid` n'en ont
-     * pas : le backend relit alors le bloc proprietaire du listing et le
-     * memorise, si bien que ce rattrapage ne coute qu'une fois par cache.
+     * Les géocaches importées avant l'ajout de la colonne `owner_guid` n'en ont
+     * pas : le backend relit alors le bloc propriétaire du listing et le
+     * mémorise, si bien que ce rattrapage ne coûte qu'une fois par cache.
      */
     private resolveOwnerGuid = async (): Promise<string | undefined> => {
         const geocacheId = this.geocacheId;
@@ -1470,7 +1470,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             const identity = await this.geocacheDetailsService.getOwnerIdentity(geocacheId);
             const guid = identity?.owner_guid || undefined;
-            // La cache affichee a pu changer pendant l'appel reseau.
+            // La cache affichée a pu changer pendant l'appel réseau.
             if (this.geocacheId === geocacheId && this.data) {
                 if (guid) {
                     this.data.owner_guid = guid;
@@ -1486,7 +1486,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return guid;
         } catch (error) {
             console.error('[GeocacheDetailsWidget] resolveOwnerGuid error', error);
-            this.messages.error(getErrorMessage(error, 'Erreur lors de la recuperation du profil du proprietaire'));
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la récupération du profil du propriétaire'));
             return undefined;
         }
     };
@@ -1570,9 +1570,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     }
 
     // --- Wrappers a reference stable ---------------------------------------------------------
-    // Ces champs arrow sont crees une seule fois par instance, contrairement aux fermetures
-    // inline dans render(). Ils permettent a React.memo (cf. geocache-details-view) d'eviter de
-    // re-rendre les composants feuilles couteux a chaque update() (ouverture de menu, etc.).
+    // Ces champs arrow sont créés une seule fois par instance, contrairement aux fermetures
+    // inline dans render(). Ils permettent à React.memo (cf. geocache-details-view) d'éviter de
+    // re-rendre les composants feuilles coûteux à chaque update() (ouverture de menu, etc.).
     private readonly handleSaveCoordinates = (coordinatesRaw: string): Promise<void> => this.saveCoordinates(coordinatesRaw);
     private readonly handleResetCoordinates = (): Promise<void> => this.resetCoordinates();
     private readonly handlePushCorrectedCoordinates = (): Promise<void> => this.pushCorrectedCoordinatesToGeocaching();
@@ -1610,7 +1610,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.waypointEditorCallback = callback;
     };
 
-    // Cache du tableau hiddenDomains : le getter de preference recree un tableau a chaque appel,
+    // Cache du tableau hiddenDomains : le getter de préférence recrée un tableau à chaque appel,
     // ce qui casserait la comparaison shallow de React.memo. On ne recalcule que si le texte change.
     private cachedHiddenDomainsText = '\u0000';
     private cachedHiddenDomains: string[] = [];
@@ -1623,7 +1623,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         return this.cachedHiddenDomains;
     }
 
-    /** Sections repliées de la fiche (persisté en préférence, chargé une fois). */
+    /** Sections repliées de la fiche (persistées en préférence, chargées une fois). */
     private collapsedSections?: Set<string>;
     private getCollapsedSections(): Set<string> {
         if (!this.collapsedSections) {

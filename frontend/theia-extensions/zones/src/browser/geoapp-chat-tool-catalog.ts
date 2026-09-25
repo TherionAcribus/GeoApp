@@ -245,7 +245,7 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     },
 
     /* --- Pilotage applicatif (@Aide, extension documentation) --- */
-    /* scopes : 'aide' seul pour l'administration (zones, preferences) ; 'aide'+'chat'
+    /* scopes : 'aide' seul pour l'administration (zones, préférences) ; 'aide'+'chat'
      * pour ce qui sert aussi la resolution (lecture de fiche, waypoints, notes).
      * 'outing' n'y figure jamais : l'analyse de sortie n'a pas a piloter l'app. */
 

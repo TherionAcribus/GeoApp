@@ -123,7 +123,7 @@ export class GeocachesService {
         return this.apiClient.requestJson<NearbyGeocachesResult<T>>(
             `/api/geocaches/${id}/nearby?radius=${encodeURIComponent(String(radiusKm))}`,
             {},
-            'Erreur lors du chargement des geocaches voisines'
+            'Erreur lors du chargement des géocaches voisines'
         );
     }
 

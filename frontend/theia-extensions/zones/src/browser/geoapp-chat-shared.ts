@@ -309,7 +309,7 @@ export function buildGeoAppChatPrompt(basePrompt?: string, resumeState?: Record<
         'RESUME_STATE_JSON',
         resumeStateBlock,
         '',
-        'Utilise ce resume_state comme etat de reprise prioritaire du workflow courant. Si son contenu contredit un resume textuel plus haut, privilegie ce JSON structure.'
+        'Utilise ce resume_state comme état de reprise prioritaire du workflow courant. Si son contenu contredit un résumé textuel plus haut, privilégie ce JSON structuré.'
     );
     return parts.join('\n');
 }

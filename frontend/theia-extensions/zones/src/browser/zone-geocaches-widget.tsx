@@ -544,7 +544,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const imported = await this.geocachesService.addToZone<AddGeocacheResponse>(this.zoneId, gcCode);
             form.reset();
             await this.refreshZoneData();
-            this.messages.info(`Geocache ${gcCode} importee`);
+            this.messages.info(`Géocache ${gcCode} importée`);
 
             // L'ouverture vient après le rafraîchissement et le message : une erreur
             // d'ouverture d'onglet ne doit pas faire passer l'import pour un échec.
@@ -2158,7 +2158,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
 
         if (errorCount === 0) {
-            this.messages.info(`Copie terminée: ${message}`);
+            this.messages.info(`Copie terminée : ${message}`);
         } else {
             this.messages.warn(`Copie partiellement réussie: ${message}`);
         }
@@ -2296,7 +2296,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
 
         if (errorCount === 0) {
-            this.messages.info(`Déplacement terminé: ${message}`);
+            this.messages.info(`Déplacement terminé : ${message}`);
         } else {
             this.messages.warn(`Déplacement partiellement réussi: ${message}`);
         }

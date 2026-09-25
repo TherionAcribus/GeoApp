@@ -40,7 +40,7 @@ export class OutingPlanToolsManager implements FrontendApplicationContribution {
             description:
                 'Enregistre le rapport de preparation de sortie sous forme structuree, pour '
                 + 'la checklist cochable, les badges des tables de geocaches et l export. '
-                + 'A appeler UNE SEULE FOIS, apres avoir redige le rapport complet, avec la '
+                + 'À appeler UNE SEULE FOIS, après avoir rédigé le rapport complet, avec la '
                 + 'meme substance que le texte. Ne remplace pas le rapport redige.',
             providerName: OutingPlanToolsManager.PROVIDER_NAME,
             parameters: {
@@ -52,15 +52,15 @@ export class OutingPlanToolsManager implements FrontendApplicationContribution {
                     },
                     checklist: {
                         type: 'array',
-                        description: 'Checklist materiel consolidee, une entree par objet a emporter.',
+                        description: 'Checklist matériel consolidée, une entrée par objet à emporter.',
                         items: {
                             type: 'object',
                             properties: {
-                                item: { type: 'string', description: 'Objet a emporter.' },
+                                item: { type: 'string', description: 'Objet à emporter.' },
                                 certainty: {
                                     type: 'string',
                                     enum: ['confirmed', 'probable', 'precaution'],
-                                    description: 'Niveau de certitude, au sens de la regle 1.',
+                                    description: 'Niveau de certitude, au sens de la règle 1.',
                                 },
                                 gc_codes: {
                                     type: 'array',
@@ -152,7 +152,7 @@ export class OutingPlanToolsManager implements FrontendApplicationContribution {
                     outing_date: {
                         type: 'string',
                         description:
-                            'Date de la sortie au format AAAA-MM-JJ, telle qu annoncee dans les '
+                            "Date de la sortie au format AAAA-MM-JJ, telle qu'annoncée dans les "
                             + 'donnees. Facultative : elle ne sert qu a departager deux analyses.',
                     },
                 },

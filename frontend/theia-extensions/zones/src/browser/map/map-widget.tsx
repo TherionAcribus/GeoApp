@@ -671,8 +671,8 @@ export class MapWidget extends ReactWidget {
         }
 
         const confirmed = await this.confirmAction(
-            'Definir comme coordonnees corrigees',
-            'Voulez-vous utiliser ce waypoint comme coordonnees corrigees de la geocache ?',
+            'Définir comme coordonnées corrigées',
+            'Voulez-vous utiliser ce waypoint comme coordonnées corrigées de la géocache ?',
             'Confirmer'
         );
         if (!confirmed) {
@@ -686,10 +686,10 @@ export class MapWidget extends ReactWidget {
                 reason: 'corrected-coordinates-updated',
                 source: 'map'
             });
-            this.messageService.info('Coordonnees corrigees mises a jour');
+            this.messageService.info('Coordonnées corrigées mises à jour');
         } catch (error) {
             console.error('[MapWidget] Failed to set corrected coordinates:', error);
-            this.messageService.error('Erreur lors de la mise a jour des coordonnees corrigees');
+            this.messageService.error('Erreur lors de la mise à jour des coordonnées corrigées');
         }
     };
 
@@ -700,13 +700,13 @@ export class MapWidget extends ReactWidget {
         try {
             await this.saveWaypoint(geocacheId, options);
             if (options.autoSave) {
-                this.messageService.info('Waypoint cree avec succes');
+                this.messageService.info('Waypoint créé avec succès');
             } else {
-                this.messageService.info('Waypoint ajoute - ouvrez la geocache pour le modifier');
+                this.messageService.info('Waypoint ajouté - ouvrez la géocache pour le modifier');
             }
         } catch (error) {
             console.error('[MapWidget] Failed to add detected waypoint:', error);
-            this.messageService.error('Erreur lors de l ajout du waypoint');
+            this.messageService.error("Erreur lors de l'ajout du waypoint");
         }
     };
 
@@ -718,10 +718,10 @@ export class MapWidget extends ReactWidget {
                 reason: 'corrected-coordinates-updated',
                 source: 'map'
             });
-            this.messageService.info('Coordonnees corrigees mises a jour');
+            this.messageService.info('Coordonnées corrigées mises à jour');
         } catch (error) {
             console.error('[MapWidget] Failed to update corrected coordinates:', error);
-            this.messageService.error('Erreur lors de la mise a jour des coordonnees');
+            this.messageService.error('Erreur lors de la mise à jour des coordonnées');
         }
     };
 

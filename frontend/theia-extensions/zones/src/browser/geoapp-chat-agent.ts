@@ -85,19 +85,19 @@ const geoAppChatAgentConfigurations: Agent[] = [
     buildChatAgentConfiguration({
         id: GeoAppChatAgentId,
         name: 'GeoApp',
-        description: 'Agent GeoApp principal pour la resolution de geocaches avec acces permanent aux tools GeoApp.',
+        description: 'Agent GeoApp principal pour la résolution de géocaches avec accès permanent aux tools GeoApp.',
         tags: ['GeoApp', 'Chat', 'Geocaching', 'Default'],
     }),
     buildChatAgentConfiguration({
         id: GeoAppChatLocalAgentId,
         name: 'GeoApp Chat (Local)',
-        description: 'Agent GeoApp pour un modele local ou economique. Adapte aux essais rapides et peu couteux.',
+        description: 'Agent GeoApp pour un modèle local ou économique. Adapté aux essais rapides et peu coûteux.',
         tags: ['GeoApp', 'Chat', 'Geocaching', 'Local'],
     }),
     buildChatAgentConfiguration({
         id: GeoAppChatFastAgentId,
         name: 'GeoApp Chat (Fast)',
-        description: 'Agent GeoApp pour des interactions rapides avec un petit modele cloud ou hybride.',
+        description: 'Agent GeoApp pour des interactions rapides avec un petit modèle cloud ou hybride.',
         tags: ['GeoApp', 'Chat', 'Geocaching', 'Fast'],
     }),
     buildChatAgentConfiguration({
@@ -109,7 +109,7 @@ const geoAppChatAgentConfigurations: Agent[] = [
     buildChatAgentConfiguration({
         id: GeoAppChatWebAgentId,
         name: 'GeoApp Chat (Web)',
-        description: 'Agent GeoApp pour les cas complexes pouvant necessiter un modele plus puissant ou connecte.',
+        description: 'Agent GeoApp pour les cas complexes pouvant nécessiter un modèle plus puissant ou connecté.',
         tags: ['GeoApp', 'Chat', 'Geocaching', 'Web'],
     }),
 ];
@@ -194,7 +194,7 @@ export class GeoAppChatAgent extends BaseGeoAppChatAgent {
 
     override description = nls.localize(
         'geoapp/ai/chat/geoapp/description',
-        'Agent GeoApp pour la resolution de geocaches avec acces permanent aux tools GeoApp (checkers, etc.).'
+        'Agent GeoApp pour la résolution de géocaches avec accès permanent aux tools GeoApp (checkers, etc.).'
     );
 }
 
@@ -231,7 +231,7 @@ export class GeoAppChatWebAgent extends BaseGeoAppChatAgent {
     id: string = GeoAppChatWebAgentId;
     name: string = 'GeoApp Chat (Web)';
 
-    override description = 'Agent GeoApp pour les cas complexes avec un modele potentiellement connecte.';
+    override description = 'Agent GeoApp pour les cas complexes avec un modèle potentiellement connecté.';
 }
 
 @injectable()

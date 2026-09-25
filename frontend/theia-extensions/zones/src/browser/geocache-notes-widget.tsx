@@ -355,10 +355,10 @@ export class GeocacheNotesWidget extends ReactWidget {
             // recharger toute la liste.
             this.notes = this.notes.map(n => n.id === noteId ? updatedNote : n);
             this.update();
-            this.messages.info('Note mise a jour');
+            this.messages.info('Note mise à jour');
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to update note:', error);
-            this.messages.error(getErrorMessage(error, 'Impossible de mettre a jour la note'));
+            this.messages.error(getErrorMessage(error, 'Impossible de mettre à jour la note'));
         }
     }
 
@@ -618,7 +618,7 @@ export class GeocacheNotesWidget extends ReactWidget {
 
             if (result.syncedToGeocaching) {
                 this.applyGcPersonalNoteState(result.syncedToGeocaching);
-                this.messages.info('Note envoyee vers Geocaching.com');
+                this.messages.info('Note envoyée vers Geocaching.com');
             }
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to sync note to Geocaching.com:', error);

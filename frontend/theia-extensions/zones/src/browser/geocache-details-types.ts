@@ -32,7 +32,7 @@ export type GeocacheDto = {
     type?: string;
     size?: string;
     owner?: string;
-    /** GUID Geocaching du proprietaire ; absent des geocaches importees avant son ajout. */
+    /** GUID Geocaching du propriétaire ; absent des géocaches importées avant son ajout. */
     owner_guid?: string;
     difficulty?: number;
     terrain?: number;

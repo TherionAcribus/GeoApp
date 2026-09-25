@@ -47,7 +47,7 @@ export interface TranslateAllContentResult {
     failed: string[];
 }
 
-/** Statut d'une phase de traduction, pour la progression affichee a l'utilisateur. */
+/** Statut d'une phase de traduction, pour la progression affichée à l'utilisateur. */
 export type TranslationPhaseStatus = 'pending' | 'done' | 'failed' | 'skipped';
 
 /** Progression detaillee d'une traduction, notifiee au widget a chaque transition de phase. */
@@ -212,7 +212,7 @@ export class GeocacheDetailsTranslationController {
             }
             failed.push('description');
             firstError ??= descriptionOutcome.reason;
-            console.error('[GeocacheDetailsTranslationController] echec traduction description', descriptionOutcome.reason);
+            console.error('[GeocacheDetailsTranslationController] échec traduction description', descriptionOutcome.reason);
         }
 
         if (metaOutcome.status === 'fulfilled') {
@@ -245,7 +245,7 @@ export class GeocacheDetailsTranslationController {
                 failed.push(`notes de waypoints (${sourceWaypoints.length}/${sourceWaypoints.length})`);
             }
             firstError ??= metaOutcome.reason;
-            console.error('[GeocacheDetailsTranslationController] echec traduction hints/waypoints', metaOutcome.reason);
+            console.error('[GeocacheDetailsTranslationController] échec traduction hints/waypoints', metaOutcome.reason);
         }
 
         if (translated.length === 0) {
@@ -359,7 +359,7 @@ export class GeocacheDetailsTranslationController {
                 await new Promise(resolve => setTimeout(resolve, GeocacheDetailsTranslationController.LLM_RETRY_DELAY_MS));
             }
         }
-        throw lastError instanceof Error ? lastError : new Error('Traduction IA: echec apres retry');
+        throw lastError instanceof Error ? lastError : new Error('Traduction IA : échec après retry');
     }
 
     /**
@@ -504,7 +504,7 @@ export class GeocacheDetailsTranslationController {
         const prompt =
             `Tu es un traducteur. Traduis en ${language} le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n`
             + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
-            + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
+            + '- Ne traduis pas les coordonnées, codes GC, URLs, ni les identifiants techniques.\n'
             + '- Ne renvoie que le HTML final, sans markdown, sans explications.'
             + this.buildLexiconBlockFor(htmlToRawText(sourceHtml));
 
@@ -529,7 +529,7 @@ export class GeocacheDetailsTranslationController {
             console.warn(`[GeocacheDetailsTranslationController] ${kind}: reponse exploitable vide `
                 + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls}, raw="${rawPreview}")`);
             if (readout.sawThinking && !readout.text.trim()) {
-                throw new Error('Traduction IA: le modele n a produit que du raisonnement, aucun texte '
+                throw new Error("Traduction IA : le modèle n'a produit que du raisonnement, aucun texte "
                     + '(reponse tronquee ou budget de tokens insuffisant ?)');
             }
         }
@@ -625,7 +625,7 @@ export class GeocacheDetailsTranslationController {
             console.warn(`[GeocacheDetailsTranslationController] meta: reponse JSON vide `
                 + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls})`);
             if (readout.sawThinking) {
-                throw new Error('Traduction IA: le modele n a produit que du raisonnement, aucun JSON');
+                throw new Error("Traduction IA : le modèle n'a produit que du raisonnement, aucun JSON");
             }
         }
         return this.extractJson(readout.text);
@@ -666,7 +666,7 @@ export class GeocacheDetailsTranslationController {
         });
 
         if (!languageModel) {
-            throw new Error('Aucun modele IA n est configure pour la traduction');
+            throw new Error("Aucun modèle IA n'est configuré pour la traduction");
         }
         return languageModel;
     }
@@ -776,7 +776,7 @@ export class GeocacheDetailsTranslationController {
         return `Traduis en ${language} le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n`
             + 'Contraintes :\n'
             + '- hints_decoded : traduis le texte de l indice.\n'
-            + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
+            + '- Ne traduis pas les coordonnées, codes GC, URLs, ni les identifiants techniques.\n'
             + '- waypoints : conserve les ids, traduis uniquement la note.\n'
             + 'Schema JSON de sortie : {"hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n'
             + this.buildLexiconBlockFor(sourceText);

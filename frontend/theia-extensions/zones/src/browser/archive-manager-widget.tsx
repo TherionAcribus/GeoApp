@@ -149,7 +149,7 @@ export class ArchiveManagerWidget extends ReactWidget {
             this.selectedArchive = await this.archiveManagerService.getArchive(gcCode);
         } catch (error) {
             this.selectedArchive = this.archives.find(entry => entry.gc_code === gcCode) || null;
-            this.lastActionError = `Erreur chargement detail archive : ${getErrorMessage(error, 'Erreur lors du chargement du detail archive')}`;
+            this.lastActionError = `Erreur chargement détail archive : ${getErrorMessage(error, 'Erreur lors du chargement du détail archive')}`;
             console.error('[ArchiveManagerWidget] loadArchiveDetails error', error);
         } finally {
             this.isLoadingArchiveDetails = false;
@@ -260,7 +260,7 @@ export class ArchiveManagerWidget extends ReactWidget {
             ? replayableSteps.find(step => step.id === targetStepId) || null
             : this.getNextReplayableStep(resumeSnapshot);
         if (!nextStep) {
-            this.messages.warn('Aucune etape backend rejouable pour cette tentative.');
+            this.messages.warn('Aucune étape backend rejouable pour cette tentative.');
             return;
         }
 
@@ -301,13 +301,13 @@ export class ArchiveManagerWidget extends ReactWidget {
                 msg: [
                     'Attention : action non recommandee.',
                     '',
-                    'Desactiver l archivage automatique signifie que les donnees de resolution',
-                    '(statut, coordonnees corrigees, notes, waypoints) ne seront plus sauvegardees',
-                    'automatiquement. En cas de suppression d une geocache, ces donnees seront perdues.',
+                    "Désactiver l'archivage automatique signifie que les données de résolution",
+                    '(statut, coordonnées corrigées, notes, waypoints) ne seront plus sauvegardées',
+                    "automatiquement. En cas de suppression d'une géocache, ces données seront perdues.",
                     '',
                     'Le snapshot avant suppression restera actif comme filet de securite minimal.',
                     '',
-                    'Etes-vous sur de vouloir desactiver cette protection ?',
+                    'Êtes-vous sûr de vouloir désactiver cette protection ?',
                 ].join('\n'),
                 ok: 'Desactiver quand meme',
                 cancel: 'Annuler',
@@ -329,7 +329,7 @@ export class ArchiveManagerWidget extends ReactWidget {
                 this.messages.info('Archivage automatique active.');
             }
         } catch (error) {
-            this.messages.error(`Erreur : ${getErrorMessage(error, 'Erreur lors de la mise a jour des parametres archive')}`);
+            this.messages.error(`Erreur : ${getErrorMessage(error, 'Erreur lors de la mise à jour des paramètres archive')}`);
         } finally {
             this.isSaving = false;
             this.update();
@@ -349,11 +349,11 @@ export class ArchiveManagerWidget extends ReactWidget {
         const step1 = new ConfirmDialog({
             title: 'Suppression en masse - Etape 1/2',
             msg: [
-                'Attention : cette operation est irreversible.',
+                'Attention : cette opération est irréversible.',
                 '',
                 `Vous allez supprimer : ${this.getBulkPreviewLabel()}`,
                 '',
-                'Les donnees supprimees ne peuvent pas etre recuperees.',
+                'Les données supprimées ne peuvent pas être récupérées.',
                 'Souhaitez-vous continuer ?',
             ].join('\n'),
             ok: 'Continuer vers la confirmation finale',
@@ -371,7 +371,7 @@ export class ArchiveManagerWidget extends ReactWidget {
                 '',
                 `Cible : ${this.getBulkPreviewLabel()}`,
                 '',
-                'Cliquer sur "Supprimer definitivement" lancera immediatement l operation.',
+                'Cliquer sur "Supprimer définitivement" lancera immédiatement l\'opération.',
             ].join('\n'),
             ok: 'Supprimer definitivement',
             cancel: 'Annuler',

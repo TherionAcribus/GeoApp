@@ -1191,7 +1191,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         }
         const sendableImages = selectedImages.filter(image => Boolean(image.url));
         if (!sendableImages.length) {
-            messages.warn('Aucune image selectionnee ne peut etre envoyee au chat.');
+            messages.warn('Aucune image sélectionnée ne peut être envoyée au chat.');
             return;
         }
         await Promise.resolve(onAnalyzeImages(sendableImages));
@@ -1796,9 +1796,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 if (exifFeature.gps_coordinates.length > 0) {
                     messages.info(`Exif lu: ${exifFeature.gps_coordinates.length} coordonnee(s) GPS detectee(s)`);
                 } else if (exifFeature.exif.length > 0) {
-                    messages.info('Exif lu: donnees trouvees, sans coordonnees GPS');
+                    messages.info('Exif lu : données trouvées, sans coordonnées GPS');
                 } else {
-                    messages.info('Aucune donnee Exif trouvee dans cette image');
+                    messages.info('Aucune donnée Exif trouvée dans cette image');
                 }
             }
         } catch (e) {
@@ -2391,7 +2391,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             {onAnalyzeImages && selectedChatImages.length > 0 ? (
                 <div className='geoapp-images-hidden-strip'>
                     <span>
-                        Selection chat: {selectedChatUserCount} photo(s) utilisateur, {selectedChatListingCount} image(s) du listing, {selectedChatNoteCount} note(s) transmise(s).
+                        Sélection chat : {selectedChatUserCount} photo(s) utilisateur, {selectedChatListingCount} image(s) du listing, {selectedChatNoteCount} note(s) transmise(s).
                         {selectedChatImages.length > maxChatImages ? ` Conseil depasse (${maxChatImages}): prompt plus lourd.` : ''}
                     </span>
                     <button className='theia-button secondary' type='button' onClick={clearChatImages} disabled={isSaving}>

@@ -62,12 +62,12 @@ interface GeocacheDetailsHeaderProps {
     onOpenNotes: () => void;
     onForceSyncArchive: () => void | Promise<void>;
     /**
-     * Va chercher le GUID du proprietaire quand il manque en base (geocaches
-     * importees avant son introduction). Appele a l'ouverture du menu, pas au
-     * clic : ouvrir une fenetre apres un `await` serait bloque par le navigateur.
+     * Va chercher le GUID du propriétaire quand il manque en base (géocaches
+     * importées avant son introduction). Appelé à l'ouverture du menu, pas au
+     * clic : ouvrir une fenêtre après un `await` serait bloqué par le navigateur.
      */
     onResolveOwnerGuid?: () => Promise<string | undefined>;
-    /** Ouverture des liens Geocaching du proprietaire ; par defaut, un onglet externe. */
+    /** Ouverture des liens Geocaching du propriétaire ; par défaut, un onglet externe. */
     onOpenOwnerUrl?: (url: string) => void;
     onRefresh?: () => void | Promise<void>;
     /** Rafraîchissement en cours : le bouton porte l'état (icône animée) au lieu d'une notification. */
@@ -283,11 +283,11 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     };
 
     const analyzeActions: { label: string; iconClass: string; title: string; action: () => void; disabled?: boolean }[] = [
-        { label: 'Resoudre formules', iconClass: 'codicon codicon-symbol-operator', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
+        { label: 'Résoudre formules', iconClass: 'codicon codicon-symbol-operator', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
         { label: 'Analyse page', iconClass: 'codicon codicon-file', title: 'Lancer l\'analyse complete de la page', action: () => { void onAnalyzePage(); } },
         { label: 'Analyse code', iconClass: 'codicon codicon-search', title: 'Analyser le texte avec Metasolver', action: () => { void onAnalyzeCode(); } },
         { label: 'Analyse plugins', iconClass: 'codicon codicon-extensions', title: 'Analyser cette geocache avec les plugins', action: () => { void onAnalyzeWithPlugins(); } },
-        { label: 'Grilles', iconClass: 'codicon codicon-layout', title: 'Ouvrir l atelier de grilles pour cette geocache', action: () => { void onOpenGridPuzzle(); } },
+        { label: 'Grilles', iconClass: 'codicon codicon-layout', title: "Ouvrir l'atelier de grilles pour cette géocache", action: () => { void onOpenGridPuzzle(); } },
         ...extraActions.map(action => ({
             label: action.label,
             iconClass: 'codicon codicon-zap',
@@ -911,7 +911,7 @@ export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionPr
             onSectionCollapsedChange?.('details', !isOpen);
         }}
     >
-        <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: 8 }}>Informations detaillees</summary>
+        <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: 8 }}>Informations détaillées</summary>
         <table className='theia-table' style={{ width: '100%', marginTop: 8 }}>
             <tbody>
                 {renderRow('Code', geocacheData.gc_code)}
@@ -924,8 +924,8 @@ export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionPr
                 {renderRow('Logs', geocacheData.logs_count?.toString())}
                 {renderRow('Placee le', geocacheData.placed_at)}
                 {renderRow('Statut', geocacheData.status)}
-                {renderRow('Trouvee', geocacheData.found ? 'Oui' : 'Non')}
-                {renderRow('Trouvee le', formatFoundDate(geocacheData.found_date))}
+                {renderRow('Trouvée', geocacheData.found ? 'Oui' : 'Non')}
+                {renderRow('Trouvée le', formatFoundDate(geocacheData.found_date))}
                 {renderRow('Lien', geocacheData.url ? <a href={geocacheData.url} target='_blank' rel='noreferrer'>{geocacheData.url}</a> : undefined)}
             </tbody>
         </table>
@@ -964,9 +964,9 @@ export const GeocacheHintsSection: React.FC<GeocacheHintsSectionProps> = ({
                     <button
                         className='theia-button secondary'
                         onClick={() => { void onToggleDisplayMode(); }}
-                        title={displayDecodedHints ? 'Coder (ROT13)' : 'Decoder (ROT13)'}
+                        title={displayDecodedHints ? 'Coder (ROT13)' : 'Décoder (ROT13)'}
                     >
-                        {displayDecodedHints ? 'Coder' : 'Decoder'}
+                        {displayDecodedHints ? 'Coder' : 'Décoder'}
                     </button>
                 ) : undefined}
             </div>
@@ -1134,9 +1134,9 @@ function formatFoundDate(iso?: string): string | undefined {
 }
 
 /**
- * Pastille « trouvee / non trouvee » affichee dans l'entete. Les deux etats sont rendus
- * (et non seulement « trouvee ») pour que le statut soit toujours explicite : une absence
- * de pastille serait ambigue avec une donnee non chargee.
+ * Pastille « trouvée / non trouvée » affichée dans l'en-tête. Les deux états sont rendus
+ * (et non seulement « trouvée ») pour que le statut soit toujours explicite : une absence
+ * de pastille serait ambiguë avec une donnée non chargée.
  */
 function renderFoundBadge(geocacheData: GeocacheDto): React.ReactNode {
     const isFound = geocacheData.found === true;

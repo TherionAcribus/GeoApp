@@ -36,7 +36,7 @@ export class GeocacheNotesService {
         const response = await this.apiClient.requestJson<{ note: GeocacheNoteDto }>(
             `/api/notes/${noteId}`,
             this.apiClient.createJsonInit('PUT', payload),
-            'Erreur lors de la mise a jour de la note'
+            'Erreur lors de la mise à jour de la note'
         );
         return response.note;
     }

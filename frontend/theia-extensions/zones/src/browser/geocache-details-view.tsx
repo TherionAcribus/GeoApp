@@ -23,7 +23,7 @@ type GeocacheImagesPanelProps = React.ComponentProps<typeof GeocacheImagesPanel>
 type WaypointsEditorProps = React.ComponentProps<typeof WaypointsEditorWrapper>;
 
 /*
- * Versions memoisees des composants feuilles couteux. Le widget Theia (ReactWidget)
+ * Versions mémorisées des composants feuilles coûteux. Le widget Theia (ReactWidget)
  * re-rend tout l'arbre a chaque `update()` (ouverture de menu, etc.). Tant que les props
  * passees ici gardent des references stables (cf. geocache-details-widget), `React.memo`
  * evite de re-rendre la galerie d'images, l'editeur de description et les waypoints.
@@ -47,7 +47,7 @@ interface GeocacheDetailsViewProps {
     imagesPanelProps?: GeocacheImagesPanelProps;
     waypointsEditorProps: WaypointsEditorProps;
     onRefresh?: () => void | Promise<void>;
-    /** Rafraichissement en cours : anime l'icone du bouton de rafraichissement de l'en-tete. */
+    /** Rafraîchissement en cours : anime l'icône du bouton de rafraîchissement de l'en-tête. */
     isRefreshing?: boolean;
     logsSummaryEntries?: import('./geocache-logs-summary').LogSummaryEntry[];
     logsSummaryTotalCount?: number;
@@ -100,7 +100,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     onSectionCollapsedChange
 }) => (
     <div className='p-2' style={{ position: 'relative' }}>
-        {/* Premier chargement uniquement : aucune donnee a afficher encore */}
+        {/* Premier chargement uniquement : aucune donnée à afficher encore */}
         {isLoading && !geocacheData ? <LoadingState /> : undefined}
         {!isLoading && !geocacheData ? (
             <EmptyState icon='fa-map-marker' title='Aucune géocache sélectionnée' description='Sélectionnez une géocache pour afficher ses détails.' />
@@ -115,8 +115,8 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 12,
-                    // Rechargement avec donnees existantes : on garde le contenu visible mais on
-                    // signale discretement la mise a jour et on neutralise les interactions.
+                    // Rechargement avec données existantes : on garde le contenu visible mais on
+                    // signale discrètement la mise à jour et on neutralise les interactions.
                     opacity: isLoading ? 0.6 : 1,
                     pointerEvents: isLoading ? 'none' : undefined,
                     transition: 'opacity 0.15s ease'

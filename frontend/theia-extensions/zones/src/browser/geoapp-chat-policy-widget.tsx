@@ -51,7 +51,7 @@ import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from '.
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
-    { value: 'general', label: 'General' },
+    { value: 'general', label: 'Général' },
     { value: 'secret_code', label: 'Codes secrets' },
     { value: 'formula', label: 'Formules' },
     { value: 'checker', label: 'Checkers' },
@@ -88,7 +88,7 @@ interface GeoAppChatAgentModelRow {
 }
 
 // Agents GeoApp exposes aux reglages IA Theia. Le panneau resout le modele effectif de
-// chacun pour repondre a la question "quel modele pour quoi ?" en un seul endroit.
+// chacun pour répondre à la question "quel modèle pour quoi ?" en un seul endroit.
 const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
     { id: 'GeoApp', label: 'GeoApp (principal)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-local', label: 'GeoApp Chat (Local)', kind: 'chat', purpose: 'chat' },
@@ -231,7 +231,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         super();
         this.id = GeoAppChatPolicyWidget.ID;
         this.title.label = 'Policy Chat IA';
-        this.title.caption = 'Policy effective et tools GeoApp exposes au modele';
+        this.title.caption = 'Policy effective et tools GeoApp exposés au modèle';
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-tools';
         this.addClass('geoapp-chat-policy-widget');
@@ -1841,10 +1841,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected formatRisk(risk: GeoAppAiToolRisk): string {
         const labels: Record<GeoAppAiToolRisk, string> = {
             read_only: 'lecture',
-            local_write: 'ecriture locale',
+            local_write: 'écriture locale',
             network: 'reseau',
             auth: 'auth',
-            high: 'eleve',
+            high: 'élevé',
         };
         return labels[risk] || risk;
     }

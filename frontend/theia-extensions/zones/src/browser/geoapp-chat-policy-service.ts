@@ -209,10 +209,10 @@ export class GeoAppChatPolicyService {
                 ? `Skills GeoApp actifs : ${policy.recommendedSkillNames.join(', ')}`
                 : undefined,
             policy.recommendedSkillNames.length
-                ? 'Charge les skills actifs avec getSkillFileContent avant d appliquer leurs strategies detaillees, si le tool est disponible.'
+                ? "Charge les skills actifs avec getSkillFileContent avant d'appliquer leurs stratégies détaillées, si le tool est disponible."
                 : undefined,
             '',
-            'Tools exposes au modele :',
+            'Tools exposés au modèle :',
             ...Array.from(byCategory.entries()).map(([category, names]) => `- ${category}: ${names.sort().join(', ')}`),
         ].filter((line): line is string => Boolean(line));
 
@@ -382,7 +382,7 @@ export class GeoAppChatPolicyService {
             return `Le tool ${entry.publicName} peut modifier des donnees locales GeoApp. Activez l'autorisation permanente seulement si vous faites confiance a ce workflow.`;
         }
         if (entry.requiresAuth) {
-            return `Le tool ${entry.publicName} peut utiliser une session authentifiee. Activez l'autorisation permanente seulement si vous acceptez ce niveau d'automatisation.`;
+            return `Le tool ${entry.publicName} peut utiliser une session authentifiée. Activez l'autorisation permanente seulement si vous acceptez ce niveau d'automatisation.`;
         }
         if (entry.network) {
             return `Le tool ${entry.publicName} peut utiliser le reseau ou un service externe. Activez l'autorisation permanente seulement si ce comportement est voulu.`;

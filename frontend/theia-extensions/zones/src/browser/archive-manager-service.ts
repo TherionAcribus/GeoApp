@@ -37,7 +37,7 @@ export class ArchiveManagerService {
         return this.apiClient.requestJson<ArchiveSettings>(
             '/api/archive/settings',
             {},
-            'Erreur lors du chargement des parametres d\'archive'
+            'Erreur lors du chargement des paramètres d\'archive'
         );
     }
 
@@ -45,7 +45,7 @@ export class ArchiveManagerService {
         return this.apiClient.requestJson<ArchiveSettingsUpdateResponse>(
             '/api/archive/settings',
             this.apiClient.createJsonInit('PUT', { auto_sync_enabled: autoSyncEnabled }),
-            'Erreur lors de la mise a jour des parametres d\'archive'
+            'Erreur lors de la mise à jour des paramètres d\'archive'
         );
     }
 
@@ -72,7 +72,7 @@ export class ArchiveManagerService {
         return this.apiClient.requestJson<ArchiveEntry>(
             `/api/archive/${encodeURIComponent(gcCode)}`,
             {},
-            'Erreur lors du chargement du detail d\'archive'
+            'Erreur lors du chargement du détail d\'archive'
         );
     }
 
@@ -81,7 +81,7 @@ export class ArchiveManagerService {
         if (response.status === 404 || response.status === 409) {
             return null;
         }
-        await this.apiClient.ensureOk(response, 'Erreur lors du chargement de la geocache live');
+        await this.apiClient.ensureOk(response, 'Erreur lors du chargement de la géocache live');
         return await this.apiClient.readOptionalJson<GeocacheApiResponse>(response) ?? null;
     }
 

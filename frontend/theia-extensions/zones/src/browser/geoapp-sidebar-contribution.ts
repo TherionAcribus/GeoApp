@@ -45,7 +45,7 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     registerMenus(menus: MenuModelRegistry): void {
         menus.registerMenuAction(GEOAPP_PREFERENCES_MENU, {
             commandId: 'geo-preferences:open',
-            label: 'Ouvrir les preferences GeoApp',
+            label: 'Ouvrir les préférences GeoApp',
             order: '0'
         });
 
@@ -57,7 +57,7 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
 
         menus.registerMenuAction(GEOAPP_AUTH_MENU, {
             commandId: 'geoapp.auth.open',
-            label: 'Gerer la connexion',
+            label: 'Gérer la connexion',
             order: '0'
         });
 
@@ -131,7 +131,7 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
         this.sidebarBottomMenu.addMenu({
             id: 'geoapp-preferences-menu',
             iconClass: 'fa fa-sliders',
-            title: 'Preferences GeoApp',
+            title: 'Préférences GeoApp',
             menuPath: GEOAPP_PREFERENCES_MENU,
             order: 0
         });
@@ -150,7 +150,7 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     }
 
     protected getAuthTitle(): string {
-        return this.isConnected ? 'Connecte a Geocaching.com' : 'Non connecte - Cliquez pour vous connecter';
+        return this.isConnected ? 'Connecté à Geocaching.com' : 'Non connecté - Cliquez pour vous connecter';
     }
 
     protected async checkAuthStatus(): Promise<void> {

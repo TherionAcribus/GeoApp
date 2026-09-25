@@ -139,7 +139,7 @@ const ZONE_SORT_OPTIONS: Array<{ key: ZoneSortKey; label: string }> = [
     { key: 'created_at', label: 'Creation' },
     { key: 'geocaches_count', label: 'Nombre de caches' },
     { key: 'latest_geocache_created_at', label: 'Derniere cache ajoutee' },
-    { key: 'latest_resolution_updated_at', label: 'Derniere resolution' },
+    { key: 'latest_resolution_updated_at', label: 'Dernière résolution' },
 ];
 
 @injectable()
