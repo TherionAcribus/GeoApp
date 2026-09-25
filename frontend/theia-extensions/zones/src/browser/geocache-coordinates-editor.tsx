@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { GeocacheDto, GeocacheSolvedStatus } from './geocache-details-types';
 import { parseFlexibleGCCoords } from './geocache-details-utils';
+import { calculateDistance } from './map/map-utils';
 import { handleMenuArrowKeys } from './context-menu';
 import '../../src/browser/style/geocache-details-header.css';
 
@@ -93,6 +94,26 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
         }
         return parseFlexibleGCCoords(displayCoords);
     }, [geocacheData.latitude, geocacheData.longitude, displayCoords]);
+
+    // Distance originales → corrigées (règle GC : pour les mysteries, les
+    // coordonnées affichées doivent rester à moins de 3,2 km de la finale).
+    const originalDecimalCoords = React.useMemo(() => {
+        if (typeof geocacheData.original_latitude === 'number' && typeof geocacheData.original_longitude === 'number') {
+            return { lat: geocacheData.original_latitude, lon: geocacheData.original_longitude };
+        }
+        return parseFlexibleGCCoords(originalCoords);
+    }, [geocacheData.original_latitude, geocacheData.original_longitude, originalCoords]);
+
+    const correctedDistanceKm = React.useMemo(() => {
+        if (!isCorrected || !decimalCoords || !originalDecimalCoords) {
+            return undefined;
+        }
+        const km = calculateDistance(originalDecimalCoords.lon, originalDecimalCoords.lat, decimalCoords.lon, decimalCoords.lat);
+        return km > 0.005 ? km : undefined; // < 5 m : déplacement non significatif
+    }, [isCorrected, decimalCoords, originalDecimalCoords]);
+
+    const formatDistance = (km: number): string =>
+        km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(2).replace('.', ',')} km`;
 
     const coordActions = React.useMemo(() => {
         if (!decimalCoords) {
@@ -282,6 +303,24 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                             </div>
                         </div>
                     )}
+
+                    {correctedDistanceKm !== undefined ? (
+                        <div
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12,
+                                color: correctedDistanceKm > 3.2 ? 'var(--theia-editorWarning-foreground)' : 'var(--theia-descriptionForeground)'
+                            }}
+                            title={correctedDistanceKm > 3.2
+                                ? 'Attention : Geocaching.com exige que les coordonnées affichées d\'une mystery soient à moins de 3,2 km de la position finale'
+                                : 'Distance entre les coordonnées affichées et les coordonnées corrigées'}
+                        >
+                            <span className='codicon codicon-arrow-right' aria-hidden='true' />
+                            <span>
+                                Distance : <strong>{formatDistance(correctedDistanceKm)}</strong>
+                                {correctedDistanceKm > 3.2 ? ' — au-delà de la limite des 3,2 km' : ''}
+                            </span>
+                        </div>
+                    ) : undefined}
 
                     {displayCoords ? (
                         <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
