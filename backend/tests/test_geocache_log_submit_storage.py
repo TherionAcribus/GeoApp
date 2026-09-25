@@ -108,6 +108,32 @@ def test_dnf_is_stored_with_its_own_type(submitting_client, app):
     assert log.is_favorite is False
 
 
+def test_found_on_webcam_is_sent_as_webcam_photo_taken(app, monkeypatch):
+    """Geocaching.com refuse « Found it » sur une Webcam (422) : on envoie le type 11."""
+    sent = {}
+
+    class _RecordingSubmitClient:
+        def submit_geocache_log(self, gc_code, **kwargs):
+            sent.update(kwargs)
+            return {'logReferenceCode': 'GL7WEBCAM'}
+
+    monkeypatch.setattr(logs_bp, 'GeocachingSubmitLogsClient', lambda *a, **k: _RecordingSubmitClient())
+    monkeypatch.setattr(logs_bp, 'get_auth_service', lambda: _FakeAuthService())
+    webcam = Geocache(gc_code='GCM0EG', name='Webcam', type='Webcam Cache',
+                      zone_id=Geocache.query.get(app.geocache_id).zone_id)
+    db.session.add(webcam)
+    db.session.commit()
+
+    response = _submit(app.test_client(), webcam.id, favorite=True)
+
+    assert response.status_code == 200
+    assert sent['log_type_id'] == 11
+    assert sent['used_favorite_point'] is True
+    body = response.get_json()
+    assert body['found'] is True
+    assert body['log']['log_type'] == 'Webcam'
+
+
 def _fetched(external_id: str, author: str, log_type: str = 'Found it',
              date: datetime | None = None) -> GeocacheLogData:
     return GeocacheLogData(

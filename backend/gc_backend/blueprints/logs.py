@@ -344,7 +344,18 @@ _LOCAL_LOG_ID_PREFIX = 'GL'
 
 # Libellés Geocaching.com des types de log qu'on sait soumettre, pour repasser par
 # la même normalisation que les logs rafraîchis (`Found`, `Did Not Find`, `Note`).
-_LOG_TYPE_LABELS = {2: 'Found it', 3: "Didn't find it", 4: 'Write note'}
+_LOG_TYPE_LABELS = {2: 'Found it', 3: "Didn't find it", 4: 'Write note', 11: 'Webcam Photo Taken'}
+
+# Types de log qui valent trouvaille. Une Webcam ne se logue pas « Found it »
+# (Geocaching.com répond 422 « Cannot log FoundIt on Webcam geocaches ») mais
+# « Webcam Photo Taken », comme le fait c:geo (AbstractConnector.getPossibleLogTypes).
+_FOUND_LOG_TYPE_ID = 2
+_WEBCAM_LOG_TYPE_ID = 11
+_FIND_LOG_TYPE_IDS = (_FOUND_LOG_TYPE_ID, _WEBCAM_LOG_TYPE_ID)
+
+
+def _is_webcam_geocache(geocache) -> bool:
+    return 'webcam' in (geocache.type or '').lower()
 
 
 def _log_identity(author, log_date, log_type):
@@ -579,7 +590,11 @@ def submit_geocache_log(geocache_id: int):
         if not isinstance(resolved_log_type_id, int):
             return jsonify({'error': 'Missing/invalid log type (use logType or logTypeId)'}), 400
 
-        if resolved_log_type_id == 2 and bool(geocache.found):
+        if resolved_log_type_id == _FOUND_LOG_TYPE_ID and _is_webcam_geocache(geocache):
+            resolved_log_type_id = _WEBCAM_LOG_TYPE_ID
+        is_find_log = resolved_log_type_id in _FIND_LOG_TYPE_IDS
+
+        if is_find_log and bool(geocache.found):
             return jsonify({
                 'error': 'Geocache already logged',
                 'error_code': 'ALREADY_LOGGED',
@@ -591,7 +606,7 @@ def submit_geocache_log(geocache_id: int):
 
         favorite = data.get('favorite')
         used_favorite_point = None
-        if isinstance(favorite, bool) and resolved_log_type_id == 2:
+        if isinstance(favorite, bool) and is_find_log:
             used_favorite_point = favorite
 
         client = GeocachingSubmitLogsClient()
@@ -619,7 +634,7 @@ def submit_geocache_log(geocache_id: int):
                 'gc_response': result,
             }), 502
 
-        if resolved_log_type_id == 2:
+        if is_find_log:
             geocache.found = True
             # On stocke la date de visite envoyée avec le log, pas l'instant de
             # soumission : loguer aujourd'hui une sortie de la semaine dernière
@@ -644,7 +659,7 @@ def submit_geocache_log(geocache_id: int):
         # même `finds_count` (numéro de cache figé dans le pattern @cache_count).
         try:
             get_auth_service().apply_submitted_log(
-                found=(resolved_log_type_id == 2),
+                found=is_find_log,
                 used_favorite_point=bool(used_favorite_point),
             )
         except Exception as e:  # pragma: no cover - mise à jour best-effort
