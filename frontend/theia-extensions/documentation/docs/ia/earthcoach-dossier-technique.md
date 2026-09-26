@@ -30,7 +30,7 @@ L'onglet attend la fin de l'autosauvegarde, controle la limite d'images, refuse 
 
 `EarthCoachPreparedRequest` est l'instantane immuable transmis au chat : langue et empreinte du listing, langue de reponse, commentaire general, questions, observations, images disponibles, groupes, roles, waypoints et commentaires. La verbosite ne retire aucune preuve des actions d'analyse et de resolution.
 
-Le bridge chat decode puis reencode chaque image dans un canvas, y compris sans redimensionnement. Le modele ne recoit donc pas les metadonnees EXIF du fichier original. Si cette preparation echoue, l'image n'est pas jointe et le prompt signale explicitement qu'elle ne doit pas etre presentee comme examinee.
+Le bridge chat decode puis reencode chaque image dans un canvas, y compris sans redimensionnement. Le modele ne recoit donc pas les metadonnees EXIF du fichier original. Lorsqu'une image owner ou listing distante est bloquee par CORS dans le navigateur, le dossier demande au backend de la stocker puis transmet cette copie locale. Si les deux voies echouent, l'image n'est pas jointe et le resume affiche la cause exacte.
 
 ## Capture et validation
 

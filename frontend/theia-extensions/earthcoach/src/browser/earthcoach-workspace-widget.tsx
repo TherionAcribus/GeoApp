@@ -44,7 +44,7 @@ import {
     EarthCoachWorkspaceService,
 } from './earthcoach-workspace-service';
 import { EarthCoachResultCaptureService, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
-import { validateEarthCoachSelection } from './earthcoach-workspace-logic';
+import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from './earthcoach-workspace-logic';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
 
@@ -555,32 +555,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     }
 
     protected async prepareAvailableImages(images: GeoImage[]): Promise<{ available: GeoImage[]; failures: Array<{ id: string; label?: string; reason: string }> }> {
-        const checked = await Promise.all(images.map(async image => {
-            try {
-                const response = await fetch(image.fileUri, { credentials: 'include' });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const blob = await response.blob();
-                if (!blob.type.startsWith('image/')) {
-                    throw new Error('contenu non image');
-                }
-                return { image };
-            } catch (error) {
-                return {
-                    image,
-                    reason: error instanceof Error ? error.message : String(error),
-                };
-            }
-        }));
-        return {
-            available: checked.filter(item => !item.reason).map(item => item.image),
-            failures: checked.filter(item => item.reason).map(item => ({
-                id: item.image.id,
-                label: item.image.label,
-                reason: item.reason || 'image indisponible',
-            })),
-        };
+        return prepareEarthCoachImagesForTransmission(
+            images,
+            url => fetch(url, { credentials: url.startsWith(window.location.origin) ? 'include' : 'omit' }),
+            imageIdValue => this.workspaceService.storeImageForChat(imageIdValue)
+        );
     }
 
     protected removeIncompleteGroupsAfterFailures(available: GeoImage[], failures: Array<{ id: string; label?: string; reason: string }>): GeoImage[] {
@@ -1035,7 +1014,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 this.confirmWithoutPhoto = event.currentTarget.checked;
                 this.update();
             }} /> Continuer sans photo personnelle pour cet envoi</label>}
-            {this.unavailable.length > 0 && <div className='ecw-error'>Images retirées : {this.unavailable.map(item => item.label || item.id).join(', ')}</div>}
+            {this.unavailable.length > 0 && <div className='ecw-error'>Images retirées : {this.unavailable.map(item => `${item.label || item.id} (${item.reason})`).join(', ')}</div>}
             {action && <div className='ecw-review'>Action demandée : <strong>{action === 'resolve' ? 'Résoudre avec mon dossier' : 'Analyser mes observations'}</strong></div>}
             <div className='ecw-actions'>
                 <button className='theia-button secondary' disabled={this.sending} onClick={() => void this.send('analyze_observations')}>Analyser mes observations</button>

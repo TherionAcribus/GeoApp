@@ -59,6 +59,19 @@ export class EarthCoachWorkspaceService {
         return uploaded;
     }
 
+    async storeImageForChat(imageId: number): Promise<string> {
+        const image = await this.apiClient.requestJson<{ url?: string }>(
+            `/api/geocache-images/${imageId}/store`,
+            this.apiClient.createJsonInit('POST'),
+            `Impossible de préparer l image ${imageId} pour le chat`
+        );
+        const url = (image.url || '').trim();
+        if (!url) {
+            throw new Error(`L image ${imageId} ne fournit aucune URL locale`);
+        }
+        return url.startsWith('/') ? `${this.apiClient.getBaseUrl()}${url}` : url;
+    }
+
     async listResults(geocacheId: number): Promise<EarthCoachResult[]> {
         const response = await this.apiClient.requestJson<{ results: EarthCoachResult[] }>(
             `/api/geocaches/${geocacheId}/earthcoach-results`,

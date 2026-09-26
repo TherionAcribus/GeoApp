@@ -58,7 +58,7 @@ import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
 import { selectEarthCoachDescription } from '../earthcoach-description-selector';
 import { extractEarthCoachResultBlock, stripEarthCoachResultBlocks } from '../earthcoach-result-capture';
-import { validateEarthCoachSelection } from '../earthcoach-workspace-logic';
+import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from '../earthcoach-workspace-logic';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -1319,6 +1319,38 @@ function testWorkspaceSelectionValidation(): void {
     assert.equal(validateEarthCoachSelection([personal, listing], group, 8, false).valid, true);
 }
 
+async function testOwnerImageFallsBackToBackendStorage(): Promise<void> {
+    const remoteUrl = 'https://img.geocaching.com/cache/large/owner.jpg';
+    const localUrl = 'http://localhost:8000/api/geocache-images/4935/content';
+    const fetched: string[] = [];
+    const stored: number[] = [];
+    const result = await prepareEarthCoachImagesForTransmission([{
+        id: '4935',
+        origin: 'cache_listing',
+        imageType: 'owner',
+        label: 'Photo owner',
+        fileUri: remoteUrl,
+    }], async url => {
+        fetched.push(url);
+        if (url === remoteUrl) {
+            throw new TypeError('Failed to fetch');
+        }
+        return {
+            ok: true,
+            status: 200,
+            blob: async () => ({ type: 'image/jpeg' }),
+        } as Response;
+    }, async imageId => {
+        stored.push(imageId);
+        return localUrl;
+    });
+
+    assert.deepEqual(fetched, [remoteUrl, localUrl]);
+    assert.deepEqual(stored, [4935]);
+    assert.equal(result.failures.length, 0);
+    assert.equal(result.available[0].fileUri, localUrl);
+}
+
 function testResultCaptureToolShape(): void {
     const tools = new EarthCoachResultTools().buildAllTools();
     assert.equal(tools.length, 1);
@@ -1590,6 +1622,7 @@ async function run(): Promise<void> {
     testEarthCoachResultFallbackBlock();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();
     testWorkspaceSelectionValidation();
+    await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();

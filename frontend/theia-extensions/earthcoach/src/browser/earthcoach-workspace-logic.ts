@@ -1,6 +1,58 @@
 import { GeoImage } from './earthcoach-types';
 import { EarthCoachWorkspaceGroup } from './earthcoach-workspace-types';
 
+export interface EarthCoachPreparedImages {
+    available: GeoImage[];
+    failures: Array<{ id: string; label?: string; reason: string }>;
+}
+
+async function assertFetchableImage(url: string, fetchImage: (url: string) => Promise<Response>): Promise<void> {
+    const response = await fetchImage(url);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (!blob.type.startsWith('image/')) {
+        throw new Error('contenu non image');
+    }
+}
+
+export async function prepareEarthCoachImagesForTransmission(
+    images: GeoImage[],
+    fetchImage: (url: string) => Promise<Response>,
+    storeImage: (imageId: number) => Promise<string>
+): Promise<EarthCoachPreparedImages> {
+    const checked = await Promise.all(images.map(async image => {
+        try {
+            await assertFetchableImage(image.fileUri, fetchImage);
+            return { image };
+        } catch (directError) {
+            const imageId = Number(image.id);
+            if (!Number.isInteger(imageId) || imageId <= 0) {
+                return { image, reason: directError instanceof Error ? directError.message : String(directError) };
+            }
+            try {
+                const localUrl = await storeImage(imageId);
+                await assertFetchableImage(localUrl, fetchImage);
+                return { image: { ...image, fileUri: localUrl } };
+            } catch (fallbackError) {
+                return {
+                    image,
+                    reason: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+                };
+            }
+        }
+    }));
+    return {
+        available: checked.filter(item => !item.reason).map(item => item.image),
+        failures: checked.filter(item => item.reason).map(item => ({
+            id: item.image.id,
+            label: item.image.label,
+            reason: item.reason || 'image indisponible',
+        })),
+    };
+}
+
 export interface EarthCoachSelectionValidation {
     valid: boolean;
     needsWithoutPhotoConfirmation: boolean;
