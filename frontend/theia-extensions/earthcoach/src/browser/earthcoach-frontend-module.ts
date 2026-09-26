@@ -24,6 +24,13 @@ import { EarthCoachGeologyTools } from './earthcoach-geology-tools';
 import { EarthCoachModeTools } from './earthcoach-mode-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
+import { EarthCoachWorkspaceService } from './earthcoach-workspace-service';
+import { EarthCoachWorkspaceTabsManager } from './earthcoach-workspace-tabs-manager';
+import { EarthCoachWorkspaceWidget } from './earthcoach-workspace-widget';
+import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
+import { EarthCoachResultObserver } from './earthcoach-result-observer';
+import { EarthCoachResultTools } from './earthcoach-result-tools';
+import { GeoAppChatResponseObserver } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 
 export default new ContainerModule(bind => {
     bind(EarthCoachContextService).toSelf().inSingletonScope();
@@ -46,6 +53,13 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(EarthCoachModeTools);
     bind(EarthCoachObservationService).toSelf().inSingletonScope();
     bind(EarthCoachLoggingTaskService).toSelf().inSingletonScope();
+    bind(EarthCoachWorkspaceService).toSelf().inSingletonScope();
+    bind(EarthCoachWorkspaceTabsManager).toSelf().inSingletonScope();
+    bind(EarthCoachResultCaptureService).toSelf().inSingletonScope();
+    bind(EarthCoachResultTools).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(EarthCoachResultTools);
+    bind(EarthCoachResultObserver).toSelf().inSingletonScope();
+    bind(GeoAppChatResponseObserver).toService(EarthCoachResultObserver);
 
     bind(EarthCoachReferenceWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
@@ -71,6 +85,11 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: EarthCoachLoggingTasksWidget.ID,
         createWidget: () => ctx.container.get(EarthCoachLoggingTasksWidget),
+    })).inSingletonScope();
+    bind(EarthCoachWorkspaceWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: EarthCoachWorkspaceWidget.ID,
+        createWidget: () => ctx.container.get(EarthCoachWorkspaceWidget),
     })).inSingletonScope();
 
     bind(EarthCoachAgent).toSelf().inSingletonScope();

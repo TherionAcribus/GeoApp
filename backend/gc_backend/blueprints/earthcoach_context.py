@@ -24,6 +24,7 @@ from ..geocaches.models import (
     Note,
     UserObservation,
 )
+from .earthcoach_workspace import serialize_workspace
 
 bp = Blueprint('earthcoach_context', __name__)
 logger = logging.getLogger(__name__)
@@ -75,4 +76,5 @@ def get_earthcoach_context(geocache_id: int):
         'observations': [observation.to_dict() for observation in observations],
         'logging_tasks': [task.to_dict() for task in logging_tasks],
         'notes': [note.to_dict() for note in notes],
+        'earthcoach_workspace': serialize_workspace(geocache),
     })

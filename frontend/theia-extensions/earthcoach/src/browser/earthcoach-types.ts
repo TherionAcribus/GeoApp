@@ -1,3 +1,5 @@
+import type { EarthCoachPreparedRequest } from './earthcoach-workspace-types';
+
 export const EarthCoachAgentId = 'earthcoach';
 
 export const EarthCoachOpenCommandId = 'earthcoach.open';
@@ -14,6 +16,7 @@ export type EarthCoachQuickAction =
     | 'field_checklist'
     | 'observations'
     | 'logging_tasks'
+    | 'workspace'
     | 'extract_logging_tasks'
     | 'image_gallery'
     | 'illustrate_term'
@@ -34,6 +37,9 @@ export interface GeoImage {
     userId?: string;
     label?: string;
     description?: string;
+    imageType?: string;
+    parentImageId?: number;
+    derivationType?: string;
     takenAt?: string;
     coordinates?: {
         lat: number;
@@ -93,6 +99,9 @@ export interface EarthCoachGeocacheData {
     status?: string;
     description_html?: string;
     description_raw?: string;
+    description_override_html?: string;
+    description_override_raw?: string;
+    description_override_source?: 'manual' | 'translation';
     hints?: string;
     hints_decoded?: string;
     hints_decoded_override?: string;
@@ -118,6 +127,7 @@ export interface EarthCoachPromptInput {
     loggingTasks?: LoggingTask[];
     gcPersonalNote?: string | null;
     images: GeoImage[];
+    preparedRequest?: EarthCoachPreparedRequest;
 }
 
 export interface EarthCoachOpenRequest {

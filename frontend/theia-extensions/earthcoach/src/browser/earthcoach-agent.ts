@@ -25,6 +25,7 @@ import { EarthCoachGeologyTools } from './earthcoach-geology-tools';
 import { EarthCoachElevationTools } from './earthcoach-elevation-tools';
 import { EarthCoachModeTools } from './earthcoach-mode-tools';
 import { readEarthCoachModeFromSettings } from './earthcoach-mode';
+import { EarthCoachResultTools } from './earthcoach-result-tools';
 
 export const EarthCoachLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -68,6 +69,9 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachModeTools)
     protected readonly modeTools!: EarthCoachModeTools;
 
+    @inject(EarthCoachResultTools)
+    protected readonly resultTools!: EarthCoachResultTools;
+
     protected override async sendLlmRequest(
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
@@ -84,6 +88,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
             ...this.geologyTools.buildAllTools(),
             ...this.elevationTools.buildAllTools(),
             ...this.modeTools.buildAllTools(),
+            ...this.resultTools.buildAllTools(),
         ];
         const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));
         const nonEarthCoachTools = toolRequests.filter(tool => !earthCoachToolIds.has(tool.id));

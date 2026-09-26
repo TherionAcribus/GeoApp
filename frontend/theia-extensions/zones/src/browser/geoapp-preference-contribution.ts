@@ -67,6 +67,18 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             maximum: 50,
             description: "Nombre d'images conseillé pour les envois Chat IA depuis la galerie GeoApp. Cette valeur pilote la présélection ; l'utilisateur peut dépasser cette limite avec un avertissement.",
         },
+        'geoApp.earthCoach.analysis.maxImages': {
+            type: 'number',
+            default: 8,
+            minimum: 1,
+            maximum: 20,
+            description: "Nombre maximal d'images qu'un dossier terrain EarthCoach peut envoyer au modèle. L'envoi est bloqué au-delà, sans troncature silencieuse.",
+        },
+        'geoApp.earthCoach.listing.language': {
+            type: 'string',
+            default: 'fr',
+            description: 'Langue de listing préférée par EarthCoach avant le repli français, anglais, puis première version complète.',
+        },
         [OUTING_DETAIL_LEVEL_PREF]: {
             type: 'string',
             enum: [...OUTING_DETAIL_LEVELS],

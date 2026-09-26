@@ -61,12 +61,45 @@ Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs act
 | **Preparer ma visite** | Produit une checklist terrain : observer, mesurer, photographier, noter. |
 | **Mode terrain compact** | Ouvre une checklist imprimable/mobile sans attendre une reponse du chat. |
 | **Observations terrain** | Ouvre la vue de creation, edition et liaison de photos aux observations structurees. |
+| **Preparer mon dossier terrain** | Ouvre l'onglet central persistant qui regroupe images, commentaires, groupes, waypoints et langue du listing. |
 | **Questions du proprietaire** | Ouvre la vue de suivi des questions du log : ajout, edition, statut, photo requise et extraction IA. |
 | **Galerie images EarthCoach** | Separe visuellement images du listing, photos utilisateur et references pedagogiques. |
 | **Illustrer un terme** | Ouvre les references EarthCoach avec articles et images pedagogiques. |
 | **Expliquer un mot** | Explique un terme geologique dans le contexte de la cache. |
 | **Analyser mes observations** | Classe vos notes entre observation, interpretation et hypothese. |
-| **Resoudre avec mes observations** | Lance le mode `resolver` pour construire une synthese prudente. |
+| **Resoudre avec mon dossier** | Rouvre le dossier complet pour verification, puis lance le mode `resolver`. |
+
+## Dossier terrain
+
+Le **Dossier terrain EarthCoach** est conserve separement pour chaque EarthCache. Vous pouvez l'ouvrir avant toute analyse, le fermer, puis le reprendre plus tard. Les actions **Analyser mes observations** et **Resoudre avec mon dossier** le rouvrent toujours en mode verification avant l'envoi au modele.
+
+Il permet de :
+
+- ajouter plusieurs photos, utiliser le glisser-deposer ou la prise de vue mobile ;
+- filtrer les photos personnelles, les images du listing, les images liees a un waypoint, non classees ou selectionnees ;
+- choisir explicitement chaque image envoyee a l'IA ;
+- ajouter un commentaire EarthCoach distinct des notes generales de la galerie ;
+- associer une image a un waypoint ou a une observation ;
+- regrouper des images qui doivent etre traitees ensemble, avec un role comme **originale**, **masquee**, **detail**, **avant** ou **apres** ;
+- ajouter un commentaire general pour l'ensemble du dossier.
+
+Lors de la premiere ouverture, seules les photos personnelles deja liees a une observation sont selectionnees. Les images du listing et les photos personnelles non classees restent non selectionnees. Une selection vide reste vide : EarthCoach n'ajoute aucune image automatiquement.
+
+Les photos sont facultatives. Si aucune photo personnelle n'est selectionnee, GeoApp demande de cocher **Continuer sans photo** pour chaque envoi. Cette confirmation ne concerne pas le futur log Geocaching : EarthCoach ne publie jamais de log.
+
+La limite d'envoi est de 8 images par defaut. Au-dela, l'envoi est bloque sans troncature silencieuse. Les groupes ne sont jamais separes. Toutes les images sont decodees puis reencodees avant transmission afin de supprimer leurs metadonnees EXIF ; une image indisponible est signalee et explicitement retiree du resume.
+
+### Listings multilingues
+
+EarthCoach n'analyse qu'une seule version linguistique du listing et ne compare jamais les traductions. GeoApp recherche les attributs HTML de langue et les titres comme « Francais », « English » ou « Deutsch », puis applique cet ordre : langue preferee, francais, anglais, premiere version complete.
+
+Vous pouvez changer la langue dans le dossier. Le choix reste memorise tant que le listing ne change pas. Si la separation n'est pas assez fiable, GeoApp utilise la description complete et l'indique avant l'envoi.
+
+### Propositions revisables
+
+Les analyses et resolutions sont conservees avec l'instantane exact du dossier envoye. Pour chaque question, une proposition indique son etat (**Prete**, **Partielle** ou **Manquante**), la reponse candidate, les preuves utilisees, la confiance et ce qui reste a relever.
+
+Vous pouvez modifier une proposition puis la reporter individuellement dans la question existante. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
 
 ## Images et origines
 
@@ -232,7 +265,7 @@ Chaque observation peut contenir :
 
 Vous pouvez aussi importer une photo depuis cette vue. GeoApp l'ajoute aux images de la cache, puis EarthCoach la lie automatiquement au brouillon en cours.
 
-Ces observations sont ensuite reprises par EarthCoach dans les actions **Analyser mes observations** et **Resoudre avec mes observations**. Si aucune observation structuree n'existe encore, EarthCoach garde le fallback historique vers les notes utilisateur.
+Ces observations sont ensuite reprises par EarthCoach dans les actions **Analyser mes observations** et **Resoudre avec mon dossier**. Si aucune observation structuree n'existe encore, EarthCoach garde le fallback historique vers les notes utilisateur.
 
 ### Cache local des recherches
 
@@ -245,6 +278,8 @@ Les reglages se trouvent dans **Preferences GeoApp > EarthCoach**.
 | Preference | Effet |
 |---|---|
 | **EarthCoach - Verbosite des reponses** | Regle la longueur des premiers comptes rendus : `compact`, `normal` ou `detailed`. Le mode `compact` privilegie un resume rapide du listing. |
+| **EarthCoach - Images d'analyse maximum** | Limite stricte du dossier, de 1 a 20 images, avec 8 par defaut. |
+| **EarthCoach - Langue du listing** | Langue preferee pour choisir une seule version du listing. |
 | **EarthCoach - Recherches externes** | Active ou desactive les appels Wikipedia/Wikimedia. |
 | **EarthCoach - Langue des references** | Choisit `fr` ou `en` par defaut. |
 | **EarthCoach - Articles maximum** | Limite le nombre d'articles Wikipedia retournes. |

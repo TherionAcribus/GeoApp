@@ -36,8 +36,10 @@ import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget'
 import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
 import { EarthCoachLoggingTasksWidget } from './earthcoach-logging-tasks-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
-import { EARTHCOACH_RESPONSE_VERBOSITY_PREF } from './earthcoach-preferences';
+import { EARTHCOACH_LISTING_LANGUAGE_PREF, EARTHCOACH_RESPONSE_VERBOSITY_PREF } from './earthcoach-preferences';
 import { buildQuickActionPicks, buildQuickActionPlaceHolder } from './earthcoach-quick-actions';
+import { EarthCoachWorkspaceTabsManager } from './earthcoach-workspace-tabs-manager';
+import { selectEarthCoachDescription } from './earthcoach-description-selector';
 
 export namespace EarthCoachCommands {
     export const OPEN = {
@@ -79,6 +81,9 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
 
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;
+
+    @inject(EarthCoachWorkspaceTabsManager)
+    protected readonly workspaceTabs!: EarthCoachWorkspaceTabsManager;
 
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(EarthCoachCommands.OPEN, {
@@ -170,15 +175,34 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             await this.openImageGalleryWidget(context);
             return;
         }
-        const mode = action === 'resolve' ? 'resolver' : 'coach';
+        if (action === 'workspace' || action === 'analyze_observations' || action === 'resolve') {
+            await this.workspaceTabs.open(context, {
+                pendingAction: action === 'workspace' ? undefined : action,
+                sourceAction: action,
+            });
+            return;
+        }
+        const mode = 'coach' as const;
         const verbosity = this.readResponseVerbosity();
+        const description = selectEarthCoachDescription(
+            context.geocacheData,
+            this.preferenceService.get<string>(EARTHCOACH_LISTING_LANGUAGE_PREF, 'fr'),
+            context.workspace?.selected_language,
+            context.workspace?.description_fingerprint
+        );
         const selectedImages = selectEarthCoachImagesForChat(
             context.images,
             5,
             this.readGalleryImageSelection(context.geocacheData.id)
         );
         const prompt = buildEarthCoachPrompt({
-            geocache: context.geocacheData,
+            geocache: {
+                ...context.geocacheData,
+                description_html: description.selected.html,
+                description_raw: description.selected.text,
+                description_override_html: undefined,
+                description_override_raw: undefined,
+            },
             mode,
             action,
             verbosity,
@@ -189,9 +213,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
         });
 
         const gcLabel = context.geocacheData.gc_code || context.geocacheData.name;
-        const sessionTitle = mode === 'resolver'
-            ? `EARTHCOACH RESOLUTION - ${gcLabel}`
-            : `EARTHCOACH - ${gcLabel}`;
+        const sessionTitle = `EARTHCOACH - ${gcLabel}`;
 
         dispatchGeoAppOpenChatRequest(
             window,
@@ -204,7 +226,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 prompt,
                 focus: true,
                 workflowKind: 'general',
-                preferredProfile: mode === 'resolver' ? 'strong' : undefined,
+                preferredProfile: undefined,
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 earthcoachVerbosity: verbosity,

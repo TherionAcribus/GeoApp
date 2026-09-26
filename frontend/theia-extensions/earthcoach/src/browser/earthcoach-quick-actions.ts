@@ -17,6 +17,11 @@ export const QUICK_ACTION_GROUPS: EarthCoachQuickActionGroup[] = [
         label: 'Comprendre',
         actions: [
             {
+                label: `${PANEL_ICON} Préparer mon dossier terrain`,
+                description: 'Images, commentaires, groupes, waypoints et langue du listing',
+                value: 'workspace',
+            },
+            {
                 label: `${CHAT_ICON} Comprendre cette EarthCache`,
                 description: 'Notions, contexte geologique et questions a clarifier',
                 value: 'understand',
@@ -82,8 +87,8 @@ export const QUICK_ACTION_GROUPS: EarthCoachQuickActionGroup[] = [
                 value: 'analyze_observations',
             },
             {
-                label: `${CHAT_ICON} Resoudre avec mes observations`,
-                description: 'Mode resolver explicite, sans inventer le terrain',
+                label: `${CHAT_ICON} Résoudre avec mon dossier`,
+                description: 'Vérifier le dossier complet avant le mode resolver',
                 value: 'resolve',
             },
         ],

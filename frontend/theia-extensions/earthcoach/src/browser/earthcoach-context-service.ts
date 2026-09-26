@@ -7,6 +7,7 @@ import { GeocacheNoteDto } from 'theia-ide-zones-ext/lib/browser/geocache-notes-
 import { GeocacheDto } from 'theia-ide-zones-ext/lib/browser/geocache-details-types';
 import { EarthCoachGeocacheData, GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import { LoggingTaskDto } from './earthcoach-logging-tasks';
+import { EarthCoachWorkspace } from './earthcoach-workspace-types';
 import {
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
@@ -212,11 +213,22 @@ export class EarthCoachContextService implements FrontendApplicationContribution
 
     /** Repli historique: quatre lectures paralleles. */
     protected async loadPayloadFromUnitaryEndpoints(geocacheId: number): Promise<EarthCoachContextPayload> {
-        const [images, observations, loggingTasks, notesResponse] = await Promise.all([
-            this.loadBackendImages(geocacheId),
-            this.loadStructuredObservations(geocacheId),
-            this.loadLoggingTasks(geocacheId),
-            this.loadNotes(geocacheId),
+        const loadErrors: string[] = [];
+        const capture = async <T>(label: string, loader: () => Promise<T>, fallback: T): Promise<T> => {
+            try {
+                return await loader();
+            } catch (error) {
+                console.warn(`[EarthCoach] Unable to load ${label}`, error);
+                loadErrors.push(label);
+                return fallback;
+            }
+        };
+        const [images, observations, loggingTasks, notesResponse, workspace] = await Promise.all([
+            capture('images', () => this.loadBackendImages(geocacheId), []),
+            capture('observations', () => this.loadStructuredObservations(geocacheId), []),
+            capture('questions', () => this.loadLoggingTasks(geocacheId), []),
+            capture('notes', () => this.loadNotes(geocacheId), undefined),
+            capture('dossier terrain', () => this.loadWorkspace(geocacheId), undefined),
         ]);
         return {
             images,
@@ -224,60 +236,54 @@ export class EarthCoachContextService implements FrontendApplicationContribution
             loggingTasks,
             notes: notesResponse?.notes || [],
             gcPersonalNote: notesResponse?.gc_personal_note,
+            workspace,
+            loadErrors,
         };
     }
 
     protected async loadNotes(geocacheId: number): Promise<{ gc_personal_note?: string | null; notes: GeocacheNoteDto[] } | undefined> {
-        try {
-            return await this.notesService.getNotes(geocacheId);
-        } catch (error) {
-            console.warn('[EarthCoach] Unable to load notes', error);
-            return undefined;
-        }
+        return this.notesService.getNotes(geocacheId);
     }
 
     protected async loadStructuredObservations(geocacheId: number): Promise<UserObservation[]> {
-        try {
-            const baseUrl = this.apiClient.getBaseUrl();
-            const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/observations`, { credentials: 'include' });
-            if (!response.ok) {
-                return [];
-            }
-            const payload = await response.json() as { observations?: UserObservationDto[] };
-            return mapObservations(baseUrl, geocacheId, payload.observations);
-        } catch (error) {
-            console.warn('[EarthCoach] Unable to load structured observations', error);
-            return [];
+        const baseUrl = this.apiClient.getBaseUrl();
+        const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/observations`, { credentials: 'include' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+        const payload = await response.json() as { observations?: UserObservationDto[] };
+        return mapObservations(baseUrl, geocacheId, payload.observations);
     }
 
     protected async loadLoggingTasks(geocacheId: number): Promise<LoggingTask[]> {
-        try {
-            const baseUrl = this.apiClient.getBaseUrl();
-            const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/logging-tasks`, { credentials: 'include' });
-            if (!response.ok) {
-                return [];
-            }
-            const payload = await response.json() as { logging_tasks?: LoggingTaskDto[] };
-            return mapLoggingTasks(geocacheId, payload.logging_tasks);
-        } catch (error) {
-            console.warn('[EarthCoach] Unable to load logging tasks', error);
-            return [];
+        const baseUrl = this.apiClient.getBaseUrl();
+        const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/logging-tasks`, { credentials: 'include' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+        const payload = await response.json() as { logging_tasks?: LoggingTaskDto[] };
+        return mapLoggingTasks(geocacheId, payload.logging_tasks);
     }
 
     protected async loadBackendImages(geocacheId: number): Promise<GeoImage[]> {
-        try {
-            const baseUrl = this.apiClient.getBaseUrl();
-            const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/images`, { credentials: 'include' });
-            if (!response.ok) {
-                return [];
-            }
-            const images = await response.json() as BackendGeocacheImageDto[];
-            return mapBackendImages(baseUrl, geocacheId, images);
-        } catch (error) {
-            console.warn('[EarthCoach] Unable to load images', error);
-            return [];
+        const baseUrl = this.apiClient.getBaseUrl();
+        const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/images`, { credentials: 'include' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
         }
+        const images = await response.json() as BackendGeocacheImageDto[];
+        return mapBackendImages(baseUrl, geocacheId, images);
+    }
+
+    protected async loadWorkspace(geocacheId: number): Promise<EarthCoachWorkspace | undefined> {
+        const response = await fetch(
+            `${this.apiClient.getBaseUrl()}/api/geocaches/${geocacheId}/earthcoach-workspace`,
+            { credentials: 'include' }
+        );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json() as { workspace?: EarthCoachWorkspace };
+        return payload.workspace;
     }
 }

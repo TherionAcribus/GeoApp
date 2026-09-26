@@ -7,6 +7,7 @@ import {
     UserObservation,
 } from './earthcoach-types';
 import { LoggingTaskDto } from './earthcoach-logging-tasks';
+import { EarthCoachWorkspace } from './earthcoach-workspace-types';
 
 /**
  * Duree de vie du micro-cache de contexte EarthCoach.
@@ -27,6 +28,8 @@ export interface BackendGeocacheImageDto {
     image_type?: string;
     title?: string;
     note?: string;
+    parent_image_id?: number | null;
+    derivation_type?: string;
 }
 
 export interface UserObservationDto {
@@ -56,6 +59,7 @@ export interface EarthCoachContextApiResponse {
     observations?: UserObservationDto[];
     logging_tasks?: LoggingTaskDto[];
     notes?: GeocacheNoteDto[];
+    earthcoach_workspace?: EarthCoachWorkspace;
 }
 
 /**
@@ -73,6 +77,8 @@ export interface EarthCoachContextPayload {
     loggingTasks: LoggingTask[];
     notes: GeocacheNoteDto[];
     gcPersonalNote?: string | null;
+    workspace?: EarthCoachWorkspace;
+    loadErrors?: string[];
 }
 
 export interface EarthCoachContext {
@@ -81,10 +87,12 @@ export interface EarthCoachContext {
     loggingTasks: LoggingTask[];
     gcPersonalNote?: string | null;
     images: GeoImage[];
+    workspace?: EarthCoachWorkspace;
+    loadErrors?: string[];
 }
 
 export function createEmptyEarthCoachContextPayload(): EarthCoachContextPayload {
-    return { images: [], observations: [], loggingTasks: [], notes: [], gcPersonalNote: undefined };
+    return { images: [], observations: [], loggingTasks: [], notes: [], gcPersonalNote: undefined, loadErrors: [] };
 }
 
 export function mapBackendImage(
@@ -106,6 +114,9 @@ export function mapBackendImage(
         cacheId: String(geocacheId),
         label: image.title || `Image ${index + 1}`,
         description: image.note,
+        imageType: image.image_type,
+        parentImageId: image.parent_image_id ?? undefined,
+        derivationType: image.derivation_type,
         fileUri,
     };
 }
@@ -184,6 +195,8 @@ export function parseEarthCoachContextResponse(
         loggingTasks: mapLoggingTasks(geocacheId, payload?.logging_tasks),
         notes: payload?.notes || [],
         gcPersonalNote: payload?.gc_personal_note,
+        workspace: payload?.earthcoach_workspace,
+        loadErrors: [],
     };
 }
 
@@ -257,6 +270,8 @@ export function assembleEarthCoachContext(
         loggingTasks: payload.loggingTasks,
         gcPersonalNote: payload.gcPersonalNote,
         images: mergeImages(images, payload.observations.flatMap(observation => observation.images)),
+        workspace: payload.workspace,
+        loadErrors: payload.loadErrors || [],
     };
 }
 

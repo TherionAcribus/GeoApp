@@ -99,10 +99,17 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         const event = rawEvent as CustomEvent<GeoAppOpenChatRequestDetail>;
         const detail = event.detail || {};
         const baseSessionTitle = this.buildSessionTitle(detail);
-        const prompt = this.buildPrompt(detail);
+        let prompt = this.buildPrompt(detail);
 
         try {
-            const imageVariables = await this.fetchImagesAsVariables(this.getImageContexts(detail));
+            const imageContexts = this.getImageContexts(detail);
+            const imagePreparation = await this.fetchImagesAsVariables(imageContexts);
+            const imageVariables = imagePreparation.variables;
+            if (imagePreparation.failures.length) {
+                const failedLabels = imagePreparation.failures.map(context => context.label || context.id || context.url).join(', ');
+                prompt = `${prompt}\n\nIMPORTANT: ces images n ont pas pu etre transmises et ne doivent jamais etre presentees comme examinees: ${failedLabels}.`;
+                this.messages.warn(`${imagePreparation.failures.length} image(s) n'ont pas pu être transmise(s) au modèle.`);
+            }
 
             const existingSession = this.findExistingSession(detail, baseSessionTitle);
             if (existingSession) {
@@ -293,11 +300,20 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
     /** Long cote cible pour les images envoyees au modele : optimum tokens/qualite pour la vision. */
     protected static readonly MAX_IMAGE_DIMENSION = 1568;
 
-    protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<AIVariableResolutionRequest[]> {
+    protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<{
+        variables: AIVariableResolutionRequest[];
+        failures: GeoAppChatImageContext[];
+    }> {
         // Traitement en parallele : les images sont independantes, inutile de serialiser
         // les telechargements. Promise.all preserve l'ordre d'origine.
-        const variables = await Promise.all(imageContexts.map(context => this.fetchImageAsVariable(context)));
-        return variables.filter((variable): variable is AIVariableResolutionRequest => variable !== undefined);
+        const prepared = await Promise.all(imageContexts.map(async context => ({
+            context,
+            variable: await this.fetchImageAsVariable(context),
+        })));
+        return {
+            variables: prepared.map(item => item.variable).filter((variable): variable is AIVariableResolutionRequest => variable !== undefined),
+            failures: prepared.filter(item => item.variable === undefined).map(item => item.context),
+        };
     }
 
     protected async fetchImageAsVariable(imageContext: GeoAppChatImageContext): Promise<AIVariableResolutionRequest | undefined> {
@@ -327,35 +343,28 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
     }
 
     /**
-     * Redimensionne l'image si son plus grand cote depasse maxDimension, puis renvoie
-     * le base64 (sans prefixe data:). Reduit la latence d'ouverture et le cout tokens
-     * vision a chaque tour. Retombe sur l'image d'origine si le canvas echoue.
+     * Decode puis reencode toujours l'image avant transmission. Cette operation retire
+     * les metadonnees EXIF, meme quand aucun redimensionnement n'est necessaire.
      */
     protected async downscaleImage(blob: Blob, maxDimension: number): Promise<{ data: string; mimeType: string }> {
-        const original = async (): Promise<{ data: string; mimeType: string }> => {
-            const dataUrl = await this.readBlobAsDataUrl(blob);
-            return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType: blob.type || 'image/jpeg' };
-        };
-        try {
-            const image = await this.loadImageSource(blob);
-            const largestSide = Math.max(image.width, image.height);
-            if (!largestSide || largestSide <= maxDimension) {
-                return original();
-            }
-            const scale = maxDimension / largestSide;
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(image.width * scale));
-            canvas.height = Math.max(1, Math.round(image.height * scale));
-            const context = canvas.getContext('2d');
-            if (!context) {
-                return original();
-            }
-            context.drawImage(image, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-            return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType: 'image/jpeg' };
-        } catch {
-            return original();
+        const image = await this.loadImageSource(blob);
+        const largestSide = Math.max(image.width, image.height);
+        if (!largestSide) {
+            throw new Error('Invalid image dimensions');
         }
+        const scale = Math.min(1, maxDimension / largestSide);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Canvas is unavailable');
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const preserveTransparency = blob.type === 'image/png';
+        const mimeType = preserveTransparency ? 'image/png' : 'image/jpeg';
+        const dataUrl = canvas.toDataURL(mimeType, preserveTransparency ? undefined : 0.85);
+        return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType };
     }
 
     protected async loadImageSource(blob: Blob): Promise<CanvasImageSource & { width: number; height: number }> {

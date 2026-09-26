@@ -95,6 +95,7 @@ def create_app() -> Flask:
     from .blueprints.observations import bp as observations_bp
     from .blueprints.logging_tasks import bp as logging_tasks_bp
     from .blueprints.earthcoach_context import bp as earthcoach_context_bp
+    from .blueprints.earthcoach_workspace import bp as earthcoach_workspace_bp
     from .blueprints.earthcoach_geology import bp as earthcoach_geology_bp
     from .blueprints.earthcoach_geology_fr import bp as earthcoach_geology_fr_bp
     from .blueprints.earthcoach_elevation import bp as earthcoach_elevation_bp
@@ -121,6 +122,7 @@ def create_app() -> Flask:
     app.register_blueprint(observations_bp)
     app.register_blueprint(logging_tasks_bp)
     app.register_blueprint(earthcoach_context_bp)
+    app.register_blueprint(earthcoach_workspace_bp)
     app.register_blueprint(earthcoach_geology_bp)
     app.register_blueprint(earthcoach_geology_fr_bp)
     app.register_blueprint(earthcoach_elevation_bp)

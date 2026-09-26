@@ -55,6 +55,10 @@ import { formatFrenchGeologySummary, formatGeologySummary } from '../earthcoach-
 import { EarthCoachElevationTools, readElevationPoints } from '../earthcoach-elevation-tools';
 import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
+import { selectEarthCoachDescription } from '../earthcoach-description-selector';
+import { extractEarthCoachResultBlock } from '../earthcoach-result-capture';
+import { validateEarthCoachSelection } from '../earthcoach-workspace-logic';
+import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
     normalizeEarthCoachMode,
@@ -648,9 +652,10 @@ function testPromptIncludesLoggingTasks(): void {
     });
 
     assert.match(prompt, /Questions du proprietaire \(logging tasks\)/);
-    assert.match(prompt, /Q1 \[a traiter\]: Quelle est la couleur dominante/);
+    assert.match(prompt, /Q1 \[task_id=1; a traiter\]: Quelle est la couleur dominante/);
     assert.match(prompt, /A observer: Observer la roche en place/);
-    assert.match(prompt, /Q2 \[repondu; photo requise; observation liee=observation-3\]/);
+    assert.match(prompt, /Q2 \[task_id=2; repondu; observation liee=observation-3\]/);
+    assert.doesNotMatch(prompt, /photo requise/);
     assert.match(prompt, /Reponse brouillon: Environ 4 metres./);
 }
 
@@ -673,7 +678,7 @@ function testResolverTemplateConsumesLoggingTasks(): void {
     assert.match(prompt, /Reponse proposee/);
     assert.match(prompt, /Fondee sur/);
     assert.match(prompt, /Confiance: elevee \/ moyenne \/ faible/);
-    assert.match(prompt, /Traite les 2 question\(s\) listees/);
+    assert.match(prompt, /Traite toutes les 2 question\(s\) effectivement listees/);
 }
 
 function testResolverTemplateWithoutLoggingTasks(): void {
@@ -1157,7 +1162,7 @@ function testDescriptionExcerptKeepsShortListingIntact(): void {
     assert.equal(buildEarthCoachDescriptionExcerpt(undefined, 900).text, '');
 }
 
-function testPromptAsksForLoggingTaskExtractionWhenMissing(): void {
+function testPromptRequiresExplicitLoggingTaskExtractionWhenMissing(): void {
     const promptWithoutTasks = buildEarthCoachPrompt({
         geocache: {
             id: 1,
@@ -1176,7 +1181,8 @@ function testPromptAsksForLoggingTaskExtractionWhenMissing(): void {
     assert.match(promptWithoutTasks, /extrait cible/);
     assert.match(promptWithoutTasks, /Quelle est la couleur dominante/);
     assert.match(promptWithoutTasks, /Aucune question n est encore enregistree dans GeoApp/);
-    assert.match(promptWithoutTasks, /earthcoach_extract_logging_tasks/);
+    assert.match(promptWithoutTasks, /Ne les extrais pas automatiquement/);
+    assert.doesNotMatch(promptWithoutTasks, /Appelle d abord le tool earthcoach_extract_logging_tasks/);
 
     // Une fois les questions extraites, le rappel disparait au profit des vraies taches.
     const promptWithTasks = buildEarthCoachPrompt({
@@ -1196,7 +1202,104 @@ function testPromptAsksForLoggingTaskExtractionWhenMissing(): void {
     });
 
     assert.doesNotMatch(promptWithTasks, /Aucune question n est encore enregistree dans GeoApp/);
-    assert.match(promptWithTasks, /Q1 \[a traiter\]: Quelle est la couleur dominante/);
+    assert.match(promptWithTasks, /Q1 \[task_id=1; a traiter\]: Quelle est la couleur dominante/);
+}
+
+function testMultilingualDescriptionSelection(): void {
+    const paragraph = (language: string) => `${language} ${'description geologique complete et question terrain. '.repeat(5)}`;
+    const selection = selectEarthCoachDescription({
+        id: 1,
+        name: 'Multilingue',
+        description_html: `<section lang='de'>${paragraph('Deutsch')}</section><section lang='en'>${paragraph('English')}</section><section lang='fr'>${paragraph('Français')}</section>`,
+    }, 'fr');
+
+    assert.equal(selection.reliable, true);
+    assert.equal(selection.selectedLanguage, 'fr');
+    assert.match(selection.selected.text, /Français/);
+    assert.doesNotMatch(selection.selected.text, /English|Deutsch/);
+
+    const manual = selectEarthCoachDescription({
+        id: 1,
+        name: 'Multilingue',
+        description_html: `<section lang='de'>${paragraph('Deutsch')}</section><section lang='en'>${paragraph('English')}</section><section lang='fr'>${paragraph('Français')}</section>`,
+    }, 'fr', 'en', selection.fingerprint);
+    assert.equal(manual.selectedLanguage, 'en');
+    assert.match(manual.selected.text, /English/);
+}
+
+function testMultilingualDescriptionFallsBackToFullContent(): void {
+    const selection = selectEarthCoachDescription({
+        id: 2,
+        name: 'Ambigue',
+        description_html: '<p>FR / EN : roche claire / light rock, sans séparation fiable.</p>',
+    }, 'fr');
+    assert.equal(selection.reliable, false);
+    assert.match(selection.notice || '', /description complète/);
+    assert.match(selection.selected.text, /light rock/);
+}
+
+function testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity(): void {
+    const loggingTasks: LoggingTask[] = Array.from({ length: 12 }, (_, index) => ({
+        id: `logging-task-${index + 1}`,
+        geocacheId: '1',
+        position: index + 1,
+        question: `Question complète ${index + 1}`,
+        status: 'todo',
+        requiresPhoto: false,
+    }));
+    const observations: UserObservation[] = Array.from({ length: 8 }, (_, index) => ({
+        id: `observation-${index + 1}`,
+        cacheId: '1',
+        userId: 'local-user',
+        note: `Observation complète ${index + 1}`,
+        createdAt: '2026-01-01T00:00:00Z',
+        images: [],
+    }));
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, name: 'Preuves', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        verbosity: 'compact',
+        observations,
+        loggingTasks,
+        images: [],
+    });
+    assert.match(prompt, /Question complète 12/);
+    assert.match(prompt, /Observation complète 8/);
+    assert.doesNotMatch(prompt, /supplementaire\(s\) non inclus/);
+}
+
+function testEarthCoachResultFallbackBlock(): void {
+    const parsed = extractEarthCoachResultBlock('Texte\n```earthcoach-result\n{"request_id":"req-1","geocache_id":7,"action":"resolve","proposals":[]}\n```');
+    assert.equal(parsed?.request_id, 'req-1');
+    assert.equal(parsed?.geocache_id, 7);
+    assert.equal(parsed?.action, 'resolve');
+}
+
+function testWorkspaceSelectionValidation(): void {
+    const personal: GeoImage = { id: '1', origin: 'user_observation', fileUri: '/personal.jpg' };
+    const listing: GeoImage = { id: '2', origin: 'cache_listing', fileUri: '/listing.jpg' };
+    const group = [{
+        title: 'Paire',
+        position: 0,
+        members: [
+            { image_id: 1, role: 'original' as const, position: 0 },
+            { image_id: 2, role: 'detail' as const, position: 1 },
+        ],
+    }];
+
+    assert.match(validateEarthCoachSelection([personal], group, 8, true).error || '', /entièrement/);
+    assert.match(validateEarthCoachSelection([listing], [], 8, false).error || '', /Continuer sans photo/);
+    assert.equal(validateEarthCoachSelection([], [], 8, true).valid, true);
+    assert.match(validateEarthCoachSelection(Array(9).fill(listing), [], 8, true).error || '', /8 images maximum/);
+    assert.equal(validateEarthCoachSelection([personal, listing], group, 8, false).valid, true);
+}
+
+function testResultCaptureToolShape(): void {
+    const tools = new EarthCoachResultTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].name, 'earthcoach_capture_result');
+    assert.match(tools[0].description, /request_id/);
 }
 
 function testPromptSkipsExtractionHintWithoutQuestions(): void {
@@ -1334,7 +1437,15 @@ function testParseAggregatedContextResponse(): void {
 
     // Une reponse vide ou absente ne casse rien: contexte vide, pas d'exception.
     const empty = parseEarthCoachContextResponse('http://localhost:5000', 12, undefined);
-    assert.deepEqual(empty, { images: [], observations: [], loggingTasks: [], notes: [], gcPersonalNote: undefined });
+    assert.deepEqual(empty, {
+        images: [],
+        observations: [],
+        loggingTasks: [],
+        notes: [],
+        gcPersonalNote: undefined,
+        workspace: undefined,
+        loadErrors: [],
+    });
 }
 
 function testAssembleContextFallbacks(): void {
@@ -1448,7 +1559,13 @@ async function run(): Promise<void> {
     testDescriptionExcerptKeepsOwnerQuestions();
     testDescriptionExcerptSegmentsListingWithoutMarkup();
     testDescriptionExcerptKeepsShortListingIntact();
-    testPromptAsksForLoggingTaskExtractionWhenMissing();
+    testPromptRequiresExplicitLoggingTaskExtractionWhenMissing();
+    testMultilingualDescriptionSelection();
+    testMultilingualDescriptionFallsBackToFullContent();
+    testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
+    testEarthCoachResultFallbackBlock();
+    testWorkspaceSelectionValidation();
+    testResultCaptureToolShape();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

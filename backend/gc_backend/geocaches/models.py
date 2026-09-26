@@ -104,6 +104,31 @@ class Geocache(db.Model):
         lazy=True,
         order_by='GeocacheLoggingTask.position',
     )
+    earthcoach_workspace = db.relationship(
+        'EarthCoachWorkspace',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        uselist=False,
+        lazy=True,
+    )
+    earthcoach_image_contexts = db.relationship(
+        'EarthCoachImageContext',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        lazy=True,
+    )
+    earthcoach_image_groups = db.relationship(
+        'EarthCoachImageGroup',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        lazy=True,
+    )
+    earthcoach_results = db.relationship(
+        'EarthCoachResult',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        lazy=True,
+    )
     puzzle_states = db.relationship('GeocachePuzzleState', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
     # Une seule analyse de logs par géocache : la relancer remplace la précédente.
     logs_analysis = db.relationship(
@@ -304,6 +329,19 @@ class GeocacheImage(db.Model):
 
     geocache = db.relationship('Geocache', back_populates='images_v2')
     parent_image = db.relationship('GeocacheImage', remote_side=[id])
+    earthcoach_context = db.relationship(
+        'EarthCoachImageContext',
+        back_populates='image',
+        cascade='all, delete-orphan',
+        uselist=False,
+        lazy=True,
+    )
+    earthcoach_group_members = db.relationship(
+        'EarthCoachImageGroupMember',
+        back_populates='image',
+        cascade='all, delete-orphan',
+        lazy=True,
+    )
 
     __table_args__ = (
         db.UniqueConstraint('geocache_id', 'source_url', 'parent_image_id', 'derivation_type', name='unique_geocache_image_variant'),
@@ -472,6 +510,174 @@ class GeocacheLoggingTask(db.Model):
             'requires_photo': bool(self.requires_photo),
             'observation_id': self.observation_id,
             'source': self.source,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class EarthCoachWorkspace(db.Model):
+    __tablename__ = 'earthcoach_workspace'
+
+    geocache_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    general_comment = db.Column(db.Text)
+    selected_language = db.Column(db.String(20))
+    description_fingerprint = db.Column(db.String(64))
+    version = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='earthcoach_workspace')
+
+
+class EarthCoachImageContext(db.Model):
+    __tablename__ = 'earthcoach_image_context'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    image_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache_image.id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    included = db.Column(db.Boolean, nullable=False, default=False)
+    comment = db.Column(db.Text)
+    waypoint_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache_waypoint.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    observation_id = db.Column(
+        db.Integer,
+        db.ForeignKey('user_observation.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='earthcoach_image_contexts')
+    image = db.relationship('GeocacheImage', back_populates='earthcoach_context')
+    waypoint = db.relationship('GeocacheWaypoint')
+    observation = db.relationship('UserObservation')
+
+
+class EarthCoachImageGroup(db.Model):
+    __tablename__ = 'earthcoach_image_group'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    title = db.Column(db.String(255), nullable=False)
+    instruction = db.Column(db.Text)
+    waypoint_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache_waypoint.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    position = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='earthcoach_image_groups')
+    waypoint = db.relationship('GeocacheWaypoint')
+    members = db.relationship(
+        'EarthCoachImageGroupMember',
+        back_populates='group',
+        cascade='all, delete-orphan',
+        lazy=True,
+        order_by='EarthCoachImageGroupMember.position',
+    )
+
+
+class EarthCoachImageGroupMember(db.Model):
+    __tablename__ = 'earthcoach_image_group_member'
+
+    group_id = db.Column(
+        db.Integer,
+        db.ForeignKey('earthcoach_image_group.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    image_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache_image.id', ondelete='CASCADE'),
+        primary_key=True,
+    )
+    role = db.Column(db.String(20), nullable=False, default='other')
+    position = db.Column(db.Integer, nullable=False, default=0)
+
+    group = db.relationship('EarthCoachImageGroup', back_populates='members')
+    image = db.relationship('GeocacheImage', back_populates='earthcoach_group_members')
+
+
+class EarthCoachResult(db.Model):
+    __tablename__ = 'earthcoach_result'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(
+        db.Integer,
+        db.ForeignKey('geocache.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    request_id = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    action = db.Column(db.String(20), nullable=False)
+    session_id = db.Column(db.String(255))
+    context_snapshot = db.Column(db.JSON, nullable=False)
+    proposals = db.Column(db.JSON, nullable=False)
+    markdown = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='earthcoach_results')
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'geocache_id': self.geocache_id,
+            'request_id': self.request_id,
+            'action': self.action,
+            'session_id': self.session_id,
+            'context_snapshot': self.context_snapshot,
+            'proposals': self.proposals,
+            'markdown': self.markdown,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
