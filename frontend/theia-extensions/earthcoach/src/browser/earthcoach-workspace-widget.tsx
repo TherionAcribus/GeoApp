@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ApplicationShell } from '@theia/core/lib/browser';
+import { ApplicationShell, Message } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService, MessageService } from '@theia/core/lib/common';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
@@ -170,6 +170,24 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 this.update();
             }
         }));
+    }
+
+    protected readonly preventFileDropNavigation = (event: DragEvent): void => {
+        if (Array.from(event.dataTransfer?.types || []).includes('Files')) {
+            event.preventDefault();
+        }
+    };
+
+    protected override onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        this.node.addEventListener('dragover', this.preventFileDropNavigation);
+        this.node.addEventListener('drop', this.preventFileDropNavigation);
+    }
+
+    protected override onBeforeDetach(msg: Message): void {
+        this.node.removeEventListener('dragover', this.preventFileDropNavigation);
+        this.node.removeEventListener('drop', this.preventFileDropNavigation);
+        super.onBeforeDetach(msg);
     }
 
     setContext(context: EarthCoachContext, options: EarthCoachWorkspaceOpenOptions = {}): void {
@@ -767,11 +785,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             { id: 'unclassified', label: 'Non classées' },
             { id: 'selected', label: 'Sélectionnées' },
         ];
-        return <section className={`ecw-panel ecw-gallery${this.dropActive ? ' ecw-drop-active' : ''}`}
-            onDragEnter={event => this.onFileDragEnter(event)}
-            onDragOver={event => this.onFileDragOver(event)}
-            onDragLeave={event => this.onFileDragLeave(event)}
-            onDrop={event => this.onFileDrop(event)}>
+        return <section className={`ecw-panel ecw-gallery${this.dropActive ? ' ecw-drop-active' : ''}`}>
             <h3>Images</h3>
             <div className='ecw-filters'>{filters.map(filter =>
                 <button key={filter.id} className={this.filter === filter.id ? 'theia-button secondary active' : 'theia-button secondary'} onClick={() => {
@@ -782,14 +796,22 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             <label className='theia-button ecw-upload'>
                 {this.uploading ? 'Ajout…' : 'Ajouter des photos'}
                 <input type='file' accept='image/*' multiple style={{ display: 'none' }} disabled={this.uploading}
-                    onChange={event => void this.upload(Array.from(event.currentTarget.files || []))} />
+                    onChange={event => {
+                        const files = Array.from(event.currentTarget.files || []);
+                        event.currentTarget.value = '';
+                        void this.upload(files);
+                    }} />
             </label>
             <label className='theia-button secondary ecw-upload'>
                 Prendre une photo
                 <input type='file' accept='image/*' capture='environment' style={{ display: 'none' }} disabled={this.uploading}
-                    onChange={event => void this.upload(Array.from(event.currentTarget.files || []))} />
+                    onChange={event => {
+                        const files = Array.from(event.currentTarget.files || []);
+                        event.currentTarget.value = '';
+                        void this.upload(files);
+                    }} />
             </label>
-            <p className='ecw-muted'>Vous pouvez aussi glisser-déposer des images dans cette zone.</p>
+            <p className='ecw-muted'>Vous pouvez aussi glisser-déposer des images n’importe où dans ce dossier.</p>
             <div className='ecw-thumbs'>
                 {images.map(image => {
                     const id = imageId(image);
@@ -870,8 +892,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             {(this.workspace?.groups || []).map((group, groupIndex) =>
                 <div key={group.id || `new-${groupIndex}`} className='ecw-group' onDragOver={event => event.preventDefault()} onDrop={event => {
                     event.preventDefault();
-                    const dropped = Number(event.dataTransfer.getData('application/x-earthcoach-image'));
-                    if (Number.isInteger(dropped)) { this.addImageToGroup(groupIndex, dropped); }
+                    const raw = event.dataTransfer.getData('application/x-earthcoach-image');
+                    const dropped = Number(raw);
+                    if (raw && Number.isInteger(dropped)) { this.addImageToGroup(groupIndex, dropped); }
                 }}>
                     <div className='ecw-row'>
                         <input className='theia-input ecw-grow' value={group.title} onChange={event => this.mutate(workspace => {
@@ -970,7 +993,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         if (!this.context || !this.workspace) {
             return <div className='ecw-loading ecw-error'>{this.saveError || 'Aucun dossier terrain disponible.'}</div>;
         }
-        return <div className='ecw-root'>
+        return <div className='ecw-root'
+            onDragEnter={event => this.onFileDragEnter(event)}
+            onDragOver={event => this.onFileDragOver(event)}
+            onDragLeave={event => this.onFileDragLeave(event)}
+            onDrop={event => this.onFileDrop(event)}>
             <style>{`
                 .ecw-root{height:100%;overflow:auto;padding:12px;box-sizing:border-box;background:var(--theia-editor-background);display:grid;grid-auto-rows:max-content;align-content:start;gap:12px}
                 .ecw-root *{box-sizing:border-box}.ecw-root img{display:block;max-width:100%}

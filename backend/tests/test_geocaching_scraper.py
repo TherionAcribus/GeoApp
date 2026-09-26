@@ -250,3 +250,48 @@ def test_scraper_still_detects_archived_cache_while_counting_finds():
 
     assert scraped.status == 'archived'
     assert scraped.finds_count == 12
+
+
+def test_scraper_keeps_description_content_moved_after_legacy_span():
+    """Les tableaux invalides d'un listing peuvent fermer le span avant les questions."""
+    scraped = _scrape_html(
+        """
+        <html><body>
+            <h1>Une longue EarthCache</h1>
+            <div class="CacheDetailDescription">
+                <span id="ctl00_ContentBody_LongDescription">
+                    <p>Contexte géologique avant les tableaux.</p>
+                    <table><tr><td>Brèche</td></tr></table>
+                </span>
+                <table><tr><td>Conglomérat et matrice calcaire.</td></tr></table>
+                <p>Pour valider cette EarthCache, répondez aux questions suivantes :</p>
+                <ol>
+                    <li>Pourquoi trouve-t-on plusieurs types de galets ?</li>
+                    <li>Décrivez la surface du conglomérat observé.</li>
+                </ol>
+            </div>
+            <div id="div_hint">Aucun indice</div>
+        </body></html>
+        """
+    )
+
+    assert 'Contexte géologique' in scraped.description_raw
+    assert 'Conglomérat et matrice calcaire' in scraped.description_raw
+    assert 'Pourquoi trouve-t-on plusieurs types de galets' in scraped.description_raw
+    assert 'Décrivez la surface du conglomérat observé' in scraped.description_raw
+    assert 'Aucun indice' not in scraped.description_raw
+
+
+def test_scraper_keeps_normal_long_description_without_hint_boundary():
+    scraped = _scrape_html(
+        """
+        <html><body>
+            <h1>EarthCache simple</h1>
+            <span id="ctl00_ContentBody_LongDescription">
+                <p>Description complète et question finale ?</p>
+            </span>
+        </body></html>
+        """
+    )
+
+    assert 'Description complète et question finale ?' in scraped.description_raw

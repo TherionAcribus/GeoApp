@@ -100,6 +100,47 @@ FIND_LOGTYPE_IDS = (2, 10, 11)
 ARCHIVE_LOGTYPE_ID = 5
 
 
+_LONG_DESCRIPTION_OPEN_RE = re.compile(
+    r'<[^>]+\bid\s*=\s*["\']ctl00_ContentBody_LongDescription["\'][^>]*>',
+    re.I,
+)
+_LONG_DESCRIPTION_BOUNDARY_RE = re.compile(
+    r'<[^>]+\bid\s*=\s*["\'](?:div_hint|ctl00_ContentBody_uxCacheHint|ctl00_ContentBody_Hints)["\'][^>]*>',
+    re.I,
+)
+
+
+def extract_long_description_html(html: str, soup: BeautifulSoup) -> str | None:
+    """Extrait toute la description, même si son ``span`` se ferme trop tôt.
+
+    Certains listings contiennent des tableaux HTML invalides. Le parseur HTML
+    referme alors ``ctl00_ContentBody_LongDescription`` au milieu du contenu et
+    déplace la suite en éléments frères. La section des indices constitue une
+    frontière stable : quand elle est présente, on compare donc le fragment
+    source complet avec le ``span`` réparé par BeautifulSoup et garde le plus
+    riche des deux.
+    """
+    desc_el = soup.find(id='ctl00_ContentBody_LongDescription')
+    parsed_html = str(desc_el) if desc_el else None
+
+    start_match = _LONG_DESCRIPTION_OPEN_RE.search(html)
+    if not start_match:
+        return parsed_html
+    boundary_match = _LONG_DESCRIPTION_BOUNDARY_RE.search(html, start_match.end())
+    if not boundary_match:
+        return parsed_html
+
+    source_fragment = html[start_match.start():boundary_match.start()].strip()
+    if not source_fragment:
+        return parsed_html
+    if not parsed_html:
+        return source_fragment
+
+    parsed_text = html_to_text_with_linebreaks(parsed_html).strip()
+    source_text = html_to_text_with_linebreaks(source_fragment).strip()
+    return source_fragment if len(source_text) > len(parsed_text) else parsed_html
+
+
 def parse_log_type_counts(span) -> list[tuple[int | None, str, str, int | None]]:
     """
     Décompose le bloc de compteurs par type de log d'une page de cache.
@@ -648,14 +689,16 @@ class GeocachingScraper:
         # Description HTML
         description_html = None
         description_raw = None
-        desc_el = soup.find('span', {'id': 'ctl00_ContentBody_LongDescription'})
-        if desc_el:
+        desc_el = soup.find(id='ctl00_ContentBody_LongDescription')
+        extracted_description_html = extract_long_description_html(html, soup)
+        if extracted_description_html:
             try:
-                description_html = str(desc_el)
+                description_html = extracted_description_html
                 # Extraire le texte brut avec préservation des sauts de ligne
                 description_raw = html_to_text_with_linebreaks(description_html)
             except Exception:
-                description_html = desc_el.get_text(strip=True)
+                desc_el = soup.find(id='ctl00_ContentBody_LongDescription')
+                description_html = desc_el.get_text(strip=True) if desc_el else None
                 description_raw = description_html
 
         # Hints
@@ -789,8 +832,9 @@ class GeocachingScraper:
 
         # Images
         images: list[dict] = []
-        if desc_el:
-            for img in desc_el.find_all('img'):
+        description_image_root = BeautifulSoup(description_html, _BS4_PARSER) if description_html else desc_el
+        if description_image_root:
+            for img in description_image_root.find_all('img'):
                 src = img.get('src')
                 if not src:
                     continue

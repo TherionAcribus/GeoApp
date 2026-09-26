@@ -85,7 +85,6 @@ def test_first_open_selects_personal_images_by_default(client, seeded):
 
 
 def test_newly_uploaded_personal_image_is_selected_by_default(client, seeded):
-    # Simule un dossier déjà enregistré sans l'image « free ».
     response = client.put(
         f"/api/geocaches/{seeded['cache_id']}/earthcoach-workspace",
         json={
