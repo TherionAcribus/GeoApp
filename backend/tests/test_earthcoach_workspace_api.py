@@ -71,14 +71,40 @@ def seeded(app):
         }
 
 
-def test_first_open_selects_only_personal_images_linked_to_observations(client, seeded):
+def test_first_open_selects_personal_images_by_default(client, seeded):
     response = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-workspace")
 
     assert response.status_code == 200
     workspace = response.get_json()['workspace']
     assert workspace['version'] == 0
     selected = {item['image_id'] for item in workspace['image_contexts'] if item['included']}
-    assert selected == {seeded['linked_id']}
+    assert selected == {seeded['linked_id'], seeded['free_id']}
+    by_image = {item['image_id']: item for item in workspace['image_contexts']}
+    assert by_image[seeded['linked_id']]['observation_id'] == seeded['observation_id']
+    assert by_image[seeded['free_id']]['observation_id'] is None
+
+
+def test_newly_uploaded_personal_image_is_selected_by_default(client, seeded):
+    # Simule un dossier déjà enregistré sans l'image « free ».
+    response = client.put(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-workspace",
+        json={
+            'version': 0,
+            'image_contexts': [
+                {'image_id': seeded['linked_id'], 'included': False},
+                {'image_id': seeded['listing_id'], 'included': False},
+            ],
+            'groups': [],
+        },
+    )
+    assert response.status_code == 200
+
+    refreshed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-workspace")
+    assert refreshed.status_code == 200
+    contexts = {item['image_id']: item for item in refreshed.get_json()['workspace']['image_contexts']}
+    assert contexts[seeded['free_id']]['included'] is True
+    assert contexts[seeded['linked_id']]['included'] is False
+    assert contexts[seeded['listing_id']]['included'] is False
 
 
 def test_workspace_round_trip_multiple_groups_and_optimistic_lock(client, seeded):

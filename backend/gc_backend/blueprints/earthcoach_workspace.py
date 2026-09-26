@@ -77,7 +77,7 @@ def _default_contexts(geocache_id: int, images: list[GeocacheImage]) -> list[dic
         {
             'id': None,
             'image_id': image.id,
-            'included': bool(_is_personal_image(image) and image.id in linked_by_image),
+            'included': _is_personal_image(image),
             'comment': None,
             'waypoint_id': None,
             'observation_id': linked_by_image.get(image.id),
@@ -134,7 +134,7 @@ def serialize_workspace(geocache: Geocache) -> dict:
             serialized_contexts.append({
                 'id': None,
                 'image_id': image.id,
-                'included': False,
+                'included': _is_personal_image(image),
                 'comment': None,
                 'waypoint_id': None,
                 'observation_id': None,

@@ -89,6 +89,13 @@ function imageId(image: GeoImage): number | undefined {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function isImageFile(file: File): boolean {
+    if (file.type.startsWith('image/')) {
+        return true;
+    }
+    return /\.(avif|bmp|gif|hei[cf]|jpe?g|png|svg|tiff?|webp)$/i.test(file.name);
+}
+
 function statusLabel(state: EarthCoachSaveState): string {
     switch (state) {
         case 'dirty': return 'Modifications…';
@@ -114,6 +121,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected saveError?: string;
     protected loading = false;
     protected uploading = false;
+    protected dropActive = false;
+    protected dragDepth = 0;
     protected sending = false;
     protected confirmWithoutPhoto = false;
     protected unavailable: Array<{ id: string; label?: string; reason: string }> = [];
@@ -345,8 +354,20 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     }
 
     protected async upload(files: File[]): Promise<void> {
-        if (!this.context || !files.length) {
+        const images = files.filter(isImageFile);
+        if (files.length && !images.length) {
+            this.messages.warn('Seuls des fichiers image peuvent être ajoutés au dossier.');
             return;
+        }
+        if (!this.context || !images.length) {
+            return;
+        }
+        if (this.uploading) {
+            this.messages.info('Un ajout d’images est déjà en cours.');
+            return;
+        }
+        if (images.length < files.length) {
+            this.messages.warn(`${files.length - images.length} fichier(s) ignoré(s) : ce ne sont pas des images.`);
         }
         this.uploading = true;
         this.update();
@@ -354,7 +375,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             if (!(await this.flushSave())) {
                 throw new Error('Le dossier doit être enregistré avant d ajouter des images.');
             }
-            await this.workspaceService.uploadImages(this.context.geocacheData.id, files);
+            await this.workspaceService.uploadImages(this.context.geocacheData.id, images);
             this.contextService.invalidate(this.context.geocacheData.id);
             const refreshed = await this.contextService.collectContext({
                 geocacheData: this.context.geocacheData,
@@ -367,6 +388,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 );
                 const latestPersonal = [...refreshed.images].reverse().find(image => image.origin === 'user_observation');
                 this.selectedImageId = imageId(latestPersonal);
+                this.filter = 'personal';
             }
         } catch (error) {
             this.messages.error(error instanceof Error ? error.message : String(error));
@@ -374,6 +396,52 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             this.uploading = false;
             this.update();
         }
+    }
+
+    protected dragHasFiles(event: React.DragEvent): boolean {
+        return Array.from(event.dataTransfer.types || []).includes('Files');
+    }
+
+    protected onFileDragEnter(event: React.DragEvent): void {
+        if (!this.dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        this.dragDepth += 1;
+        if (!this.dropActive) {
+            this.dropActive = true;
+            this.update();
+        }
+    }
+
+    protected onFileDragOver(event: React.DragEvent): void {
+        if (!this.dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+    }
+
+    protected onFileDragLeave(event: React.DragEvent): void {
+        if (!this.dragHasFiles(event)) {
+            return;
+        }
+        this.dragDepth = Math.max(0, this.dragDepth - 1);
+        if (this.dragDepth === 0 && this.dropActive) {
+            this.dropActive = false;
+            this.update();
+        }
+    }
+
+    protected onFileDrop(event: React.DragEvent): void {
+        if (!this.dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        this.dragDepth = 0;
+        this.dropActive = false;
+        void this.upload(Array.from(event.dataTransfer.files || []));
+        this.update();
     }
 
     protected addGroup(imageIdValue?: number): void {
@@ -699,7 +767,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             { id: 'unclassified', label: 'Non classées' },
             { id: 'selected', label: 'Sélectionnées' },
         ];
-        return <section className='ecw-panel ecw-gallery'>
+        return <section className={`ecw-panel ecw-gallery${this.dropActive ? ' ecw-drop-active' : ''}`}
+            onDragEnter={event => this.onFileDragEnter(event)}
+            onDragOver={event => this.onFileDragOver(event)}
+            onDragLeave={event => this.onFileDragLeave(event)}
+            onDrop={event => this.onFileDrop(event)}>
             <h3>Images</h3>
             <div className='ecw-filters'>{filters.map(filter =>
                 <button key={filter.id} className={this.filter === filter.id ? 'theia-button secondary active' : 'theia-button secondary'} onClick={() => {
@@ -717,12 +789,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 <input type='file' accept='image/*' capture='environment' style={{ display: 'none' }} disabled={this.uploading}
                     onChange={event => void this.upload(Array.from(event.currentTarget.files || []))} />
             </label>
-            <div className='ecw-thumbs' onDragOver={event => event.preventDefault()} onDrop={event => {
-                event.preventDefault();
-                if (event.dataTransfer.files.length) {
-                    void this.upload(Array.from(event.dataTransfer.files));
-                }
-            }}>
+            <p className='ecw-muted'>Vous pouvez aussi glisser-déposer des images dans cette zone.</p>
+            <div className='ecw-thumbs'>
                 {images.map(image => {
                     const id = imageId(image);
                     if (!id) { return undefined; }
@@ -741,6 +809,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 })}
                 {!images.length && <p className='ecw-muted'>Aucune image pour ce filtre.</p>}
             </div>
+            {this.dropActive && <div className='ecw-drop-overlay'><span>Déposez les images pour les ajouter au dossier</span></div>}
         </section>;
     }
 
@@ -909,7 +978,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 .ecw-main{display:grid;grid-template-columns:minmax(250px,1fr) minmax(300px,1.4fr) minmax(260px,1fr);gap:12px;min-height:430px}
                 .ecw-main>*{min-width:0}.ecw-panel{min-width:0;max-width:100%;border:1px solid var(--theia-panel-border);border-radius:8px;padding:12px;background:var(--theia-sideBar-background);display:grid;grid-auto-rows:max-content;gap:10px;align-content:start}
                 .ecw-filters{display:flex;gap:5px;flex-wrap:wrap}.ecw-filters button{padding:3px 7px}.ecw-filters .active{outline:2px solid var(--theia-focusBorder)}
-                .ecw-upload{text-align:center}.ecw-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(105px,100%),1fr));grid-auto-rows:max-content;gap:8px;align-content:start;min-width:0;min-height:120px}
+                .ecw-upload{text-align:center}.ecw-gallery{position:relative}.ecw-gallery.ecw-drop-active{border-color:var(--theia-focusBorder)}
+                .ecw-drop-overlay{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;padding:16px;border:2px dashed var(--theia-focusBorder);border-radius:8px;background:color-mix(in srgb,var(--theia-editor-background) 85%,transparent);font-weight:600;text-align:center;pointer-events:none}
+                .ecw-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(105px,100%),1fr));grid-auto-rows:max-content;gap:8px;align-content:start;min-width:0;min-height:120px}
                 .ecw-thumb{position:relative;display:grid;grid-template-rows:82px minmax(18px,auto);min-width:0;max-width:100%;min-height:110px;gap:4px;padding:5px;color:inherit;background:var(--theia-editor-background);border:1px solid var(--theia-panel-border);border-radius:6px;text-align:left;overflow:hidden}.ecw-thumb.selected{border-color:var(--theia-focusBorder)}
                 .ecw-thumb img{width:100%;height:82px;object-fit:cover;border-radius:4px}.ecw-thumb span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ecw-thumb input{position:absolute;top:8px;right:8px;width:18px;height:18px}
                 .ecw-preview{overflow:hidden}.ecw-preview img{width:100%;height:auto;max-height:55vh;object-fit:contain;background:#111;border-radius:6px}.ecw-inspector label{display:grid;min-width:0;gap:5px}.ecw-inspector .theia-input,.ecw-inspector .theia-select{min-width:0;width:100%;max-width:100%}.ecw-check{display:flex!important;grid-template-columns:auto 1fr;align-items:center}
