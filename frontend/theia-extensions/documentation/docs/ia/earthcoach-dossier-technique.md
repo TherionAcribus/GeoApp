@@ -28,12 +28,12 @@ Le `PUT` remplace atomiquement les contextes et groupes. Le client envoie la ver
 
 L'onglet attend la fin de l'autosauvegarde, controle la limite d'images, refuse une selection partielle de groupe et demande une confirmation par envoi sans photo personnelle. Les images inaccessibles sont retirees de l'instantane et affichees dans le resume.
 
-`EarthCoachPreparedRequest` est l'instantane immuable transmis au chat : langue et empreinte du listing, commentaire general, questions, observations, images disponibles, groupes, roles, waypoints et commentaires. La verbosite ne retire aucune preuve des actions d'analyse et de resolution.
+`EarthCoachPreparedRequest` est l'instantane immuable transmis au chat : langue et empreinte du listing, langue de reponse, commentaire general, questions, observations, images disponibles, groupes, roles, waypoints et commentaires. La verbosite ne retire aucune preuve des actions d'analyse et de resolution.
 
 Le bridge chat decode puis reencode chaque image dans un canvas, y compris sans redimensionnement. Le modele ne recoit donc pas les metadonnees EXIF du fichier original. Si cette preparation echoue, l'image n'est pas jointe et le prompt signale explicitement qu'elle ne doit pas etre presentee comme examinee.
 
 ## Capture et validation
 
-Le modele appelle `earthcoach_capture_result` et ecrit aussi un bloc `earthcoach-result` dans sa reponse. Un observateur du chat utilise ce bloc comme filet de securite. Les deux voies utilisent le meme `request_id`, ce qui rend la capture idempotente.
+Le modele appelle `earthcoach_capture_result` sans afficher son JSON technique. L'ancien bloc `earthcoach-result` reste reconnu par l'observateur comme compatibilite de secours, mais il est retire du Markdown conserve et n'est plus demande au modele. Le `request_id` rend la capture idempotente.
 
-Les propositions restent modifiables dans le dossier. L'application d'une reponse exige une proposition `ready`, une reponse non vide et aucun element manquant. Seule la question existante est alors mise a jour ; aucun log Geocaching n'est cree.
+Les propositions restent modifiables dans le dossier et peuvent porter la traduction de la question originale. L'application d'une reponse exige une proposition `ready`, une reponse non vide et aucun element manquant. La generation finale sauvegarde d'abord ces propositions puis les reinjecte explicitement dans le chat, ce qui evite de dependre de l'etat implicite de la conversation. Seule la question existante est alors mise a jour ; aucun log Geocaching n'est cree.

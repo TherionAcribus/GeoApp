@@ -93,3 +93,7 @@ export function extractEarthCoachResultBlock(markdown: string): EarthCoachCaptur
     }
     return latest;
 }
+
+export function stripEarthCoachResultBlocks(markdown: string): string {
+    return (markdown || '').replace(/```earthcoach-result\s*\n[\s\S]*?\n?```/gi, '').trim();
+}

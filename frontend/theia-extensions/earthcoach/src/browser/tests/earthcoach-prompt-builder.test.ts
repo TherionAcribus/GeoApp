@@ -38,6 +38,7 @@ import {
 } from '../earthcoach-context-data';
 import {
     buildEarthCoachDescriptionExcerpt,
+    buildEarthCoachFinalAnswerPrompt,
     buildEarthCoachPrompt,
     DESCRIPTION_GAP_MARKER,
     selectEarthCoachImagesForChat,
@@ -56,7 +57,7 @@ import { EarthCoachElevationTools, readElevationPoints } from '../earthcoach-ele
 import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
 import { selectEarthCoachDescription } from '../earthcoach-description-selector';
-import { extractEarthCoachResultBlock } from '../earthcoach-result-capture';
+import { extractEarthCoachResultBlock, stripEarthCoachResultBlocks } from '../earthcoach-result-capture';
 import { validateEarthCoachSelection } from '../earthcoach-workspace-logic';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
@@ -150,6 +151,8 @@ function testSystemPromptModes(): void {
     assert.match(coachPrompt, /earthcoach_save_note/);
     assert.match(coachPrompt, /educational_reference/);
     assert.match(coachPrompt, /tres brievement/);
+    assert.match(coachPrompt, /N affiche jamais le JSON/);
+    assert.doesNotMatch(coachPrompt, /Ecris aussi le meme objet JSON/);
 
     assert.match(coachPrompt, /\*\*Mode EarthCoach : coach\*\*/);
     assert.match(coachPrompt, /earthcoach_set_mode/);
@@ -1270,10 +1273,31 @@ function testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity(): void {
 }
 
 function testEarthCoachResultFallbackBlock(): void {
-    const parsed = extractEarthCoachResultBlock('Texte\n```earthcoach-result\n{"request_id":"req-1","geocache_id":7,"action":"resolve","proposals":[]}\n```');
+    const response = 'Texte utile\n```earthcoach-result\n{"request_id":"req-1","geocache_id":7,"action":"resolve","proposals":[]}\n```';
+    const parsed = extractEarthCoachResultBlock(response);
     assert.equal(parsed?.request_id, 'req-1');
     assert.equal(parsed?.geocache_id, 7);
     assert.equal(parsed?.action, 'resolve');
+    assert.equal(stripEarthCoachResultBlocks(response), 'Texte utile');
+}
+
+function testFinalAnswerPromptUsesEditedProposalsWithoutJson(): void {
+    const prompt = buildEarthCoachFinalAnswerPrompt([{
+        task_id: 17,
+        question: 'Welche Steine kannst du finden?',
+        question_translation: 'Quelles pierres pouvez-vous trouver ?',
+        status: 'partial',
+        answer: 'J’ai identifié du calcaire et du marbre.',
+        missing: 'Comparer encore la surface du conglomérat.',
+        confidence: 'medium',
+    }], 'Français');
+
+    assert.match(prompt, /Langue demandee: Français/);
+    assert.match(prompt, /Quelles pierres pouvez-vous trouver/);
+    assert.match(prompt, /J’ai identifié du calcaire et du marbre/);
+    assert.match(prompt, /Comparer encore la surface du conglomérat/);
+    assert.match(prompt, /source prioritaire/);
+    assert.doesNotMatch(prompt, /```|request_id|\{"/);
 }
 
 function testWorkspaceSelectionValidation(): void {
@@ -1564,6 +1588,7 @@ async function run(): Promise<void> {
     testMultilingualDescriptionFallsBackToFullContent();
     testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
     testEarthCoachResultFallbackBlock();
+    testFinalAnswerPromptUsesEditedProposalsWithoutJson();
     testWorkspaceSelectionValidation();
     testResultCaptureToolShape();
     testPromptSkipsExtractionHintWithoutQuestions();

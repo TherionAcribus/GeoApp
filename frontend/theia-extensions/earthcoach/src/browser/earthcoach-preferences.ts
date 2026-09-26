@@ -1,4 +1,5 @@
 export const EARTHCOACH_RESPONSE_VERBOSITY_PREF = 'geoApp.earthCoach.response.verbosity';
+export const EARTHCOACH_RESPONSE_LANGUAGE_PREF = 'geoApp.earthCoach.response.language';
 export const EARTHCOACH_MAX_IMAGES_PREF = 'geoApp.earthCoach.analysis.maxImages';
 export const EARTHCOACH_LISTING_LANGUAGE_PREF = 'geoApp.earthCoach.listing.language';
 export const EARTHCOACH_REFERENCES_WEB_ENABLED_PREF = 'geoApp.earthCoach.references.web.enabled';

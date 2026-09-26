@@ -79,6 +79,12 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             default: 'fr',
             description: 'Langue de listing préférée par EarthCoach avant le repli français, anglais, puis première version complète.',
         },
+        'geoApp.earthCoach.response.language': {
+            type: 'string',
+            enum: ['fr', 'en', 'de', 'es', 'it', 'nl', 'pt'],
+            default: 'fr',
+            description: 'Langue utilisée pour traduire les questions EarthCache et générer la réponse finale EarthCoach.',
+        },
         [OUTING_DETAIL_LEVEL_PREF]: {
             type: 'string',
             enum: [...OUTING_DETAIL_LEVELS],

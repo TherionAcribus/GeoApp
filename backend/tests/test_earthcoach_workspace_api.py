@@ -203,6 +203,7 @@ def test_result_capture_edit_and_explicit_apply(client, seeded):
             'proposals': [{
                 'task_id': seeded['task_id'],
                 'question': 'Que voyez-vous ?',
+                'question_translation': 'Was sehen Sie?',
                 'status': 'partial',
                 'answer': 'Des strates.',
                 'missing': 'Mesure',
@@ -228,6 +229,7 @@ def test_result_capture_edit_and_explicit_apply(client, seeded):
     captured = observer_capture.get_json()['result']
     assert captured['context_snapshot'] == {'language': 'fr', 'images': []}
     assert captured['proposals'][0]['status'] == 'partial'
+    assert captured['proposals'][0]['question_translation'] == 'Was sehen Sie?'
     assert captured['markdown'] == 'Réponse complète'
     assert captured['session_id'] == 'session-1'
 

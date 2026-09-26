@@ -97,9 +97,11 @@ Vous pouvez changer la langue dans le dossier. Le choix reste memorise tant que 
 
 ### Propositions revisables
 
-Les analyses et resolutions sont conservees avec l'instantane exact du dossier envoye. Pour chaque question, une proposition indique son etat (**Prete**, **Partielle** ou **Manquante**), la reponse candidate, les preuves utilisees, la confiance et ce qui reste a relever.
+Les analyses et resolutions sont conservees avec l'instantane exact du dossier envoye. Pour chaque question, une proposition affiche la question originale, sa traduction dans la langue choisie, son etat (**Prete**, **Partielle** ou **Manquante**), la reponse candidate, les preuves utilisees, la confiance et ce qui reste a relever.
 
-Vous pouvez modifier une proposition puis la reporter individuellement dans la question existante. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
+La reponse candidate ne doit contenir que la reponse factuelle. Les mesures, photos ou actions encore necessaires vont dans **Elements a completer** ; un bouton permet d'y deplacer rapidement un texte place dans la mauvaise zone.
+
+Vous pouvez modifier une proposition puis la reporter individuellement dans la question existante. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Le bouton **Generer la reponse finale avec mes corrections** sauvegarde les modifications, les renvoie explicitement au chat et redige un message dans la langue choisie. Si des informations manquent encore, le resultat reste un brouillon avec des marqueurs a completer. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
 
 ## Images et origines
 

@@ -232,18 +232,6 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 earthcoachVerbosity: verbosity,
                 sessionKind: 'earthcoach',
                 imageContexts: selectedImages.map(toImageContext),
-                resumeState: {
-                    earthcoach: {
-                        mode,
-                        action,
-                        verbosity,
-                        imageOrigins: selectedImages.map(image => ({
-                            id: image.id,
-                            origin: image.origin,
-                            label: image.label,
-                        })),
-                    },
-                },
             })
         );
     }

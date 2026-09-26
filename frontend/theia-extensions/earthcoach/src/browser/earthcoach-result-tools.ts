@@ -45,12 +45,13 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                             type: 'object',
                             properties: {
                                 task_id: { type: 'number' },
-                                question: { type: 'string' },
+                                question: { type: 'string', description: 'Question originale du propriétaire, inchangée.' },
+                                question_translation: { type: 'string', description: 'Traduction de la question dans la langue utilisateur demandée.' },
                                 status: { type: 'string', enum: ['ready', 'partial', 'missing'] },
-                                answer: { type: 'string' },
+                                answer: { type: 'string', description: 'Réponse candidate factuelle uniquement, sans consigne ni action restant à effectuer.' },
                                 evidence_ids: { type: 'array', items: { type: 'string' } },
                                 confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-                                missing: { type: 'string' },
+                                missing: { type: 'string', description: 'Actions, mesures, photos ou informations restant à fournir.' },
                             },
                             required: ['question', 'status'],
                             additionalProperties: false,
@@ -70,9 +71,9 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                         proposals: Array.isArray(args.proposals) ? args.proposals as EarthCoachResultProposal[] : [],
                     };
                     const result = await this.capture.capture(payload);
-                    return JSON.stringify({ success: true, result_id: result.id });
+                    return `Résultat EarthCoach enregistré dans le dossier terrain (résultat ${result.id}).`;
                 } catch (error) {
-                    return JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error) });
+                    return `Échec de l'enregistrement EarthCoach : ${error instanceof Error ? error.message : String(error)}`;
                 }
             },
         };

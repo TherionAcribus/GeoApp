@@ -2,7 +2,7 @@ import * as React from 'react';
 import { ApplicationShell, Message } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService, MessageService } from '@theia/core/lib/common';
-import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import {
@@ -15,9 +15,10 @@ import { EarthCoachObservationService } from './earthcoach-observation-service';
 import {
     EARTHCOACH_LISTING_LANGUAGE_PREF,
     EARTHCOACH_MAX_IMAGES_PREF,
+    EARTHCOACH_RESPONSE_LANGUAGE_PREF,
     EARTHCOACH_RESPONSE_VERBOSITY_PREF,
 } from './earthcoach-preferences';
-import { buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
+import { buildEarthCoachFinalAnswerPrompt, buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
 import {
     EarthCoachAgentId,
     EarthCoachOpenCommandId,
@@ -42,7 +43,7 @@ import {
     EarthCoachWorkspaceConflictError,
     EarthCoachWorkspaceService,
 } from './earthcoach-workspace-service';
-import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
+import { EarthCoachResultCaptureService, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
 import { validateEarthCoachSelection } from './earthcoach-workspace-logic';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
@@ -55,6 +56,16 @@ const GROUP_ROLES: Array<{ value: EarthCoachGroupRole; label: string }> = [
     { value: 'before', label: 'Avant' },
     { value: 'after', label: 'Après' },
     { value: 'other', label: 'Autre' },
+];
+
+const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
+    { value: 'fr', label: 'Français' },
+    { value: 'en', label: 'English' },
+    { value: 'de', label: 'Deutsch' },
+    { value: 'es', label: 'Español' },
+    { value: 'it', label: 'Italiano' },
+    { value: 'nl', label: 'Nederlands' },
+    { value: 'pt', label: 'Português' },
 ];
 
 function numericId(value?: string): number | undefined {
@@ -124,6 +135,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected dropActive = false;
     protected dragDepth = 0;
     protected sending = false;
+    protected generatingFinalResultId?: number;
+    protected responseLanguage = 'fr';
     protected confirmWithoutPhoto = false;
     protected unavailable: Array<{ id: string; label?: string; reason: string }> = [];
     protected saveTimer?: number;
@@ -211,6 +224,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         this.loading = true;
         this.update();
         try {
+            this.responseLanguage = this.preferences.get<string>(EARTHCOACH_RESPONSE_LANGUAGE_PREF, 'fr');
             this.workspace = cloneWorkspace(
                 this.context.workspace || await this.workspaceService.getWorkspace(this.context.geocacheData.id)
             );
@@ -525,6 +539,16 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         return value === 'normal' || value === 'detailed' ? value : 'compact';
     }
 
+    protected setResponseLanguage(language: string): void {
+        this.responseLanguage = RESPONSE_LANGUAGES.some(candidate => candidate.value === language) ? language : 'fr';
+        void this.preferences.set(EARTHCOACH_RESPONSE_LANGUAGE_PREF, this.responseLanguage, PreferenceScope.User);
+        this.update();
+    }
+
+    protected responseLanguageLabel(): string {
+        return RESPONSE_LANGUAGES.find(candidate => candidate.value === this.responseLanguage)?.label || this.responseLanguage;
+    }
+
     protected imageLimit(): number {
         const configured = Number(this.preferences.get<number>(EARTHCOACH_MAX_IMAGES_PREF, 8));
         return Math.max(1, Math.min(20, Number.isFinite(configured) ? Math.round(configured) : 8));
@@ -637,6 +661,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 geocacheId: this.context.geocacheData.id,
                 action,
                 preparedAt: new Date().toISOString(),
+                responseLanguage: this.responseLanguage,
                 listing: {
                     language: this.description.selectedLanguage,
                     fingerprint: this.description.fingerprint,
@@ -696,7 +721,6 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 earthcoachVerbosity: verbosity,
                 sessionKind: 'earthcoach',
                 imageContexts: promptImages.map(toImageContext),
-                resumeState: { earthcoach: { mode, action, verbosity, preparedRequest: snapshot } },
             }));
             this.confirmWithoutPhoto = false;
             this.pendingAction = undefined;
@@ -732,6 +756,62 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         } catch (error) {
             this.messages.error(error instanceof Error ? error.message : String(error));
             return undefined;
+        }
+    }
+
+    protected moveAnswerToMissing(resultIndex: number, proposalIndex: number): void {
+        const proposal = this.results[resultIndex]?.proposals[proposalIndex];
+        const answer = proposal?.answer?.trim();
+        if (!proposal || !answer) {
+            return;
+        }
+        const previousMissing = proposal.missing?.trim();
+        this.updateProposal(resultIndex, proposalIndex, {
+            answer: '',
+            missing: previousMissing ? `${previousMissing}\n${answer}` : answer,
+            status: 'partial',
+        });
+    }
+
+    protected async generateFinalAnswer(resultIndex: number): Promise<void> {
+        const current = this.results[resultIndex];
+        if (!this.context || !current || current.action !== 'resolve' || this.generatingFinalResultId !== undefined) {
+            return;
+        }
+        this.generatingFinalResultId = current.id;
+        this.update();
+        try {
+            const saved = await this.saveResult(resultIndex);
+            if (!saved) {
+                return;
+            }
+            if (!saved.proposals.length) {
+                this.messages.warn('Aucune réponse corrigée n’est disponible pour générer le message final.');
+                return;
+            }
+            const geocache = this.context.geocacheData;
+            const label = geocache.gc_code || geocache.name;
+            const verbosity = this.readVerbosity();
+            dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
+                geocacheId: geocache.id,
+                gcCode: geocache.gc_code,
+                geocacheName: geocache.name,
+                sessionTitle: `EARTHCOACH FINAL - ${label}`,
+                prompt: buildEarthCoachFinalAnswerPrompt(saved.proposals, this.responseLanguageLabel()),
+                focus: true,
+                workflowKind: 'general',
+                preferredProfile: 'strong',
+                preferredAgentId: EarthCoachAgentId,
+                earthcoachMode: 'resolver',
+                earthcoachVerbosity: verbosity,
+                sessionKind: 'earthcoach',
+            }));
+            if (saved.proposals.some(proposal => proposal.status !== 'ready' || Boolean(proposal.missing?.trim()))) {
+                this.messages.warn('La réponse finale sera générée comme brouillon avec les éléments restant à compléter.');
+            }
+        } finally {
+            this.generatingFinalResultId = undefined;
+            this.update();
         }
     }
 
@@ -970,18 +1050,30 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         }
         return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map((result, resultIndex) =>
             <details key={result.id} open={resultIndex === 0}><summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}</summary>
-                {result.markdown && <pre>{result.markdown}</pre>}
+                {result.markdown && <pre>{stripEarthCoachResultBlocks(result.markdown)}</pre>}
                 {result.proposals.map((proposal, proposalIndex) => <div key={`${result.id}-${proposalIndex}`} className='ecw-proposal'>
-                    <strong>{proposal.question}</strong>
-                    <select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(resultIndex, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
+                    <div className='ecw-question'><strong>{proposal.question}</strong>
+                        {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
+                            <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
+                    </div>
+                    <label>État<select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(resultIndex, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
                         <option value='ready'>Prête</option><option value='partial'>Partielle</option><option value='missing'>Manquante</option>
-                    </select>
-                    <textarea className='theia-input' rows={4} value={proposal.answer || ''} onChange={event => this.updateProposal(resultIndex, proposalIndex, { answer: event.currentTarget.value })} />
-                    <input className='theia-input' value={proposal.missing || ''} placeholder='Éléments restant à compléter' onChange={event => this.updateProposal(resultIndex, proposalIndex, { missing: event.currentTarget.value || null })} />
+                    </select></label>
+                    <label>Réponse candidate — uniquement ce qui répond à la question<textarea className='theia-input' rows={4} value={proposal.answer || ''} onChange={event => this.updateProposal(resultIndex, proposalIndex, { answer: event.currentTarget.value })} /></label>
+                    <label>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''} placeholder='Ex. mesurer l’épaisseur sur place' onChange={event => this.updateProposal(resultIndex, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
                     <div className='ecw-row'><button className='theia-button secondary' onClick={() => void this.saveResult(resultIndex)}>Enregistrer</button>
+                        <button className='theia-button secondary' disabled={!proposal.answer?.trim()} onClick={() => this.moveAnswerToMissing(resultIndex, proposalIndex)}>Déplacer la réponse vers « À compléter »</button>
                         <button className='theia-button' disabled={proposal.status !== 'ready' || !proposal.answer || Boolean(proposal.missing)} onClick={() => void this.applyProposal(resultIndex, proposalIndex)}>Reporter dans la question</button></div>
                 </div>)}
-                <button className='theia-button secondary' onClick={() => void this.saveResultAsNote(result)}>Enregistrer la synthèse dans les notes</button>
+                <div className='ecw-final-answer'>
+                    <label>Langue de la réponse finale<select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
+                        {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+                    </select></label>
+                    {result.action === 'resolve' && <button className='theia-button' disabled={this.generatingFinalResultId !== undefined} onClick={() => void this.generateFinalAnswer(resultIndex)}>
+                        {this.generatingFinalResultId === result.id ? 'Préparation…' : 'Générer la réponse finale avec mes corrections'}
+                    </button>}
+                    <button className='theia-button secondary' onClick={() => void this.saveResultAsNote(result)}>Enregistrer la synthèse dans les notes</button>
+                </div>
             </details>
         )}</section>;
     }
@@ -1015,7 +1107,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 .ecw-member{display:grid;grid-template-columns:48px minmax(0,1fr) auto auto;gap:6px;align-items:center;min-width:0;max-width:100%}.ecw-member img{width:48px;height:42px;object-fit:cover;border-radius:4px}.ecw-member span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
                 .ecw-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.ecw-muted{color:var(--theia-descriptionForeground);font-size:12px}.ecw-warning,.ecw-error,.ecw-review{padding:9px;border-radius:5px}.ecw-warning{background:var(--theia-inputValidation-warningBackground);border:1px solid var(--theia-inputValidation-warningBorder)}.ecw-error{background:var(--theia-inputValidation-errorBackground);border:1px solid var(--theia-inputValidation-errorBorder)}.ecw-review{background:var(--theia-list-activeSelectionBackground)}
                 .ecw-confirm{font-weight:600;display:flex;align-items:center;gap:8px}.ecw-actions{position:sticky;bottom:0;padding:8px;background:var(--theia-sideBar-background);justify-content:flex-end;border-top:1px solid var(--theia-panel-border)}
-                .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:7px;padding:9px;margin:8px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-loading{padding:24px}
+                .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:9px;padding:12px;margin:10px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-proposal label,.ecw-final-answer label{display:grid;gap:5px}.ecw-question{display:grid;gap:5px}.ecw-translation{padding:7px 9px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}.ecw-translation span{font-weight:600}.ecw-final-answer{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--theia-panel-border)}.ecw-loading{padding:24px}
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
             `}</style>
             <header className='ecw-head'><h2>Dossier terrain</h2><span className='ecw-muted'>{this.context.geocacheData.name}</span><span className='ecw-grow' />
@@ -1026,6 +1118,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             <section className='ecw-panel'><div className='ecw-row'><label>Version du listing <select className='theia-select' value={this.description?.selectedLanguage || ''} onChange={event => {
                 this.rebuildDescription(event.currentTarget.value); this.update();
             }}>{(this.description?.versions || []).map(candidate => <option key={candidate.language} value={candidate.language}>{candidate.label}</option>)}</select></label>
+                <label>Langue des questions et réponses <select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
+                    {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+                </select></label>
                 <span className='ecw-muted'>{this.description?.reliable ? 'Une seule version sera analysée.' : 'Description complète utilisée.'}</span></div></section>
             <div className='ecw-main'>{this.renderGallery()}{this.renderPreview()}{this.renderInspector()}</div>
             {this.renderGroups()}

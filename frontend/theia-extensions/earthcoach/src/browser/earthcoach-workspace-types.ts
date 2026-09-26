@@ -84,6 +84,7 @@ export interface EarthCoachPreparedRequest {
     geocacheId: number;
     action: EarthCoachSendAction;
     preparedAt: string;
+    responseLanguage?: string;
     listing: {
         language: string;
         fingerprint: string;
@@ -102,6 +103,7 @@ export interface EarthCoachPreparedRequest {
 export interface EarthCoachResultProposal {
     task_id?: number;
     question: string;
+    question_translation?: string;
     status: 'ready' | 'partial' | 'missing';
     answer?: string;
     evidence_ids?: string[];
