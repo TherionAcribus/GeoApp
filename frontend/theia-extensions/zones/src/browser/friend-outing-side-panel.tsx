@@ -96,6 +96,15 @@ export interface FriendOutingSidePanelProps {
     /** Supprime le groupe. */
     onDeleteGroup: (name: string) => void;
 
+    /** Noms de toutes les sorties enregistrées de la zone. */
+    outingNames: string[];
+    /** Bascule le mode sur une autre sortie enregistrée. */
+    onSwitchOuting: (name: string) => void;
+    /** Enregistre la sortie courante sous un nom (remplace si existant). */
+    onSaveOutingAs: (name: string) => void;
+    /** Supprime une sortie enregistrée de la zone. */
+    onDeleteOuting: (name: string) => void;
+
     /** Exporte la matrice « qui a trouvé quoi » en CSV. */
     onExportCsv?: () => void;
 
@@ -220,13 +229,21 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                 <button
                     className='geoapp-outing-panel__icon-button'
                     onClick={props.onExit}
-                    title='Quitter le mode sortie (la sortie enregistrée est supprimée)'
+                    title='Quitter le mode sortie (la sortie reste enregistrée)'
                 >
                     <span className='codicon codicon-close' />
                 </button>
             </div>
 
             <div className='geoapp-outing-panel__body'>
+                <OutingsSection
+                    activeName={props.outing.name}
+                    names={props.outingNames}
+                    onSwitch={props.onSwitchOuting}
+                    onSaveAs={props.onSaveOutingAs}
+                    onDelete={props.onDeleteOuting}
+                />
+
                 <FriendsSection
                     rows={visibleRows}
                     totalCount={friendRows.length}
@@ -593,6 +610,89 @@ const GroupsRow: React.FC<{
                 </button>
             </div>
         </div>
+    );
+};
+
+/**
+ * Sorties nommées de la zone : le sélecteur bascule le mode sur une autre
+ * préparation, « Nommer » enregistre la courante sous un nom (nouveau ou
+ * existant — il est alors remplacé), la corbeille la supprime.
+ *
+ * Contrairement aux groupes d'amis, les sorties sont propres à la zone :
+ * « Les 30 du centre » ne veut rien dire ailleurs.
+ */
+const OutingsSection: React.FC<{
+    activeName: string;
+    names: string[];
+    onSwitch: (name: string) => void;
+    onSaveAs: (name: string) => void;
+    onDelete: (name: string) => void;
+}> = ({ activeName, names, onSwitch, onSaveAs, onDelete }) => {
+    const [nameInput, setNameInput] = React.useState('');
+    const trimmedName = nameInput.trim();
+    const others = names.filter(name => name !== activeName);
+
+    return (
+        <section className='geoapp-outing-panel__section'>
+            <h4 className='geoapp-outing-panel__section-title'>
+                Sortie
+                {names.length > 1 && (
+                    <span className='geoapp-outing-panel__section-count'>{names.length}</span>
+                )}
+            </h4>
+            <div className='geoapp-outing-panel__row'>
+                <select
+                    className='theia-input geoapp-outing-panel__search'
+                    value={activeName}
+                    onChange={e => onSwitch(e.target.value)}
+                    title='Sortie active — changer reprend la préparation enregistrée'
+                    aria-label='Sortie active'
+                >
+                    {names.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                    ))}
+                    {!names.includes(activeName) && (
+                        <option value={activeName}>{activeName}</option>
+                    )}
+                </select>
+                <button
+                    className='theia-button secondary geoapp-outing-panel__mini-button'
+                    onClick={() => onDelete(activeName)}
+                    title={`Supprimer la sortie « ${activeName} » et quitter le mode`}
+                >
+                    <span className='codicon codicon-trash' />
+                </button>
+            </div>
+            <div className='geoapp-outing-panel__row'>
+                <input
+                    className='theia-input geoapp-outing-panel__search'
+                    type='text'
+                    placeholder='Nom de la sortie…'
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => {
+                        if (e.key === 'Enter' && trimmedName) {
+                            onSaveAs(trimmedName);
+                            setNameInput('');
+                        }
+                    }}
+                    aria-label='Nom sous lequel enregistrer la sortie'
+                />
+                <button
+                    className='theia-button secondary geoapp-outing-panel__mini-button'
+                    onClick={() => {
+                        onSaveAs(trimmedName);
+                        setNameInput('');
+                    }}
+                    disabled={!trimmedName || trimmedName === activeName}
+                    title={others.some(o => o.toLowerCase() === trimmedName.toLowerCase())
+                        ? `Remplacer la sortie « ${trimmedName} » par la préparation courante`
+                        : `Enregistrer la préparation courante sous « ${trimmedName || '…'} »`}
+                >
+                    Nommer
+                </button>
+            </div>
+        </section>
     );
 };
 

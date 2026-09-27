@@ -43,11 +43,17 @@ import {
     FriendAnalysisSummary,
     FriendFilter,
     FriendOuting,
+    ZoneOutings,
     createFriendOuting,
+    deactivateZoneOutings,
+    findZoneOuting,
+    nextOutingName,
     outingScopeGcCodes,
+    removeZoneOuting,
     updateFriendOuting,
+    upsertZoneOuting,
 } from './friend-outing-state';
-import { clearFriendOuting, loadFriendOuting, saveFriendOuting } from './friend-outing-store';
+import { clearZoneOutings, loadZoneOutings, saveZoneOutings } from './friend-outing-store';
 import { outingMatrixCsv } from './friend-outing-export';
 import { findFriendGroup, FriendGroup, removeFriendGroup, upsertFriendGroup } from './friend-groups-state';
 import { loadFriendGroups, saveFriendGroups } from './friend-groups-store';
@@ -155,6 +161,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      * couleur des lignes) n'est visible que quand elle n'est pas nulle.
      */
     protected outing: FriendOuting | null = null;
+    /**
+     * Toutes les sorties nommées de la zone (plus celle active). Chargé avec la
+     * zone même hors mode sortie : reprendre une préparation ne doit pas
+     * nécessiter de recréer une sortie pour la retrouver.
+     */
+    protected zoneOutings: ZoneOutings | null = null;
     /**
      * Les amis de la sortie sous forme de Set. Champ et non getter : la table
      * mémoïse sur l'identité de ce Set, un nouveau à chaque rendu invaliderait le
@@ -1746,28 +1758,49 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.activeFriendsSet = new Set(next?.friends ?? []);
     }
 
-    /** Applique une sortie et l'écrit dans le stockage. */
+    /** Applique une sortie et l'écrit dans le stockage (ensemble par zone). */
     protected commitOuting(next: FriendOuting): void {
+        const base: ZoneOutings = this.zoneOutings
+            ?? { zoneId: next.zoneId, outings: [], activeName: null };
+        const nextSet = upsertZoneOuting(base, next);
+        if (!nextSet) {
+            return; // limite de sorties atteinte : le panneau garde le contrôle
+        }
+        this.zoneOutings = nextSet;
         this.applyOuting(next);
-        void saveFriendOuting(this.storageService, next);
+        void saveZoneOutings(this.storageService, nextSet);
         this.update();
     }
 
+    /** Persiste l'ensemble courant sans changer la sortie active. */
+    protected persistZoneOutings(): void {
+        if (this.zoneOutings) {
+            void saveZoneOutings(this.storageService, this.zoneOutings);
+        }
+    }
+
     /**
-     * Restaure la sortie enregistrée pour une zone, si elle existe.
+     * Restaure les sorties enregistrées pour une zone, si elles existent.
      *
      * Préparer une sortie coûte plusieurs analyses réseau, chacune limitée par
-     * geocaching.com : fermer l'onglet ne doit pas les jeter. Le bandeau signale la
-     * restauration, parce qu'un mode réactivé tout seul serait sinon une table qui
-     * filtre et colore sans raison apparente.
+     * geocaching.com : fermer l'onglet ne doit pas les jeter. Seule la sortie
+     * active réactive le mode — un utilisateur qui a quitté le mode ne doit pas
+     * le voir ressusciter à la réouverture. Le bandeau signale la restauration,
+     * parce qu'un mode réactivé tout seul serait sinon une table qui filtre et
+     * colore sans raison apparente.
      */
     protected async restoreOuting(zoneId: number): Promise<void> {
-        const stored = await loadFriendOuting(this.storageService, zoneId);
+        const stored = await loadZoneOutings(this.storageService, zoneId);
         // La zone a pu changer pendant la lecture : ne rien restaurer par-dessus.
         if (!stored || this.zoneId !== zoneId) {
             return;
         }
-        this.applyOuting(stored);
+        this.zoneOutings = stored;
+        const active = stored.activeName ? findZoneOuting(stored, stored.activeName) : undefined;
+        if (!active) {
+            return;
+        }
+        this.applyOuting(active);
         this.friendFilter = 'none';
         this.outingRestored = true;
         this.update();
@@ -1777,14 +1810,58 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     /**
      * Entre en mode sortie. Le périmètre est la sélection courante si elle existe,
-     * sinon toute la zone (`gcCodes` vide).
+     * sinon toute la zone (`gcCodes` vide). Une nouvelle sortie nommée est créée ;
+     * les sorties déjà enregistrées restent sélectionnables dans le panneau.
      */
     protected enterOutingMode = (ids: number[] = []): void => {
         if (!this.zoneId) { return; }
         this.outingRestored = false;
-        this.commitOuting(createFriendOuting(this.zoneId, this.outing?.friends ?? [], this.gcCodesOf(ids)));
+        const name = nextOutingName(this.zoneOutings?.outings ?? []);
+        this.commitOuting(createFriendOuting(this.zoneId, name, this.outing?.friends ?? [], this.gcCodesOf(ids)));
         void this.loadAccountFriends();
         void this.loadFriendGroups();
+    };
+
+    /** Bascule le mode sur une autre sortie enregistrée de la zone. */
+    protected switchOuting = (name: string): void => {
+        if (!this.zoneOutings) { return; }
+        const found = findZoneOuting(this.zoneOutings, name);
+        if (found && found.name !== this.outing?.name) {
+            this.zoneOutings = { ...this.zoneOutings, activeName: found.name };
+            this.applyOuting(found);
+            this.friendFilter = 'none';
+            this.persistZoneOutings();
+            this.update();
+        }
+    };
+
+    /**
+     * Enregistre la sortie courante sous un nom — nouveau ou existant (il est
+     * alors remplacé). « Enregistrer sous » couvre aussi le renommage.
+     */
+    protected saveOutingAs = (name: string): void => {
+        if (!this.outing || !this.zoneId || !name.trim()) { return; }
+        this.commitOuting(createFriendOuting(this.zoneId, name, this.outing.friends, this.outing.gcCodes));
+    };
+
+    /**
+     * Supprime une sortie enregistrée. Si c'était l'active, le mode sortie est
+     * quitté ; les autres sorties de la zone survivent.
+     */
+    protected deleteOuting = (name: string): void => {
+        if (!this.zoneOutings || !this.zoneId) { return; }
+        const wasActive = this.outing?.name.toLowerCase() === name.trim().toLowerCase();
+        const next = removeZoneOuting(this.zoneOutings, name);
+        this.zoneOutings = next.outings.length > 0 ? next : null;
+        if (wasActive) {
+            this.leaveOutingModeState();
+        }
+        if (this.zoneOutings) {
+            this.persistZoneOutings();
+        } else {
+            void clearZoneOutings(this.storageService, this.zoneId);
+        }
+        this.update();
     };
 
     /** Change les amis emmenés. */
@@ -1833,23 +1910,32 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     };
 
     /**
-     * Termine la sortie : l'entrée persistée est supprimée, et tout ce qui n'a de
-     * sens que dans le mode est remis à zéro — le filtre, dont le contrôle disparaît
-     * avec le panneau amis et qui masquerait sinon des caches de façon invisible,
-     * ainsi que le résumé et la progression de l'analyse.
+     * Remet à zéro tout ce qui n'a de sens que dans le mode sortie — le filtre,
+     * dont le contrôle disparaît avec le panneau amis et qui masquerait sinon des
+     * caches de façon invisible, ainsi que le résumé et la progression de
+     * l'analyse. Une analyse en cours appartient à la sortie : l'abandonner,
+     * sinon son flux continuerait d'écrire dans un état que plus personne
+     * n'affiche.
      */
-    protected exitOutingMode = (): void => {
-        const zoneId = this.outing?.zoneId ?? this.zoneId;
+    protected leaveOutingModeState(): void {
         this.applyOuting(null);
         this.friendFilter = 'none';
         this.outingRestored = false;
         this.lastAnalysisSummary = null;
-        // Une analyse en cours appartient à la sortie : l'abandonner, sinon son flux
-        // continuerait d'écrire dans un état que plus personne n'affiche.
         this.analyzeAbortController?.abort();
         this.friendFindsProgress = null;
-        if (zoneId) {
-            void clearFriendOuting(this.storageService, zoneId);
+    }
+
+    /**
+     * Quitte le mode sortie : la sortie nommée reste enregistrée (on y revient
+     * par le sélecteur du panneau ou à la prochaine entrée en mode), seule la
+     * marque « active » est levée — rouvrir la zone ne réactive rien.
+     */
+    protected exitOutingMode = (): void => {
+        this.leaveOutingModeState();
+        if (this.zoneOutings) {
+            this.zoneOutings = deactivateZoneOutings(this.zoneOutings);
+            this.persistZoneOutings();
         }
         this.update();
     };
@@ -2642,6 +2728,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onApplyFriendGroup={this.applyFriendGroup}
                 onSaveFriendGroup={this.saveFriendGroup}
                 onDeleteFriendGroup={this.deleteFriendGroup}
+                outingNames={this.zoneOutings?.outings.map(o => o.name) ?? []}
+                onSwitchOuting={this.switchOuting}
+                onSaveOutingAs={this.saveOutingAs}
+                onDeleteOuting={this.deleteOuting}
                 onExportOutingCsv={this.exportOutingCsv}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}

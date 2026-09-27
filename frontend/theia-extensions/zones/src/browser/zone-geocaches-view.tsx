@@ -158,6 +158,14 @@ export interface ZoneGeocachesViewProps {
     onDeleteFriendGroup?: (name: string) => void;
     /** Exporte la matrice « qui a trouvé quoi » de la sortie en CSV. */
     onExportOutingCsv?: () => void;
+    /** Noms de toutes les sorties enregistrées de la zone. */
+    outingNames?: string[];
+    /** Bascule le mode sur une autre sortie enregistrée. */
+    onSwitchOuting?: (name: string) => void;
+    /** Enregistre la sortie courante sous un nom. */
+    onSaveOutingAs?: (name: string) => void;
+    /** Supprime une sortie enregistrée de la zone. */
+    onDeleteOuting?: (name: string) => void;
     /** Termine la sortie. */
     onExitOutingMode?: () => void;
     showImportAroundDialog: boolean;
@@ -520,6 +528,10 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onApplyGroup={props.onApplyFriendGroup ?? (() => undefined)}
                     onSaveGroup={props.onSaveFriendGroup ?? (() => undefined)}
                     onDeleteGroup={props.onDeleteFriendGroup ?? (() => undefined)}
+                    outingNames={props.outingNames ?? []}
+                    onSwitchOuting={props.onSwitchOuting ?? (() => undefined)}
+                    onSaveOutingAs={props.onSaveOutingAs ?? (() => undefined)}
+                    onDeleteOuting={props.onDeleteOuting ?? (() => undefined)}
                     onExportCsv={props.onExportOutingCsv}
                     onOpenGeocache={props.onRowClick}
                     onExit={props.onExitOutingMode ?? (() => undefined)}
