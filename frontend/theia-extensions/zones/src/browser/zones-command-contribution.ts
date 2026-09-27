@@ -93,10 +93,14 @@ export class ZonesCommandContribution implements CommandContribution {
 
         // Ouvre le flux d'activité des amis Geocaching.com
         commands.registerCommand(ZonesCommands.OPEN_FRIEND_ACTIVITY, {
-            execute: async () => {
-                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendActivityWidget.ID);
+            execute: async (args?: { username?: string }) => {
+                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendActivityWidget.ID) as GeocachingFriendActivityWidget;
                 if (!widget.isAttached) {
                     this.shell.addWidget(widget, { area: 'main' });
+                }
+                // `{ username }` : vue focalisée sur un ami (depuis sa carte).
+                if (args?.username) {
+                    void widget.focusAuthor(args.username);
                 }
                 this.shell.activateWidget(widget.id);
             }

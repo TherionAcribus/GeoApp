@@ -195,6 +195,16 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     }
 
     /**
+     * Filtre le flux sur un auteur précis. Point d'entrée inter-widgets :
+     * la commande `geoapp.friends.activity.open` accepte `{ username }`
+     * (bouton « Activité » d'une carte ami, par exemple).
+     */
+    async focusAuthor(username: string): Promise<void> {
+        this.authorFilter = username;
+        await this.applyFilters();
+    }
+
+    /**
      * Première synchro automatique, pilotée par les mêmes préférences que le
      * scheduler backend : si l'utilisateur a désactivé l'automatisation,
      * ouvrir l'onglet ne doit pas la déclencher quand même.
@@ -1716,6 +1726,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 >
                     <span className="codicon codicon-globe"></span>
                     {this.mapLoading ? ' Carte…' : ' Carte'}
+                </button>
+
+                <button
+                    className="theia-button secondary"
+                    onClick={() => this.commandService.executeCommand('geoapp.friends.open')}
+                    title="Ouvrir la liste de vos amis"
+                >
+                    <span className="codicon codicon-organization"></span>
+                    {' Amis'}
                 </button>
 
                 <select

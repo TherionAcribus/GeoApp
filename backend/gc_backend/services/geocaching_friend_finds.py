@@ -1483,34 +1483,42 @@ def query_suggestions(
     Retourne une liste triée par nombre d'amis décroissant, puis par nom. Chaque
     entrée contient les métadonnées de la cache et la liste des amis.
     """
+    from sqlalchemy import func
+
     from ..database import db
     from ..geocaches.models import Geocache
     from ..models import FriendFind
 
     limit = max(1, min(limit, 200))
+    friends_count = func.count(func.distinct(FriendFind.friend_username))
 
-    # Jointure friend_find ↔ Geocache (LEFT JOIN : une cache trouvée par un ami
-    # n'est pas forcément importée dans GeoApp).
-    query = db.session.query(
-        FriendFind.gc_code,
-        FriendFind.friend_username,
-        FriendFind.latitude,
-        FriendFind.longitude,
-        FriendFind.cache_name,
-        FriendFind.cache_type,
-        Geocache.id,
-        Geocache.name,
-        Geocache.type,
-        Geocache.difficulty,
-        Geocache.terrain,
-        Geocache.latitude,
-        Geocache.longitude,
-        Geocache.found,
-        Geocache.zone_id,
-        Geocache.status,
-        Geocache.favorites_count,
-    ).outerjoin(
-        Geocache, Geocache.gc_code == FriendFind.gc_code
+    # Regroupement, filtre min_friends, tri et limite en SQL : charger toute la
+    # jointure en mémoire pour ensuite grouper en Python multipliait le coût
+    # par le nombre de lignes friend_find × colonnes Geocache.
+    # `group_concat(DISTINCT …)` donne la liste des amis dédupliquée (les
+    # pseudos geocaching.com ne contiennent pas de virgule).
+    query = (
+        db.session.query(
+            FriendFind.gc_code.label('gc_code'),
+            friends_count.label('friends_count'),
+            func.group_concat(FriendFind.friend_username.distinct()).label('friends'),
+            func.max(FriendFind.cache_name).label('ff_name'),
+            func.max(FriendFind.cache_type).label('ff_type'),
+            func.max(FriendFind.latitude).label('ff_latitude'),
+            func.max(FriendFind.longitude).label('ff_longitude'),
+            Geocache.id.label('geocache_id'),
+            Geocache.name.label('geo_name'),
+            Geocache.type.label('geo_type'),
+            Geocache.difficulty.label('difficulty'),
+            Geocache.terrain.label('terrain'),
+            Geocache.latitude.label('geo_latitude'),
+            Geocache.longitude.label('geo_longitude'),
+            Geocache.found.label('found'),
+            Geocache.zone_id.label('zone_id'),
+            Geocache.status.label('status'),
+            Geocache.favorites_count.label('favorites_count'),
+        )
+        .outerjoin(Geocache, Geocache.gc_code == FriendFind.gc_code)
     )
 
     if zone_id is not None:
@@ -1520,46 +1528,39 @@ def query_suggestions(
         # Pas trouvée par moi : found IS NULL ou found = False.
         query = query.filter(db.or_(Geocache.found.is_(False), Geocache.found.is_(None)))
 
-    rows = query.all()
+    query = (
+        query
+        .group_by(FriendFind.gc_code)
+        .having(friends_count >= min_friends)
+        .order_by(
+            friends_count.desc(),
+            func.coalesce(
+                Geocache.name, func.max(FriendFind.cache_name), FriendFind.gc_code
+            ).collate('NOCASE'),
+        )
+        .limit(limit)
+    )
 
-    # Regroupement par gc_code
-    by_code: dict[str, dict] = {}
-    for row in rows:
-        gc_code = row[0]
-        entry = by_code.get(gc_code)
-        if entry is None:
-            geocache_id = row[6]
-            latitude = row[11] if row[11] is not None else row[2]
-            longitude = row[12] if row[12] is not None else row[3]
-            entry = {
-                'gc_code': gc_code,
-                'name': (row[7] if row[7] else row[4]) or gc_code,
-                'cache_type': (row[8] if row[8] else row[5]),
-                'latitude': latitude,
-                'longitude': longitude,
-                'difficulty': row[9],
-                'terrain': row[10],
-                'geocache_id': geocache_id if geocache_id else 0,
-                'found': bool(row[13]) if row[13] else False,
-                'zone_id': row[14],
-                'status': row[15],
-                'favorites_count': row[16] or 0,
-                'friends': set(),
-            }
-            by_code[gc_code] = entry
-        entry['friends'].add(row[1])
-
-    # Filtrage par min_friends + tri
     suggestions = []
-    for entry in by_code.values():
-        entry['friends_count'] = len(entry['friends'])
-        if entry['friends_count'] < min_friends:
-            continue
-        entry['friends'] = sorted(entry['friends'], key=str.casefold)
-        suggestions.append(entry)
-
-    suggestions.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
-    return suggestions[:limit]
+    for row in query.all():
+        friends = sorted(row.friends.split(','), key=str.casefold) if row.friends else []
+        suggestions.append({
+            'gc_code': row.gc_code,
+            'name': (row.geo_name if row.geo_name else row.ff_name) or row.gc_code,
+            'cache_type': (row.geo_type if row.geo_type else row.ff_type),
+            'latitude': row.geo_latitude if row.geo_latitude is not None else row.ff_latitude,
+            'longitude': row.geo_longitude if row.geo_longitude is not None else row.ff_longitude,
+            'difficulty': row.difficulty,
+            'terrain': row.terrain,
+            'geocache_id': row.geocache_id or 0,
+            'found': bool(row.found) if row.found else False,
+            'zone_id': row.zone_id,
+            'status': row.status,
+            'favorites_count': row.favorites_count or 0,
+            'friends': friends,
+            'friends_count': row.friends_count,
+        })
+    return suggestions
 
 
 # ---------------------------------------------------------- Statistiques croisées
@@ -1829,6 +1830,8 @@ def query_notifications(min_friends: int = 1, limit: int = 50) -> dict:
     - ``total_new_finds`` : nombre total de nouvelles lignes ``friend_find`` ;
     - ``last_seen_at`` : timestamp de la dernière visite.
     """
+    from sqlalchemy import func
+
     from ..database import db
     from ..geocaches.models import Geocache
     from ..models import AppConfig, FriendFind
@@ -1836,74 +1839,80 @@ def query_notifications(min_friends: int = 1, limit: int = 50) -> dict:
     last_seen_str = AppConfig.get_value(NOTIFICATIONS_SEEN_KEY)
     last_seen = _parse_iso_config(last_seen_str)
 
-    query = (
+    # Volume brut de lignes non lues : simple COUNT, sans charger la table.
+    total_new_finds_query = db.session.query(func.count(FriendFind.id))
+    if last_seen is not None:
+        total_new_finds_query = total_new_finds_query.filter(
+            FriendFind.first_seen_at > last_seen)
+    total_new_finds = total_new_finds_query.scalar() or 0
+
+    # Regroupement par cache, filtre min_friends et comptage en SQL : charger
+    # toute la jointure en mémoire pour grouper en Python multipliait le coût
+    # par le nombre de lignes friend_find non lues.
+    friends_count = func.count(func.distinct(FriendFind.friend_username))
+    agg = (
         db.session.query(
-            FriendFind.gc_code,          # 0
-            FriendFind.friend_username,  # 1
-            FriendFind.first_seen_at,    # 2
-            FriendFind.cache_name,       # 3
-            FriendFind.cache_type,       # 4
-            FriendFind.latitude,         # 5
-            FriendFind.longitude,        # 6
-            Geocache.id,                 # 7
-            Geocache.name,               # 8
-            Geocache.type,               # 9
-            Geocache.difficulty,         # 10
-            Geocache.terrain,            # 11
-            Geocache.latitude,           # 12
-            Geocache.longitude,          # 13
-            Geocache.found,              # 14
-            Geocache.zone_id,            # 15
-            Geocache.status,             # 16
-            Geocache.favorites_count,    # 17
+            FriendFind.gc_code.label('gc_code'),
+            friends_count.label('friends_count'),
+            func.group_concat(FriendFind.friend_username.distinct()).label('friends'),
+            func.min(FriendFind.first_seen_at).label('first_seen_at'),
+            func.max(FriendFind.cache_name).label('ff_name'),
+            func.max(FriendFind.cache_type).label('ff_type'),
+            func.max(FriendFind.latitude).label('ff_latitude'),
+            func.max(FriendFind.longitude).label('ff_longitude'),
+            Geocache.id.label('geocache_id'),
+            Geocache.name.label('geo_name'),
+            Geocache.type.label('geo_type'),
+            Geocache.difficulty.label('difficulty'),
+            Geocache.terrain.label('terrain'),
+            Geocache.latitude.label('geo_latitude'),
+            Geocache.longitude.label('geo_longitude'),
+            Geocache.found.label('found'),
+            Geocache.zone_id.label('zone_id'),
+            Geocache.status.label('status'),
+            Geocache.favorites_count.label('favorites_count'),
         )
         .outerjoin(Geocache, FriendFind.gc_code == Geocache.gc_code)
     )
 
     if last_seen is not None:
-        query = query.filter(FriendFind.first_seen_at > last_seen)
+        agg = agg.filter(FriendFind.first_seen_at > last_seen)
 
-    rows = query.all()
+    agg = agg.group_by(FriendFind.gc_code).having(friends_count >= min_friends)
 
-    # Regroupement par gc_code
-    by_code: dict[str, dict] = {}
-    total_new_finds = 0
-    for row in rows:
-        gc_code = row[0]
-        entry = by_code.get(gc_code)
-        if entry is None:
-            geocache_id = row[7]
-            entry = {
-                'gc_code': gc_code,
-                'name': (row[8] if row[8] else row[3]) or gc_code,
-                'cache_type': (row[9] if row[9] else row[4]),
-                'latitude': row[12] if row[12] is not None else row[5],
-                'longitude': row[13] if row[13] is not None else row[6],
-                'difficulty': row[10],
-                'terrain': row[11],
-                'geocache_id': geocache_id if geocache_id else 0,
-                'found': bool(row[14]) if row[14] else False,
-                'zone_id': row[15],
-                'status': row[16],
-                'favorites_count': row[17] or 0,
-                'friends': set(),
-                'first_seen_at': row[2],
-            }
-            by_code[gc_code] = entry
-        entry['friends'].add(row[1])
-        total_new_finds += 1
+    total_count = db.session.query(func.count()).select_from(agg.subquery()).scalar() or 0
 
-    # Filtrage par min_friends et tri
+    rows = (
+        agg.order_by(
+            friends_count.desc(),
+            func.coalesce(
+                Geocache.name, func.max(FriendFind.cache_name), FriendFind.gc_code
+            ).collate('NOCASE'),
+        )
+        .limit(limit)
+        .all()
+    )
+
     items = []
-    for entry in by_code.values():
-        entry['friends'] = sorted(entry['friends'], key=str.casefold)
-        entry['friends_count'] = len(entry['friends'])
-        if entry['friends_count'] >= min_friends:
-            items.append(entry)
-
-    items.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
-    total_count = len(items)
-    items = items[:limit]
+    for row in rows:
+        friends = sorted(row.friends.split(','), key=str.casefold) if row.friends else []
+        items.append({
+            'gc_code': row.gc_code,
+            'name': (row.geo_name if row.geo_name else row.ff_name) or row.gc_code,
+            'cache_type': (row.geo_type if row.geo_type else row.ff_type),
+            'latitude': row.geo_latitude if row.geo_latitude is not None else row.ff_latitude,
+            'longitude': row.geo_longitude if row.geo_longitude is not None else row.ff_longitude,
+            'difficulty': row.difficulty,
+            'terrain': row.terrain,
+            'geocache_id': row.geocache_id or 0,
+            'found': bool(row.found) if row.found else False,
+            'zone_id': row.zone_id,
+            'status': row.status,
+            'favorites_count': row.favorites_count or 0,
+            'friends': friends,
+            'friends_count': row.friends_count,
+            'first_seen_at': row.first_seen_at,
+        })
 
     return {
         'items': items,

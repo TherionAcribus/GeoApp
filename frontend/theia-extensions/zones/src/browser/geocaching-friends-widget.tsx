@@ -205,6 +205,14 @@ export class GeocachingFriendsWidget extends ReactWidget {
                     <span className="codicon codicon-refresh"></span>
                     {this.loading ? ' Chargement…' : ' Rafraîchir'}
                 </button>
+                <button
+                    className="theia-button secondary"
+                    onClick={() => this.commandService.executeCommand('geoapp.friends.activity.open')}
+                    title="Ouvrir le flux d'activité des amis"
+                >
+                    <span className="codicon codicon-pulse"></span>
+                    {' Activité'}
+                </button>
             </div>
         );
     }
@@ -418,6 +426,19 @@ export class GeocachingFriendsWidget extends ReactWidget {
                             <span className="codicon codicon-calendar" style={{ fontSize: '0.9em' }}></span>
                             {` Membre depuis ${this.formatDate(friend.member_since)}`}
                         </div>
+                    </div>
+
+                    <div style={{ marginTop: '8px' }}>
+                        <button
+                            className="theia-button secondary"
+                            style={{ padding: '2px 8px', fontSize: '0.85em' }}
+                            onClick={() => this.commandService.executeCommand(
+                                'geoapp.friends.activity.open', { username: friend.username })}
+                            title={`Voir l'activité de ${friend.username} (flux + carte)`}
+                        >
+                            <span className="codicon codicon-pulse"></span>
+                            {' Activité'}
+                        </button>
                     </div>
                 </div>
             </div>
