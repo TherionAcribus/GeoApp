@@ -3,6 +3,7 @@ import type { Geocache } from './geocaches-table';
 import type { FriendFindsProgress, FriendZoneScanEntry, GeocachingFriend } from './friends-types';
 import type { FriendAnalysisSummary, FriendFilter, FriendOuting } from './friend-outing-state';
 import { friendOfFilter, missingForFriendFilter } from './friend-outing-state';
+import type { FriendGroup } from './friend-groups-state';
 import { coverageLabel, scanCoverage } from './friend-scan-state';
 import type { FriendScanCoverage } from './friend-scan-state';
 import { friendColor } from './friend-colors';
@@ -84,6 +85,19 @@ export interface FriendOutingSidePanelProps {
 
     /** Ouvre une géocache (clic dans la matrice de résultats). */
     onOpenGeocache?: (geocache: Geocache) => void;
+
+    /** Groupes d'amis enregistrés (réutilisables d'une sortie à l'autre). */
+    friendGroups: FriendGroup[];
+    /** Emmène les membres du groupe (remplace les amis cochés). */
+    onApplyGroup: (name: string) => void;
+    /** Enregistre les amis cochés sous ce nom de groupe. */
+    onSaveGroup: (name: string) => void;
+    /** Supprime le groupe. */
+    onDeleteGroup: (name: string) => void;
+
+    /** Exporte la matrice « qui a trouvé quoi » en CSV. */
+    onExportCsv?: () => void;
+
     /** Termine la sortie. */
     onExit: () => void;
 }
@@ -226,6 +240,10 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                     loading={props.friendsLoading}
                     error={props.friendsError ?? null}
                     onReload={props.onReloadFriends}
+                    friendGroups={props.friendGroups}
+                    onApplyGroup={props.onApplyGroup}
+                    onSaveGroup={props.onSaveGroup}
+                    onDeleteGroup={props.onDeleteGroup}
                 />
 
                 <CachesSection
@@ -251,7 +269,19 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                 />
 
                 <section className='geoapp-outing-panel__section'>
-                    <h4 className='geoapp-outing-panel__section-title'>Résultats</h4>
+                    <h4 className='geoapp-outing-panel__section-title'>
+                        Résultats
+                        {props.onExportCsv && (
+                            <button
+                                className='theia-button secondary geoapp-outing-panel__mini-button'
+                                style={{ marginLeft: '6px' }}
+                                onClick={props.onExportCsv}
+                                title='Exporter la matrice en CSV (oui / non / ?)'
+                            >
+                                <span className='codicon codicon-export' /> CSV
+                            </button>
+                        )}
+                    </h4>
                     <ZoneFriendAnalysisPanel
                         compact
                         rows={scopeRows}
@@ -293,6 +323,10 @@ const FriendsSection: React.FC<{
     loading?: boolean;
     error: string | null;
     onReload?: () => void;
+    friendGroups: FriendGroup[];
+    onApplyGroup: (name: string) => void;
+    onSaveGroup: (name: string) => void;
+    onDeleteGroup: (name: string) => void;
 }> = props => (
     <section className='geoapp-outing-panel__section'>
         <h4 className='geoapp-outing-panel__section-title'>
@@ -327,6 +361,14 @@ const FriendsSection: React.FC<{
                 Rien
             </button>
         </div>
+
+        <GroupsRow
+            groups={props.friendGroups}
+            checkedCount={props.activeFriends.size}
+            onApply={props.onApplyGroup}
+            onSave={props.onSaveGroup}
+            onDelete={props.onDeleteGroup}
+        />
 
         {props.error && (
             <div className='geoapp-outing-panel__notice geoapp-outing-panel__notice--warn'>
@@ -369,6 +411,104 @@ const FriendsSection: React.FC<{
         </ul>
     </section>
 );
+
+/**
+ * Groupes d'amis réutilisables : appliquer un groupe coches ses membres,
+ * « Enregistrer » fige la sélection courante sous un nom.
+ *
+ * Les groupes sont globaux (pas par zone) : « Équipe du samedi » a le même
+ * sens sur toutes les zones. Les pseudos d'un groupe qui ne sont plus dans la
+ * liste d'amis restent emmenés — ils apparaissent comme « connus des seules
+ * données locales », ce qui est plus honnête que les ignorer en silence.
+ */
+const GroupsRow: React.FC<{
+    groups: FriendGroup[];
+    checkedCount: number;
+    onApply: (name: string) => void;
+    onSave: (name: string) => void;
+    onDelete: (name: string) => void;
+}> = ({ groups, checkedCount, onApply, onSave, onDelete }) => {
+    const [selected, setSelected] = React.useState('');
+    const [nameInput, setNameInput] = React.useState('');
+
+    const selectedGroup = groups.find(g => g.name === selected);
+    const trimmedName = nameInput.trim();
+
+    return (
+        <div className='geoapp-outing-panel__groups'>
+            {groups.length > 0 && (
+                <div className='geoapp-outing-panel__row'>
+                    <select
+                        className='theia-input geoapp-outing-panel__search'
+                        value={selected}
+                        onChange={e => setSelected(e.target.value)}
+                        title='Groupes enregistrés'
+                        aria-label='Groupe d’amis'
+                    >
+                        <option value=''>Groupe…</option>
+                        {groups.map(g => (
+                            <option key={g.name} value={g.name}>
+                                {`${g.name} (${g.friends.length})`}
+                            </option>
+                        ))}
+                    </select>
+                    <button
+                        className='theia-button secondary geoapp-outing-panel__mini-button'
+                        onClick={() => selectedGroup && onApply(selectedGroup.name)}
+                        disabled={!selectedGroup}
+                        title={selectedGroup
+                            ? `Emmener ${selectedGroup.friends.join(', ') || 'personne'}`
+                            : 'Choisissez un groupe'}
+                    >
+                        Emmener
+                    </button>
+                    <button
+                        className='theia-button secondary geoapp-outing-panel__mini-button'
+                        onClick={() => {
+                            if (selectedGroup) {
+                                onDelete(selectedGroup.name);
+                                setSelected('');
+                            }
+                        }}
+                        disabled={!selectedGroup}
+                        title={selectedGroup ? `Supprimer le groupe « ${selectedGroup.name} »` : 'Choisissez un groupe'}
+                    >
+                        <span className='codicon codicon-trash' />
+                    </button>
+                </div>
+            )}
+            <div className='geoapp-outing-panel__row'>
+                <input
+                    className='theia-input geoapp-outing-panel__search'
+                    type='text'
+                    placeholder='Nom du groupe…'
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => {
+                        if (e.key === 'Enter' && trimmedName) {
+                            onSave(trimmedName);
+                            setNameInput('');
+                        }
+                    }}
+                    aria-label='Nom du groupe à enregistrer'
+                />
+                <button
+                    className='theia-button secondary geoapp-outing-panel__mini-button'
+                    onClick={() => {
+                        onSave(trimmedName);
+                        setNameInput('');
+                    }}
+                    disabled={!trimmedName || checkedCount === 0}
+                    title={checkedCount === 0
+                        ? 'Cochez des amis avant d’enregistrer un groupe.'
+                        : `Enregistrer les ${checkedCount} ami(s) coché(s) sous « ${trimmedName || '…'} »`}
+                >
+                    Enregistrer
+                </button>
+            </div>
+        </div>
+    );
+};
 
 const FriendItem: React.FC<{
     row: FriendRow;

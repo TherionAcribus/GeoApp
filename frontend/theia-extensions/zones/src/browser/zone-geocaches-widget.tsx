@@ -48,6 +48,9 @@ import {
     updateFriendOuting,
 } from './friend-outing-state';
 import { clearFriendOuting, loadFriendOuting, saveFriendOuting } from './friend-outing-store';
+import { outingMatrixCsv } from './friend-outing-export';
+import { findFriendGroup, FriendGroup, removeFriendGroup, upsertFriendGroup } from './friend-groups-state';
+import { loadFriendGroups, saveFriendGroups } from './friend-groups-store';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -143,6 +146,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected accountFriends: GeocachingFriend[] = [];
     protected friendsListLoading = false;
     protected friendsListError: string | null = null;
+    /** Groupes d'amis enregistrés (globaux, chargés à l'entrée en mode sortie). */
+    protected friendGroups: FriendGroup[] = [];
     /**
      * Mode « sortie entre amis » : `null` hors sortie, sinon la sortie en cours
      * (zone, amis emmenés, périmètre de caches). C'est la source de vérité unique —
@@ -1767,6 +1772,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.outingRestored = true;
         this.update();
         void this.loadAccountFriends();
+        void this.loadFriendGroups();
     }
 
     /**
@@ -1778,12 +1784,46 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.outingRestored = false;
         this.commitOuting(createFriendOuting(this.zoneId, this.outing?.friends ?? [], this.gcCodesOf(ids)));
         void this.loadAccountFriends();
+        void this.loadFriendGroups();
     };
 
     /** Change les amis emmenés. */
     protected updateOutingFriends = (friends: string[]): void => {
         if (!this.outing) { return; }
         this.commitOuting(updateFriendOuting(this.outing, { friends }));
+    };
+
+    /** Charge les groupes d'amis persistés (confort de préparation, pas critique). */
+    protected async loadFriendGroups(): Promise<void> {
+        this.friendGroups = await loadFriendGroups(this.storageService);
+        this.update();
+    }
+
+    /** Emmène les membres d'un groupe enregistré. */
+    protected applyFriendGroup = (name: string): void => {
+        const group = findFriendGroup(this.friendGroups, name);
+        if (group) {
+            this.updateOutingFriends(group.friends);
+        }
+    };
+
+    /** Enregistre les amis cochés de la sortie courante sous un nom de groupe. */
+    protected saveFriendGroup = (name: string): void => {
+        if (!this.outing) { return; }
+        const next = upsertFriendGroup(this.friendGroups, name, this.outing.friends);
+        if (!next) {
+            return; // nom vide ou limite atteinte : le panneau garde le contrôle
+        }
+        this.friendGroups = next;
+        void saveFriendGroups(this.storageService, next);
+        this.update();
+    };
+
+    /** Supprime un groupe enregistré. */
+    protected deleteFriendGroup = (name: string): void => {
+        this.friendGroups = removeFriendGroup(this.friendGroups, name);
+        void saveFriendGroups(this.storageService, this.friendGroups);
+        this.update();
     };
 
     /** Change le périmètre de caches analysées (IDs de géocaches de la zone). */
@@ -1845,6 +1885,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** Remplace les amis de la sortie (boutons « Tout » / « Rien » du panneau). */
     protected setActiveFriends = (friends: string[]): void => {
         this.updateOutingFriends(friends);
+    };
+
+    /**
+     * Export CSV de la matrice « qui a trouvé quoi », limitée au périmètre de
+     * la sortie. La sémantique oui/non/? est celle de `friend-scan-state` :
+     * un « non » n'apparaît que sur couverture fiable.
+     */
+    protected exportOutingCsv = (): void => {
+        if (!this.outing) { return; }
+        const scope = outingScopeGcCodes(this.outing, this.rows.map(r => r.gc_code).filter(Boolean));
+        const rows = scope
+            ? this.rows.filter(r => scope.includes(r.gc_code))
+            : this.rows;
+        const csv = outingMatrixCsv(rows, this.outing.friends, this.friendFinds, this.friendScans);
+        const slug = (this.zoneName ?? 'zone').toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '');
+        const filename = `sortie-${slug || 'zone'}-${new Date().toISOString().slice(0, 10)}.csv`;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        this.messageService.info(`Export CSV : ${this.outing.friends.length} ami(s) × ${rows.length} cache(s).`);
     };
 
     /**
@@ -2573,6 +2638,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onResetOutingCachesToZone={this.resetOutingCachesToZone}
                 friendFilter={this.friendFilter}
                 onFriendFilterChange={this.setFriendFilter}
+                friendGroups={this.friendGroups}
+                onApplyFriendGroup={this.applyFriendGroup}
+                onSaveFriendGroup={this.saveFriendGroup}
+                onDeleteFriendGroup={this.deleteFriendGroup}
+                onExportOutingCsv={this.exportOutingCsv}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}

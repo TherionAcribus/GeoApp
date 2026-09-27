@@ -13,6 +13,7 @@ import { ImportProgressCallback } from './import-dialog-shell';
 import { EmptyState, LoadingState } from './state-views';
 import { FriendOutingSidePanel } from './friend-outing-side-panel';
 import type { FriendFilter, FriendOuting } from './friend-outing-state';
+import type { FriendGroup } from './friend-groups-state';
 import type { FriendFindsProgress, FriendZoneScanEntry, GeocachingFriend } from './friends-types';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
@@ -147,6 +148,16 @@ export interface ZoneGeocachesViewProps {
     friendFilter?: FriendFilter;
     /** Change le filtre de table. */
     onFriendFilterChange?: (filter: FriendFilter) => void;
+    /** Groupes d'amis enregistrés (panneau de sortie). */
+    friendGroups?: FriendGroup[];
+    /** Emmène les membres d'un groupe. */
+    onApplyFriendGroup?: (name: string) => void;
+    /** Enregistre les amis cochés sous ce nom de groupe. */
+    onSaveFriendGroup?: (name: string) => void;
+    /** Supprime un groupe. */
+    onDeleteFriendGroup?: (name: string) => void;
+    /** Exporte la matrice « qui a trouvé quoi » de la sortie en CSV. */
+    onExportOutingCsv?: () => void;
     /** Termine la sortie. */
     onExitOutingMode?: () => void;
     showImportAroundDialog: boolean;
@@ -505,6 +516,11 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     lastAnalysisSummary={props.lastAnalysisSummary ?? null}
                     friendFilter={props.friendFilter ?? 'none'}
                     onFriendFilterChange={props.onFriendFilterChange ?? (() => undefined)}
+                    friendGroups={props.friendGroups ?? []}
+                    onApplyGroup={props.onApplyFriendGroup ?? (() => undefined)}
+                    onSaveGroup={props.onSaveFriendGroup ?? (() => undefined)}
+                    onDeleteGroup={props.onDeleteFriendGroup ?? (() => undefined)}
+                    onExportCsv={props.onExportOutingCsv}
                     onOpenGeocache={props.onRowClick}
                     onExit={props.onExitOutingMode ?? (() => undefined)}
                 />

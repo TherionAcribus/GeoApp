@@ -130,6 +130,11 @@
     white-space: nowrap;
 }
 
+/* Groupes d'amis : les deux rangées (appliquer / enregistrer) respirent un peu. */
+.geoapp-outing-panel__groups {
+    margin: 6px 0 2px;
+}
+
 .geoapp-outing-panel__wide-button {
     display: block;
     width: 100%;
