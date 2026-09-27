@@ -365,6 +365,8 @@ export interface FriendFindsProgress {
     done: number;
     total: number;
     friend?: string;
+    /** Code GC courant pendant un scan logbook (phase 'cache'). */
+    cache?: string;
 }
 
 // -------------------------------------------------- Stream NDJSON
@@ -376,6 +378,15 @@ export interface FriendFindsProgress {
 export type FriendScanStreamEvent =
     | { phase: 'start'; to_scan?: number; skipped?: number }
     | { phase: 'progress'; done: number; total: number; friend?: string }
+    | { phase: 'cache'; done: number; total: number; gc_code?: string }
     | { phase: 'rate_limited'; message?: string }
     | { phase: 'error'; message?: string; friend?: string }
-    | { phase: 'done'; scanned?: number; with_friends?: number; rate_limited?: boolean };
+    | {
+        phase: 'done';
+        scanned?: number;
+        with_friends?: number;
+        rate_limited?: boolean;
+        /** Stratégie logbook : nombre de caches parcourues et en échec. */
+        caches_scanned?: number;
+        cache_errors?: number;
+    };

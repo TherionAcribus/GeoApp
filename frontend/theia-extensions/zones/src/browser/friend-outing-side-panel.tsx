@@ -545,6 +545,7 @@ const AnalysisSection: React.FC<{
                     <span className='geoapp-outing-panel__progress-label'>
                         {props.progress.done}/{props.progress.total}
                         {props.progress.friend && ` · ${props.progress.friend}`}
+                        {props.progress.cache && ` · ${props.progress.cache}`}
                     </span>
                     <button
                         className='theia-button secondary geoapp-outing-panel__mini-button'
@@ -587,6 +588,10 @@ const AnalysisSection: React.FC<{
                     {props.summary.cancelled
                         ? `Interrompue après ${props.summary.scanned} ami(s)`
                         : `${props.summary.scanned} ami(s) analysé(s)`}
+                    {(props.summary.cachesScanned ?? 0) > 0 && (
+                        ` · ${props.summary.cachesScanned} cache(s) parcourue(s)`
+                            + ((props.summary.cacheErrors ?? 0) > 0 ? `, ${props.summary.cacheErrors} en échec` : '')
+                    )}
                     {props.summary.skipped > 0 && ` (${props.summary.skipped} skip)`}
                     {' — '}
                     <strong>{props.summary.withFriends}</strong> cache(s) trouvée(s)

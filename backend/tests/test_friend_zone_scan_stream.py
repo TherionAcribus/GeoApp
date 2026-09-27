@@ -528,12 +528,17 @@ def test_logbook_scan_records_friends_without_finds(app, monkeypatch):
     import json
     import gc_backend.blueprints.friends as blueprint
 
-    monkeypatch.setattr(blueprint, 'scan_finds_via_logbook', lambda *a, **k: {
-        'scanned': 2,
-        'friend_finds': {'ami1': ['GC1']},
-        'errors': [],
-        'rate_limited': False,
-    })
+    def _fake_scan(*a, **k):
+        if False:
+            yield  # transforme en générateur
+        return {
+            'scanned': 2,
+            'friend_finds': {'ami1': ['GC1']},
+            'errors': [],
+            'rate_limited': False,
+        }
+
+    monkeypatch.setattr(blueprint, 'iter_finds_via_logbook', _fake_scan)
 
     lines = list(blueprint._generate_logbook_scan(
         app.zone_id, ['GC1', 'GC2'], ['ami1', 'ami2'], 0, BOX, 2, 2,
@@ -554,12 +559,17 @@ def test_logbook_scan_marks_partial_coverage(app, monkeypatch):
     """Un logbook interrompu (429, caches en échec) n'est pas une couverture fiable."""
     import gc_backend.blueprints.friends as blueprint
 
-    monkeypatch.setattr(blueprint, 'scan_finds_via_logbook', lambda *a, **k: {
-        'scanned': 1,
-        'friend_finds': {'ami1': ['GC1']},
-        'errors': ['GC2'],
-        'rate_limited': True,
-    })
+    def _fake_scan(*a, **k):
+        if False:
+            yield  # transforme en générateur
+        return {
+            'scanned': 1,
+            'friend_finds': {'ami1': ['GC1']},
+            'errors': ['GC2'],
+            'rate_limited': True,
+        }
+
+    monkeypatch.setattr(blueprint, 'iter_finds_via_logbook', _fake_scan)
 
     list(blueprint._generate_logbook_scan(
         app.zone_id, ['GC1', 'GC2'], ['ami1'], 0, BOX, 1, 1,
@@ -567,3 +577,40 @@ def test_logbook_scan_marks_partial_coverage(app, monkeypatch):
 
     scan = FriendZoneScan.query.filter_by(friend_username='ami1').one()
     assert scan.truncated is True
+
+
+def test_logbook_scan_streams_cache_progress(app, monkeypatch):
+    """
+    La progression réelle est streamée : chaque cache traitée émet un
+    événement 'cache' avec le code GC, avant les événements 'progress'
+    par ami de la phase de persistance.
+    """
+    import json
+    import gc_backend.blueprints.friends as blueprint
+
+    def _fake_scan(zone_id, gc_codes):
+        for i, code in enumerate(gc_codes, start=1):
+            yield {'done': i, 'total': len(gc_codes), 'gc_code': code}
+        return {
+            'scanned': len(gc_codes),
+            'friend_finds': {'ami1': ['GC1']},
+            'errors': [],
+            'rate_limited': False,
+        }
+
+    monkeypatch.setattr(blueprint, 'iter_finds_via_logbook', _fake_scan)
+
+    lines = list(blueprint._generate_logbook_scan(
+        app.zone_id, ['GC1', 'GC2'], ['ami1'], 0, BOX, 1, 1,
+    ))
+    events = [json.loads(line) for line in lines]
+
+    cache_events = [e for e in events if e['phase'] == 'cache']
+    assert [(e['done'], e['total'], e['gc_code']) for e in cache_events] == [
+        (1, 2, 'GC1'),
+        (2, 2, 'GC2'),
+    ]
+    # Les événements 'cache' précèdent la persistance et le bilan.
+    assert events[-1]['phase'] == 'done'
+    first_progress = next(i for i, e in enumerate(events) if e['phase'] == 'progress')
+    assert all(i < first_progress for i, e in enumerate(events) if e['phase'] == 'cache')

@@ -9,6 +9,7 @@ import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
 import { CommandService } from '@theia/core';
 import { FriendsService } from './friends-service';
+import { GeocacheTabsManager } from './geocache-tabs-manager';
 import type {
     FriendActivity,
     FriendMapPoint,
@@ -73,6 +74,9 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     @inject(CommandService)
     protected readonly commandService: CommandService;
+
+    @inject(GeocacheTabsManager)
+    protected readonly geocacheTabsManager: GeocacheTabsManager;
 
     protected activities: FriendActivity[] = [];
     protected authors: { username: string; count: number }[] = [];
@@ -938,10 +942,39 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Titre de cache cliquable : la fiche GeoApp si la cache est importée,
+     * geocaching.com sinon.
+     */
+    protected renderCacheNameLink(geocacheId: number, gcCode: string, name: string): React.ReactNode {
+        if (geocacheId > 0) {
+            return (
+                <a
+                    onClick={() => {
+                        void this.geocacheTabsManager
+                            .openGeocacheDetails({ geocacheId, name })
+                            .catch(e => console.error('[FriendActivity] openGeocacheDetails failed:', e));
+                    }}
+                    style={{ cursor: 'pointer' }}
+                    title="Ouvrir la fiche dans GeoApp"
+                >
+                    {name}
+                </a>
+            );
+        }
+        return (
+            <a
+                href={`https://www.geocaching.com/geocache/${gcCode}`}
+                target="_blank"
+                rel="noreferrer"
+                title="Ouvrir sur geocaching.com"
+            >
+                {name}
+            </a>
+        );
+    }
+
     protected renderSuggestion(s: FriendSuggestion): React.ReactNode {
-        const cacheUrl = s.geocache_id > 0
-            ? undefined
-            : `https://www.geocaching.com/geocache/${s.gc_code}`;
 
         return (
             <div
@@ -961,13 +994,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                             title={`${s.friends_count} ami(s) ont trouvé cette cache`}
                         ></span>
                         <strong style={{ color: 'var(--theia-charts-blue)' }}>{s.friends_count}</strong>
-                        {cacheUrl ? (
-                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
-                                {s.name}
-                            </a>
-                        ) : (
-                            <span>{s.name}</span>
-                        )}
+                        {this.renderCacheNameLink(s.geocache_id, s.gc_code, s.name)}
                         <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
                             {s.gc_code}
                         </span>
@@ -1416,10 +1443,6 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     }
 
     protected renderNotification(n: FriendNotification): React.ReactNode {
-        const cacheUrl = n.geocache_id > 0
-            ? undefined
-            : `https://www.geocaching.com/geocache/${n.gc_code}`;
-
         return (
             <div
                 key={n.gc_code}
@@ -1437,13 +1460,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                             style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
                         ></span>
                         <strong style={{ color: 'var(--theia-charts-blue)' }}>{n.friends_count}</strong>
-                        {cacheUrl ? (
-                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
-                                {n.name}
-                            </a>
-                        ) : (
-                            <span>{n.name}</span>
-                        )}
+                        {this.renderCacheNameLink(n.geocache_id, n.gc_code, n.name)}
                         <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
                             {n.gc_code}
                         </span>

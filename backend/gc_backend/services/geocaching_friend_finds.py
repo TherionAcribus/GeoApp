@@ -1109,6 +1109,24 @@ def scan_finds_via_logbook(
         - ``errors`` : liste des caches en échec
         - ``rate_limited`` : bool (au moins un 429)
     """
+    scan_iter = iter_finds_via_logbook(zone_id, gc_codes)
+    while True:
+        try:
+            event = next(scan_iter)
+        except StopIteration as stop:
+            return stop.value
+        if on_progress is not None:
+            on_progress(event['done'], event['total'], event['gc_code'])
+
+
+def iter_finds_via_logbook(zone_id: int, gc_codes: list[str]):
+    """
+    Version génératrice du scan logbook : émet ``{'done': int, 'total': int,
+    'gc_code': str}`` après chaque cache traitée ; la valeur de ``StopIteration``
+    contient le dict de résultat décrit dans ``scan_finds_via_logbook``.
+    Permet au générateur NDJSON du blueprint d'émettre la progression en
+    temps réel, ce qu'un simple callback ne peut pas faire.
+    """
     from ..services.geocaching_logs import (
         GeocachingLogsClient,
         GeocachingLogsError,
@@ -1138,10 +1156,13 @@ def scan_finds_via_logbook(
                         friend_finds.setdefault(log_data.author, []).append(gc_code)
 
         except FriendLogsCheckFailedError:
-            # Les logs « tous » ont été récupérés, mais sf=true a échoué.
-            # On ne peut pas déterminer les amis : on compte la cache comme
-            # scannée mais sans trouvailles d'amis.
+            # Les logs « tous » ont été récupérés, mais sf=true a échoué :
+            # impossible de déterminer les amis, la couverture de cette cache
+            # est inconnue — elle compte comme une erreur, sinon le scan
+            # serait enregistré comme frais et ses absences affichées comme
+            # des « non trouvées » fiables.
             scanned += 1
+            errors.append(gc_code)
             logger.warning("sf=true failed for %s, skipping friend detection", gc_code)
 
         except GeocachingLogsError as exc:
@@ -1159,8 +1180,7 @@ def scan_finds_via_logbook(
             logger.exception("Unexpected error scanning %s", gc_code)
             errors.append(gc_code)
 
-        if on_progress is not None:
-            on_progress(index + 1, total, gc_code)
+        yield {'done': index + 1, 'total': total, 'gc_code': gc_code}
 
     # Persistance : enregistrer les trouvailles par ami.
     for friend, codes in friend_finds.items():

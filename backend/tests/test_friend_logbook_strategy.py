@@ -253,6 +253,32 @@ def test_scan_logbook_progress_callback(app, monkeypatch):
     ]
 
 
+def test_scan_logbook_sf_failure_counts_as_error(app, monkeypatch):
+    """
+    Un échec sf=true laisse la couverture inconnue pour cette cache : elle
+    compte comme une erreur, sinon le scan serait enregistré comme frais et
+    les absences affichées comme des « non trouvées » fiables.
+    """
+    from gc_backend.services.geocaching_logs import FriendLogsCheckFailedError
+
+    class _SfFailClient:
+        def get_logs_with_friends(self, gc_code: str, count: int = 25):
+            if gc_code == 'GC1':
+                raise FriendLogsCheckFailedError('sf failed', [])
+            return [], set()
+
+    monkeypatch.setattr(
+        'gc_backend.services.geocaching_logs.GeocachingLogsClient',
+        lambda: _SfFailClient(),
+    )
+
+    result = scan_finds_via_logbook(app.zone_id, ['GC1', 'GC2'])
+
+    assert result['scanned'] == 2  # les logs ont été parcourus, couverture inconnue
+    assert result['errors'] == ['GC1']
+    assert result['friend_finds'] == {}
+
+
 # ------------------------------------------------------- Tests route streaming avec stratégie
 
 class _FakeSearchSession:

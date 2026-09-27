@@ -46,6 +46,9 @@ export interface FriendAnalysisSummary {
     withFriends: number;
     rateLimited: boolean;
     cancelled: boolean;
+    /** Scan logbook : caches parcourues / en échec (absent en zone search). */
+    cachesScanned?: number;
+    cacheErrors?: number;
     /** ISO 8601. */
     at: string;
 }

@@ -1573,6 +1573,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let skipped = 0;
         let withFriends = 0;
         let rateLimited = false;
+        let cachesScanned = 0;
+        let cacheErrors = 0;
 
         try {
             const response = await this.friendsService.startZoneScanStream(
@@ -1617,6 +1619,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                                 friend: data.friend,
                             };
                             break;
+                        case 'cache':
+                            // Scan logbook : progression par cache traitée, pas
+                            // par ami — 'scanned' (résumé en amis) n'est pas
+                            // mis à jour ici.
+                            this.friendFindsProgress = {
+                                done: data.done,
+                                total: data.total,
+                                cache: data.gc_code,
+                            };
+                            break;
                         case 'rate_limited':
                             rateLimited = true;
                             this.messages.warn(data.message || 'Geocaching.com limite les recherches.');
@@ -1632,6 +1644,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                             scanned = data.scanned ?? scanned;
                             withFriends = data.with_friends ?? 0;
                             rateLimited = data.rate_limited ?? rateLimited;
+                            cachesScanned = data.caches_scanned ?? 0;
+                            cacheErrors = data.cache_errors ?? 0;
                             break;
                     }
                     this.update();
@@ -1665,6 +1679,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 withFriends,
                 rateLimited,
                 cancelled,
+                cachesScanned,
+                cacheErrors,
                 at: new Date().toISOString(),
             });
         } finally {
@@ -1683,12 +1699,18 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             withFriends,
             rateLimited,
             cancelled: false,
+            cachesScanned,
+            cacheErrors,
             at: new Date().toISOString(),
         });
         if (scanned > 0 && !rateLimited) {
             const skipMsg = skipped > 0 ? ` (${skipped} skip, scan récent)` : '';
+            // Scan logbook : le travail s'est fait par cache, pas par ami.
+            const cacheMsg = cachesScanned > 0
+                ? `${cachesScanned} cache(s) parcourue(s), ${cacheErrors > 0 ? `${cacheErrors} en échec, ` : ''}${scanned} ami(s) couvert(s)`
+                : `${scanned} ami(s) analysé(s)${skipMsg}`;
             this.messages.info(
-                `${scanned} ami(s) analysé(s)${skipMsg} : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
+                `${cacheMsg} : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
             );
         }
     };

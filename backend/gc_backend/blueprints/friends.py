@@ -68,7 +68,7 @@ from ..services.geocaching_friend_finds import (
     store_finds,
     zone_boxes_from_coordinates,
     should_use_logbook,
-    scan_finds_via_logbook,
+    iter_finds_via_logbook,
     _is_after,
 )
 from ..services.geocaching_friends import (
@@ -421,20 +421,30 @@ def _generate_logbook_scan(
     Itère sur les **caches** de la zone (pas sur les amis). Pour chaque cache,
     récupère les logs d'amis via ``sf=true`` et enregistre les « Found ».
 
-    Les événements émis sont les mêmes que pour le chemin zone search, plus
-    un champ ``gc_code`` dans les ``progress`` pour indiquer la cache courante.
-    À la fin, on enregistre un ``FriendZoneScan`` par ami trouvé.
+    La progression du scan est streamée en temps réel via des événements
+    ``{ "phase": "cache", "done": i, "total": N, "gc_code": "GC…" }``, puis les
+    événements ``progress`` par ami couvrent la phase de persistance. À la fin,
+    on enregistre un ``FriendZoneScan`` par ami couvert.
     """
     total_caches = len(gc_codes)
-    scanned_caches = 0
-    rate_limited = False
 
-    def on_progress(done: int, total: int, gc_code: str):
-        # Le callback ne peut pas yield ; on stocke l'état pour le générateur.
-        pass
-
+    # iter_finds_via_logbook émet un événement par cache traitée : la
+    # progression est streamée en temps réel (phase 'cache'), ce qu'un simple
+    # callback ne peut pas faire depuis l'intérieur d'un scan synchrone.
     try:
-        result = scan_finds_via_logbook(zone_id, gc_codes, on_progress=on_progress)
+        scan_iter = iter_finds_via_logbook(zone_id, gc_codes)
+        while True:
+            try:
+                event = next(scan_iter)
+            except StopIteration as stop:
+                result = stop.value
+                break
+            yield json.dumps({
+                'phase': 'cache',
+                'done': event['done'],
+                'total': event['total'],
+                'gc_code': event['gc_code'],
+            }) + '\n'
         scanned_caches = result['scanned']
         rate_limited = result['rate_limited']
         friend_finds = result['friend_finds']
@@ -496,7 +506,7 @@ def _generate_logbook_scan(
 
     yield json.dumps({
         'phase': 'done',
-        'scanned': len(friend_finds),
+        'scanned': len(covered),
         'skipped': skipped,
         'with_friends': with_friends,
         'rate_limited': rate_limited,
@@ -537,6 +547,8 @@ def sync_zone_finds_stream():
     Lignes émises :
 
     - ``{ "phase": "start", "total": N, "skipped": M, "to_scan": K }``
+    - ``{ "phase": "cache", "done": i, "total": N, "gc_code": "GC…" }``
+      (stratégie logbook uniquement : progression par cache traitée)
     - ``{ "phase": "progress", "done": i, "total": K, "friend": "pseudo",
         "found": 5, "zone_matches": 3, "created": 2, "known": 3 }``
     - ``{ "phase": "rate_limited", "done": i, "total": K, "message": "…" }``

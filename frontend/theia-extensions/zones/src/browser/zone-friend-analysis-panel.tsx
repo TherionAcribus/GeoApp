@@ -386,19 +386,13 @@ const MatrixView: React.FC<{
         return map;
     }, [friendNames, friendFinds]);
 
-    // Limiter le nombre de colonnes pour éviter une matrice illisible.
+    // Paginer les colonnes plutôt que tronquer la matrice : au-delà de 20
+    // caches, on navigue par pages au lieu de perdre le reste de la zone.
     const MAX_COLUMNS = 20;
-    const showAll = rows.length <= MAX_COLUMNS;
-    const visibleRows = showAll ? rows : rows.slice(0, MAX_COLUMNS);
-
-    if (!showAll) {
-        return (
-            <div style={{ padding: '8px 0', color: 'var(--theia-descriptionForeground)' }}>
-                La zone contient {rows.length} caches : la matrice est limitée aux {MAX_COLUMNS} premières.
-                Utilisez la vue « Par ami » et le filtre « Voir manquantes » pour une analyse complète.
-            </div>
-        );
-    }
+    const pageCount = Math.ceil(rows.length / MAX_COLUMNS);
+    const [page, setPage] = React.useState(0);
+    const safePage = Math.min(page, pageCount - 1);
+    const visibleRows = rows.slice(safePage * MAX_COLUMNS, (safePage + 1) * MAX_COLUMNS);
 
     return (
         <div style={{ overflow: 'auto' }}>
@@ -412,6 +406,38 @@ const MatrixView: React.FC<{
             }}>
                 ✓ trouvée · ✗ pas trouvée (analyse à jour) · ? non vérifiée
             </div>
+            {pageCount > 1 && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    paddingBottom: 6,
+                    fontSize: '0.78em',
+                    color: 'var(--theia-descriptionForeground)',
+                }}>
+                    <button
+                        className='theia-button secondary'
+                        style={{ padding: '0 6px' }}
+                        disabled={safePage === 0}
+                        onClick={() => setPage(safePage - 1)}
+                        title='Page précédente'
+                    >
+                        ‹
+                    </button>
+                    <span>
+                        {`Caches ${safePage * MAX_COLUMNS + 1}–${Math.min(rows.length, (safePage + 1) * MAX_COLUMNS)} sur ${rows.length}`}
+                    </span>
+                    <button
+                        className='theia-button secondary'
+                        style={{ padding: '0 6px' }}
+                        disabled={safePage >= pageCount - 1}
+                        onClick={() => setPage(safePage + 1)}
+                        title='Page suivante'
+                    >
+                        ›
+                    </button>
+                </div>
+            )}
             <table style={{
                 borderCollapse: 'collapse',
                 fontSize: '0.8em',
