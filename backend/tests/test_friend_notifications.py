@@ -160,6 +160,10 @@ def test_notifications_limit_caps_results(app):
 
     result = query_notifications(limit=3)
     assert result['count'] == 3
+    # total_count compte les caches non lus AVANT la limitation : c'est le vrai
+    # volume de notifications, celui que le badge doit afficher.
+    assert result['total_count'] == 10
+    assert result['truncated'] is True
     # total_new_finds compte toutes les lignes, pas seulement les items retournés
     assert result['total_new_finds'] == 10
 

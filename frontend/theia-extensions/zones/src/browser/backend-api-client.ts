@@ -109,7 +109,10 @@ export class BackendApiClient {
         if (text) {
             try {
                 const parsed = JSON.parse(text) as Record<string, unknown>;
-                const candidate = parsed.error || parsed.message || parsed.detail;
+                // `error` est un code technique (ex. « not_authenticated ») ;
+                // `error_message` porte le texte destiné à l'utilisateur : il
+                // passe en premier pour ne pas afficher le code à sa place.
+                const candidate = parsed.error_message || parsed.message || parsed.detail || parsed.error;
                 if (typeof candidate === 'string' && candidate.trim()) {
                     return new BackendApiError(response.status, candidate.trim());
                 }

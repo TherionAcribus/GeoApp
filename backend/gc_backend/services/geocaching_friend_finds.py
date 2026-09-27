@@ -1801,8 +1801,11 @@ def query_notifications(min_friends: int = 1, limit: int = 50) -> dict:
     Retourne un dict avec :
 
     - ``items`` : liste de notifications (par cache), triées par nombre d'amis
-      décroissant puis par date ;
-    - ``count`` : nombre de notifications (caches distinctes) ;
+      décroissant puis par date, limitée à ``limit`` ;
+    - ``count`` : nombre de notifications **retournées** ;
+    - ``total_count`` : nombre de notifications répondant au filtre, avant
+      limitation — c'est lui qui reflète le réel volume de non-lues ;
+    - ``truncated`` : vrai si la limitation a masqué des notifications ;
     - ``total_new_finds`` : nombre total de nouvelles lignes ``friend_find`` ;
     - ``last_seen_at`` : timestamp de la dernière visite.
     """
@@ -1879,11 +1882,14 @@ def query_notifications(min_friends: int = 1, limit: int = 50) -> dict:
             items.append(entry)
 
     items.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
+    total_count = len(items)
     items = items[:limit]
 
     return {
         'items': items,
         'count': len(items),
+        'total_count': total_count,
+        'truncated': total_count > len(items),
         'total_new_finds': total_new_finds,
         'last_seen_at': last_seen_str,
     }

@@ -296,7 +296,12 @@ export interface FriendNotification {
 export interface FriendNotificationsResponse {
     success: boolean;
     items?: FriendNotification[];
+    /** Notifications retournées (plafonnées par `limit`). */
     count?: number;
+    /** Notifications répondant au filtre, avant limitation : vrai volume non lu. */
+    total_count?: number;
+    /** La limitation a masqué des notifications. */
+    truncated?: boolean;
     total_new_finds?: number;
     last_seen_at?: string | null;
     error?: string;

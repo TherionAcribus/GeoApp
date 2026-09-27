@@ -7,6 +7,7 @@ import { MapWidgetFactory } from './map/map-widget-factory';
 import { MapGeocache } from './map/map-layer-manager';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
+import { CommandService } from '@theia/core';
 import { FriendsService } from './friends-service';
 import type {
     FriendActivity,
@@ -70,6 +71,9 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     @inject(GeoAppWidgetEventsService)
     protected readonly widgetEventsService: GeoAppWidgetEventsService;
 
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
+
     protected activities: FriendActivity[] = [];
     protected authors: { username: string; count: number }[] = [];
     protected logTypeLabels: Record<string, string> = {};
@@ -108,12 +112,16 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected suggestionsLoading: boolean = false;
     protected suggestionsVisible: boolean = false;
     protected suggestionsMinFriends: number = 1;
+    /** Dernière erreur de chargement des suggestions ; la liste est conservée. */
+    protected suggestionsError: string | null = null;
 
     /** Statistiques croisées entre amis. */
     protected stats: FriendStat[] = [];
     protected statsSummary: FriendStatsSummary | null = null;
     protected statsLoading: boolean = false;
     protected statsVisible: boolean = false;
+    /** Dernière erreur de chargement des stats ; les données sont conservées. */
+    protected statsError: string | null = null;
 
     /** État de fraîcheur des données. */
     protected freshness: FreshnessResponse | null = null;
@@ -773,6 +781,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     protected async loadSuggestions(): Promise<void> {
         this.suggestionsLoading = true;
+        this.suggestionsError = null;
         this.update();
 
         try {
@@ -784,10 +793,13 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             if (result.success) {
                 this.suggestions = result.suggestions || [];
             } else {
-                this.suggestions = [];
+                // Une erreur n'est pas « aucune suggestion » : la liste
+                // existante est conservée et l'erreur affichée à part.
+                this.suggestionsError = result.error_message || 'Impossible de charger les suggestions.';
             }
-        } catch {
-            this.suggestions = [];
+        } catch (err) {
+            this.suggestionsError = getErrorMessage(err, 'Impossible de charger les suggestions.');
+            console.error('[FriendActivity] Failed to load suggestions:', err);
         } finally {
             this.suggestionsLoading = false;
             this.update();
@@ -864,7 +876,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                     <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des suggestions…</div>
                 )}
 
-                {!this.suggestionsLoading && this.suggestions.length === 0 && (
+                {!this.suggestionsLoading && this.suggestionsError && (
+                    <div style={{ color: 'var(--theia-errorForeground)', marginBottom: '8px' }}>
+                        <span className="codicon codicon-error"></span>
+                        {` ${this.suggestionsError}`}
+                        {this.suggestions.length > 0 && ' (liste précédente conservée ci-dessous)'}
+                    </div>
+                )}
+
+                {!this.suggestionsLoading && !this.suggestionsError && this.suggestions.length === 0 && (
                     <div style={{ color: 'var(--theia-descriptionForeground)' }}>
                         Aucune suggestion pour ce filtre. Vos amis n'ont pas encore trouvé de cache que vous n'auriez pas faite,
                         ou la base est vide : synchronisez le flux ou déduisez les trouvailles d'une zone.
@@ -971,6 +991,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     protected async loadStats(): Promise<void> {
         this.statsLoading = true;
+        this.statsError = null;
         this.update();
 
         try {
@@ -979,12 +1000,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 this.stats = result.friends || [];
                 this.statsSummary = result.summary || null;
             } else {
-                this.stats = [];
-                this.statsSummary = null;
+                this.statsError = result.error_message || 'Impossible de charger les statistiques.';
             }
-        } catch {
-            this.stats = [];
-            this.statsSummary = null;
+        } catch (err) {
+            this.statsError = getErrorMessage(err, 'Impossible de charger les statistiques.');
+            console.error('[FriendActivity] Failed to load stats:', err);
         } finally {
             this.statsLoading = false;
             this.update();
@@ -1040,6 +1060,14 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
                 {this.statsLoading && (
                     <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des statistiques…</div>
+                )}
+
+                {!this.statsLoading && this.statsError && (
+                    <div style={{ color: 'var(--theia-errorForeground)', marginBottom: '8px' }}>
+                        <span className="codicon codicon-error"></span>
+                        {` ${this.statsError}`}
+                        {this.stats.length > 0 && ' (données précédentes conservées ci-dessous)'}
+                    </div>
                 )}
 
                 {!this.statsLoading && this.statsSummary && this.stats.length > 0 && (
@@ -1105,7 +1133,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                     </>
                 )}
 
-                {!this.statsLoading && this.stats.length === 0 && (
+                {!this.statsLoading && !this.statsError && this.stats.length === 0 && (
                     <div style={{ color: 'var(--theia-descriptionForeground)' }}>
                         Aucune statistique disponible : synchronisez le flux d'activité ou déduisez les trouvailles d'une zone.
                     </div>
@@ -1252,7 +1280,9 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             const result = await this.friendsService.loadNotifications(params);
             if (result.success) {
                 this.notifications = result.items || [];
-                this.notificationsCount = result.count || 0;
+                // `total_count` compte les non-lues avant limitation ; `count`
+                // ne compte que les éléments retournés (≤ limit).
+                this.notificationsCount = result.total_count ?? result.count ?? 0;
             }
         } catch {
             // Silencieux : les notifications sont un bonus.
@@ -1303,7 +1333,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         <button
                             className="theia-button secondary"
                             onClick={() => this.markNotificationsSeen()}
-                            title="Marquer toutes les notifications comme lues"
+                            title={`Marquer les ${this.notificationsCount} notification(s) non lues comme lues (y compris celles non affichées)`}
                         >
                             <span className="codicon codicon-check"></span>
                             {' Marquer comme lu'}
@@ -1333,6 +1363,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         {this.notifications.length > 0 && (
                             <div>
                                 {this.notifications.map(n => this.renderNotification(n))}
+                            </div>
+                        )}
+
+                        {this.notifications.length > 0 && this.notificationsCount > this.notifications.length && (
+                            <div style={{ fontSize: '0.85em', color: 'var(--theia-descriptionForeground)', marginTop: '8px' }}>
+                                {`${this.notifications.length} affichée(s) sur ${this.notificationsCount} — « Marquer comme lu » concerne aussi les non affichées.`}
                             </div>
                         )}
                     </>
@@ -1667,6 +1703,26 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 }}>
                     <span className={`codicon ${this.notAuthenticated ? 'codicon-key' : 'codicon-error'}`}></span>
                     {` ${this.error}`}
+                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.loadActivities(0)}
+                            disabled={this.loading}
+                        >
+                            <span className="codicon codicon-refresh"></span>
+                            {' Réessayer'}
+                        </button>
+                        {this.notAuthenticated && (
+                            <button
+                                className="theia-button"
+                                onClick={() => this.commandService.executeCommand('geoapp.auth.open')}
+                                title="Ouvrir la gestion de la connexion Geocaching.com"
+                            >
+                                <span className="codicon codicon-key"></span>
+                                {' Se reconnecter'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             );
         }

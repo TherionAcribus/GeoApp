@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget, Message } from '@theia/core/lib/browser';
+import { CommandService } from '@theia/core';
 import { BackendApiError, getErrorMessage } from './backend-api-client';
 import { FriendsService } from './friends-service';
 import type { GeocachingFriend } from './friends-types';
@@ -14,6 +15,9 @@ export class GeocachingFriendsWidget extends ReactWidget {
 
     @inject(FriendsService)
     protected readonly friendsService: FriendsService;
+
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
 
     protected friends: GeocachingFriend[] = [];
     protected fetchedAt: string | null = null;
@@ -76,12 +80,18 @@ export class GeocachingFriendsWidget extends ReactWidget {
                 this.truncated = result.truncated === true;
                 this.loaded = true;
             } else {
-                this.friends = [];
+                // Ne pas vider une liste déjà chargée : un rafraîchissement raté
+                // ne doit pas transformer des données valables en « aucun ami ».
+                if (!this.loaded) {
+                    this.friends = [];
+                }
                 this.notAuthenticated = result.error === 'not_authenticated';
-                this.error = result.error_message || 'Impossible de récupérer la liste des amis';
+                this.error = result.error_message || result.error || 'Impossible de récupérer la liste des amis';
             }
         } catch (err) {
-            this.friends = [];
+            if (!this.loaded) {
+                this.friends = [];
+            }
             if (err instanceof BackendApiError && err.status === 404) {
                 this.error = "Route /api/friends introuvable : le backend GeoApp doit être redémarré pour prendre en compte la fonctionnalité Amis.";
             } else {
@@ -206,6 +216,31 @@ export class GeocachingFriendsWidget extends ReactWidget {
                 }}>
                     <span className={`codicon ${this.notAuthenticated ? 'codicon-key' : 'codicon-error'}`}></span>
                     {` ${this.error}`}
+                    {this.loaded && this.fetchedAt && (
+                        <span style={{ color: 'var(--theia-descriptionForeground)' }}>
+                            {` — liste du ${new Date(this.fetchedAt).toLocaleString('fr-FR')} conservée.`}
+                        </span>
+                    )}
+                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.fetchFriends(true)}
+                            disabled={this.loading}
+                        >
+                            <span className="codicon codicon-refresh"></span>
+                            {' Réessayer'}
+                        </button>
+                        {this.notAuthenticated && (
+                            <button
+                                className="theia-button"
+                                onClick={() => this.commandService.executeCommand('geoapp.auth.open')}
+                                title="Ouvrir la gestion de la connexion Geocaching.com"
+                            >
+                                <span className="codicon codicon-key"></span>
+                                {' Se reconnecter'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             );
         }
@@ -286,9 +321,11 @@ export class GeocachingFriendsWidget extends ReactWidget {
                     <div style={{
                         marginTop: '16px',
                         fontSize: '0.85em',
-                        color: 'var(--theia-descriptionForeground)'
+                        color: this.error ? 'var(--theia-charts-orange)' : 'var(--theia-descriptionForeground)'
                     }}>
-                        {`Données récupérées le ${new Date(this.fetchedAt).toLocaleString('fr-FR')}`}
+                        {this.error
+                            ? `Données du ${new Date(this.fetchedAt).toLocaleString('fr-FR')} — actualisation impossible`
+                            : `Données récupérées le ${new Date(this.fetchedAt).toLocaleString('fr-FR')}`}
                     </div>
                 )}
             </div>

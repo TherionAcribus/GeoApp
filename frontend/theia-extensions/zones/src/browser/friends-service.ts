@@ -51,9 +51,14 @@ export class FriendsService {
     /** Émis quand la liste d'amis est (re)chargée. */
     readonly onDidChangeFriends: TheiaEvent<GeocachingFriend[]> = this.onDidChangeFriendsEmitter.event;
 
+    /** Validité du cache de la liste d'amis : alignée sur le TTL backend (15 min). */
+    protected static readonly FRIENDS_CACHE_TTL_MS = 15 * 60 * 1000;
+
     /** Cache de la liste d'amis. `null` = jamais chargée. */
     protected friendsCache: GeocachingFriend[] | null = null;
     protected friendsFetchedAt: string | null = null;
+    /** Horodatage local du cache (ms) : la fraîcheur est celle de GeoApp, pas du scrape. */
+    protected friendsCachedAtMs: number = 0;
     protected friendsLoading: Promise<FriendsResponse> | null = null;
     /** Dernière réponse complète (pour `pending_requests`, `truncated`…). */
     protected lastFriendsResponse: FriendsResponse | null = null;
@@ -74,7 +79,8 @@ export class FriendsService {
      * `Promise`.
      */
     async getFriends(force: boolean = false): Promise<FriendsResponse> {
-        if (!force && this.lastFriendsResponse) {
+        const cacheFresh = Date.now() - this.friendsCachedAtMs < FriendsService.FRIENDS_CACHE_TTL_MS;
+        if (!force && this.lastFriendsResponse && cacheFresh) {
             return this.lastFriendsResponse;
         }
         if (this.friendsLoading) {
@@ -103,20 +109,27 @@ export class FriendsService {
     invalidateFriends(): void {
         this.friendsCache = null;
         this.friendsFetchedAt = null;
+        this.friendsCachedAtMs = 0;
         this.lastFriendsResponse = null;
     }
 
     protected async fetchFriends(force: boolean): Promise<FriendsResponse> {
+        // Sans `force`, le backend sert son propre cache de 15 min : l'expiration
+        // du cache frontend ne déclenche pas un scrape à chaque fois.
         const result = await this.apiClient.requestJson<FriendsResponse>(
             `/api/friends${force ? '?force=true' : ''}`,
             {},
             'Impossible de récupérer la liste des amis',
         );
 
-        this.lastFriendsResponse = result;
+        // Une réponse en échec n'est pas mémorisée : elle remplacerait la
+        // dernière liste valable et empêcherait toute nouvelle tentative tant
+        // qu'elle resterait en cache.
         if (result.success && result.friends) {
+            this.lastFriendsResponse = result;
             this.friendsCache = result.friends;
             this.friendsFetchedAt = result.fetched_at ?? null;
+            this.friendsCachedAtMs = Date.now();
             this.onDidChangeFriendsEmitter.fire(this.friendsCache);
         }
         return result;
