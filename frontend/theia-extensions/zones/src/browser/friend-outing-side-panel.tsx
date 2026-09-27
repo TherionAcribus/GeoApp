@@ -7,6 +7,7 @@ import type { FriendGroup } from './friend-groups-state';
 import { coverageLabel, scanCoverage } from './friend-scan-state';
 import type { FriendScanCoverage } from './friend-scan-state';
 import { friendColor } from './friend-colors';
+import { outingSuggestions } from './friend-outing-suggestions';
 import { ZoneFriendAnalysisPanel } from './zone-friend-analysis-panel';
 import '../../src/browser/style/friend-outing-panel.css';
 
@@ -302,8 +303,93 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                         onOpenGeocache={props.onOpenGeocache}
                     />
                 </section>
+
+                <SuggestionsSection
+                    rows={scopeRows}
+                    friends={props.outing.friends}
+                    friendFinds={props.friendFinds}
+                    friendScans={props.friendScans}
+                    onOpenGeocache={props.onOpenGeocache}
+                />
             </div>
         </div>
+    );
+};
+
+// -------------------------------------------------- Section « Suggestions »
+
+/** Nombre de suggestions affichées — le reste reste lisible via la matrice. */
+const MAX_SUGGESTIONS = 10;
+
+/**
+ * Les caches du périmètre nouvelles pour le plus d'amis emmenés. Une cache
+ * « nouvelle pour 3 » sur couverture fiable vaut mieux qu'une « nouvelle
+ * pour 4 » dont deux scans sont tronqués : le compteur « ? » le rappelle.
+ */
+const SuggestionsSection: React.FC<{
+    rows: Geocache[];
+    friends: string[];
+    friendFinds: Record<string, string[]>;
+    friendScans: FriendZoneScanEntry[];
+    onOpenGeocache?: (geocache: Geocache) => void;
+}> = props => {
+    if (props.friends.length === 0 || props.rows.length === 0) {
+        return null;
+    }
+    const suggestions = outingSuggestions(props.rows, props.friends, props.friendFinds, props.friendScans);
+    if (suggestions.length === 0) {
+        return null;
+    }
+    const shown = suggestions.slice(0, MAX_SUGGESTIONS);
+    return (
+        <section className='geoapp-outing-panel__section'>
+            <h4 className='geoapp-outing-panel__section-title'>
+                Suggestions
+                <span className='geoapp-outing-panel__section-count'>{suggestions.length}</span>
+            </h4>
+            <p className='geoapp-outing-panel__hint'>
+                Caches nouvelles pour le plus d'amis emmenés (analyse à jour requise).
+            </p>
+            <ul className='geoapp-outing-panel__suggestions'>
+                {shown.map(s => {
+                    const gc = s.geocache;
+                    return (
+                        <li key={gc.gc_code} className='geoapp-outing-panel__suggestion'>
+                            <button
+                                className='geoapp-outing-panel__suggestion-name'
+                                title='Ouvrir la fiche'
+                                onClick={() => props.onOpenGeocache?.(gc)}
+                            >
+                                {gc.name}
+                            </button>
+                            <span className='geoapp-outing-panel__suggestion-meta'>
+                                {gc.gc_code} · D{gc.difficulty} T{gc.terrain}
+                            </span>
+                            <span
+                                className='geoapp-outing-panel__suggestion-new'
+                                title={s.newFor.join(', ')}
+                            >
+                                nouvelle pour {s.newFor.length}
+                                {s.newFor.length === 1 ? ` (${s.newFor[0]})` : ''}
+                            </span>
+                            {s.toCheck.length > 0 && (
+                                <span
+                                    className='geoapp-outing-panel__suggestion-check'
+                                    title={`À vérifier pour : ${s.toCheck.join(', ')}`}
+                                >
+                                    ? {s.toCheck.length}
+                                </span>
+                            )}
+                        </li>
+                    );
+                })}
+            </ul>
+            {suggestions.length > shown.length && (
+                <p className='geoapp-outing-panel__hint'>
+                    … et {suggestions.length - shown.length} autre(s), voir la matrice ou l'export CSV.
+                </p>
+            )}
+        </section>
     );
 };
 

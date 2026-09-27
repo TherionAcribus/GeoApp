@@ -282,3 +282,68 @@
     background: var(--theia-charts-blue);
     transition: width 0.3s;
 }
+
+/* --- Suggestions --- */
+
+.geoapp-outing-panel__hint {
+    margin: 0 0 6px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.4;
+}
+
+.geoapp-outing-panel__suggestions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.geoapp-outing-panel__suggestion {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 6px;
+    padding: 4px 2px;
+    border-radius: 3px;
+}
+
+.geoapp-outing-panel__suggestion:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-outing-panel__suggestion-name {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--theia-textLink-foreground);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.geoapp-outing-panel__suggestion-name:hover {
+    text-decoration: underline;
+}
+
+.geoapp-outing-panel__suggestion-meta {
+    font-size: 10px;
+    color: var(--theia-descriptionForeground);
+    white-space: nowrap;
+}
+
+.geoapp-outing-panel__suggestion-new {
+    font-size: 10px;
+    color: var(--theia-charts-green);
+    white-space: nowrap;
+}
+
+.geoapp-outing-panel__suggestion-check {
+    font-size: 10px;
+    color: var(--theia-charts-orange);
+    white-space: nowrap;
+    cursor: help;
+}
