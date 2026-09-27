@@ -157,7 +157,23 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             .then(() => this.refreshImportableCount())
             .then(() => this.refreshNotifications())
             .then(() => this.refreshEvents());
+
+        // (Re)connexion ou bascule de compte : recharger le flux. À la
+        // déconnexion les données locales restent consultables — on ne les
+        // efface pas, la prochaine synchro s'occupera du nouveau compte.
+        window.addEventListener('geoapp-auth-changed', this.onAuthChanged);
     }
+
+    override dispose(): void {
+        window.removeEventListener('geoapp-auth-changed', this.onAuthChanged);
+        super.dispose();
+    }
+
+    protected onAuthChanged = (event: Event): void => {
+        if ((event as CustomEvent).detail?.isConnected === true) {
+            void this.loadActivities(0);
+        }
+    };
 
     /** Ouverture automatique de la carte, réglable par préférence (activée par défaut). */
     protected async autoOpenMapIfEnabled(): Promise<void> {
@@ -174,15 +190,25 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         }
     }
 
-    /** Première synchro automatique si le flux local n'a jamais été rempli ou date de plus d'une heure. */
+    /**
+     * Première synchro automatique, pilotée par les mêmes préférences que le
+     * scheduler backend : si l'utilisateur a désactivé l'automatisation,
+     * ouvrir l'onglet ne doit pas la déclencher quand même.
+     */
     protected async autoSyncIfStale(): Promise<void> {
         if (this.error) {
             return;
         }
-        const staleAfterMs = 60 * 60 * 1000;
+        if (!this.preferenceService.get<boolean>('geoApp.friends.activity.autoSync', true)) {
+            return;
+        }
+        const intervalHours = Math.max(1,
+            this.preferenceService.get<number>('geoApp.friends.activity.autoSyncIntervalHours', 1));
         const last = this.lastSyncAt ? new Date(this.lastSyncAt).getTime() : 0;
-        if (!last || Date.now() - last > staleAfterMs) {
-            await this.sync();
+        if (!last || Date.now() - last > intervalHours * 3600 * 1000) {
+            const days = Math.max(1, Math.min(30,
+                this.preferenceService.get<number>('geoApp.friends.activity.autoSyncDays', 7)));
+            await this.sync(days);
         }
     }
 
@@ -661,14 +687,22 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.importAbort?.abort();
     }
 
-    protected async sync(): Promise<void> {
+    /**
+     * `days` : fenêtre de synchro. Par défaut la valeur du sélecteur
+     * (`syncDays`) ; la synchro auto passe sa propre profondeur sans modifier
+     * le réglage visible de l'utilisateur.
+     */
+    protected async sync(days?: number): Promise<void> {
+        if (this.syncing) {
+            return;
+        }
         this.syncing = true;
         this.syncMessage = null;
         this.error = null;
         this.update();
 
         try {
-            const result = await this.friendsService.syncActivity(this.syncDays);
+            const result = await this.friendsService.syncActivity(days ?? this.syncDays);
 
             if (result.success) {
                 const bits = [
@@ -684,6 +718,10 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 // Une synchro peut apporter de nouvelles caches : la carte suit.
                 await this.showOnMap();
                 await this.refreshImportableCount();
+                // … et les badges aussi : sans ça ils ne se mettraient à jour
+                // qu'à la prochaine ouverture du widget.
+                await this.refreshNotifications();
+                await this.refreshEvents();
             } else {
                 this.notAuthenticated = result.error === 'not_authenticated';
                 this.error = result.error_message || 'Échec de la synchronisation';

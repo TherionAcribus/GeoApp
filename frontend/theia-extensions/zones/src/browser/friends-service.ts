@@ -1,4 +1,4 @@
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { Emitter, Event as TheiaEvent } from '@theia/core/lib/common/event';
 import { BackendApiClient } from './backend-api-client';
 import type {
@@ -66,6 +66,17 @@ export class FriendsService {
     constructor(
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient
     ) {}
+
+    @postConstruct()
+    protected init(): void {
+        // Connexion, déconnexion ou bascule de compte : la liste en cache
+        // appartient à l'ancienne session, elle n'a plus droit de cité.
+        window.addEventListener('geoapp-auth-changed', this.onAuthChanged);
+    }
+
+    protected readonly onAuthChanged = (): void => {
+        this.invalidateFriends();
+    };
 
     // -------------------------------------------------- Liste d'amis
 
@@ -373,6 +384,7 @@ export class FriendsService {
     }
 
     dispose(): void {
+        window.removeEventListener('geoapp-auth-changed', this.onAuthChanged);
         this.onDidChangeFriendsEmitter.dispose();
     }
 }

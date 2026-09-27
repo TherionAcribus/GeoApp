@@ -255,6 +255,18 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             this.mapService.onDidRequestListSelection(request => this.handleMapListSelectionRequest(request))
         );
 
+        // La liste d'amis est partagée via FriendsService : quand elle est
+        // (re)chargée ailleurs — widget « Amis », changement de compte — le
+        // panneau de sortie doit suivre, au lieu de garder les pseudos de
+        // l'ancienne liste jusqu'au prochain chargement forcé.
+        this.toDispose.push(
+            this.friendsService.onDidChangeFriends(friends => {
+                this.accountFriends = friends;
+                this.friendsListError = null;
+                this.update();
+            })
+        );
+
         // Une analyse de sortie qui vient d'être capturée doit se voir dans la colonne
         // « Sortie » sans recharger la zone : c'est l'instant où l'utilisateur regarde
         // justement cette liste.

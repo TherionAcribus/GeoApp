@@ -53,7 +53,16 @@ export class GeocachingFriendsWidget extends ReactWidget {
         super.dispose();
     }
 
-    protected onAuthChanged = (): void => {
+    protected onAuthChanged = (event: Event): void => {
+        // Déconnexion : inutile d'interroger le backend, l'état est connu.
+        if ((event as CustomEvent).detail?.isConnected === false) {
+            this.friends = [];
+            this.loaded = false;
+            this.notAuthenticated = true;
+            this.error = 'Connectez-vous à Geocaching.com pour voir vos amis.';
+            this.update();
+            return;
+        }
         this.fetchFriends(true);
     };
 
