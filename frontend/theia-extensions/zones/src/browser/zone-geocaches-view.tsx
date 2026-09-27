@@ -166,6 +166,10 @@ export interface ZoneGeocachesViewProps {
     onSaveOutingAs?: (name: string) => void;
     /** Supprime une sortie enregistrée de la zone. */
     onDeleteOuting?: (name: string) => void;
+    /** Backend injoignable : le panneau affiche le bandeau « hors ligne ». */
+    backendOffline?: boolean;
+    /** Sonde le backend pour tenter de revenir en ligne. */
+    onRetryConnection?: () => void;
     /** Termine la sortie. */
     onExitOutingMode?: () => void;
     showImportAroundDialog: boolean;
@@ -532,6 +536,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onSwitchOuting={props.onSwitchOuting ?? (() => undefined)}
                     onSaveOutingAs={props.onSaveOutingAs ?? (() => undefined)}
                     onDeleteOuting={props.onDeleteOuting ?? (() => undefined)}
+                    backendOffline={props.backendOffline === true}
+                    onRetryConnection={props.onRetryConnection}
                     onExportCsv={props.onExportOutingCsv}
                     onOpenGeocache={props.onRowClick}
                     onExit={props.onExitOutingMode ?? (() => undefined)}

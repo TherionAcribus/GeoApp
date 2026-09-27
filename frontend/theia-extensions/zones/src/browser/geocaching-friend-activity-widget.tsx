@@ -166,12 +166,26 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         // déconnexion les données locales restent consultables — on ne les
         // efface pas, la prochaine synchro s'occupera du nouveau compte.
         window.addEventListener('geoapp-auth-changed', this.onAuthChanged);
+        // Bandeau « hors ligne » : il apparaît/disparaît avec la joignabilité.
+        this.connectivityDisposable = this.apiClient.onDidChangeConnectivity(() => this.update());
     }
+
+    protected connectivityDisposable?: { dispose(): void };
 
     override dispose(): void {
         window.removeEventListener('geoapp-auth-changed', this.onAuthChanged);
+        this.connectivityDisposable?.dispose();
         super.dispose();
     }
+
+    /** Sonde le backend puis recharge le flux si la connexion est revenue. */
+    protected retryConnection = async (): Promise<void> => {
+        if (await this.apiClient.probeBackend()) {
+            void this.loadActivities(0);
+        } else {
+            this.update();
+        }
+    };
 
     protected onAuthChanged = (event: Event): void => {
         if ((event as CustomEvent).detail?.isConnected === true) {
@@ -210,7 +224,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
      * ouvrir l'onglet ne doit pas la déclencher quand même.
      */
     protected async autoSyncIfStale(): Promise<void> {
-        if (this.error) {
+        if (this.error || !this.apiClient.isBackendReachable()) {
             return;
         }
         if (!this.preferenceService.get<boolean>('geoApp.friends.activity.autoSync', true)) {
@@ -1764,6 +1778,35 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     protected renderNotices(): React.ReactNode {
         const notices: React.ReactNode[] = [];
+
+        if (!this.apiClient.isBackendReachable()) {
+            notices.push(
+                <div key="offline" style={{
+                    padding: '8px 12px',
+                    marginBottom: '12px',
+                    backgroundColor: 'var(--theia-inputValidation-warningBackground)',
+                    border: '1px solid var(--theia-panel-border)',
+                    borderRadius: '4px',
+                    fontSize: '0.9em',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                }}>
+                    <span className="codicon codicon-debug-disconnect"></span>
+                    <span style={{ flex: 1 }}>
+                        Backend GeoApp injoignable — flux, suggestions et notifications affichés sont les données locales.
+                    </span>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.retryConnection()}
+                        disabled={this.loading}
+                    >
+                        <span className="codicon codicon-refresh"></span>
+                        {' Réessayer'}
+                    </button>
+                </div>
+            );
+        }
 
         if (this.error) {
             notices.push(

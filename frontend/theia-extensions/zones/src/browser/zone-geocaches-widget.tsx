@@ -29,7 +29,7 @@ import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent, G
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
-import { getErrorMessage } from './backend-api-client';
+import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
 import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportAroundService } from './import-around-service';
@@ -256,6 +256,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
         @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
         @inject(StorageService) protected readonly storageService: StorageService,
+        @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -270,6 +271,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Sélection demandée depuis la carte de la zone (Ctrl+clic, menu contextuel).
         this.toDispose.push(
             this.mapService.onDidRequestListSelection(request => this.handleMapListSelectionRequest(request))
+        );
+
+        // Bandeau « hors ligne » du panneau de sortie : suit la joignabilité
+        // du backend détectée par le client API partagé.
+        this.toDispose.push(
+            this.apiClient.onDidChangeConnectivity(() => this.update())
         );
 
         // La liste d'amis est partagée via FriendsService : quand elle est
@@ -1973,6 +1980,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.updateOutingFriends(friends);
     };
 
+    /** Sonde le backend puis recharge l'analyse si la connexion est revenue. */
+    protected retryBackendConnection = async (): Promise<void> => {
+        if (await this.apiClient.probeBackend()) {
+            void this.loadFriendFinds();
+        }
+        this.update();
+    };
+
     /**
      * Export CSV de la matrice « qui a trouvé quoi », limitée au périmètre de
      * la sortie. La sémantique oui/non/? est celle de `friend-scan-state` :
@@ -2732,6 +2747,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onSwitchOuting={this.switchOuting}
                 onSaveOutingAs={this.saveOutingAs}
                 onDeleteOuting={this.deleteOuting}
+                backendOffline={!this.apiClient.isBackendReachable()}
+                onRetryConnection={this.retryBackendConnection}
                 onExportOutingCsv={this.exportOutingCsv}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}

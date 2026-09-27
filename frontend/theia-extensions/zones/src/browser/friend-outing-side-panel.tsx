@@ -105,6 +105,11 @@ export interface FriendOutingSidePanelProps {
     /** Supprime une sortie enregistrée de la zone. */
     onDeleteOuting: (name: string) => void;
 
+    /** Backend injoignable : l'analyse est bloquée, les données sont locales. */
+    backendOffline?: boolean;
+    /** Sonde le backend pour tenter de revenir en ligne. */
+    onRetryConnection?: () => void;
+
     /** Exporte la matrice « qui a trouvé quoi » en CSV. */
     onExportCsv?: () => void;
 
@@ -279,6 +284,8 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                 <AnalysisSection
                     friendCount={props.activeFriends.size}
                     scopeSize={scopeRows.length}
+                    offline={props.backendOffline === true}
+                    onRetryConnection={props.onRetryConnection}
                     wholeZone={wholeZone}
                     progress={props.progress}
                     summary={props.lastAnalysisSummary}
@@ -856,13 +863,34 @@ const AnalysisSection: React.FC<{
     friendCount: number;
     scopeSize: number;
     wholeZone: boolean;
+    offline: boolean;
     progress: FriendFindsProgress | null;
     summary: FriendAnalysisSummary | null;
     onAnalyze: () => void;
     onCancel: () => void;
+    onRetryConnection?: () => void;
 }> = props => (
     <section className='geoapp-outing-panel__section'>
         <h4 className='geoapp-outing-panel__section-title'>Analyse</h4>
+
+        {props.offline && (
+            <div className='geoapp-outing-panel__notice geoapp-outing-panel__notice--warn'>
+                <span className='codicon codicon-debug-disconnect' />
+                <span style={{ flex: 1 }}>
+                    Backend injoignable — l'analyse nécessite le réseau. Matrice,
+                    suggestions et export restent consultables (données locales).
+                </span>
+                {props.onRetryConnection && (
+                    <button
+                        className='theia-button secondary geoapp-outing-panel__mini-button'
+                        onClick={props.onRetryConnection}
+                        title='Sonder le backend'
+                    >
+                        Réessayer
+                    </button>
+                )}
+            </div>
+        )}
 
         {props.progress ? (
             <>
@@ -894,11 +922,13 @@ const AnalysisSection: React.FC<{
             <button
                 className='theia-button geoapp-outing-panel__wide-button'
                 onClick={props.onAnalyze}
-                disabled={props.friendCount === 0 || props.scopeSize === 0}
-                title={props.friendCount === 0
-                    ? 'Cochez au moins un ami.'
-                    : `Analyser ${props.friendCount} ami(s) sur ${props.scopeSize} cache(s)`
-                        + (props.wholeZone ? ' (toute la zone)' : '')}
+                disabled={props.friendCount === 0 || props.scopeSize === 0 || props.offline}
+                title={props.offline
+                    ? 'Backend injoignable — l’analyse nécessite le réseau'
+                    : props.friendCount === 0
+                        ? 'Cochez au moins un ami.'
+                        : `Analyser ${props.friendCount} ami(s) sur ${props.scopeSize} cache(s)`
+                            + (props.wholeZone ? ' (toute la zone)' : '')}
             >
                 Analyser {props.friendCount} ami(s) × {props.scopeSize} cache(s)
             </button>

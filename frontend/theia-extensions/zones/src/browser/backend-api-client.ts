@@ -1,4 +1,5 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { Emitter, Event } from '@theia/core/lib/common/event';
 import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 
 export class BackendApiError extends Error {
@@ -28,13 +29,57 @@ export class BackendApiClient {
         });
     }
 
+    /**
+     * Backend joignable ? Optimiste : `true` tant qu'aucun échec réseau n'a été
+     * constaté — aucun bandeau « hors ligne » avant la première preuve.
+     *
+     * Une réponse HTTP, même en erreur (500, 401…), compte comme joignable :
+     * seul un `fetch` qui jette (backend arrêté, réseau coupé) bascule l'état.
+     */
+    protected backendReachable = true;
+    protected readonly connectivityEmitter = new Emitter<boolean>();
+    /** Émis quand la joignabilité du backend change (true = joignable). */
+    readonly onDidChangeConnectivity: Event<boolean> = this.connectivityEmitter.event;
+
+    isBackendReachable(): boolean {
+        return this.backendReachable;
+    }
+
+    /**
+     * Sonde le backend par la route la plus légère qui existe — statut d'auth
+     * en cache, aucun appel à geocaching.com. Met à jour l'état de joignabilité.
+     */
+    async probeBackend(): Promise<boolean> {
+        try {
+            await this.request('/api/auth/status');
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    protected setBackendReachable(value: boolean): void {
+        if (this.backendReachable !== value) {
+            this.backendReachable = value;
+            this.connectivityEmitter.fire(value);
+        }
+    }
+
     async request(path: string, init: RequestInit = {}): Promise<Response> {
         const headers = new Headers(init.headers ?? undefined);
-        return fetch(this.toUrl(path), {
-            ...init,
-            headers,
-            credentials: init.credentials ?? 'include'
-        });
+        try {
+            const response = await fetch(this.toUrl(path), {
+                ...init,
+                headers,
+                credentials: init.credentials ?? 'include'
+            });
+            this.setBackendReachable(true);
+            return response;
+        } catch (error) {
+            // TypeError « Failed to fetch » : le backend ne répond pas.
+            this.setBackendReachable(false);
+            throw error;
+        }
     }
 
     getBaseUrl(): string {

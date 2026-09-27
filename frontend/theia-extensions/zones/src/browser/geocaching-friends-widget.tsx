@@ -2,7 +2,7 @@ import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget, Message } from '@theia/core/lib/browser';
 import { CommandService } from '@theia/core';
-import { BackendApiError, getErrorMessage } from './backend-api-client';
+import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
 import { FriendsService } from './friends-service';
 import type { GeocachingFriend } from './friends-types';
 
@@ -18,6 +18,9 @@ export class GeocachingFriendsWidget extends ReactWidget {
 
     @inject(CommandService)
     protected readonly commandService: CommandService;
+
+    @inject(BackendApiClient)
+    protected readonly apiClient: BackendApiClient;
 
     protected friends: GeocachingFriend[] = [];
     protected fetchedAt: string | null = null;
@@ -46,12 +49,26 @@ export class GeocachingFriendsWidget extends ReactWidget {
 
         // Recharger quand la connexion Geocaching.com change.
         window.addEventListener('geoapp-auth-changed', this.onAuthChanged);
+        // Bandeau « hors ligne » : il apparaît/disparaît avec la joignabilité.
+        this.connectivityDisposable = this.apiClient.onDidChangeConnectivity(() => this.update());
     }
+
+    protected connectivityDisposable?: { dispose(): void };
 
     override dispose(): void {
         window.removeEventListener('geoapp-auth-changed', this.onAuthChanged);
+        this.connectivityDisposable?.dispose();
         super.dispose();
     }
+
+    /** Sonde le backend puis recharge si la connexion est revenue. */
+    protected retryConnection = async (): Promise<void> => {
+        if (await this.apiClient.probeBackend()) {
+            void this.fetchFriends();
+        } else {
+            this.update();
+        }
+    };
 
     protected onAuthChanged = (event: Event): void => {
         // Déconnexion : inutile d'interroger le backend, l'état est connu.
@@ -199,8 +216,10 @@ export class GeocachingFriendsWidget extends ReactWidget {
                 <button
                     className="theia-button"
                     onClick={() => this.fetchFriends(true)}
-                    disabled={this.loading}
-                    title="Recharger la liste depuis geocaching.com (ignore le cache)"
+                    disabled={this.loading || !this.apiClient.isBackendReachable()}
+                    title={this.apiClient.isBackendReachable()
+                        ? 'Recharger la liste depuis geocaching.com (ignore le cache)'
+                        : 'Backend injoignable — utilisez « Réessayer la connexion »'}
                 >
                     <span className="codicon codicon-refresh"></span>
                     {this.loading ? ' Chargement…' : ' Rafraîchir'}
@@ -219,6 +238,36 @@ export class GeocachingFriendsWidget extends ReactWidget {
 
     protected renderNotices(): React.ReactNode {
         const notices: React.ReactNode[] = [];
+
+        if (!this.apiClient.isBackendReachable()) {
+            notices.push(
+                <div key="offline" style={{
+                    padding: '12px',
+                    marginBottom: '16px',
+                    backgroundColor: 'var(--theia-inputValidation-warningBackground)',
+                    border: '1px solid var(--theia-panel-border)',
+                    borderRadius: '4px'
+                }}>
+                    <span className="codicon codicon-debug-disconnect"></span>
+                    {' Backend GeoApp injoignable — les données affichées sont celles du cache local.'}
+                    {this.fetchedAt && (
+                        <span style={{ color: 'var(--theia-descriptionForeground)' }}>
+                            {` Liste du ${new Date(this.fetchedAt).toLocaleString('fr-FR')}.`}
+                        </span>
+                    )}
+                    <div style={{ marginTop: '8px' }}>
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.retryConnection()}
+                            disabled={this.loading}
+                        >
+                            <span className="codicon codicon-refresh"></span>
+                            {' Réessayer la connexion'}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
 
         if (this.error) {
             notices.push(
