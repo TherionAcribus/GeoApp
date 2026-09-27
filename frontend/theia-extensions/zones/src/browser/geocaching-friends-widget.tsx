@@ -428,7 +428,17 @@ export class GeocachingFriendsWidget extends ReactWidget {
                         </div>
                     </div>
 
-                    <div style={{ marginTop: '8px' }}>
+                    <div style={{ marginTop: '8px', display: 'flex', gap: '6px' }}>
+                        <button
+                            className="theia-button secondary"
+                            style={{ padding: '2px 8px', fontSize: '0.85em' }}
+                            onClick={() => this.commandService.executeCommand(
+                                'geoapp.friends.summary.open', { username: friend.username })}
+                            title={`Fiche de ${friend.username} : trouvailles, commun, couverture`}
+                        >
+                            <span className="codicon codicon-person"></span>
+                            {' Fiche'}
+                        </button>
                         <button
                             className="theia-button secondary"
                             style={{ padding: '2px 8px', fontSize: '0.85em' }}

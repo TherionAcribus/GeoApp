@@ -7,6 +7,7 @@ import { MapWidget } from './map/map-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendActivityWidget } from './geocaching-friend-activity-widget';
+import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { OutingPlanCommandId, OutingPlanWidget } from './outing-plan-widget';
@@ -19,6 +20,7 @@ export const ZonesCommands = {
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
     OPEN_FRIENDS: <Command>{ id: 'geoapp.friends.open', label: 'GeoApp: Amis Geocaching.com' },
     OPEN_FRIEND_ACTIVITY: <Command>{ id: 'geoapp.friends.activity.open', label: 'GeoApp: Activité des amis' },
+    OPEN_FRIEND_SUMMARY: <Command>{ id: 'geoapp.friends.summary.open', label: 'GeoApp: Fiche ami' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
     OPEN_OUTING_PLAN: <Command>{ id: OutingPlanCommandId, label: 'GeoApp: Checklist de sortie' },
@@ -101,6 +103,20 @@ export class ZonesCommandContribution implements CommandContribution {
                 // `{ username }` : vue focalisée sur un ami (depuis sa carte).
                 if (args?.username) {
                     void widget.focusAuthor(args.username);
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        // Ouvre la fiche synthétique d'un ami (`{ username }` requis)
+        commands.registerCommand(ZonesCommands.OPEN_FRIEND_SUMMARY, {
+            execute: async (args?: { username?: string }) => {
+                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendSummaryWidget.ID) as GeocachingFriendSummaryWidget;
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                if (args?.username) {
+                    void widget.setFriend(args.username);
                 }
                 this.shell.activateWidget(widget.id);
             }

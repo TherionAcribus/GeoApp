@@ -16,6 +16,7 @@ Routes API :
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
 - GET  /api/friends/finds/suggestions → caches trouvées par ≥N amis mais pas par moi
 - GET  /api/friends/stats             → statistiques croisées par ami (trouvailles, activité, commun)
+- GET  /api/friends/<username>/summary → fiche synthétique d'un ami (trouvailles, commun, activité, couverture)
 - GET  /api/friends/freshness          → état de fraîcheur de toutes les sources (timestamps + compteurs)
 - GET  /api/friends/notifications      → nouvelles trouvailles d'amis depuis la dernière visite
 - POST /api/friends/notifications/seen → marque les notifications comme lues
@@ -58,6 +59,7 @@ from ..services.geocaching_friend_finds import (
     get_or_create_friends_zone,
     list_codes_to_import,
     mark_notifications_seen,
+    query_friend_summary,
     query_freshness,
     query_friend_stats,
     query_notifications,
@@ -1363,6 +1365,57 @@ def friend_stats():
     """
     stats = query_friend_stats()
     return jsonify({"success": True, **stats})
+
+
+@bp.get("/<username>/summary")
+def friend_summary(username: str):
+    """
+    Fiche synthétique d'un ami : trouvailles connues, caches en commun avec
+    moi, dernière activité du flux et couverture des analyses par zone.
+
+    Lecture purement locale (aucun réseau). ``is_stale`` par zone reproduit
+    la règle de ``/finds/zone/<id>/scans`` : boîte changée, scan plus vieux
+    que ``DEFAULT_SCAN_FRESHNESS_HOURS`` ou scan tronqué.
+    """
+    from ..services.geocaching_friend_finds import DEFAULT_SCAN_FRESHNESS_HOURS
+
+    summary = query_friend_summary(username)
+    if summary is None:
+        return jsonify({
+            "success": True,
+            "username": username,
+            "finds_count": 0,
+            "shared_with_me": 0,
+            "activity_count": 0,
+            "last_activity_at": None,
+            "recent_activity": [],
+            "zones": [],
+        })
+
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(hours=DEFAULT_SCAN_FRESHNESS_HOURS)
+    boxes: dict[int, str | None] = {}
+
+    for zone in summary['zones']:
+        zone_id = zone['zone_id']
+        if zone_id not in boxes:
+            box = _zone_box(zone_id)
+            boxes[zone_id] = box.box_param if box else None
+        box_sig = boxes[zone_id]
+
+        scanned_at = None
+        if zone['scanned_at']:
+            try:
+                scanned_at = datetime.fromisoformat(zone['scanned_at'])
+            except (ValueError, TypeError):
+                pass
+        zone['is_stale'] = (
+            (box_sig is not None and zone.get('box_signature') != box_sig)
+            or (scanned_at is not None and _is_after(threshold, scanned_at))
+            or zone['truncated']
+        )
+
+    return jsonify({"success": True, **summary})
 
 
 @bp.get("/freshness")

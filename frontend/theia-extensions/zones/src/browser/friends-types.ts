@@ -360,6 +360,45 @@ export interface FriendZoneScanEntry {
     not_in_friends_list?: boolean;
 }
 
+// -------------------------------------------------- Fiche ami
+
+/** Couverture d'un scan sur une zone, telle que renvoyée par `/api/friends/:username/summary`. */
+export interface FriendSummaryZone {
+    zone_id: number;
+    zone_name: string | null;
+    found_count: number;
+    zone_matches: number;
+    truncated: boolean;
+    scanned_at: string | null;
+    is_stale?: boolean;
+}
+
+/** Dernier log du flux d'activité, dans la fiche ami. */
+export interface FriendSummaryActivity {
+    gc_code: string | null;
+    cache_name: string | null;
+    /** > 0 si la cache est importée dans GeoApp (fiche ouvrable en local). */
+    geocache_id: number;
+    log_type_id: number | null;
+    log_type_label: string | null;
+    log_date: string | null;
+}
+
+/** Réponse de `GET /api/friends/<username>/summary` (fiche synthétique locale). */
+export interface FriendSummaryResponse {
+    success: boolean;
+    username: string;
+    finds_count: number;
+    /** Caches que j'ai trouvées et que l'ami a aussi trouvées. */
+    shared_with_me: number;
+    activity_count: number;
+    last_activity_at: string | null;
+    recent_activity: FriendSummaryActivity[];
+    zones: FriendSummaryZone[];
+    error?: string;
+    error_message?: string;
+}
+
 /** Progression d'une analyse streaming (bouton « 👥 Amis »). */
 export interface FriendFindsProgress {
     done: number;

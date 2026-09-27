@@ -1563,6 +1563,124 @@ def query_suggestions(
     return suggestions
 
 
+# ---------------------------------------------------------- Fiche ami
+
+def query_friend_summary(username: str, recent_limit: int = 5) -> dict:
+    """
+    Fiche synthétique d'un ami : tout ce que GeoApp sait de lui, en une requête.
+
+    Croise les trois sources locales (aucun appel réseau) :
+
+    - ``friend_find`` : trouvailles connues et caches en commun avec moi
+      (celles que j'ai trouvées *et* que l'ami a trouvées) ;
+    - ``friend_activity`` : nombre de logs du flux, date de la dernière
+      activité et les ``recent_limit`` derniers logs ;
+    - ``friend_zone_scan`` : couverture des analyses par zone — c'est ce qui
+      distingue « on sait qu'il n'a rien trouvé là » de « on n'a jamais
+      vérifié ».
+
+    Retourne ``None`` si l'ami n'a laissé aucune trace locale. Le champ
+    ``is_stale`` de chaque zone est laissé à la route : il dépend de la boîte
+    courante de la zone, que le service ne connaît pas.
+    """
+    from sqlalchemy import func
+
+    from ..database import db
+    from ..geocaches.models import Geocache
+    from ..models import FriendActivity, FriendFind, FriendZoneScan, Zone
+    from .geocaching_friend_activity import LOG_TYPE_LABELS
+
+    finds_count = (
+        db.session.query(func.count(FriendFind.id))
+        .filter(FriendFind.friend_username == username)
+        .scalar() or 0
+    )
+
+    # Caches en commun : trouvailles de l'ami qui croisent une cache que
+    # j'ai marquée « found ». DISTINCT gc_code car une ligne Geocache peut
+    # être dupliquée (gc_code indexé, pas unique).
+    shared_with_me = (
+        db.session.query(func.count(func.distinct(FriendFind.gc_code)))
+        .join(Geocache, Geocache.gc_code == FriendFind.gc_code)
+        .filter(FriendFind.friend_username == username, Geocache.found.is_(True))
+        .scalar() or 0
+    )
+
+    activity_count, last_activity_at = (
+        db.session.query(
+            func.count(FriendActivity.id),
+            func.max(FriendActivity.log_date),
+        )
+        .filter(
+            FriendActivity.author_username == username,
+            FriendActivity.activity_type == 2,  # ACTIVITY_TYPE_FRIENDS
+            db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)),
+        )
+        .one()
+    )
+
+    # Jointure Geocache pour savoir si la cache est importée (fiche GeoApp
+    # cliquable côté frontend, lien externe sinon).
+    recent_rows = (
+        db.session.query(FriendActivity, Geocache.id)
+        .outerjoin(Geocache, Geocache.gc_code == FriendActivity.cache_reference_code)
+        .filter(
+            FriendActivity.author_username == username,
+            FriendActivity.activity_type == 2,
+            db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)),
+        )
+        .order_by(FriendActivity.log_date.desc())
+        .limit(recent_limit)
+        .all()
+    )
+    recent_activity = [
+        {
+            'gc_code': row.cache_reference_code,
+            'cache_name': row.cache_name,
+            'geocache_id': geocache_id or 0,
+            'log_type_id': row.log_type_id,
+            'log_type_label': LOG_TYPE_LABELS.get(row.log_type_id),
+            'log_date': row.log_date.isoformat() if row.log_date else None,
+            'latitude': row.latitude,
+            'longitude': row.longitude,
+        }
+        for row, geocache_id in recent_rows
+    ]
+
+    scans = (
+        db.session.query(FriendZoneScan, Zone.name)
+        .outerjoin(Zone, Zone.id == FriendZoneScan.zone_id)
+        .filter(FriendZoneScan.friend_username == username)
+        .order_by(FriendZoneScan.scanned_at.desc())
+        .all()
+    )
+    zones = [
+        {
+            'zone_id': scan.zone_id,
+            'zone_name': zone_name,
+            'box_signature': scan.box_signature,
+            'found_count': scan.found_count,
+            'zone_matches': scan.zone_matches,
+            'truncated': bool(scan.truncated),
+            'scanned_at': scan.scanned_at.isoformat() if scan.scanned_at else None,
+        }
+        for scan, zone_name in scans
+    ]
+
+    if finds_count == 0 and activity_count == 0 and not zones:
+        return None
+
+    return {
+        'username': username,
+        'finds_count': finds_count,
+        'shared_with_me': shared_with_me,
+        'activity_count': activity_count,
+        'last_activity_at': last_activity_at.isoformat() if last_activity_at else None,
+        'recent_activity': recent_activity,
+        'zones': zones,
+    }
+
+
 # ---------------------------------------------------------- Statistiques croisées
 
 def query_friend_stats() -> dict:
