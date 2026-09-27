@@ -3,6 +3,8 @@ import type { Geocache } from './geocaches-table';
 import type { FriendFindsProgress, FriendZoneScanEntry, GeocachingFriend } from './friends-types';
 import type { FriendAnalysisSummary, FriendFilter, FriendOuting } from './friend-outing-state';
 import { friendOfFilter, missingForFriendFilter } from './friend-outing-state';
+import { coverageLabel, scanCoverage } from './friend-scan-state';
+import type { FriendScanCoverage } from './friend-scan-state';
 import { friendColor } from './friend-colors';
 import { ZoneFriendAnalysisPanel } from './zone-friend-analysis-panel';
 import '../../src/browser/style/friend-outing-panel.css';
@@ -92,10 +94,8 @@ interface FriendRow {
     avatarUrl: string | null;
     /** Trouvailles connues dans le périmètre. */
     found: number;
-    /** Analysé au moins une fois sur cette zone. */
-    scanned: boolean;
-    /** Analysé, mais la zone a bougé depuis. */
-    isStale: boolean;
+    /** Couverture de l'analyse : fresh / partial / stale / unscanned. */
+    coverage: FriendScanCoverage;
     scannedAt: string | null;
     /** Présent dans la liste d'amis du compte (sinon : connu des seules données locales). */
     fromAccount: boolean;
@@ -151,8 +151,7 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                     name,
                     avatarUrl: account?.avatar_url ?? null,
                     found: foundInScope.get(name) ?? 0,
-                    scanned: scan?.scanned ?? false,
-                    isStale: scan?.is_stale ?? false,
+                    coverage: scanCoverage(scan),
                     scannedAt: scan?.scanned_at ?? null,
                     fromAccount: account !== undefined,
                 };
@@ -383,17 +382,20 @@ const FriendItem: React.FC<{
     // « Analysé » vient de l'état de scan de la **zone** : le backend ne suit pas
     // la fraîcheur périmètre par périmètre. Sur un sous-ensemble, c'est donc une
     // approximation — le titre le dit, plutôt que de laisser croire à une garantie.
-    const status = !row.scanned
-        ? { label: 'jamais', className: 'geoapp-outing-panel__status--never' }
-        : row.isStale
-            ? { label: 'obsolète', className: 'geoapp-outing-panel__status--stale' }
-            : { label: 'analysé', className: 'geoapp-outing-panel__status--fresh' };
-    const statusTitle = !row.scanned
-        ? `${row.name} n'a jamais été analysé sur cette zone.`
-        : row.isStale
-            ? `Analyse obsolète : la zone a changé depuis${scannedOn}.`
-            : `Analysé sur la zone${scannedOn}`
-                + (wholeZone ? '' : " — l'état de fraîcheur est celui de la zone, pas du périmètre.");
+    const statusClass = {
+        unscanned: 'geoapp-outing-panel__status--never',
+        partial: 'geoapp-outing-panel__status--partial',
+        stale: 'geoapp-outing-panel__status--stale',
+        fresh: 'geoapp-outing-panel__status--fresh',
+    }[row.coverage];
+    const statusTitle = row.coverage === 'unscanned'
+        ? `${row.name} n'a jamais été analysé sur cette zone : ses absences sont des inconnues.`
+        : row.coverage === 'partial'
+            ? `Analyse partielle${scannedOn} : résultats tronqués, à refaire pour garantir les absences.`
+            : row.coverage === 'stale'
+                ? `Analyse obsolète : la zone a changé depuis${scannedOn}.`
+                : `Analysé sur la zone${scannedOn}`
+                    + (wholeZone ? '' : " — l'état de fraîcheur est celui de la zone, pas du périmètre.");
 
     return (
         <li className={`geoapp-outing-panel__friend${active ? ' geoapp-outing-panel__friend--active' : ''}`}>
@@ -432,10 +434,10 @@ const FriendItem: React.FC<{
                         )}
                     </span>
                     <span className='geoapp-outing-panel__friend-meta'>
-                        <span className={`geoapp-outing-panel__status ${status.className}`} title={statusTitle}>
-                            {status.label}
+                        <span className={`geoapp-outing-panel__status ${statusClass}`} title={statusTitle}>
+                            {coverageLabel(row.coverage)}
                         </span>
-                        {row.scanned && (
+                        {row.coverage !== 'unscanned' && (
                             <span
                                 className='geoapp-outing-panel__friend-count'
                                 title={`${row.found} trouvée(s) sur les ${scopeSize} cache(s) ${wholeZone ? 'de la zone' : 'de la sortie'}`}

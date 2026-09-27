@@ -1,6 +1,8 @@
 import * as React from 'react';
 import type { Geocache } from './geocaches-table';
 import type { FriendZoneScanEntry } from './friends-types';
+import { coverageLabel, friendFindCell, scanCoverage } from './friend-scan-state';
+import type { FriendScanCoverage } from './friend-scan-state';
 
 /**
  * Panneau de résultat de l'analyse des amis sur une zone.
@@ -74,7 +76,10 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
 
     const totalCaches = props.rows.length;
 
-    // Pour chaque ami : caches trouvées, manquantes, et statut du scan.
+    // Pour chaque ami : caches trouvées, caches sans trouvaille connue, et
+    // couverture de l'analyse — c'est elle qui dit si une absence est une
+    // information (« pas trouvée ») ou un manque de données (« inconnue »).
+    const scanByFriend = new Map(props.friendScans.map(s => [s.friend, s]));
     const friendStats = friendNames.map(name => {
         const foundCodes = new Set<string>();
         for (const [gcCode, finders] of Object.entries(props.friendFinds)) {
@@ -83,21 +88,26 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
             }
         }
         const foundInZone = props.rows.filter(r => foundCodes.has(r.gc_code)).length;
-        const missing = totalCaches - foundInZone;
-        const scan = props.friendScans.find(s => s.friend === name);
+        const scan = scanByFriend.get(name);
         return {
             name,
             found: foundInZone,
-            missing,
+            // « Manquantes » n'a de sens que sur couverture fiable ; sinon ce
+            // compteur désigne les caches restant à vérifier.
+            missing: totalCaches - foundInZone,
             total: totalCaches,
-            scanned: scan?.scanned ?? false,
-            isStale: scan?.is_stale ?? false,
+            coverage: scanCoverage(scan),
             scannedAt: scan?.scanned_at ?? null,
         };
     });
 
-    // Tri : amis avec le plus de manquantes d'abord (ce sont eux qui intéressent).
-    friendStats.sort((a, b) => b.missing - a.missing);
+    // Tri : les analyses fiables d'abord (leurs manquantes sont exploitables),
+    // puis celles à revérifier, puis les jamais analysés.
+    const coverageRank: Record<FriendScanCoverage, number> = {
+        fresh: 0, partial: 1, stale: 1, unscanned: 2,
+    };
+    friendStats.sort((a, b) =>
+        (coverageRank[a.coverage] - coverageRank[b.coverage]) || (b.missing - a.missing));
 
     if (collapsed) {
         return (
@@ -196,6 +206,7 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
                         rows={props.rows}
                         friendNames={friendNames}
                         friendFinds={props.friendFinds}
+                        scanByFriend={scanByFriend}
                         onOpenGeocache={props.onOpenGeocache}
                     />
                 )}
@@ -209,10 +220,10 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
 interface FriendStatRow {
     name: string;
     found: number;
+    /** Caches sans trouvaille connue : « manquantes » si fiable, « à vérifier » sinon. */
     missing: number;
     total: number;
-    scanned: boolean;
-    isStale: boolean;
+    coverage: FriendScanCoverage;
     scannedAt: string | null;
 }
 
@@ -252,29 +263,30 @@ const SummaryView: React.FC<{
                             {stat.name}
                         </span>
 
-                        {/* Statut du scan */}
-                        {!stat.scanned ? (
-                            <span
-                                style={{ fontSize: '0.75em', color: 'var(--theia-descriptionForeground)' }}
-                                title='Jamais analysé'
-                            >
-                                non analysé
-                            </span>
-                        ) : stat.isStale ? (
-                            <span
-                                style={{ fontSize: '0.75em', color: 'var(--theia-charts-orange)' }}
-                                title='Scan obsolète (zone modifiée depuis)'
-                            >
-                                obsolète
-                            </span>
-                        ) : (
-                            <span
-                                style={{ fontSize: '0.75em', color: 'var(--theia-charts-green)' }}
-                                title={stat.scannedAt ? `Vérifié le ${new Date(stat.scannedAt).toLocaleDateString('fr-FR')}` : 'À jour'}
-                            >
-                                à jour
-                            </span>
-                        )}
+                        {/* Statut de l'analyse : c'est lui qui décide si les
+                            caches restantes sont des « manquantes » ou de
+                            simples inconnues à vérifier. */}
+                        <span
+                            style={{
+                                fontSize: '0.75em',
+                                color: stat.coverage === 'fresh'
+                                    ? 'var(--theia-charts-green)'
+                                    : stat.coverage === 'unscanned'
+                                        ? 'var(--theia-descriptionForeground)'
+                                        : 'var(--theia-charts-orange)',
+                            }}
+                            title={stat.coverage === 'unscanned'
+                                ? 'Jamais analysé : ses absences ne sont pas des informations.'
+                                : stat.coverage === 'partial'
+                                    ? 'Analyse partielle (résultats tronqués) : à refaire pour garantir les absences.'
+                                    : stat.coverage === 'stale'
+                                        ? 'Analyse obsolète (zone modifiée ou trop ancienne) : à revérifier.'
+                                        : stat.scannedAt
+                                            ? `Vérifié le ${new Date(stat.scannedAt).toLocaleDateString('fr-FR')}`
+                                            : 'À jour'}
+                        >
+                            {coverageLabel(stat.coverage)}
+                        </span>
 
                         {/* Barre de progression (seconde ligne en mode resserré) */}
                         <div style={{
@@ -305,26 +317,41 @@ const SummaryView: React.FC<{
                         }}>
                             <strong style={{ color: 'var(--theia-charts-green)' }}>{stat.found}</strong>
                             {` / ${stat.total}`}
-                            {stat.missing > 0 && (
-                                <span style={{ color: 'var(--theia-charts-red)' }}>
+                            {stat.missing > 0 && stat.coverage !== 'unscanned' && (
+                                <span style={{
+                                    color: stat.coverage === 'fresh'
+                                        ? 'var(--theia-charts-red)'
+                                        : 'var(--theia-charts-orange)',
+                                }}>
                                     {compact
                                         ? ` (−${stat.missing})`
-                                        : ` (${stat.missing} manquante${stat.missing > 1 ? 's' : ''})`}
+                                        : stat.coverage === 'fresh'
+                                            ? ` (${stat.missing} manquante${stat.missing > 1 ? 's' : ''})`
+                                            : ` (${stat.missing} à vérifier)`}
                                 </span>
                             )}
                         </span>
 
-                        {/* Bouton « Voir manquantes » */}
-                        {stat.missing > 0 && (
+                        {/* Filtre « manquantes » : seulement si l'absence de
+                            trouvaille veut dire quelque chose. Sur un ami jamais
+                            analysé, il afficherait toute la zone — inutile et
+                            trompeur. */}
+                        {stat.missing > 0 && stat.coverage !== 'unscanned' && (
                             <button
                                 className={`theia-button ${isActive ? '' : 'secondary'}`}
                                 onClick={() => onMissingForFriendChange(isActive ? null : stat.name)}
                                 title={isActive
                                     ? 'Désactiver le filtre'
-                                    : `Filtrer la table sur les ${stat.missing} cache(s) manquante(s) pour ${stat.name}`}
+                                    : stat.coverage === 'fresh'
+                                        ? `Filtrer la table sur les ${stat.missing} cache(s) manquante(s) pour ${stat.name}`
+                                        : `Filtrer la table sur les ${stat.missing} cache(s) sans trouvaille connue pour ${stat.name} (analyse à revérifier)`}
                                 style={{ padding: '2px 8px', fontSize: '0.8em', whiteSpace: 'nowrap' }}
                             >
-                                {isActive ? '✕' : compact ? 'Manquantes' : 'Voir manquantes'}
+                                {isActive
+                                    ? '✕'
+                                    : stat.coverage === 'fresh'
+                                        ? (compact ? 'Manquantes' : 'Voir manquantes')
+                                        : 'À vérifier'}
                             </button>
                         )}
                     </div>
@@ -340,8 +367,10 @@ const MatrixView: React.FC<{
     rows: Geocache[];
     friendNames: string[];
     friendFinds: Record<string, string[]>;
+    /** État des scans par ami : sans lui, « absent » serait rendu « non trouvée ». */
+    scanByFriend: Map<string, FriendZoneScanEntry>;
     onOpenGeocache?: (geocache: Geocache) => void;
-}> = ({ rows, friendNames, friendFinds, onOpenGeocache }) => {
+}> = ({ rows, friendNames, friendFinds, scanByFriend, onOpenGeocache }) => {
     // Pré-calcul : pour chaque ami, un Set des gc_code trouvés.
     const friendFoundSets = React.useMemo(() => {
         const map = new Map<string, Set<string>>();
@@ -373,6 +402,16 @@ const MatrixView: React.FC<{
 
     return (
         <div style={{ overflow: 'auto' }}>
+            {/* Légende : « pas de trouvaille » n'est « non trouvée » que si
+                l'analyse de l'ami couvre la zone de façon complète et récente. */}
+            <div style={{
+                fontSize: '0.78em',
+                color: 'var(--theia-descriptionForeground)',
+                padding: '2px 0 6px',
+                whiteSpace: 'nowrap',
+            }}>
+                ✓ trouvée · ✗ pas trouvée (analyse à jour) · ? non vérifiée
+            </div>
             <table style={{
                 borderCollapse: 'collapse',
                 fontSize: '0.8em',
@@ -418,6 +457,7 @@ const MatrixView: React.FC<{
                 <tbody>
                     {friendNames.map(name => {
                         const foundSet = friendFoundSets.get(name) ?? new Set();
+                        const coverage = scanCoverage(scanByFriend.get(name));
                         return (
                             <tr key={name}>
                                 <td style={{
@@ -432,7 +472,7 @@ const MatrixView: React.FC<{
                                     {name}
                                 </td>
                                 {visibleRows.map(gc => {
-                                    const found = foundSet.has(gc.gc_code);
+                                    const cell = friendFindCell(foundSet.has(gc.gc_code), coverage);
                                     return (
                                         <td
                                             key={gc.gc_code}
@@ -442,19 +482,35 @@ const MatrixView: React.FC<{
                                                 textAlign: 'center',
                                             }}
                                         >
-                                            {found ? (
+                                            {cell === 'found' ? (
                                                 <span
                                                     style={{ color: 'var(--theia-charts-green)', fontWeight: 'bold' }}
                                                     title={`${name} a trouvé ${gc.gc_code}`}
                                                 >
                                                     ✓
                                                 </span>
-                                            ) : (
+                                            ) : cell === 'not_found' ? (
                                                 <span
                                                     style={{ color: 'var(--theia-charts-red)', opacity: 0.5 }}
-                                                    title={`${name} n'a pas trouvé ${gc.gc_code}`}
+                                                    title={`${name} n'a pas trouvé ${gc.gc_code} (analyse à jour)`}
                                                 >
                                                     ✗
+                                                </span>
+                                            ) : (
+                                                <span
+                                                    style={{
+                                                        color: coverage === 'unscanned'
+                                                            ? 'var(--theia-descriptionForeground)'
+                                                            : 'var(--theia-charts-orange)',
+                                                        opacity: 0.7,
+                                                    }}
+                                                    title={coverage === 'unscanned'
+                                                        ? `${name} n'a jamais été analysé sur cette zone : inconnu`
+                                                        : coverage === 'partial'
+                                                            ? `Analyse de ${name} partielle : ${gc.gc_code} à vérifier`
+                                                            : `Analyse de ${name} obsolète : ${gc.gc_code} à vérifier`}
+                                                >
+                                                    ?
                                                 </span>
                                             )}
                                         </td>

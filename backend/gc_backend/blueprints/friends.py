@@ -447,12 +447,20 @@ def _generate_logbook_scan(
         }) + '\n'
         return
 
-    # Émettre un événement progress par cache (rétrospectif, car le scan
-    # est synchrone dans scan_finds_via_logbook). En pratique, le scan
-    # logbook est rapide (3 requêtes par cache) et on émet le bilan d'un coup.
-    for friend, codes in friend_finds.items():
+    # Couverture partielle : un 429 en cours de route ou des caches en échec
+    # signifient que le résultat ne vaut pas comme vérification complète.
+    partial = rate_limited or len(errors) > 0
+
+    # Le filtre sf=true est appliqué côté serveur : le logbook couvre tous les
+    # amis du compte d'un coup, y compris ceux qui n'ont rien trouvé. Sans
+    # enregistrement, ces derniers resteraient « jamais analysés » et seraient
+    # re-scannés à chaque fois — et leurs « non trouvées » affichées comme
+    # des inconnues.
+    covered = list(dict.fromkeys([*to_scan, *friend_finds]))
+    for index, friend in enumerate(covered, start=1):
+        codes = friend_finds.get(friend, [])
         zone_matches = len(set(codes))
-        created, known = store_finds(friend, codes, source='cache_logs')
+        created, known = store_finds(friend, codes, source='cache_logs') if codes else (0, 0)
 
         record_scan(
             friend_username=friend,
@@ -461,19 +469,19 @@ def _generate_logbook_scan(
             found_count=len(codes),
             baseline_total=total_caches,
             zone_matches=zone_matches,
-            truncated=False,
+            truncated=partial,
         )
 
         yield json.dumps({
             'phase': 'progress',
-            'done': len(friend_finds),
-            'total': total_to_scan,
+            'done': index,
+            'total': len(covered),
             'friend': friend,
             'found': len(codes),
             'zone_matches': zone_matches,
             'created': created,
             'known': known,
-            'truncated': False,
+            'truncated': partial,
             'source': 'cache_logs',
         }) + '\n'
 
@@ -1056,6 +1064,9 @@ def zone_scans(zone_id: int):
             is_stale = (
                 (box_sig is not None and scan["box_signature"] != box_sig)
                 or (scanned_at_dt is not None and _is_after(threshold, scanned_at_dt))
+                # Un scan tronqué est une couverture partielle : ses « non
+                # trouvées » ne sont pas fiables, il faut le refaire.
+                or bool(scan["truncated"])
             )
             entries.append({
                 "friend": username,

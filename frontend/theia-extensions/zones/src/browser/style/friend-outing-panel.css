@@ -246,6 +246,11 @@
     color: var(--theia-charts-orange);
 }
 
+/* Scan partiel : résultats tronqués, absence non garantie. */
+.geoapp-outing-panel__status--partial {
+    color: var(--theia-charts-orange);
+}
+
 .geoapp-outing-panel__status--never {
     color: var(--theia-descriptionForeground);
 }

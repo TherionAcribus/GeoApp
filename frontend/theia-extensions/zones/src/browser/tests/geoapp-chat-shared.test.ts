@@ -112,7 +112,7 @@ function testBuildGeoAppChatPrompt(): void {
     const prompt = buildGeoAppChatPrompt('Resume the current attempt.', resumeState);
     assert.match(prompt, /^Resume the current attempt\./);
     assert.match(prompt, /RESUME_STATE_JSON/);
-    assert.match(prompt, /privilegie ce JSON structure/);
+    assert.match(prompt, /privilégie ce JSON structuré/);
 
     const promptWithoutText = buildGeoAppChatPrompt(undefined, resumeState);
     assert.match(promptWithoutText, /^RESUME_STATE_JSON/);

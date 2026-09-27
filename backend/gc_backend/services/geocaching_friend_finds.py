@@ -1424,6 +1424,10 @@ def filter_friends_to_scan(
         elif row.box_signature != box_sig:
             # La boîte a changé : le scan est obsolète.
             to_scan.append(friend)
+        elif row.truncated:
+            # Scan partiel (pagination plafonnée) : la couverture n'est pas
+            # complète, une « absence » n'est donc pas fiable.
+            to_scan.append(friend)
         elif row.scanned_at is not None and _is_after(row.scanned_at, threshold):
             fresh.append(friend)
         else:

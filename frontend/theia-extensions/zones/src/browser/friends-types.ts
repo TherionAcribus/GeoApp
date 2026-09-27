@@ -346,9 +346,13 @@ export interface FriendZoneScanEntry {
     friend: string;
     scanned: boolean;
     is_stale: boolean;
+    /** Scan partiel (pagination plafonnée, 429, caches en échec). */
+    truncated: boolean | null;
     found_count: number | null;
     zone_matches: number | null;
     scanned_at: string | null;
+    /** L'ami a été analysé mais n'est plus dans la liste d'amis du compte. */
+    not_in_friends_list?: boolean;
 }
 
 /** Progression d'une analyse streaming (bouton « 👥 Amis »). */

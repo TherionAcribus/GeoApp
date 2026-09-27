@@ -514,3 +514,56 @@ def test_stream_empty_friends_subset_emits_done(app, monkeypatch):
     assert len(events) == 1
     assert events[0]['phase'] == 'done'
     assert events[0]['scanned'] == 0
+
+
+# ---------------------------------------------------------- Chemin logbook
+
+def test_logbook_scan_records_friends_without_finds(app, monkeypatch):
+    """
+    Le logbook (sf=true) couvre tous les amis du compte d'un coup : ceux qui
+    n'ont rien trouvé doivent aussi recevoir un scan. Sinon ils restent
+    « jamais analysés », sont re-scannés à chaque fois, et leurs « non
+    trouvées » seraient affichées comme des inconnues dans la matrice.
+    """
+    import json
+    import gc_backend.blueprints.friends as blueprint
+
+    monkeypatch.setattr(blueprint, 'scan_finds_via_logbook', lambda *a, **k: {
+        'scanned': 2,
+        'friend_finds': {'ami1': ['GC1']},
+        'errors': [],
+        'rate_limited': False,
+    })
+
+    lines = list(blueprint._generate_logbook_scan(
+        app.zone_id, ['GC1', 'GC2'], ['ami1', 'ami2'], 0, BOX, 2, 2,
+    ))
+    events = [json.loads(line) for line in lines]
+
+    assert events[-1]['phase'] == 'done'
+    assert [e['friend'] for e in events if e['phase'] == 'progress'] == ['ami1', 'ami2']
+
+    scans = {s.friend_username: s for s in FriendZoneScan.query.all()}
+    assert set(scans) == {'ami1', 'ami2'}
+    assert scans['ami1'].found_count == 1
+    assert scans['ami2'].found_count == 0
+    assert all(not s.truncated for s in scans.values())
+
+
+def test_logbook_scan_marks_partial_coverage(app, monkeypatch):
+    """Un logbook interrompu (429, caches en échec) n'est pas une couverture fiable."""
+    import gc_backend.blueprints.friends as blueprint
+
+    monkeypatch.setattr(blueprint, 'scan_finds_via_logbook', lambda *a, **k: {
+        'scanned': 1,
+        'friend_finds': {'ami1': ['GC1']},
+        'errors': ['GC2'],
+        'rate_limited': True,
+    })
+
+    list(blueprint._generate_logbook_scan(
+        app.zone_id, ['GC1', 'GC2'], ['ami1'], 0, BOX, 1, 1,
+    ))
+
+    scan = FriendZoneScan.query.filter_by(friend_username='ami1').one()
+    assert scan.truncated is True

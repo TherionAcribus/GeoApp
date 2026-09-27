@@ -167,6 +167,16 @@ def test_filter_keeps_fresh_within_threshold(app):
     assert fresh == ['ami']
 
 
+def test_filter_rescans_truncated_scan(app):
+    """Un scan tronqué n'est pas une couverture complète : il faut le refaire."""
+    record_scan('ami', app.zone_id, BOX, found_count=0, baseline_total=5,
+                zone_matches=0, truncated=True)
+
+    to_scan, fresh = filter_friends_to_scan(app.zone_id, ['ami'], BOX)
+    assert to_scan == ['ami']
+    assert fresh == []
+
+
 # ----------------------------------------------------------------- Route
 
 def test_zone_scans_route_returns_state(app):
@@ -232,3 +242,20 @@ def test_zone_scans_route_handles_naive_datetime_from_sqlite(app):
     ami1 = next(s for s in payload['scans'] if s['friend'] == 'ami1')
     assert ami1['scanned'] is True
     assert ami1.get('not_in_friends_list') is True
+
+
+def test_zone_scans_route_marks_truncated_scan_as_stale(app):
+    """Un scan tronqué ne doit pas être présenté comme une vérification fiable."""
+    record_scan('ami1', app.zone_id, BOX, found_count=1, baseline_total=5,
+                zone_matches=1, truncated=True)
+
+    payload = app.test_client().get(
+        f'/api/friends/finds/zone/{app.zone_id}/scans'
+    ).get_json()
+
+    assert payload['success'] is True
+    scan = next(s for s in payload['scans'] if s['friend'] == 'ami1')
+    assert scan['scanned'] is True
+    assert scan['truncated'] is True
+    assert scan['is_stale'] is True
+    assert payload['fresh_count'] == 0

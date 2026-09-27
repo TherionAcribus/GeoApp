@@ -17,6 +17,8 @@ import { GeocacheIcon } from './geocache-icon';
 import type { FriendZoneScanEntry } from './friends-types';
 import type { FriendFilter } from './friend-outing-state';
 import { friendOfFilter } from './friend-outing-state';
+import { scanCoverage } from './friend-scan-state';
+import type { FriendScanCoverage } from './friend-scan-state';
 import { friendColor } from './friend-colors';
 import { favoritePercent, favoritePercentHint, formatFavoritePercent } from './favorite-percent';
 import { GeocacheFilterBar } from './geocache-filter-bar';
@@ -911,10 +913,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
 
     // --- États « amis » pour le code couleur des lignes ---
     // Pour chaque cache, on calcule un état parmi :
-    //   - 'none'    : aucun ami actif ne l'a trouvée (vert clair — on peut y aller)
+    //   - 'none'    : aucun ami actif ne l'a trouvée, absence confirmée par une
+    //                 analyse complète et à jour (vert clair — on peut y aller)
     //   - 'partial' : certains amis actifs l'ont trouvée (orange — certains déjà passés)
     //   - 'all'     : tous les amis actifs l'ont trouvée (gris — pas intéressant)
-    //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
+    //   - 'unknown' : absence non garantie pour au moins un ami — jamais analysé,
+    //                 scan tronqué, obsolète ou cache hors périmètre (pointillés)
     // Seuls les amis cochés dans la sortie comptent, et seulement en mode sortie :
     // couleurs de ligne, colonne « 👥 » et filtres d'état sont des lectures de
     // sortie. Hors mode, ou sans ami coché, la table reste neutre — le parent aurait
@@ -939,24 +943,33 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         [friendFinds, knownFriends]
     );
 
+    // Couverture par ami : seule 'fresh' (analysé, complet, zone inchangée)
+    // garantit une absence ; jamais analysé, tronqué ou obsolète = inconnu.
+    const coverageByFriend = React.useMemo(() => {
+        const map = new Map<string, FriendScanCoverage>();
+        if (friendScans) {
+            for (const scan of friendScans) {
+                map.set(scan.friend, scanCoverage(scan));
+            }
+        }
+        return map;
+    }, [friendScans]);
+
     const friendRowState = React.useMemo(() => {
         const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état
         if (knownFriends.size === 0) { return map; }
-        const scannedFriends = new Set<string>();
-        if (friendScans) {
-            for (const scan of friendScans) {
-                if (scan.scanned) { scannedFriends.add(scan.friend); }
-            }
-        }
         for (const gc of data) {
             const finders = friendFinds?.[gc.gc_code] ?? [];
             const findersSet = new Set(finders);
             const total = knownFriends.size;
             const foundCount = finders.filter(f => knownFriends.has(f)).length;
-            // Si au moins un ami scanné n'a pas de données pour cette cache,
-            // c'est qu'elle n'était pas dans sa zone de scan → 'unknown'.
+            // 'unknown' si un ami sans trouvaille ne peut pas la garantir :
+            // couverture insuffisante, ou cache absente des scans (hors périmètre).
             const hasUnknown = Array.from(knownFriends).some(
-                f => scannedFriends.has(f) && !findersSet.has(f) && (friendFinds?.[gc.gc_code] === undefined)
+                f => !findersSet.has(f) && (
+                    coverageByFriend.get(f) !== 'fresh'
+                    || friendFinds?.[gc.gc_code] === undefined
+                )
             );
             if (hasUnknown) {
                 map.set(gc.gc_code, 'unknown');
@@ -969,7 +982,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             }
         }
         return map;
-    }, [data, friendFinds, friendScans, knownFriends]);
+    }, [data, friendFinds, coverageByFriend, knownFriends]);
 
     // Libellés pour le title des lignes.
     const friendRowTitle = React.useMemo(() => {
@@ -978,20 +991,31 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         for (const gc of data) {
             const finders = friendFinds?.[gc.gc_code] ?? [];
             const found = finders.filter(f => knownFriends.has(f));
+            // Séparer l'absence confirmée (analyse complète et à jour) de la
+            // simple absence de donnée : « Manquante » est une affirmation,
+            // « À vérifier » non.
             const missing = Array.from(knownFriends).filter(f => !found.includes(f));
+            const toVerify = missing.filter(
+                f => coverageByFriend.get(f) !== 'fresh'
+                    || friendFinds?.[gc.gc_code] === undefined
+            );
+            const verifiedMissing = missing.filter(f => !toVerify.includes(f));
             const parts: string[] = [];
             if (found.length > 0) {
                 parts.push(`Trouvée par ${found.join(', ')}`);
             }
-            if (missing.length > 0) {
-                parts.push(`Manquante pour ${missing.join(', ')}`);
+            if (verifiedMissing.length > 0) {
+                parts.push(`Manquante pour ${verifiedMissing.join(', ')}`);
+            }
+            if (toVerify.length > 0) {
+                parts.push(`À vérifier pour ${toVerify.join(', ')}`);
             }
             if (parts.length > 0) {
                 map.set(gc.gc_code, parts.join(' · '));
             }
         }
         return map;
-    }, [data, friendFinds, knownFriends]);
+    }, [data, friendFinds, coverageByFriend, knownFriends]);
 
     const columns = React.useMemo<ColumnDef<Geocache>[]>(
         () => [
