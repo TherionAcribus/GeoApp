@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "theia-ide-earthcoach-ext",
-  "version": "1.70.200",
+  "version": "1.76.200",
   "description": "GeoApp EarthCoach - assistant IA EarthCache pour Theia",
   "keywords": [
     "theia-extension",
@@ -17,23 +17,25 @@
   "main": "lib/browser/earthcoach-frontend-module.js",
   "typings": "lib/browser/earthcoach-frontend-module.d.ts",
   "dependencies": {
-    "@theia/core": "1.70.2",
-    "@theia/ai-chat": "1.70.2",
-    "@theia/ai-core": "1.70.2",
-    "theia-ide-zones-ext": "1.70.200"
+    "@theia/core": "1.76.0",
+    "@theia/ai-chat": "1.76.0",
+    "@theia/ai-core": "1.76.0",
+    "theia-ide-zones-ext": "1.76.200"
   },
   "peerDependencies": {
-    "react": "^16.8.0"
+    "react": "^19.0.0"
   },
   "devDependencies": {
     "rimraf": "^2.7.1",
-    "typescript": "^4.5.5"
+    "typescript": "~5.9.3"
   },
   "scripts": {
     "clean": "rimraf lib *.tsbuildinfo",
     "build": "tsc -b",
     "test:earthcoach": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/earthcoach-prompt-builder.test.ts",
-    "watch": "rimraf lib *.tsbuildinfo && tsc -w"
+    "watch": "rimraf lib *.tsbuildinfo && tsc -w",
+    "update:theia": "ts-node ../../scripts/update-theia-version.ts",
+    "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },
   "theiaExtensions": [
     {

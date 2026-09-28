@@ -1,7 +1,6 @@
 {
-  "lerna": "4.0.0",
-  "version": "1.67.100",
-  "useWorkspaces": true,
+  "$schema": "https://json.schemastore.org/lerna.json",
+  "version": "1.76.200",
   "npmClient": "yarn",
   "command": {
     "run": {

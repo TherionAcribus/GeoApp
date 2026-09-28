@@ -1,0 +1,12 @@
+diff --git a/node_modules/openai/lib/ChatCompletionStream.js b/node_modules/openai/lib/ChatCompletionStream.js
+--- a/node_modules/openai/lib/ChatCompletionStream.js
++++ b/node_modules/openai/lib/ChatCompletionStream.js
+@@ -484,7 +484,7 @@ function finalizeChatCompletion(snapshot, params, audioDoneChoiceIndexes) {
+             const { content = null, function_call, tool_calls, audio, ...messageRest } = message;
+             // Audio streams can end with an expires_at-only chunk after the
+             // generated audio, without a separate finish_reason.
+-            const finishReason = finish_reason ?? (audioDoneChoiceIndexes.has(index) && isCompleteAudio(audio) ? 'stop' : null);
++            const finishReason = finish_reason ?? 'stop'; // OpenRouter: some models omit finish_reason
+             if (!finishReason) {
+                 throw new error_1.OpenAIError(`missing finish_reason for choice ${index}`);
+             }

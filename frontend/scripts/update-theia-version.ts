@@ -13,7 +13,7 @@ import { PackageJson } from 'type-fest';
 execute();
 
 async function execute(): Promise<void> {
-    const theiaVersion = process.argv[2];
+    const theiaVersion = process.argv[2] || 'next';
     const packageJsonPath = path.resolve(
         './',
         'package.json'
@@ -36,6 +36,12 @@ async function execute(): Promise<void> {
     }
     console.log('...done.');
 
+    console.log('...peerDependencies...');
+    if (packageJson.peerDependencies) {
+        updateTheiaVersions(packageJson.peerDependencies, theiaVersion);
+    }
+    console.log('...done.');
+
     // note: "null" is valid as per `stringify()` signature
     // eslint-disable-next-line no-null/no-null
     fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
@@ -44,7 +50,7 @@ async function execute(): Promise<void> {
 function updateTheiaVersions(dependencies: PackageJson.Dependency, theiaVersion: string): void {
     for (const dependency in dependencies) {
         if (dependency.startsWith('@theia/')) {
-            console.log(`...setting ${dependency} from ${dependencies[dependency]} to next...`);
+            console.log(`...setting ${dependency} from ${dependencies[dependency]} to ${theiaVersion}...`);
             dependencies[dependency] = theiaVersion;
         }
     }

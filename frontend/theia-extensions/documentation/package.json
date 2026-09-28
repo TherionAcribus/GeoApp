@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "theia-ide-documentation-ext",
-  "version": "1.70.200",
+  "version": "1.76.200",
   "description": "GeoApp Documentation - Widget de documentation intégrée avec recherche et agent IA",
   "keywords": [
     "theia-extension",
@@ -17,26 +17,26 @@
   "main": "lib/browser/doc-frontend-module.js",
   "typings": "lib/browser/doc-frontend-module.d.ts",
   "dependencies": {
-    "@theia/core": "1.70.2",
-    "@theia/ai-chat": "1.70.2",
-    "@theia/ai-core": "1.70.2",
-    "theia-ide-zones-ext": "1.70.200",
+    "@theia/core": "1.76.0",
+    "@theia/ai-chat": "1.76.0",
+    "@theia/ai-core": "1.76.0",
+    "theia-ide-zones-ext": "1.76.200",
     "@mysterai/theia-plugins": "1.0.0",
     "@mysterai/theia-alphabets": "1.0.0",
     "@mysterai/theia-preferences": "1.0.0",
-    "theia-ide-search-ext": "1.70.200",
+    "theia-ide-search-ext": "1.76.200",
     "flexsearch": "^0.7.31",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
     "gray-matter": "^4.0.3"
   },
   "peerDependencies": {
-    "react": "^16.8.0"
+    "react": "^19.0.0"
   },
   "devDependencies": {
     "fs-extra": "^11.0.0",
     "rimraf": "^5.0.0",
-    "typescript": "^4.5.5"
+    "typescript": "~5.9.3"
   },
   "scripts": {
     "clean": "rimraf lib *.tsbuildinfo",
@@ -44,7 +44,9 @@
     "build": "node scripts/generate-docs-manifest.mjs && tsc -b && yarn run copy:assets",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style', { overwrite: true })\"",
     "test:documentation": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/doc-search.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/doc-agent.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/doc-action-tools.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/doc-action-context.test.ts",
-    "watch": "tsc -b --watch --preserveWatchOutput"
+    "watch": "tsc -b --watch --preserveWatchOutput",
+    "update:theia": "ts-node ../../scripts/update-theia-version.ts",
+    "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },
   "theiaExtensions": [
     {

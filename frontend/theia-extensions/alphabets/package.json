@@ -20,21 +20,23 @@
     "clean": "rimraf lib",
     "build": "tsc && yarn run copy:assets",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
-    "watch": "tsc -w"
+    "watch": "tsc -w",
+    "update:theia": "ts-node ../../scripts/update-theia-version.ts",
+    "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },
   "devDependencies": {
     "rimraf": "^5.0.0",
-    "typescript": "^5.0.0",
+    "typescript": "~5.9.3",
     "fs-extra": "^11.0.0",
-    "@types/react": "^18.2.0",
-    "@theia/core": "1.70.2",
-    "@theia/filesystem": "1.70.2",
-    "@theia/workspace": "1.70.2"
+    "@types/react": "^19.0.0",
+    "@theia/core": "1.76.0",
+    "@theia/filesystem": "1.76.0",
+    "@theia/workspace": "1.76.0"
   },
   "peerDependencies": {
-    "@theia/core": "1.70.2",
-    "@theia/filesystem": "1.70.2",
-    "@theia/workspace": "1.70.2"
+    "@theia/core": "1.76.0",
+    "@theia/filesystem": "1.76.0",
+    "@theia/workspace": "1.76.0"
   },
   "theiaExtensions": [
     {

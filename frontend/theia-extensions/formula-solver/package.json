@@ -21,18 +21,20 @@
     "build": "tsc && yarn run copy:assets",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
     "watch": "tsc -w",
-    "test": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/ai-per-question-answering.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-local-model.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-service.test.ts"
+    "test": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/ai-per-question-answering.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-local-model.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-service.test.ts",
+    "update:theia": "ts-node ../../scripts/update-theia-version.ts",
+    "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },
   "devDependencies": {
     "rimraf": "^5.0.0",
-    "typescript": "^5.0.0",
-    "@theia/core": "1.70.2",
-    "@theia/filesystem": "1.70.2",
-    "@theia/workspace": "1.70.2"
+    "typescript": "~5.9.3",
+    "@theia/core": "1.76.0",
+    "@theia/filesystem": "1.76.0",
+    "@theia/workspace": "1.76.0"
   },
   "peerDependencies": {
-    "@theia/core": "1.70.2",
-    "theia-ide-zones-ext": "1.70.200"
+    "@theia/core": "1.76.0",
+    "theia-ide-zones-ext": "1.76.200"
   },
   "theiaExtensions": [
     {
