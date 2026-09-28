@@ -1609,7 +1609,10 @@ function testAssembleContextFallbacks(): void {
     // Le backend connait des images: pas de repli sur celles du listing brut,
     // et la photo attachee a l'observation n'est pas dupliquee.
     assert.deepEqual(context.images.map(image => image.id), ['5', '6']);
-    assert.deepEqual(context.observations.map(observation => observation.id), ['observation-3']);
+    // Observations structurees ET notes utilisateur: une mesure saisie en note
+    // classique ne doit pas disparaitre du contexte des qu'une observation
+    // structuree existe. La note EarthCoach (source != 'user') reste exclue.
+    assert.deepEqual(context.observations.map(observation => observation.id), ['observation-3', 'note-9']);
     assert.equal(context.gcPersonalNote, 'Prevoir un marteau.');
 
     // Sans images ni observations backend: repli sur le listing et sur les notes
@@ -1625,6 +1628,20 @@ function testAssembleContextFallbacks(): void {
     assert.deepEqual(fallback.images.map(image => image.fileUri), ['https://listing.test/legacy.jpg']);
     assert.deepEqual(fallback.observations.map(observation => observation.id), ['note-9']);
     assert.equal(fallback.observations[0].source, 'note');
+
+    // Dedoublonnage: une note recopiee a l'identique en observation structuree
+    // n'est envoyee qu'une fois au modele.
+    const duplicated: EarthCoachContextPayload = {
+        images: [],
+        observations: payload.observations,
+        loggingTasks: [],
+        notes: [{ id: 11, content: '  calcaire   recifal. ', source: 'user', created_at: '2026-05-03T11:00:00+00:00' } as never],
+        gcPersonalNote: undefined,
+    };
+    assert.deepEqual(
+        assembleEarthCoachContext(geocache, duplicated).observations.map(o => o.id),
+        ['observation-3']
+    );
 }
 
 function emptyPayload(marker: string): EarthCoachContextPayload {

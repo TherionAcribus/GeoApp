@@ -251,19 +251,25 @@ export function legacyListingImages(geocacheData: EarthCoachGeocacheData): GeoIm
         .filter((image): image is GeoImage => Boolean(image));
 }
 
+function normalizeObservationText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 /**
  * Assemble le contexte expose aux widgets et au prompt: repli des images sur le
- * listing, repli des observations sur les notes utilisateur, fusion des photos
- * attachees aux observations.
+ * listing, fusion des observations structurees ET des notes utilisateur (les
+ * notes restent des releves terrain: elles ne doivent pas disparaitre du
+ * contexte des qu'une observation structuree existe), dedoublonnees sur le
+ * texte pour ne pas envoyer deux fois une note recopiee en observation.
  */
 export function assembleEarthCoachContext(
     geocacheData: EarthCoachGeocacheData,
     payload: EarthCoachContextPayload
 ): EarthCoachContext {
     const images = payload.images.length ? payload.images : legacyListingImages(geocacheData);
-    const noteObservations = payload.observations.length
-        ? []
-        : notesToObservations(geocacheData.id, payload.notes);
+    const structuredTexts = new Set(payload.observations.map(observation => normalizeObservationText(observation.note)));
+    const noteObservations = notesToObservations(geocacheData.id, payload.notes)
+        .filter(note => !structuredTexts.has(normalizeObservationText(note.note)));
     return {
         geocacheData,
         observations: [...payload.observations, ...noteObservations],

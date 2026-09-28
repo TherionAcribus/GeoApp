@@ -11,6 +11,14 @@ import {
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
 import { selectEarthCoachDescription } from './earthcoach-description-selector';
+import {
+    EarthCoachRefreshScheduler,
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    isUpdateForGeocache,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
 import { EarthCoachObservationService } from './earthcoach-observation-service';
 import {
     EARTHCOACH_LISTING_LANGUAGE_PREF,
@@ -147,6 +155,16 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected resultSaveTimers = new Map<number, number>();
     /** Copie locale conservée quand un conflit 409 charge la version serveur. */
     protected conflictBackup?: EarthCoachWorkspace;
+    /** Numéro de la dernière demande de rafraîchissement des données terrain. */
+    protected contextRefreshToken = 0;
+    /**
+     * Comme les autres panneaux EarthCoach: un onglet cache ne relance pas de
+     * collecte reseau, la demande est rejouee a l'affichage.
+     */
+    protected readonly contextRefreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.refreshContextData(); }
+    );
 
     @inject(EarthCoachWorkspaceService)
     protected readonly workspaceService!: EarthCoachWorkspaceService;
@@ -188,6 +206,26 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 this.update();
             }
         }));
+        // Observation ajoutee dans le panneau lateral, questions re-extraites,
+        // photo importee depuis l'editeur d'images: le contexte detenu par ce
+        // widget est perime, il faut le recharger sans toucher au dossier local.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [
+                EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+                EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+                GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+            ],
+            detail => {
+                if (isUpdateForGeocache(detail, this.context?.geocacheData.id)) {
+                    this.contextRefreshScheduler.request();
+                }
+            }
+        ));
+    }
+
+    protected override onAfterShow(msg: Message): void {
+        super.onAfterShow(msg);
+        this.contextRefreshScheduler.flush();
     }
 
     protected readonly preventFileDropNavigation = (event: DragEvent): void => {
@@ -250,6 +288,31 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         } finally {
             this.loading = false;
             this.update();
+        }
+    }
+
+    /**
+     * Recharge les donnees terrain (observations, questions, images, notes)
+     * sans toucher au dossier local: ses champs peuvent contenir des
+     * modifications non enregistrees. Si le dossier serveur a change entre
+     * temps, la prochaine sauvegarde signalera le conflit 409.
+     */
+    protected async refreshContextData(): Promise<void> {
+        const geocacheId = this.context?.geocacheData.id;
+        if (geocacheId == null || this.loading) {
+            return;
+        }
+        const requestToken = ++this.contextRefreshToken;
+        try {
+            const fresh = await this.contextService.collectContext({ geocacheId, forceRefresh: true });
+            if (!fresh || requestToken !== this.contextRefreshToken || this.context?.geocacheData.id !== geocacheId) {
+                return;
+            }
+            this.context = fresh;
+            this.rebuildDescription();
+            this.update();
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to refresh workspace context', error);
         }
     }
 
