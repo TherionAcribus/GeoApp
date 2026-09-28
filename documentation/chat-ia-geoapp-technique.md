@@ -124,12 +124,26 @@ Ces agents ne participent pas au Chat IA : ils permettent uniquement d'assigner 
 
 | Agent | ID | Fichier | Usage |
 |---|---|---|---|
-| GeoApp OCR | `geoapp-ocr` | `geoapp-ocr-agent.ts` | OCR vision Cloud (galerie d'images). |
+| GeoApp OCR | `geoapp-ocr` | `geoapp-ocr-agent.ts` | OCR vision de la galerie exécuté via `LanguageModelService` (local ou cloud selon le modèle choisi). |
 | GeoApp Traduction | `geoapp-translate-description` | `geoapp-translate-description-agent.ts` | Traduction HTML des descriptions de géocaches. |
 | GeoApp Logs Analyzer | `geoapp-logs-analyzer` | `geoapp-logs-analyzer-agent.ts` | Analyse des logs de géocaches. |
 | GeoApp Log Improver | `geoapp-log-improver` | `geoapp-log-improver-agent.ts` | Correction des fautes d'un log, ou mise en forme de notes en texte suivi. Ne rédige jamais de contenu absent de l'original. |
 | GeoApp Log Translator | `geoapp-log-translator` | `geoapp-log-translator-agent.ts` | Traduction du texte d'un log de géocache (Markdown + `@patterns` préservés). |
 | GeoApp AI Scorer | `geoapp-ai-scorer` | `geoapp-ai-scorer-agent.ts` | Scoring IA des résultats de plugins. |
+
+### OCR - Architecture des modèles
+
+La galerie d'images expose volontairement trois moteurs distincts :
+
+| Action | Chemin d'exécution | Configuration du modèle |
+|---|---|---|
+| `OCR (EasyOCR local)` | Plugin backend `easyocr_ocr` | Aucun LLM. |
+| `OCR (plugin vision: provider/model)` | `POST /api/plugins/vision_ocr/execute` | `geoApp.ocr.visionProvider`, `geoApp.ocr.lmstudio.*` ou `geoApp.ocr.openRouter.model`. |
+| `OCR (modèle Theia: model-id)` | `LanguageModelService` avec `agentId: geoapp-ocr` et `purpose: vision-ocr` | Affectation Theia de l'agent `geoapp-ocr`, ou `default/universal` sans affectation. |
+
+`geoapp-ocr` n'est pas nécessairement cloud : un modèle Ollama ou un endpoint OpenAI-compatible local peut aussi être assigné. À l'inverse, le plugin `vision_ocr` ne lit jamais l'affectation Theia ; il conserve ses propres préférences car il exécute une requête HTTP OpenAI-compatible côté backend et est aussi utilisé par les workflows d'images.
+
+L'action `OCR (défaut: ...)` choisit uniquement entre EasyOCR et le plugin `vision_ocr` selon `geoApp.ocr.defaultEngine`. Le menu affiche le modèle effectif pour éviter de confondre le plugin backend avec le chemin Theia. Un modèle LM Studio vide est affiché comme `modèle manquant` et refusé explicitement par le plugin.
 
 ### AI Scorer - Architecture
 
@@ -850,7 +864,7 @@ Le preset actif (celui dont les trois préférences correspondent) est mis en é
 
 ### Modèles par agent
 
-Un panneau liste les agents GeoApp (chat et internes) et résout le modèle effectif de chacun via `LanguageModelRegistry.selectLanguageModel`, en respectant le `purpose` propre à l'agent (`chat`, ou `vision-ocr` pour l'OCR). Il répond à la question « quel modèle pour quoi ? » sans parcourir les réglages IA Theia un par un. Un bouton `Rafraîchir` relance la résolution (l'assignation des modèles se fait, elle, dans « Config IA Theia »).
+Un panneau liste les agents GeoApp (chat et internes), les chemins backend explicites et résout le modèle effectif de chacun via `LanguageModelRegistry.selectLanguageModel`, en respectant le `purpose` propre à l'agent (`chat`, ou `vision-ocr` pour l'OCR). Il répond à la question « quel modèle pour quoi ? » sans parcourir les réglages IA Theia un par un. L'OCR affiche séparément le modèle de l'agent `geoapp-ocr` et celui du plugin `vision_ocr`. Un bouton `Rafraîchir` relance la résolution (l'assignation des modèles se fait, elle, dans « Config IA Theia »).
 
 ### Matrice des tools
 

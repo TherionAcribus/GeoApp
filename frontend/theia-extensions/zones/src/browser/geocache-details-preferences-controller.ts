@@ -8,6 +8,17 @@ export type GeocacheImagesGalleryThumbnailSize = 'small' | 'medium' | 'large';
 export type GeocacheOcrDefaultEngine = 'easyocr_ocr' | 'vision_ocr';
 export type GeocacheOcrVisionProvider = 'lmstudio' | 'openrouter';
 export type CheckerLinkOpenMode = 'same-group' | 'new-group' | 'external-window';
+
+export function formatGeocacheVisionPluginModel(
+    provider: GeocacheOcrVisionProvider,
+    lmstudioModel: string,
+    openRouterModel: string
+): string {
+    return provider === 'openrouter'
+        ? `OpenRouter/${openRouterModel || 'openai/gpt-4o-mini'}`
+        : `LM Studio/${lmstudioModel || 'modèle manquant'}`;
+}
+
 /**
  * Mode d'ouverture des liens externes de la description : mêmes valeurs que les
  * checkers (mini-browser Theia ou fenêtre externe). Les anciennes valeurs de la
@@ -152,6 +163,14 @@ export class GeocacheDetailsPreferencesController {
     getOcrOpenRouterModel(): string {
         const raw = this.preferenceService.get(this.ocrOpenRouterModelPreferenceKey, 'openai/gpt-4o-mini') as string;
         return (raw || 'openai/gpt-4o-mini').toString();
+    }
+
+    getOcrVisionPluginModelLabel(): string {
+        return formatGeocacheVisionPluginModel(
+            this.getOcrVisionProvider(),
+            this.getOcrLmstudioModel(),
+            this.getOcrOpenRouterModel()
+        );
     }
 
     getImagesGalleryHiddenDomains(): string[] {

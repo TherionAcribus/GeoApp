@@ -40,6 +40,7 @@ import {
     buildGeocacheFullListingContext,
     GeocachePromptData,
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
+import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
@@ -2939,6 +2940,24 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             };
         }));
         const description: Record<string, unknown> = { id: agent.id, name: agent.name, requirements };
+        if (agent.id === 'geoapp-ocr') {
+            const pluginProvider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
+                ? 'openrouter'
+                : 'lmstudio';
+            description.execution = {
+                path: 'Theia LanguageModelService',
+                controlled_by: 'agent geoapp-ocr / purpose vision-ocr',
+                related_plugin_execution: {
+                    path: 'POST /api/plugins/vision_ocr/execute',
+                    provider_model: formatGeocacheVisionPluginModel(
+                        pluginProvider,
+                        this.preferenceService.get<string>('geoApp.ocr.lmstudio.model', ''),
+                        this.preferenceService.get<string>('geoApp.ocr.openRouter.model', 'openai/gpt-4o-mini')
+                    ),
+                    note: 'Le plugin vision_ocr et les workflows backend utilisent geoApp.ocr.*; ils ne sont pas pilotés par cette affectation Theia.',
+                },
+            };
+        }
         if (agent.id === GEOAPP_AI_SCORER_AGENT_ID && this.aiScorerModelResolver) {
             try {
                 const runtime = await this.aiScorerModelResolver.resolveForRequest({});

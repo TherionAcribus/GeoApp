@@ -2763,14 +2763,14 @@
       ],
       "default": "easyocr_ocr",
       "title": "Moteur OCR par défaut",
-      "description": "Moteur OCR par défaut utilisé dans la galerie d'images.",
+      "description": "Moteur utilise par l'action OCR par defaut de la galerie. 'vision_ocr' correspond au plugin backend configure ci-dessous; l'action OCR via Theia utilise separement l'affectation de l'agent geoapp-ocr.",
       "x-ui": {
         "section": "Général",
         "label": "Moteur OCR",
         "order": 10,
         "enumLabels": {
-          "easyocr_ocr": "EasyOCR",
-          "vision_ocr": "OCR IA / vision"
+          "easyocr_ocr": "EasyOCR local",
+          "vision_ocr": "Plugin vision_ocr (LM Studio/OpenRouter)"
         },
         "keywords": [
           "texte image",
@@ -2825,8 +2825,8 @@
         "openrouter"
       ],
       "default": "lmstudio",
-      "title": "OCR IA - Fournisseur vision",
-      "description": "Fournisseur utilise par le plugin OCR IA/vision.",
+      "title": "OCR plugin - Fournisseur vision",
+      "description": "Fournisseur utilise par le plugin backend vision_ocr. Ne controle pas l'OCR execute via l'agent Theia geoapp-ocr.",
       "x-ui": {
         "section": "Fournisseurs",
         "label": "Fournisseur vision",
@@ -2849,8 +2849,8 @@
     "geoApp.ocr.lmstudio.baseUrl": {
       "type": "string",
       "default": "http://localhost:1234",
-      "title": "OCR LM Studio - URL API",
-      "description": "URL de base LMStudio (OpenAI-compatible). Ex: http://localhost:1234",
+      "title": "OCR plugin LM Studio - URL API",
+      "description": "URL de base LMStudio (OpenAI-compatible) utilisee par le plugin backend vision_ocr. Ex: http://localhost:1234",
       "x-ui": {
         "section": "LM Studio",
         "label": "URL LM Studio",
@@ -2874,8 +2874,8 @@
     "geoApp.ocr.lmstudio.model": {
       "type": "string",
       "default": "",
-      "title": "OCR LM Studio - modèle vision",
-      "description": "Identifiant du modèle vision utilisé pour OCR via LMStudio.",
+      "title": "OCR plugin LM Studio - modèle vision",
+      "description": "Identifiant du modèle vision utilise par le plugin backend vision_ocr via LMStudio. Un modèle vide est refuse par le plugin.",
       "x-ui": {
         "section": "LM Studio",
         "label": "Modèle vision local",
@@ -2891,8 +2891,8 @@
     "geoApp.ocr.openRouter.model": {
       "type": "string",
       "default": "openai/gpt-4o-mini",
-      "title": "OCR IA OpenRouter - Modele vision",
-      "description": "Identifiant du modele vision OpenRouter utilise par le plugin OCR IA.",
+      "title": "OCR plugin OpenRouter - Modele vision",
+      "description": "Identifiant du modele vision OpenRouter utilise par le plugin backend vision_ocr.",
       "x-ui": {
         "section": "OpenRouter",
         "label": "Modèle vision OpenRouter",

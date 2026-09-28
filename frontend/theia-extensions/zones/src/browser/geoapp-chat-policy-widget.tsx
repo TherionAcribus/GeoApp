@@ -49,6 +49,7 @@ import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills'
 import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
+import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
@@ -79,7 +80,7 @@ const SKILL_PACK_OPTIONS: Array<{ value: GeoAppChatSkillPack; label: string }> =
 // Presets partages avec le tool IA `aide_apply_chat_preset` (source unique).
 const PRESET_OPTIONS = GEOAPP_CHAT_PRESET_OPTIONS;
 
-type GeoAppChatAgentModelKind = 'chat' | 'internal';
+type GeoAppChatAgentModelKind = 'chat' | 'internal' | 'backend';
 
 interface GeoAppChatAgentModelRow {
     id: string;
@@ -97,7 +98,8 @@ const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
     { id: 'geoapp-chat-strong', label: 'GeoApp Chat (Strong)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-web', label: 'GeoApp Chat (Web)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-outing-analyzer', label: 'Analyse de sortie', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-ocr', label: 'OCR vision (galerie)', kind: 'internal', purpose: 'vision-ocr' },
+    { id: 'geoapp-ocr', label: 'OCR galerie via Theia', kind: 'internal', purpose: 'vision-ocr' },
+    { id: 'geoapp-vision-ocr-plugin', label: 'OCR plugin vision_ocr', kind: 'backend', purpose: '' },
     { id: 'geoapp-translate-description', label: 'Traduction descriptions', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-logs-analyzer', label: 'Analyse des logs', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-log-improver', label: 'Correction de logs', kind: 'internal', purpose: 'chat' },
@@ -482,7 +484,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <div className='geoapp-chat-policy-agents-head'>
                     <div>
                         <h3>Modeles par agent</h3>
-                        <p>Modele effectif pour chaque agent GeoApp. Pour AI Scorer, l'affectation Theia prime ; sans affectation, les preferences GeoApp du scorer sont utilisees.</p>
+                        <p>Modele effectif pour chaque tache/agent GeoApp. L'OCR distingue le chemin Theia (affectation geoapp-ocr) du plugin backend vision_ocr (preferences geoApp.ocr.*).</p>
                     </div>
                     <button className='theia-button secondary' type='button' onClick={() => this.refreshAgentModels()}>
                         Rafraichir
@@ -494,7 +496,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 {this.agentModelsLoading && <p className='geoapp-chat-policy-muted'>Resolution des modeles en cours...</p>}
                 <table className='geoapp-chat-policy-agent-table'>
                     <thead>
-                        <tr><th>Agent</th><th>Type</th><th>Modele resolu</th></tr>
+                        <tr><th>Tache / agent</th><th>Type</th><th>Modele resolu</th></tr>
                     </thead>
                     <tbody>
                         {AGENT_MODEL_ROWS.map(row => {
@@ -502,7 +504,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             return (
                                 <tr key={row.id}>
                                     <td>{row.label}</td>
-                                    <td>{row.kind === 'chat' ? 'Chat' : 'Interne'}</td>
+                                    <td>{row.kind === 'chat' ? 'Chat' : row.kind === 'backend' ? 'Backend' : 'Interne'}</td>
                                     <td>
                                         {model
                                             ? model
@@ -532,6 +534,16 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             const registry = this.languageModelRegistry;
             const resolved = await Promise.all(AGENT_MODEL_ROWS.map(async row => {
                 try {
+                    if (row.kind === 'backend') {
+                        const provider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
+                            ? 'openrouter'
+                            : 'lmstudio';
+                        return [row.id, formatGeocacheVisionPluginModel(
+                            provider,
+                            this.preferenceService.get<string>('geoApp.ocr.lmstudio.model', ''),
+                            this.preferenceService.get<string>('geoApp.ocr.openRouter.model', 'openai/gpt-4o-mini')
+                        )] as const;
+                    }
                     if (row.id === GEOAPP_AI_SCORER_AGENT_ID && this.aiScorerModelResolver) {
                         return [row.id, await this.aiScorerModelResolver.describeEffectiveSelection()] as const;
                     }

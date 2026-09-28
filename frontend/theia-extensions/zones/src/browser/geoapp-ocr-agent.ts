@@ -1,5 +1,5 @@
 /**
- * Enregistre l'agent IA "geoapp-ocr" (non-chat) pour permettre le paramétrage d'un modèle dédié à l'OCR Cloud.
+ * Enregistre l'agent IA "geoapp-ocr" (non-chat) pour l'OCR exécuté via LanguageModelService.
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
@@ -8,18 +8,18 @@ import { Agent, AgentService, LanguageModelRequirement } from '@theia/ai-core';
 
 export const GeoAppOcrAgentId = 'geoapp-ocr';
 
-const languageModelRequirements: LanguageModelRequirement[] = [
+export const GeoAppOcrLanguageModelRequirements: LanguageModelRequirement[] = [
     {
         purpose: 'vision-ocr',
         identifier: 'default/universal',
     },
 ];
 
-const geoAppOcrAgent: Agent = {
+export const geoAppOcrAgent: Agent = {
     id: GeoAppOcrAgentId,
     name: 'GeoApp OCR',
-    description: 'Agent interne utilisé par GeoApp pour effectuer un OCR vision (Cloud) depuis la galerie d\'images. Permet de choisir un modèle dédié pour réduire les coûts ou améliorer la qualité.',
-    languageModelRequirements,
+    description: 'Agent interne utilisé par GeoApp pour l\'OCR vision exécuté via Theia/LanguageModelService depuis la galerie d\'images. Le plugin backend vision_ocr utilise séparément les préférences geoApp.ocr.*.',
+    languageModelRequirements: GeoAppOcrLanguageModelRequirements,
     prompts: [],
     variables: [],
     agentSpecificVariables: [],

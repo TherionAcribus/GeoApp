@@ -667,10 +667,12 @@ async function testFormulaSolverTools(): Promise<void> {
 async function testAiModelTools(): Promise<void> {
     const settings: Record<string, { languageModelRequirements?: Array<{ purpose: string; identifier?: string }> }> = {
         earthcoach: { languageModelRequirements: [{ purpose: 'chat', identifier: 'openrouter/fast' }] },
+        'geoapp-ocr': { languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'openrouter/vision' }] },
     };
     const models = [
         { id: 'openrouter/fast', status: { status: 'ready' } },
         { id: 'openrouter/strong', status: { status: 'ready' } },
+        { id: 'openrouter/vision', status: { status: 'ready' } },
     ];
     const manager = createManager({});
     Object.assign(manager as any, {
@@ -678,6 +680,7 @@ async function testAiModelTools(): Promise<void> {
             getAllAgents: () => [
                 { id: 'earthcoach', name: '@EarthCoach', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
                 { id: 'geoapp-doc-aide', name: '@Aide', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
+                { id: 'geoapp-ocr', name: 'GeoApp OCR', languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'default/universal' }] },
             ],
         },
         aiSettingsService: {
@@ -700,6 +703,8 @@ async function testAiModelTools(): Promise<void> {
             get: (key: string) => ({
                 'geoApp.ai.openRouter.model.fast': 'openai/gpt-4o-mini',
                 'geoApp.ai.openRouter.model.strong': 'anthropic/claude-opus',
+                'geoApp.ocr.visionProvider': 'openrouter',
+                'geoApp.ocr.openRouter.model': 'qwen/qwen3-vl',
             } as Record<string, string>)[key],
         },
     });
@@ -710,6 +715,13 @@ async function testAiModelTools(): Promise<void> {
     const beforeReq = (before.data as any).requirements[0];
     assert.equal(beforeReq.user_identifier, 'openrouter/fast');
     assert.equal(beforeReq.underlying_model, 'openai/gpt-4o-mini');
+
+    const ocr = await call(findTool(tools, 'aide_get_agent_models'), { agent: 'geoapp-ocr' });
+    assert.equal(ocr.success, true, ocr.error);
+    assert.equal((ocr.data as any).requirements[0].resolved_model_id, 'openrouter/vision');
+    assert.equal((ocr.data as any).requirements[0].underlying_model, 'qwen/qwen3-vl');
+    assert.equal((ocr.data as any).execution.path, 'Theia LanguageModelService');
+    assert.equal((ocr.data as any).execution.related_plugin_execution.provider_model, 'OpenRouter/qwen/qwen3-vl');
 
     const res = await call(setTool, { agent: '@earthcoach', model_id: 'openrouter/strong' });
     assert.equal(res.success, true, res.error);

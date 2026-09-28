@@ -7,6 +7,7 @@ import { MessageService } from '@theia/core';
 import { ConfirmDialog, ConfirmSaveDialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
+import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { SectionCollapseToggle } from './geocache-section-collapse';
 import '../../src/browser/style/geocache-images-panel.css';
 
@@ -265,6 +266,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     // annulable.
     const [busyImageIds, setBusyImageIds] = React.useState<Record<number, true>>({});
     const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
+    const [ocrTheiaModelLabel, setOcrTheiaModelLabel] = React.useState('agent geoapp-ocr');
     const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
     const setBusyImage = React.useCallback((imageId: number, busy: boolean): void => {
         setBusyImageIds(prev => {
@@ -315,6 +317,27 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         ocrAbortControllersRef.current[imageId] = controller;
         return controller;
     }, []);
+
+    const refreshOcrTheiaModelLabel = React.useCallback(async (): Promise<void> => {
+        try {
+            const model = await languageModelRegistry.selectLanguageModel({
+                agent: 'geoapp-ocr',
+                purpose: 'vision-ocr',
+                identifier: 'default/universal',
+            });
+            setOcrTheiaModelLabel(model?.id || 'aucun modèle prêt');
+        } catch {
+            setOcrTheiaModelLabel('agent geoapp-ocr');
+        }
+    }, [languageModelRegistry]);
+
+    React.useEffect(() => {
+        void refreshOcrTheiaModelLabel();
+        const disposable = languageModelRegistry.onChange(() => {
+            void refreshOcrTheiaModelLabel();
+        });
+        return () => disposable.dispose();
+    }, [languageModelRegistry, refreshOcrTheiaModelLabel]);
 
     const [hiddenDomainsDraft, setHiddenDomainsDraft] = React.useState(hiddenDomainsText ?? '');
     const [isSavingHiddenDomains, setIsSavingHiddenDomains] = React.useState(false);
@@ -668,12 +691,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const openThumbnailContextMenu = React.useCallback((e: React.MouseEvent, imageId: number): void => {
         e.preventDefault();
         e.stopPropagation();
+        void refreshOcrTheiaModelLabel();
         setContextMenu({
             x: e.clientX,
             y: e.clientY,
             imageId,
         });
-    }, []);
+    }, [refreshOcrTheiaModelLabel]);
 
     const handleGridKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
         const isArrow = e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown';
@@ -1335,7 +1359,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         });
     };
 
-    const runCloudOcrForImage = async (imageId: number): Promise<void> => {
+    const runTheiaOcrForImage = async (imageId: number): Promise<void> => {
         const img = visibleImages.find(i => i.id === imageId);
         if (!img) {
             return;
@@ -1419,7 +1443,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
             text = stripThinkingBlocks((text || '').toString());
             if (!text) {
-                messages.warn('OCR IA: réponse vide');
+                messages.warn('OCR Theia: réponse vide');
                 setSelectedId(imageId);
                 setDetailsMode('fields');
                 return;
@@ -1434,13 +1458,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             if (updated) {
                 setDraftOcr(updated.ocr_text ?? text);
                 clearDirtyField('ocr');
+                messages.info(`OCR terminé via ${languageModel.id}`);
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
                 return;
             }
-            console.error('[GeocacheImagesPanel] cloud ocr error', e);
-            messages.error(`OCR IA: erreur (${String(e)})`);
+            console.error('[GeocacheImagesPanel] theia ocr error', e);
+            messages.error(`OCR Theia: erreur (${String(e)})`);
         } finally {
             setOcrInProgress(imageId, false);
         }
@@ -1536,6 +1561,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             if (updated) {
                 setDraftOcr(updated.ocr_text ?? text);
                 clearDirtyField('ocr');
+                if (pluginName === 'vision_ocr') {
+                    const resultModel = result?.results?.[0]?.metadata?.model || inputs.model || 'modèle manquant';
+                    const resultProvider = result?.results?.[0]?.metadata?.provider || inputs.provider || 'vision';
+                    messages.info(`OCR terminé via ${resultProvider}/${resultModel}`);
+                }
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
@@ -2159,6 +2189,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const isContextMenuUnstoreEnabled = canUnstoreImage(contextMenuImage);
     const isContextMenuDeleteEnabled = canDeleteImage(contextMenuImage);
     const isContextMenuGifEnabled = isAnimatedGifImage(contextMenuImage);
+    const ocrPluginModelLabel = formatGeocacheVisionPluginModel(
+        ocrVisionProvider,
+        ocrLmstudioModel,
+        ocrOpenRouterModel
+    );
+    const ocrDefaultModelLabel = ocrDefaultEngine === 'vision_ocr'
+        ? `plugin vision (${ocrPluginModelLabel})`
+        : 'EasyOCR local';
 
     const contextMenuItems: ContextMenuItem[] = contextMenu ? [
         {
@@ -2195,23 +2233,23 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             disabled: isContextMenuImageBusy,
         },
         {
-            label: `OCR (défaut: ${ocrDefaultEngine === 'vision_ocr' ? 'IA' : 'EasyOCR'})`,
+            label: `OCR (défaut: ${ocrDefaultModelLabel})`,
             action: () => { void runDefaultOcrForImage(contextMenu.imageId); },
             disabled: isContextMenuImageBusy,
         },
         {
-            label: 'OCR (EasyOCR)',
+            label: 'OCR (EasyOCR local)',
             action: () => { void runOcrPluginForImage(contextMenu.imageId, 'easyocr_ocr'); },
             disabled: isContextMenuImageBusy,
         },
         {
-            label: `OCR (IA - ${ocrVisionProvider === 'openrouter' ? 'OpenRouter' : 'LMStudio'})`,
+            label: `OCR (plugin vision: ${ocrPluginModelLabel})`,
             action: () => { void runOcrPluginForImage(contextMenu.imageId, 'vision_ocr'); },
             disabled: isContextMenuImageBusy,
         },
         {
-            label: 'OCR (IA - Cloud)',
-            action: () => { void runCloudOcrForImage(contextMenu.imageId); },
+            label: `OCR (modèle Theia: ${ocrTheiaModelLabel})`,
+            action: () => { void runTheiaOcrForImage(contextMenu.imageId); },
             disabled: isContextMenuImageBusy,
         },
         {
