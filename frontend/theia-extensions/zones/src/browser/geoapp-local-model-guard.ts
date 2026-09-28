@@ -1,3 +1,5 @@
+export const GEOAPP_LOCAL_MODEL_IDS_PREF = 'geoApp.ai.localModelIds';
+
 export interface GeoAppLocalModelLike {
     id: string;
     vendor?: string;
@@ -281,6 +283,11 @@ function isPrivateIpv4(hostname: string): boolean {
         || (a === 169 && b === 254)
         || (a === 172 && b >= 16 && b <= 31)
         || (a === 192 && b === 168);
+}
+
+export function isGeoAppStrictLocalAgent(agentId: string | undefined): boolean {
+    const id = normalizeIdentifier(agentId);
+    return id === 'geoapp-chat-local' || id === 'geoapp-formula-solver-local';
 }
 
 function normalizeIdentifier(value: unknown): string {

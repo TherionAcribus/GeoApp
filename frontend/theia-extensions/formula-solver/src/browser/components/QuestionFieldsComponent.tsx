@@ -116,7 +116,7 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                         value={perQuestionProfile}
                         onChange={e => onProfileChange(question.letter, e.target.value as FormulaSolverAiProfile)}
                         disabled={isLetterLoading}
-                        title="Profil IA pour cette question (Local/Fast/Strong/Web)"
+                        title="Profil IA pour cette question (Local exige un modèle vérifiable comme local ; Fast/Strong/Web peuvent utiliser le cloud)"
                         style={{
                             padding: '6px 8px',
                             border: '1px solid var(--theia-dropdown-border)',
@@ -126,7 +126,7 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                             fontSize: '12px'
                         }}
                     >
-                        <option value="local">Local</option>
+                        <option value="local">Local (vérifié)</option>
                         <option value="fast">Fast</option>
                         <option value="strong">Strong</option>
                         <option value="web">Web</option>

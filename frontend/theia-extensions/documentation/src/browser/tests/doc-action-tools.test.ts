@@ -669,6 +669,7 @@ async function testAiModelTools(): Promise<void> {
     const settings: Record<string, { languageModelRequirements?: Array<{ purpose: string; identifier?: string }> }> = {
         earthcoach: { languageModelRequirements: [{ purpose: 'chat', identifier: 'openrouter/fast' }] },
         'geoapp-chat-local': { languageModelRequirements: [{ purpose: 'chat', identifier: 'openai/gpt-4o' }] },
+        'geoapp-formula-solver-local': { languageModelRequirements: [{ purpose: 'formula-solving', identifier: 'ollama/llama3.1' }] },
         'geoapp-ocr': { languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'openrouter/vision' }] },
     };
     const models = [
@@ -676,6 +677,7 @@ async function testAiModelTools(): Promise<void> {
         { id: 'openrouter/strong', status: { status: 'ready' } },
         { id: 'openrouter/vision', status: { status: 'ready' } },
         { id: 'openai/gpt-4o', status: { status: 'ready' } },
+        { id: 'ollama/llama3.1', status: { status: 'ready' } },
     ];
     const manager = createManager({});
     Object.assign(manager as any, {
@@ -684,6 +686,7 @@ async function testAiModelTools(): Promise<void> {
                 { id: 'earthcoach', name: '@EarthCoach', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
                 { id: 'geoapp-doc-aide', name: '@Aide', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
                 { id: 'geoapp-chat-local', name: 'GeoApp Chat (Local)', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
+                { id: 'geoapp-formula-solver-local', name: 'GeoApp Formula Solver (Local)', languageModelRequirements: [{ purpose: 'formula-solving', identifier: 'default/universal' }] },
                 { id: 'geoapp-ocr', name: 'GeoApp OCR', languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'default/universal' }] },
             ],
         },
@@ -732,6 +735,11 @@ async function testAiModelTools(): Promise<void> {
     assert.equal((local.data as any).requirements[0].resolved_model_id, 'openai/gpt-4o');
     assert.equal((local.data as any).requirements[0].local_status, 'remote');
     assert.match((local.data as any).requirements[0].local_reason, /fournisseur cloud/);
+
+    const formulaLocal = await call(findTool(tools, 'aide_get_agent_models'), { agent: 'geoapp-formula-solver-local' });
+    assert.equal(formulaLocal.success, true, formulaLocal.error);
+    assert.equal((formulaLocal.data as any).requirements[0].resolved_model_id, 'ollama/llama3.1');
+    assert.equal((formulaLocal.data as any).requirements[0].local_status, 'local');
 
     const res = await call(setTool, { agent: '@earthcoach', model_id: 'openrouter/strong' });
     assert.equal(res.success, true, res.error);

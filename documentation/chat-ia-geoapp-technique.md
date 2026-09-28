@@ -112,7 +112,7 @@ Agents disponibles :
 
 Chaque agent partage la même base technique via `BaseGeoAppChatAgent`.
 
-Le nom « Local » ne suffit pas à déclarer un modèle local : `GeoAppChatBridge` vérifie le modèle effectivement résolu par Theia avant d'épingler l'agent. Les préfixes cloud connus, les hôtes Ollama/LM Studio distants et les endpoints OpenAI-compatibles publics sont refusés. Un modèle local non identifiable automatiquement peut être déclaré dans `geoApp.chat.localModelIds`.
+Le nom « Local » ne suffit pas à déclarer un modèle local : `GeoAppChatBridge` vérifie le modèle effectivement résolu par Theia avant d'épingler l'agent. Les préfixes cloud connus, les hôtes Ollama/LM Studio distants et les endpoints OpenAI-compatibles publics sont refusés. Un modèle local non identifiable automatiquement peut être déclaré dans `geoApp.ai.localModelIds`.
 
 `geoapp-outing-analyzer` est le seul à ne pas utiliser le prompt système du chat : il a le
 sien (`GEOAPP_OUTING_SYSTEM_PROMPT_ID`) et surcharge `getSystemMessageDescription()` pour
@@ -223,7 +223,7 @@ Préférences :
 | Préférence | Description |
 |---|---|
 | `geoApp.chat.defaultProfile` | Profil modèle par défaut. |
-| `geoApp.chat.localModelIds` | Identifiants ou préfixes (`prefixe/*`) explicitement déclarés locaux quand l'endpoint n'est pas inspectable automatiquement. |
+| `geoApp.ai.localModelIds` | Identifiants ou préfixes (`prefixe/*`) explicitement déclarés locaux quand l'endpoint n'est pas inspectable automatiquement. |
 | `geoApp.chat.workflowProfile.secretCode` | Profil modèle pour codes secrets. |
 | `geoApp.chat.workflowProfile.formula` | Profil modèle pour formules. |
 | `geoApp.chat.workflowProfile.checker` | Profil modèle pour checkers. |
@@ -233,6 +233,8 @@ Préférences :
 La fonction `resolveGeoAppChatProfileForWorkflow()` décide le profil modèle effectif.
 
 Le profil `local` est strict : si l'agent demandé n'a pas de modèle prêt, ou si le modèle résolu est cloud/inconnu, l'ouverture échoue au lieu de remplacer silencieusement l'agent. Pour `fast`, `strong` et `web`, un repli vers un autre candidat reste possible mais est signalé dans l'interface.
+
+Formula Solver applique le même contrat à ses profils `local` (`geoApp.formulaSolver.ai.defaultProfile.*` et sélecteur par question). L'agent `geoapp-formula-solver-local` doit résoudre un modèle vérifiable comme local ; sinon l'étape IA retourne une erreur visible, sans repli cloud. La liste `geoApp.ai.localModelIds` est commune au chat et à Formula Solver.
 
 ## 6. Profils comportementaux
 
@@ -920,7 +922,7 @@ Valeurs :
 | Clé | Défaut |
 |---|---|
 | `geoApp.chat.defaultProfile` | `fast` |
-| `geoApp.chat.localModelIds` | `[]` |
+| `geoApp.ai.localModelIds` | `[]` |
 | `geoApp.chat.behaviorProfile.default` | `guided` |
 | `geoApp.chat.behaviorProfile.workflow.secretCode` | `default` |
 | `geoApp.chat.behaviorProfile.workflow.formula` | `default` |

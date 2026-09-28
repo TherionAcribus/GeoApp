@@ -1,5 +1,11 @@
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, isLanguageModelParsedResponse, getTextOfResponse } from '@theia/ai-core';
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import {
+    checkGeoAppLocalModel,
+    GeoAppLocalModelPreferences,
+    GEOAPP_LOCAL_MODEL_IDS_PREF,
+} from 'theia-ide-zones-ext/lib/browser/geoapp-local-model-guard';
 import { Formula } from '../common/types';
 import { FormulaSolverAiProfile, FormulaSolverAgentIdsByProfile } from './geoapp-formula-solver-agents';
 
@@ -10,6 +16,9 @@ export class FormulaSolverLLMService {
 
     @inject(LanguageModelService)
     protected readonly languageModelService!: LanguageModelService;
+
+    @inject(PreferenceService)
+    protected readonly preferenceService!: PreferenceService;
 
     /**
      * Effectue un appel direct à un LLM pour résoudre une tâche spécifique
@@ -32,7 +41,17 @@ export class FormulaSolverLLMService {
             if (!languageModel) {
                 console.error(`[FORMULA-SOLVER-LLM] ❌ AUCUN MODÈLE DISPONIBLE !`);
                 console.error(`[FORMULA-SOLVER-LLM] 💡 Vérifiez la configuration IA dans les paramètres Theia`);
+                if (profile === 'local') {
+                    throw new Error(`Le profil local de Formula Solver exige un modèle local prêt pour l'agent « ${agentId} ». Aucun repli cloud n'a été appliqué.`);
+                }
                 throw new Error('Aucun modèle de langage disponible pour la résolution de formules');
+            }
+
+            if (profile === 'local') {
+                const localCheck = checkGeoAppLocalModel(languageModel, this.getLocalModelPreferences());
+                if (localCheck.status !== 'local') {
+                    throw new Error(`Le profil local de Formula Solver ne peut pas utiliser l'agent « ${agentId} » : ${localCheck.reason}. Aucun repli cloud n'a été appliqué.`);
+                }
             }
 
             console.log(`[FORMULA-SOLVER-LLM] ✅ Modèle trouvé:`, {
@@ -98,6 +117,16 @@ export class FormulaSolverLLMService {
             console.error(`[FORMULA-SOLVER-LLM] ❌ Erreur LLM pour ${task}:`, error);
             throw error;
         }
+    }
+
+    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
+        return {
+            ollamaHost: this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
+            lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
+            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
+            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
+            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
+        };
     }
 
     private stripThinkingBlocks(text: string): string {

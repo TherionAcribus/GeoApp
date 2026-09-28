@@ -33,7 +33,6 @@ import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-s
 import {
     GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
     GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
-    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
     GEOAPP_CHAT_PRESET_OPTIONS,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
@@ -43,7 +42,12 @@ import {
     GeocachePromptData,
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
-import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from 'theia-ide-zones-ext/lib/browser/geoapp-local-model-guard';
+import {
+    checkGeoAppLocalModel,
+    GeoAppLocalModelPreferences,
+    GEOAPP_LOCAL_MODEL_IDS_PREF,
+    isGeoAppStrictLocalAgent,
+} from 'theia-ide-zones-ext/lib/browser/geoapp-local-model-guard';
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
@@ -2925,7 +2929,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
             openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
             vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
-            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
         };
     }
 
@@ -2946,7 +2950,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             try {
                 const model = await this.languageModelRegistry.selectLanguageModel({ agent: agent.id, ...requirement });
                 resolved = model?.id;
-                if (model && agent.id === 'geoapp-chat-local') {
+                if (model && isGeoAppStrictLocalAgent(agent.id)) {
                     localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
                 }
             } catch {
@@ -3042,7 +3046,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_get_agent_models',
                 name: 'aide_get_agent_models',
                 description: 'Indique quel modele utilise chaque agent IA (EarthCoach, GeoApp, Aide, OCR, traduction...) : ' +
-                    'valeur par defaut, choix de l\'utilisateur et modele effectivement resolu. Pour geoapp-chat-local, ajoute local_status/local_reason. Sans "agent", liste tous les agents.',
+                    'valeur par defaut, choix de l\'utilisateur et modele effectivement resolu. Pour les agents strictement locaux, ajoute local_status/local_reason. Sans "agent", liste tous les agents.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     agent: { type: 'string', description: 'Id ou nom de l\'agent (ex: "earthcoach", "@EarthCoach"). Optionnel.', required: false },

@@ -23,7 +23,6 @@ import {
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
-    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
@@ -54,7 +53,11 @@ import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from '.
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
-import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from './geoapp-local-model-guard';
+import {
+    checkGeoAppLocalModel,
+    GeoAppLocalModelPreferences,
+    GEOAPP_LOCAL_MODEL_IDS_PREF,
+} from './geoapp-local-model-guard';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -91,16 +94,21 @@ interface GeoAppChatAgentModelRow {
     label: string;
     kind: GeoAppChatAgentModelKind;
     purpose: string;
+    requiresLocalModel?: boolean;
 }
 
 // Agents GeoApp exposes aux reglages IA Theia. Le panneau resout le modele effectif de
 // chacun pour répondre à la question "quel modèle pour quoi ?" en un seul endroit.
 const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
     { id: 'GeoApp', label: 'GeoApp (principal)', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-chat-local', label: 'GeoApp Chat (Local)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-chat-local', label: 'GeoApp Chat (Local)', kind: 'chat', purpose: 'chat', requiresLocalModel: true },
     { id: 'geoapp-chat-fast', label: 'GeoApp Chat (Fast)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-strong', label: 'GeoApp Chat (Strong)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-web', label: 'GeoApp Chat (Web)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-formula-solver-local', label: 'Formula Solver (Local)', kind: 'internal', purpose: 'formula-solving', requiresLocalModel: true },
+    { id: 'geoapp-formula-solver-fast', label: 'Formula Solver (Fast)', kind: 'internal', purpose: 'formula-solving' },
+    { id: 'geoapp-formula-solver-strong', label: 'Formula Solver (Strong)', kind: 'internal', purpose: 'formula-solving' },
+    { id: 'geoapp-formula-solver-web', label: 'Formula Solver (Web)', kind: 'internal', purpose: 'formula-solving' },
     { id: 'geoapp-outing-analyzer', label: 'Analyse de sortie', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-ocr', label: 'OCR galerie via Theia', kind: 'internal', purpose: 'vision-ocr' },
     { id: 'geoapp-vision-ocr-plugin', label: 'OCR plugin vision_ocr', kind: 'backend', purpose: '' },
@@ -574,7 +582,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         purpose: row.purpose,
                         identifier: 'default/universal',
                     });
-                    if (model && row.id === 'geoapp-chat-local') {
+                    if (model && row.requiresLocalModel) {
                         const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
                         if (localCheck.status !== 'local') {
                             diagnostics.set(row.id, `Non compatible local/offline : ${localCheck.reason}.`);
@@ -600,7 +608,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
             openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
             vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
-            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
         };
     }
 

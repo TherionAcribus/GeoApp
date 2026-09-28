@@ -10,7 +10,6 @@ export const GEOAPP_CHAT_FORMULA_PROFILE_PREF = 'geoApp.chat.workflowProfile.for
 export const GEOAPP_CHAT_CHECKER_PROFILE_PREF = 'geoApp.chat.workflowProfile.checker';
 export const GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.workflowProfile.hiddenContent';
 export const GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.workflowProfile.imagePuzzle';
-export const GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF = 'geoApp.chat.localModelIds';
 export const GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF = 'geoApp.chat.behaviorProfile.default';
 export const GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.secretCode';
 export const GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.formula';

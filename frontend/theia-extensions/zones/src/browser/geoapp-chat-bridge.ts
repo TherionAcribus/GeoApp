@@ -33,9 +33,12 @@ import {
     resolveGeoAppChatBehaviorProfileForWorkflow,
     resolveGeoAppChatProfileForWorkflow,
     sanitizeGeoAppSessionSettings,
-    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
 } from './geoapp-chat-shared';
-import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from './geoapp-local-model-guard';
+import {
+    checkGeoAppLocalModel,
+    GeoAppLocalModelPreferences,
+    GEOAPP_LOCAL_MODEL_IDS_PREF,
+} from './geoapp-local-model-guard';
 export { GEOAPP_OPEN_CHAT_REQUEST_EVENT } from './geoapp-chat-shared';
 
 interface GeoAppOpenChatRequestDetail {
@@ -606,7 +609,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             lmstudioBaseUrl: this.preferenceService.get('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
             openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
             vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
-            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
         };
     }
 

@@ -492,7 +492,7 @@
       ],
       "default": "fast",
       "title": "Formula Solver - profil IA formule",
-      "description": "Profil IA par défaut pour l'étape 'Formule' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "description": "Profil IA par défaut pour l'étape 'Formule' (local=modèle vérifiable comme local, sans repli cloud ; fast=petit modèle ; strong=qualité ; web=modèle avec accès Internet).",
       "x-ui": {
         "section": "Formula Solver",
         "label": "Profil IA pour les formules",
@@ -522,7 +522,7 @@
       ],
       "default": "fast",
       "title": "Formula Solver - profil IA questions",
-      "description": "Profil IA par défaut pour l'étape 'Questions' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "description": "Profil IA par défaut pour l'étape 'Questions' (local=modèle vérifiable comme local, sans repli cloud ; fast=petit modèle ; strong=qualité ; web=modèle avec accès Internet).",
       "x-ui": {
         "section": "Formula Solver",
         "label": "Profil IA pour les questions",
@@ -552,7 +552,7 @@
       ],
       "default": "fast",
       "title": "Formula Solver - profil IA réponses",
-      "description": "Profil IA par défaut pour l'étape 'Réponses' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "description": "Profil IA par défaut pour l'étape 'Réponses' (local=modèle vérifiable comme local, sans repli cloud ; fast=petit modèle ; strong=qualité ; web=modèle avec accès Internet).",
       "x-ui": {
         "section": "Formula Solver",
         "label": "Profil IA pour les réponses",
@@ -572,15 +572,15 @@
         "formula-solver"
       ]
     },
-    "geoApp.chat.localModelIds": {
+    "geoApp.ai.localModelIds": {
       "type": "array",
       "default": [],
       "items": {
         "type": "string"
       },
       "uniqueItems": true,
-      "title": "Chat IA - modèles déclarés locaux",
-      "description": "Identifiants de modèles, ou préfixes terminés par *, explicitement considérés comme locaux. Ollama et LM Studio sur un hôte local, ainsi que les endpoints OpenAI-compatibles localhost/privés, sont reconnus automatiquement ; cette liste sert aux modèles dont l'endpoint n'est pas inspectable. Ne déclarez local qu'un modèle que vous savez exécuté sans service cloud.",
+      "title": "IA - modèles déclarés locaux",
+      "description": "Identifiants de modèles, ou préfixes terminés par *, explicitement considérés comme locaux pour le chat et les traitements GeoApp. Ollama et LM Studio sur un hôte local, ainsi que les endpoints OpenAI-compatibles localhost/privés, sont reconnus automatiquement ; cette liste sert aux modèles dont l'endpoint n'est pas inspectable. Ne déclarez local qu'un modèle que vous savez exécuté sans service cloud.",
       "x-ui": {
         "section": "Profils",
         "label": "Modèles déclarés locaux",
@@ -593,12 +593,13 @@
           "hors-ligne"
         ]
       },
-      "x-category": "chat",
+      "x-category": "ai",
       "x-targets": [
         "frontend"
       ],
       "x-tags": [
         "chat",
+        "formula-solver",
         "geoapp",
         "local",
         "offline"

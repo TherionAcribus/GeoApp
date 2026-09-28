@@ -53,7 +53,7 @@ const geoAppFormulaSolverFastAgent = buildAgent({
 const geoAppFormulaSolverLocalAgent = buildAgent({
     id: GeoAppFormulaSolverLocalAgentId,
     name: 'GeoApp Formula Solver (Local)',
-    description: 'Agent interne utilisé par GeoApp via un LLM local (LMStudio / Ollama). Idéal pour du traitement rapide et sans coût cloud.',
+    description: 'Agent interne réservé à un LLM vérifiable comme local (LMStudio / Ollama ou endpoint local). Aucun repli cloud n\'est appliqué.',
     tags: ['GeoApp', 'FormulaSolver', 'Local']
 });
 

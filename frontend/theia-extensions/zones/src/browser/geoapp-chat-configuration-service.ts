@@ -16,7 +16,6 @@ import {
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
-    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
@@ -25,10 +24,11 @@ import {
 import { GeoAppChatSkillExport, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatSkills } from './geoapp-chat-skills';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
+import { GEOAPP_LOCAL_MODEL_IDS_PREF } from './geoapp-local-model-guard';
 
 export const GEOAPP_CHAT_POLICY_DEFAULTS: Record<string, unknown> = {
     [GEOAPP_CHAT_DEFAULT_PROFILE_PREF]: 'fast',
-    [GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF]: [],
+    [GEOAPP_LOCAL_MODEL_IDS_PREF]: [],
     [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'guided',
     [GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF]: 'default',
     [GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF]: 'default',

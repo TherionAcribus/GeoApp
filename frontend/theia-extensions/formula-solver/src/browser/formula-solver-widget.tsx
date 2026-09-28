@@ -2421,7 +2421,7 @@ export class FormulaSolverWidget extends ReactWidget {
      */
     protected renderStepConfigPanel(): React.ReactNode {
         const profileOptions: Array<{ id: FormulaSolverAiProfile; label: string }> = [
-            { id: 'local', label: 'Local (LMStudio/Ollama)' },
+            { id: 'local', label: 'Local (vérifié)' },
             { id: 'fast', label: 'Fast' },
             { id: 'strong', label: 'Strong' },
             { id: 'web', label: 'Web' }

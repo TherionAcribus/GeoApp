@@ -1,5 +1,5 @@
 import * as assert from 'assert/strict';
-import { checkGeoAppLocalModel } from '../geoapp-local-model-guard';
+import { checkGeoAppLocalModel, isGeoAppStrictLocalAgent } from '../geoapp-local-model-guard';
 
 function testOllamaLocalHostIsLocal(): void {
     const check = checkGeoAppLocalModel(
@@ -126,6 +126,13 @@ function testUnknownModelIsRejected(): void {
     assert.equal(check.status, 'unknown');
 }
 
+function testStrictLocalAgentIds(): void {
+    assert.equal(isGeoAppStrictLocalAgent('geoapp-chat-local'), true);
+    assert.equal(isGeoAppStrictLocalAgent('geoapp-formula-solver-local'), true);
+    assert.equal(isGeoAppStrictLocalAgent('geoapp-chat-fast'), false);
+    assert.equal(isGeoAppStrictLocalAgent(undefined), false);
+}
+
 function run(): void {
     testOllamaLocalHostIsLocal();
     testOllamaRemoteHostIsRejected();
@@ -139,6 +146,7 @@ function run(): void {
     testAllowlistAcceptsUnknownLocalModel();
     testAllowlistCannotOverrideKnownCloudId();
     testUnknownModelIsRejected();
+    testStrictLocalAgentIds();
     // eslint-disable-next-line no-console
     console.log('geoapp-local-model-guard tests passed');
 }

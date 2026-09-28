@@ -1,0 +1,127 @@
+import * as assert from 'assert/strict';
+
+import { FormulaSolverLLMService } from '../formula-solver-llm-service';
+import {
+    GeoAppFormulaSolverFastAgentId,
+    GeoAppFormulaSolverLocalAgentId,
+} from '../geoapp-formula-solver-agents';
+
+class FakeLanguageModelRegistry {
+    readonly selections: Array<{ agent: string; purpose: string; identifier: string }> = [];
+
+    constructor(private readonly model?: { id: string; name?: string; vendor?: string }) {}
+
+    async selectLanguageModel(request: { agent: string; purpose: string; identifier: string }): Promise<typeof this.model> {
+        this.selections.push(request);
+        return this.model;
+    }
+}
+
+class FakeLanguageModelService {
+    readonly calls: Array<{ model: unknown; request: { agentId?: string } }> = [];
+
+    async sendRequest(model: unknown, request: { agentId?: string }): Promise<unknown> {
+        this.calls.push({ model, request });
+        return {
+            parsed: { formulas: [] },
+            content: '{"formulas":[]}',
+        };
+    }
+}
+
+class FakePreferenceService {
+    constructor(private readonly values: Record<string, unknown> = {}) {}
+
+    get<T>(key: string, defaultValue?: T): T | undefined {
+        return Object.prototype.hasOwnProperty.call(this.values, key)
+            ? this.values[key] as T
+            : defaultValue;
+    }
+}
+
+function makeService(
+    model: { id: string; name?: string; vendor?: string } | undefined,
+    preferences: Record<string, unknown> = {}
+): {
+    service: FormulaSolverLLMService;
+    registry: FakeLanguageModelRegistry;
+    llm: FakeLanguageModelService;
+} {
+    const service = new FormulaSolverLLMService();
+    const registry = new FakeLanguageModelRegistry(model);
+    const llm = new FakeLanguageModelService();
+    (service as any).languageModelRegistry = registry;
+    (service as any).languageModelService = llm;
+    (service as any).preferenceService = new FakePreferenceService(preferences);
+    return { service, registry, llm };
+}
+
+async function testLocalOllamaModelIsAllowed(): Promise<void> {
+    const { service, registry, llm } = makeService(
+        { id: 'ollama/llama3.1', name: 'Llama 3.1', vendor: 'ollama' },
+        { 'ai-features.ollama.ollamaHost': 'http://localhost:11434' }
+    );
+
+    const response = await (service as any).callLLM('prompt', 'test-local', 'local');
+
+    assert.equal(response, '{"formulas":[]}');
+    assert.equal(registry.selections.length, 1);
+    assert.deepEqual(registry.selections[0], {
+        agent: GeoAppFormulaSolverLocalAgentId,
+        purpose: 'formula-solving',
+        identifier: 'default/universal',
+    });
+    assert.equal(llm.calls.length, 1);
+    assert.equal(llm.calls[0].request.agentId, GeoAppFormulaSolverLocalAgentId);
+}
+
+async function testLocalCloudModelIsRejectedWithoutCall(): Promise<void> {
+    const { service, llm } = makeService({ id: 'openai/gpt-4o', name: 'GPT-4o' });
+
+    await assert.rejects(
+        () => (service as any).callLLM('prompt', 'test-local-cloud', 'local'),
+        /Aucun repli cloud n'a été appliqué/
+    );
+    assert.equal(llm.calls.length, 0);
+}
+
+async function testLocalWithoutReadyModelIsRejectedWithoutCall(): Promise<void> {
+    const { service, llm } = makeService(undefined);
+
+    await assert.rejects(
+        () => (service as any).callLLM('prompt', 'test-local-missing', 'local'),
+        /aucun repli cloud n'a été appliqué/i
+    );
+    assert.equal(llm.calls.length, 0);
+}
+
+async function testAllowlistedUnknownModelIsAllowed(): Promise<void> {
+    const { service, llm } = makeService(
+        { id: 'company-llm/local-small' },
+        { 'geoApp.ai.localModelIds': ['company-llm/*'] }
+    );
+
+    await (service as any).callLLM('prompt', 'test-allowlist', 'local');
+    assert.equal(llm.calls.length, 1);
+}
+
+async function testFastProfileKeepsNormalCloudBehavior(): Promise<void> {
+    const { service, registry, llm } = makeService({ id: 'openai/gpt-4o-mini' });
+
+    await (service as any).callLLM('prompt', 'test-fast', 'fast');
+
+    assert.equal(registry.selections[0].agent, GeoAppFormulaSolverFastAgentId);
+    assert.equal(llm.calls.length, 1);
+}
+
+async function run(): Promise<void> {
+    await testLocalOllamaModelIsAllowed();
+    await testLocalCloudModelIsRejectedWithoutCall();
+    await testLocalWithoutReadyModelIsRejectedWithoutCall();
+    await testAllowlistedUnknownModelIsAllowed();
+    await testFastProfileKeepsNormalCloudBehavior();
+    // eslint-disable-next-line no-console
+    console.log('formula-solver-local-model tests passed');
+}
+
+void run();
