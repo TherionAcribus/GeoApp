@@ -119,11 +119,141 @@ export interface GeoAppOpenChatRequestDetailPayload {
      * requete exacte, jamais a "la derniere preparee".
      */
     earthcoachRequestId?: string;
+    /**
+     * Qualite de reencodage des images transmises. `high` pour les flux ou le
+     * modele doit lire de petits details (EarthCoach); defaut `standard`.
+     */
+    imageQuality?: GeoAppChatImageQuality;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
 
 export const GEOAPP_OPEN_CHAT_REQUEST_EVENT = 'geoapp-open-chat-request';
+
+/** Long cote cible pour les images envoyees au modele : optimum tokens/qualite pour la vision. */
+export const GEOAPP_CHAT_IMAGE_MAX_DIMENSION = 1568;
+
+export type GeoAppChatImageQuality = 'standard' | 'high';
+
+/**
+ * La taille de l'image fixe le cout en tokens, pas son poids : monter la
+ * qualite JPEG ne coute rien cote modele et evite que les artefacts de
+ * compression effacent les textures fines (grain, strates, fossiles).
+ */
+export function geoAppChatJpegQuality(quality?: GeoAppChatImageQuality): number {
+    return quality === 'high' ? 0.95 : 0.85;
+}
+
+export interface GeoAppPreparedChatImage {
+    data: string;
+    mimeType: string;
+}
+
+/**
+ * Decode puis reencode l'image comme le bridge l'envoie au modele. Cette
+ * operation retire les metadonnees EXIF, meme sans redimensionnement.
+ */
+export async function encodeGeoAppChatImage(
+    blob: Blob,
+    options: { maxDimension?: number; quality?: GeoAppChatImageQuality } = {}
+): Promise<GeoAppPreparedChatImage> {
+    const maxDimension = options.maxDimension ?? GEOAPP_CHAT_IMAGE_MAX_DIMENSION;
+    const image = await loadGeoAppChatImageSource(blob);
+    try {
+        const largestSide = Math.max(image.width, image.height);
+        if (!largestSide) {
+            throw new Error('Invalid image dimensions');
+        }
+        const scale = Math.min(1, maxDimension / largestSide);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Canvas is unavailable');
+        }
+        if (scale < 1) {
+            context.imageSmoothingQuality = 'high';
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const preserveTransparency = blob.type === 'image/png';
+        const mimeType = preserveTransparency ? 'image/png' : 'image/jpeg';
+        const dataUrl = canvas.toDataURL(mimeType, preserveTransparency ? undefined : geoAppChatJpegQuality(options.quality));
+        return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType };
+    } finally {
+        if ('close' in image && typeof image.close === 'function') {
+            image.close();
+        }
+    }
+}
+
+async function loadGeoAppChatImageSource(blob: Blob): Promise<CanvasImageSource & { width: number; height: number; close?: () => void }> {
+    if (typeof createImageBitmap === 'function') {
+        return await createImageBitmap(blob);
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+        return await new Promise<HTMLImageElement>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('image illisible par le navigateur'));
+            image.src = objectUrl;
+        });
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
+const PREPARED_CHAT_IMAGE_TTL_MS = 5 * 60 * 1000;
+const PREPARED_CHAT_IMAGE_MAX_ENTRIES = 40;
+const preparedChatImages = new Map<string, { image: GeoAppPreparedChatImage; expiresAt: number }>();
+
+function preparedChatImageKey(url: string, quality?: GeoAppChatImageQuality): string {
+    return `${url}|${quality || 'standard'}`;
+}
+
+/**
+ * Un appelant qui a deja telecharge et encode une image (le dossier terrain
+ * EarthCoach, pour la valider) la depose ici : le bridge la reprend au lieu
+ * de la telecharger et de la decoder une seconde fois.
+ */
+export function rememberPreparedGeoAppChatImage(
+    url: string,
+    quality: GeoAppChatImageQuality | undefined,
+    image: GeoAppPreparedChatImage,
+    now = Date.now()
+): void {
+    const key = preparedChatImageKey(url, quality);
+    preparedChatImages.delete(key);
+    preparedChatImages.set(key, { image, expiresAt: now + PREPARED_CHAT_IMAGE_TTL_MS });
+    while (preparedChatImages.size > PREPARED_CHAT_IMAGE_MAX_ENTRIES) {
+        const oldest = preparedChatImages.keys().next().value;
+        if (oldest === undefined) {
+            break;
+        }
+        preparedChatImages.delete(oldest);
+    }
+}
+
+/** Lecture qui consomme l'entree : on ne garde pas des Mo de base64 en memoire. */
+export function takePreparedGeoAppChatImage(
+    url: string,
+    quality: GeoAppChatImageQuality | undefined,
+    now = Date.now()
+): GeoAppPreparedChatImage | undefined {
+    const key = preparedChatImageKey(url, quality);
+    const entry = preparedChatImages.get(key);
+    if (!entry) {
+        return undefined;
+    }
+    preparedChatImages.delete(key);
+    return entry.expiresAt > now ? entry.image : undefined;
+}
+
+/** Reserve aux tests. */
+export function clearPreparedGeoAppChatImages(): void {
+    preparedChatImages.clear();
+}
 
 /**
  * Emis par le bridge apres preparation des images, juste avant l'envoi au
@@ -437,6 +567,7 @@ export function buildGeoAppOpenChatRequestDetail(
         earthcoachVerbosity: detail.earthcoachVerbosity,
         earthcoachResponseLanguage: detail.earthcoachResponseLanguage,
         earthcoachRequestId: detail.earthcoachRequestId,
+        imageQuality: detail.imageQuality,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,
     };

@@ -64,7 +64,18 @@ import {
     extractEarthCoachResultBlock,
     stripEarthCoachResultBlocks,
 } from '../earthcoach-result-capture';
-import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from '../earthcoach-workspace-logic';
+import {
+    applicableProposalIndexes,
+    buildEarthCoachCoverage,
+    computeEarthCoachCropRect,
+    containedImageBox,
+    findUncoveredSnapshotTasks,
+    prepareEarthCoachImagesForTransmission,
+    proposalDiffersFromAi,
+    resolveProposalPosition,
+    revertProposalPatch,
+    validateEarthCoachSelection,
+} from '../earthcoach-workspace-logic';
 import { EarthCoachPreparedRequest } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
@@ -709,6 +720,60 @@ function testResolverTemplateConsumesLoggingTasks(): void {
     assert.match(prompt, /Fondee sur/);
     assert.match(prompt, /Confiance: elevee \/ moyenne \/ faible/);
     assert.match(prompt, /Traite toutes les 2 question\(s\) effectivement listees/);
+}
+
+function preparedRequestFixture(action: 'resolve' | 'analyze_observations', images: EarthCoachPreparedRequest['images'] = []): EarthCoachPreparedRequest {
+    return {
+        requestId: 'req-42',
+        geocacheId: 1,
+        action,
+        preparedAt: '2026-09-28T10:00:00Z',
+        responseLanguage: 'fr',
+        listing: { language: 'fr', fingerprint: 'fp', reliableSeparation: true, html: '', text: '' },
+        observations: [],
+        loggingTasks: [],
+        images,
+        groups: [],
+        unavailableImages: [],
+    };
+}
+
+function testCapturedResolutionIsNotDuplicatedInChat(): void {
+    // Avec un dossier prepare, le detail part dans le tool : le chat ne doit
+    // plus reecrire chaque question (tokens de sortie doubles).
+    const image: GeoImage = { id: '9', origin: 'user_observation', label: 'Falaise', fileUri: '/9.jpg' };
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [image],
+        preparedRequest: preparedRequestFixture('resolve', [{ id: '9', origin: 'user_observation', label: 'Falaise', fileUri: '/9.jpg' }]),
+    });
+    assert.match(prompt, /passe uniquement par earthcoach_capture_result/);
+    assert.match(prompt, /ne recopie pas les reponses question par question/);
+    assert.doesNotMatch(prompt, /Reponse proposee:/);
+    assert.match(prompt, /Traite toutes les 2 question\(s\)/);
+    assert.match(prompt, /photo exigee pour le log/);
+    // Images decrites une seule fois, libelle compris.
+    assert.doesNotMatch(prompt, /Images transmises:/);
+    assert.match(prompt, /image=9; origine=user_observation; libelle=Falaise/);
+}
+
+function testPreparedRequestWithoutImagesSaysSo(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'coach',
+        action: 'analyze_observations',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+        preparedRequest: preparedRequestFixture('analyze_observations'),
+    });
+    assert.match(prompt, /Images: aucune image transmise\./);
+    // L'analyse enregistre une liste de releves a faire.
+    assert.match(prompt, /proposition par question avec status et missing/);
 }
 
 function testResolverTemplateWithoutLoggingTasks(): void {
@@ -1513,6 +1578,168 @@ async function testOwnerImageFallsBackToBackendStorage(): Promise<void> {
     assert.equal(result.available[0].fileUri, localUrl);
 }
 
+async function testPreparedImagesAreEncodedOnce(): Promise<void> {
+    // La validation produit l'encodage final : une seule preparation par image,
+    // rangee sous l'URL retenue pour que le bridge ne refasse rien.
+    const remoteUrl = 'https://img.geocaching.com/cache/large/owner.jpg';
+    const localUrl = 'http://localhost:8000/api/geocache-images/12/content';
+    const directUrl = 'http://localhost:8000/api/geocache-images/13/content';
+    let encodeCalls = 0;
+    const result = await prepareEarthCoachImagesForTransmission(
+        [
+            { id: '12', origin: 'cache_listing', fileUri: remoteUrl },
+            { id: '13', origin: 'user_observation', fileUri: directUrl },
+        ],
+        async url => {
+            if (url === remoteUrl) {
+                throw new TypeError('Failed to fetch');
+            }
+            return { ok: true, status: 200, blob: async () => ({ type: 'image/jpeg' }) } as Response;
+        },
+        async () => localUrl,
+        async () => {
+            encodeCalls++;
+            return { data: `encoded-${encodeCalls}`, mimeType: 'image/jpeg' };
+        }
+    );
+    assert.equal(encodeCalls, 2);
+    assert.equal(result.available.length, 2);
+    assert.deepEqual([...result.prepared.keys()].sort(), [directUrl, localUrl].sort());
+    assert.equal(result.available[0].fileUri, localUrl);
+}
+
+function testSelectionValidationPointsAtFix(): void {
+    const personal: GeoImage = { id: '1', origin: 'user_observation', fileUri: '/1.jpg' };
+    const listing: GeoImage = { id: '2', origin: 'cache_listing', fileUri: '/2.jpg' };
+    const groups = [
+        { title: 'Seule', position: 0, members: [{ image_id: 3, role: 'other' as const, position: 0 }] },
+        {
+            title: 'Paire',
+            position: 1,
+            members: [
+                { image_id: 1, role: 'overview' as const, position: 0 },
+                { image_id: 2, role: 'detail' as const, position: 1 },
+            ],
+        },
+    ];
+    const partial = validateEarthCoachSelection([personal], groups, 8, true);
+    assert.equal(partial.incompleteGroupIndex, 1);
+    const tooMany = validateEarthCoachSelection([personal, listing], [], 1, true);
+    assert.equal(tooMany.overLimit, true);
+}
+
+function testCoverageMatrix(): void {
+    const tasks: LoggingTask[] = [
+        { id: 'logging-task-3', geocacheId: '1', position: 3, question: 'Q photo', status: 'field', requiresPhoto: true, observationId: 'observation-20' },
+        { id: 'logging-task-1', geocacheId: '1', position: 1, question: 'Q sans obs', status: 'todo', requiresPhoto: false },
+        { id: 'logging-task-2', geocacheId: '1', position: 2, question: 'Q prete', status: 'todo', requiresPhoto: true, observationId: 'observation-10' },
+        { id: 'logging-task-4', geocacheId: '1', position: 4, question: 'Q repondue', status: 'answered', requiresPhoto: false },
+    ];
+    const observations: UserObservation[] = [
+        { id: 'observation-10', cacheId: '1', userId: 'u', note: 'Strates   inclinees vers le nord', createdAt: '', source: 'structured', images: [] },
+        { id: 'observation-20', cacheId: '1', userId: 'u', note: 'Couleur ocre', createdAt: '', source: 'structured', images: [] },
+    ];
+    const images: GeoImage[] = [
+        { id: '55', origin: 'user_observation', fileUri: '/55.jpg' },
+        { id: '56', origin: 'cache_listing', fileUri: '/56.jpg' },
+    ];
+    // Photo personnelle rattachee a l'observation 10 par le dossier; l'observation 20
+    // n'a qu'une image du listing, qui ne compte pas comme preuve.
+    const contexts = [
+        { image_id: 55, included: true, observation_id: 10, position: 0 },
+        { image_id: 56, included: false, observation_id: 20, position: 1 },
+    ];
+    const rows = buildEarthCoachCoverage(tasks, observations, images, contexts);
+    assert.deepEqual(rows.map(row => row.position), [1, 2, 3, 4]);
+    assert.deepEqual(rows.map(row => row.state), ['needs_field', 'ready_to_resolve', 'needs_photo', 'answered']);
+    assert.equal(rows[1].taskId, 2);
+    assert.equal(rows[1].observationExcerpt, 'Strates inclinees vers le nord');
+    assert.equal(rows[1].hasPersonalPhoto, true);
+    assert.equal(rows[2].hasPersonalPhoto, false);
+}
+
+function testProposalNumberingAndCoverage(): void {
+    const snapshotTasks = [
+        { id: 7, position: 1, question: 'A' },
+        { id: 8, position: 2, question: 'B' },
+        { id: 9, position: 3, question: 'C' },
+    ];
+    const current: LoggingTask[] = [
+        { id: 'logging-task-12', geocacheId: '1', position: 5, question: 'Nouvelle', status: 'todo', requiresPhoto: false },
+    ];
+    assert.equal(resolveProposalPosition({ task_id: 8, question: 'B', status: 'ready' }, snapshotTasks, current), 2);
+    // Repli sur les questions courantes quand l'instantane ne la connait pas.
+    assert.equal(resolveProposalPosition({ task_id: 12, question: 'N', status: 'ready' }, snapshotTasks, current), 5);
+    assert.equal(resolveProposalPosition({ question: 'libre', status: 'ready' }, snapshotTasks, current), undefined);
+    const uncovered = findUncoveredSnapshotTasks([
+        { task_id: 7, question: 'A', status: 'ready' },
+        { task_id: 9, question: 'C', status: 'partial' },
+    ], snapshotTasks);
+    assert.deepEqual(uncovered.map(task => task.position), [2]);
+    assert.deepEqual(findUncoveredSnapshotTasks([], undefined), []);
+}
+
+function testApplicableProposalIndexes(): void {
+    assert.deepEqual(applicableProposalIndexes([
+        { task_id: 1, question: 'ok', status: 'ready', answer: 'Calcaire' },
+        { task_id: 2, question: 'partielle', status: 'partial', answer: 'x' },
+        { task_id: 3, question: 'reste', status: 'ready', answer: 'x', missing: 'mesurer' },
+        { question: 'sans tache', status: 'ready', answer: 'x' },
+        { task_id: 5, question: 'vide', status: 'ready', answer: '  ' },
+        { task_id: 6, question: 'ok2', status: 'ready', answer: 'Gres', missing: '  ' },
+    ]), [0, 5]);
+}
+
+function testRevertToAiVersion(): void {
+    const ai = { task_id: 1, question: 'Q', status: 'partial' as const, answer: 'IA', missing: 'mesurer' };
+    const edited = { ...ai, status: 'ready' as const, answer: 'Corrigee', missing: null, confidence: 'high' as const };
+    assert.equal(proposalDiffersFromAi(edited, ai), true);
+    // Vide, null et absent sont equivalents : pas de faux « modifie ».
+    assert.equal(proposalDiffersFromAi({ ...ai, question_translation: '' }, ai), false);
+    assert.equal(proposalDiffersFromAi(edited, undefined), false);
+    // Le patch efface aussi les champs ajoutes par l'utilisateur.
+    const reverted = { ...edited, ...revertProposalPatch(ai) };
+    assert.equal(proposalDiffersFromAi(reverted, ai), false);
+    assert.equal(reverted.confidence, undefined);
+}
+
+function testContainedImageBox(): void {
+    // Photo 4:3 dans un cadre 800x400 : bandes laterales de 133 px.
+    const box = containedImageBox({ width: 800, height: 400 }, { width: 4000, height: 3000 });
+    assert.ok(box);
+    assert.equal(Math.round(box!.x), 133);
+    assert.equal(box!.y, 0);
+    assert.equal(Math.round(box!.width), 533);
+    assert.equal(box!.height, 400);
+    assert.equal(containedImageBox({ width: 0, height: 0 }, { width: 10, height: 10 }), undefined);
+}
+
+function testCropRectConversion(): void {
+    // Apercu 400x300 d'une photo 4000x3000 : facteur 10.
+    const rect = computeEarthCoachCropRect(
+        { x: 100, y: 50, width: 80, height: 60 },
+        { width: 400, height: 300 },
+        { width: 4000, height: 3000 }
+    );
+    assert.deepEqual(rect, { x: 1000, y: 500, width: 800, height: 600 });
+    // Selection tracee vers le haut-gauche et debordant de l'image : bornee.
+    const reversed = computeEarthCoachCropRect(
+        { x: 390, y: 290, width: -100, height: -100 },
+        { width: 400, height: 300 },
+        { width: 4000, height: 3000 }
+    );
+    assert.deepEqual(reversed, { x: 2900, y: 1900, width: 1000, height: 1000 });
+    const clamped = computeEarthCoachCropRect(
+        { x: 350, y: 250, width: 200, height: 200 },
+        { width: 400, height: 300 },
+        { width: 4000, height: 3000 }
+    );
+    assert.deepEqual(clamped, { x: 3500, y: 2500, width: 500, height: 500 });
+    // Un simple clic ne cree pas de recadrage.
+    assert.equal(computeEarthCoachCropRect({ x: 10, y: 10, width: 1, height: 1 }, { width: 400, height: 300 }, { width: 400, height: 300 }), undefined);
+    assert.equal(computeEarthCoachCropRect({ x: 0, y: 0, width: 10, height: 10 }, { width: 0, height: 0 }, { width: 10, height: 10 }), undefined);
+}
+
 function testResultCaptureToolShape(): void {
     const tools = new EarthCoachResultTools().buildAllTools();
     assert.equal(tools.length, 1);
@@ -1991,6 +2218,16 @@ async function run(): Promise<void> {
     await testReferenceSearchHonorsAllowedSources();
     await testReferenceSearchAddsAdvancedGeologySources();
     await testSaveEarthCoachNote();
+    testSelectionValidationPointsAtFix();
+    testCoverageMatrix();
+    testProposalNumberingAndCoverage();
+    testApplicableProposalIndexes();
+    testCropRectConversion();
+    testContainedImageBox();
+    testRevertToAiVersion();
+    testCapturedResolutionIsNotDuplicatedInChat();
+    testPreparedRequestWithoutImagesSaysSo();
+    await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console
     console.log('earthcoach-prompt-builder tests passed');
 }

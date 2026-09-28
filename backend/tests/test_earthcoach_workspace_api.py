@@ -517,3 +517,25 @@ def test_aggregated_context_contains_workspace(client, seeded):
 
     assert response.status_code == 200
     assert response.get_json()['earthcoach_workspace']['geocache_id'] == seeded['cache_id']
+
+
+def test_result_list_omits_heavy_snapshot_but_keeps_tasks(client, seeded):
+    snapshot = {
+        'listing': {'html': '<p>' + 'x' * 5000 + '</p>'},
+        'loggingTasks': [
+            {'id': f"logging-task-{seeded['task_id']}", 'position': 1, 'question': 'Q1'},
+            {'id': 'sans-numero', 'position': 2, 'question': 'ignoree'},
+        ],
+    }
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-light', 'action': 'resolve', 'proposals': [], 'context_snapshot': snapshot},
+    )
+    assert create.status_code == 201
+    # La reponse de capture garde l'instantane complet.
+    assert create.get_json()['result']['context_snapshot'] == snapshot
+
+    listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    result = next(item for item in listed if item['request_id'] == 'request-light')
+    assert 'context_snapshot' not in result
+    assert result['snapshot_tasks'] == [{'id': seeded['task_id'], 'position': 1, 'question': 'Q1'}]

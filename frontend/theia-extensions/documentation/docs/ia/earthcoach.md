@@ -81,13 +81,21 @@ Il permet de :
 - ajouter un commentaire EarthCoach distinct des notes generales de la galerie ;
 - associer une image a un waypoint ou a une observation ;
 - regrouper des images qui doivent etre traitees ensemble, avec un role comme **originale**, **masquee**, **detail**, **avant** ou **apres** ;
-- ajouter un commentaire general pour l'ensemble du dossier.
+- recadrer un detail d'une photo en pleine resolution (voir plus bas) ;
+- ajouter un commentaire general pour l'ensemble du dossier ;
+- suivre la **couverture des questions** : pour chaque question, son etat (**Prete a resoudre**, **Observation a faire**, **Photo a ajouter**, **Repondue**), l'observation liee et la photo exigee. Le bouton **Observer** ouvre directement une observation liee a la question.
 
 Lors de la premiere ouverture, seules les photos personnelles deja liees a une observation sont selectionnees. Les images du listing et les photos personnelles non classees restent non selectionnees. Une selection vide reste vide : EarthCoach n'ajoute aucune image automatiquement.
 
-Les photos sont facultatives. Si aucune photo personnelle n'est selectionnee, GeoApp demande de cocher **Continuer sans photo** pour chaque envoi. Cette confirmation ne concerne pas le futur log Geocaching : EarthCoach ne publie jamais de log.
+Les photos sont facultatives. Si aucune photo personnelle n'est selectionnee, GeoApp demande de cocher **Continuer sans photo** ; ce choix reste valable pour la cache jusqu'a ce que vous changiez de cache. Cette confirmation ne concerne pas le futur log Geocaching : EarthCoach ne publie jamais de log.
 
-La limite d'envoi est de 8 images par defaut. Au-dela, l'envoi est bloque sans troncature silencieuse. Les groupes ne sont jamais separes. Toutes les images sont decodees puis reencodees avant transmission afin de supprimer leurs metadonnees EXIF ; une image indisponible est signalee et explicitement retiree du resume.
+La limite d'envoi est de 8 images par defaut. Au-dela, l'envoi est bloque sans troncature silencieuse, et le compteur le signale avant le clic. Les groupes ne sont jamais separes : un groupe partiellement selectionne propose **Inclure tout le groupe** ou **Retirer le groupe**. La verification avant envoi indique aussi combien de questions partiront sans observation ou sans la photo exigee.
+
+Toutes les images sont decodees puis reencodees avant transmission afin de supprimer leurs metadonnees EXIF. EarthCoach les reencode en haute qualite pour que le modele distingue les petits details (grain, strates, fossiles) ; une image indisponible est signalee et explicitement retiree du resume.
+
+### Recadrer un detail
+
+Le modele recoit chaque image reduite a environ 1 568 pixels sur le plus grand cote : sur une photo de 12 Mpx, un petit detail devient illisible. Dans l'apercu, **Recadrer un detail** permet de tracer une zone : elle est extraite de la photo d'origine en pleine resolution, enregistree comme image derivee, selectionnee pour l'envoi et groupee avec la photo source (**Vue generale** + **Detail**). Le modele voit ainsi la zone a pleine definition, en plus de la vue d'ensemble.
 
 ### Listings multilingues
 
@@ -101,7 +109,11 @@ Les analyses et resolutions sont conservees avec l'instantane exact du dossier e
 
 La reponse candidate ne doit contenir que la reponse factuelle. Les mesures, photos ou actions encore necessaires vont dans **Elements a completer** ; un bouton permet d'y deplacer rapidement un texte place dans la mauvaise zone.
 
-Vous pouvez modifier une proposition puis la reporter individuellement dans la question existante. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Le bouton **Generer la reponse finale avec mes corrections** sauvegarde les modifications, les renvoie explicitement au chat et redige un message dans la langue choisie. Si des informations manquent encore, le resultat reste un brouillon avec des marqueurs a completer. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
+Chaque proposition est numerotee (**Q1**, **Q2**...) ; une alerte signale les questions pour lesquelles le modele n'a rien propose. Les corrections sont enregistrees automatiquement, et **Revenir a la version IA** annule celles d'une question.
+
+Vous pouvez reporter une proposition dans la question existante, ou toutes les reponses pretes d'un coup avec **Reporter les N reponses pretes**. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Le bouton **Generer la reponse finale avec mes corrections** sauvegarde les modifications, les renvoie explicitement au chat et redige un message dans la langue choisie. Si des informations manquent encore, le resultat reste un brouillon avec des marqueurs a completer. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
+
+Dans la conversation, EarthCoach se limite a une synthese courte (bilan et prochaines mesures) : le detail question par question est dans le dossier. Une **analyse** produit, en plus de son compte rendu, une liste **A relever sur le terrain** par question.
 
 ## Images et origines
 

@@ -58,6 +58,7 @@ const SHARED_RULES = [
     'Resultats revisables:',
     '- Quand le dossier fournit un request_id, appelle ~earthcoach_capture_result a la fin avec des propositions structurees et le meme identifiant.',
     '- N affiche jamais le JSON de capture dans la conversation: le tool suffit.',
+    '- Ne recopie pas non plus le detail des propositions dans la conversation: le dossier terrain les affiche; une synthese courte suffit.',
     '- Dans une proposition, answer contient uniquement une reponse factuelle; les actions, mesures ou informations encore necessaires vont dans missing.',
     '- Une proposition ne constitue jamais un log et ne doit jamais etre publiee automatiquement.',
     '',

@@ -424,7 +424,7 @@ def list_results(geocache_id: int):
         .order_by(EarthCoachResult.created_at.desc(), EarthCoachResult.id.desc())
         .all()
     )
-    return jsonify({'results': [result.to_dict() for result in results]})
+    return jsonify({'results': [result.to_dict(include_snapshot=False) for result in results]})
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/earthcoach-results')

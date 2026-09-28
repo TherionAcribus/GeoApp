@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import codecs
 import json
+import re
 from datetime import datetime, timezone
 
 from ..database import db
@@ -675,14 +676,35 @@ class EarthCoachResult(db.Model):
 
     geocache = db.relationship('Geocache', back_populates='earthcoach_results')
 
-    def to_dict(self) -> dict:
-        return {
+    def snapshot_tasks(self) -> list[dict]:
+        """Questions telles qu'elles etaient a la generation, en version legere :
+        de quoi numeroter les propositions sans renvoyer tout l'instantane."""
+        snapshot = self.context_snapshot if isinstance(self.context_snapshot, dict) else {}
+        tasks = snapshot.get('loggingTasks') or snapshot.get('logging_tasks') or []
+        if not isinstance(tasks, list):
+            return []
+        summary = []
+        for item in tasks:
+            if not isinstance(item, dict):
+                continue
+            match = re.search(r'(\d+)$', str(item.get('id') or ''))
+            if not match:
+                continue
+            summary.append({
+                'id': int(match.group(1)),
+                'position': item.get('position'),
+                'question': item.get('question'),
+            })
+        return summary
+
+    def to_dict(self, include_snapshot: bool = True) -> dict:
+        data = {
             'id': self.id,
             'geocache_id': self.geocache_id,
             'request_id': self.request_id,
             'action': self.action,
             'session_id': self.session_id,
-            'context_snapshot': self.context_snapshot,
+            'snapshot_tasks': self.snapshot_tasks(),
             # `proposals` expose la version effective (corrigee si elle existe),
             # `ai_proposals` la version brute du modele pour comparaison/reset.
             'proposals': self.edited_proposals if self.edited_proposals is not None else self.proposals,
@@ -693,6 +715,11 @@ class EarthCoachResult(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+        if include_snapshot:
+            # Listing HTML complet, observations, questions : lourd, et inutile
+            # pour afficher la liste des resultats du dossier.
+            data['context_snapshot'] = self.context_snapshot
+        return data
 
 
 class GeocacheChecker(db.Model):

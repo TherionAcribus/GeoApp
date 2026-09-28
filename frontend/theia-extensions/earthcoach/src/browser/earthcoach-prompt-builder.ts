@@ -536,8 +536,31 @@ function buildLoggingTasksBlock(
     return lines;
 }
 
-function buildResolverTemplateInstruction(loggingTasks: LoggingTask[]): string[] {
-    const lines = [
+function buildResolverTemplateInstruction(loggingTasks: LoggingTask[], captured: boolean): string[] {
+    const coverage = loggingTasks.length
+        ? `Traite toutes les ${loggingTasks.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`
+        : 'Aucune logging task structuree n est fournie: ne pretends pas couvrir toutes les questions et propose une extraction explicite separee.';
+    const guardrails = [
+        'Ne fusionne jamais plusieurs questions. Ne fabrique aucune mesure ou observation manquante: laisse explicitement "a completer".',
+        'Une question marquee "photo exigee pour le log" ne peut etre prete que si une image utilisateur probante figure dans le dossier; sinon signale la photo a prendre dans "A completer".',
+    ];
+    if (captured) {
+        // Le detail part dans earthcoach_capture_result et s'affiche dans le
+        // dossier: le recopier dans le chat doublait les tokens de sortie.
+        return [
+            '--- GABARIT DE RESOLUTION ---',
+            'Le detail question par question passe uniquement par earthcoach_capture_result, une proposition par question:',
+            '- question et question_translation; status ready / partial / missing;',
+            '- answer: uniquement si elle decoule des observations fournies, sinon vide;',
+            '- evidence_ids: ids des observations ou images qui la fondent; confidence high / medium / low selon la qualite des preuves;',
+            '- missing: ce qu il reste a mesurer, observer ou photographier sur place.',
+            ...guardrails,
+            coverage,
+            'Dans la conversation, ne recopie pas les reponses question par question: le dossier terrain les affiche.',
+            'Ecris seulement une synthese courte: nombre de questions pretes / partielles / manquantes, points bloquants, prochaines mesures a relever.',
+        ];
+    }
+    return [
         '--- GABARIT DE RESOLUTION ---',
         'Structure ta reponse question par question. Pour chaque question du proprietaire, fournis exactement ces champs:',
         '- Question: rappel court de la question.',
@@ -545,18 +568,17 @@ function buildResolverTemplateInstruction(loggingTasks: LoggingTask[]): string[]
         '- Fondee sur: l observation precise (id ou date) ou la donnee du listing qui justifie la reponse; "aucune" si rien ne la fonde.',
         '- Confiance: elevee / moyenne / faible, selon la qualite des preuves disponibles.',
         '- A completer: ce qu il reste a mesurer ou observer sur place si une donnee manque.',
-        'Ne fusionne jamais plusieurs questions. Ne fabrique aucune mesure ou observation manquante: laisse explicitement "a completer".',
-        'Une question marquee "photo exigee pour le log" ne peut etre prete que si une image utilisateur probante figure dans le dossier; sinon signale la photo a prendre dans "A completer".',
+        ...guardrails,
+        coverage,
     ];
-    if (loggingTasks.length) {
-        lines.push(`Traite toutes les ${loggingTasks.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`);
-    } else {
-        lines.push('Aucune logging task structuree n est fournie: ne pretends pas couvrir toutes les questions et propose une extraction explicite separee.');
-    }
-    return lines;
 }
 
-function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachMode, verbosity: EarthCoachVerbosity): string {
+function buildActionInstruction(
+    action: EarthCoachQuickAction,
+    mode: EarthCoachMode,
+    verbosity: EarthCoachVerbosity,
+    captured = false
+): string {
     if (action === 'prepare_visit') {
         if (verbosity === 'compact') {
             return 'Action demandee: preparer la visite. Fournis une checklist courte et actionnable, centree sur observer, mesurer, photographier.';
@@ -591,6 +613,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
         return 'Action demandee: analyser les observations personnelles. Structure la reponse en faits observes, interpretations, hypotheses, contradictions ou ambiguites, couverture des questions et informations encore utiles a relever.';
     }
     if (action === 'resolve' || mode === 'resolver') {
+        if (captured) {
+            return 'Action demandee: aider a resoudre avec le dossier terrain, sans inventer le terrain. Enregistre une proposition par question avec earthcoach_capture_result, puis resume brievement le bilan dans la conversation.';
+        }
         if (verbosity === 'compact') {
             return 'Action demandee: aider a resoudre avec le dossier disponible, sans inventer le terrain. Pour chaque question: etat Prete, Partielle ou Manquante; reponse candidate; observations et images utilisees; confiance; elements restant a completer.';
         }
@@ -627,10 +652,13 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
             lines.push(`- ${group.title}; waypoint=${group.waypoint_id || 'aucun'}; consigne=${group.instruction || 'aucune'}; ordre/roles=${members}`);
         }
     }
-    if (prepared.images.length) {
+    if (!prepared.images.length) {
+        lines.push('Images: aucune image transmise.');
+    } else {
         lines.push('Contextes exacts des images transmises:');
         for (const image of prepared.images) {
-            lines.push(`- image=${image.id}; origine=${image.origin}; waypoint=${image.waypointId || 'aucun'}; observation=${image.observationId || 'aucune'}; commentaire=${image.comment || 'aucun'}`);
+            const label = image.label ? `; libelle=${image.label}` : '';
+            lines.push(`- image=${image.id}; origine=${image.origin}${label}; waypoint=${image.waypointId || 'aucun'}; observation=${image.observationId || 'aucune'}; commentaire=${image.comment || 'aucun'}`);
         }
     }
     if (prepared.unavailableImages.length) {
@@ -638,10 +666,13 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
     }
     lines.push(
         'A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.',
-        'Pour une resolution, chaque proposition contient task_id, question originale, question_translation dans la langue utilisateur, status ready/partial/missing, answer, evidence_ids, confidence high/medium/low et missing.',
+        'Chaque proposition contient task_id, question originale, question_translation dans la langue utilisateur, status ready/partial/missing, answer, evidence_ids, confidence high/medium/low et missing.',
         'Le champ answer contient uniquement la reponse candidate factuelle. Toute action a effectuer, mesure a relever, photo a prendre ou information absente va exclusivement dans missing et impose un statut partial ou missing.',
-        'N affiche jamais le JSON du tool dans la conversation. Le tool suffit pour enregistrer les propositions. Pour une analyse sans reponse candidate, proposals peut etre vide.'
     );
+    if (prepared.action !== 'resolve') {
+        lines.push('Pour cette analyse, fournis une proposition par question avec status et missing (ce qu il reste a relever sur le terrain), answer vide: le dossier en fait une liste de releves a faire.');
+    }
+    lines.push('N affiche jamais le JSON du tool dans la conversation. Le tool suffit pour enregistrer les propositions.');
     return lines;
 }
 
@@ -759,16 +790,17 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         '',
         ...buildWaypointsBlock(data, limits),
         '',
-        ...buildImagesBlock(input.images, limits),
-        '',
+        // Avec un dossier prepare, les images sont decrites une seule fois,
+        // plus completement, dans le bloc "Contextes exacts".
+        ...(input.preparedRequest ? [] : [...buildImagesBlock(input.images, limits), '']),
         ...buildObservationsBlock(input.observations, limits, input.gcPersonalNote),
         ...(loggingTasksBlock.length ? ['', ...loggingTasksBlock] : []),
         ...(input.preparedRequest ? ['', ...buildPreparedRequestBlock(input)] : []),
         '',
         '--- MODE EARTHCOACH ---',
         `Mode: ${input.mode}`,
-        buildActionInstruction(input.action, input.mode, verbosity),
-        ...(input.mode === 'resolver' ? ['', ...buildResolverTemplateInstruction(loggingTasks)] : []),
+        buildActionInstruction(input.action, input.mode, verbosity, Boolean(input.preparedRequest)),
+        ...(input.mode === 'resolver' ? ['', ...buildResolverTemplateInstruction(loggingTasks, Boolean(input.preparedRequest))] : []),
         '',
         ...buildVerbosityInstruction(verbosity),
         '',

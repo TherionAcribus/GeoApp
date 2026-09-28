@@ -20,9 +20,13 @@ import {
     GeoAppChatResponseObserver,
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
+    encodeGeoAppChatImage,
+    GEOAPP_CHAT_IMAGE_MAX_DIMENSION,
     GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
     GeoAppChatImageContext,
+    GeoAppChatImageQuality,
+    takePreparedGeoAppChatImage,
     normalizeGeoAppChatWorkflowBehaviorProfile,
     normalizeGeoAppChatWorkflowKind,
     resolveGeoAppChatProfileForWorkflow,
@@ -47,6 +51,7 @@ interface GeoAppOpenChatRequestDetail {
     earthcoachVerbosity?: string;
     earthcoachResponseLanguage?: string;
     earthcoachRequestId?: string;
+    imageQuality?: GeoAppChatImageQuality;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -106,7 +111,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
         try {
             const imageContexts = this.getImageContexts(detail);
-            const imagePreparation = await this.fetchImagesAsVariables(imageContexts);
+            const imagePreparation = await this.fetchImagesAsVariables(imageContexts, detail.imageQuality);
             const imageVariables = imagePreparation.variables;
             // Le dossier terrain corrige son instantane sur cette annonce: une
             // image declaree prete au moment du "envoyer" peut encore echouer
@@ -319,10 +324,10 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         }));
     }
 
-    /** Long cote cible pour les images envoyees au modele : optimum tokens/qualite pour la vision. */
-    protected static readonly MAX_IMAGE_DIMENSION = 1568;
-
-    protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<{
+    protected async fetchImagesAsVariables(
+        imageContexts: GeoAppChatImageContext[],
+        quality?: GeoAppChatImageQuality
+    ): Promise<{
         variables: AIVariableResolutionRequest[];
         transmitted: GeoAppChatImageContext[];
         failures: GeoAppChatImageContext[];
@@ -331,7 +336,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         // les telechargements. Promise.all preserve l'ordre d'origine.
         const prepared = await Promise.all(imageContexts.map(async context => ({
             context,
-            variable: await this.fetchImageAsVariable(context),
+            variable: await this.fetchImageAsVariable(context, quality),
         })));
         return {
             variables: prepared.map(item => item.variable).filter((variable): variable is AIVariableResolutionRequest => variable !== undefined),
@@ -340,20 +345,29 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         };
     }
 
-    protected async fetchImageAsVariable(imageContext: GeoAppChatImageContext): Promise<AIVariableResolutionRequest | undefined> {
+    protected async fetchImageAsVariable(
+        imageContext: GeoAppChatImageContext,
+        quality?: GeoAppChatImageQuality
+    ): Promise<AIVariableResolutionRequest | undefined> {
         let url = imageContext.url;
         try {
-            let response = await this.fetchImageForChat(url);
-            if (!response && imageContext.id) {
-                const storedUrl = await this.storeImageForChat(imageContext.id);
-                if (storedUrl) {
-                    url = storedUrl;
-                    response = await this.fetchImageForChat(storedUrl);
+            // Image deja telechargee et encodee par l'appelant (dossier terrain
+            // EarthCoach) : on evite un second telechargement et un second decodage.
+            let encoded = takePreparedGeoAppChatImage(url, quality);
+            if (!encoded) {
+                let response = await this.fetchImageForChat(url);
+                if (!response && imageContext.id) {
+                    const storedUrl = await this.storeImageForChat(imageContext.id);
+                    if (storedUrl) {
+                        url = storedUrl;
+                        response = await this.fetchImageForChat(storedUrl);
+                    }
                 }
+                if (!response) { return undefined; }
+                const blob = await response.blob();
+                encoded = await encodeGeoAppChatImage(blob, { maxDimension: GEOAPP_CHAT_IMAGE_MAX_DIMENSION, quality });
             }
-            if (!response) { return undefined; }
-            const blob = await response.blob();
-            const { data, mimeType } = await this.downscaleImage(blob, GeoAppChatBridge.MAX_IMAGE_DIMENSION);
+            const { data, mimeType } = encoded;
             const fallbackName = url.split('/').pop()?.split('?')[0] || 'image';
             const name = [
                 imageContext.origin,
@@ -363,48 +377,6 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         } catch {
             // CORS or network error — skip silently
             return undefined;
-        }
-    }
-
-    /**
-     * Decode puis reencode toujours l'image avant transmission. Cette operation retire
-     * les metadonnees EXIF, meme quand aucun redimensionnement n'est necessaire.
-     */
-    protected async downscaleImage(blob: Blob, maxDimension: number): Promise<{ data: string; mimeType: string }> {
-        const image = await this.loadImageSource(blob);
-        const largestSide = Math.max(image.width, image.height);
-        if (!largestSide) {
-            throw new Error('Invalid image dimensions');
-        }
-        const scale = Math.min(1, maxDimension / largestSide);
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext('2d');
-        if (!context) {
-            throw new Error('Canvas is unavailable');
-        }
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        const preserveTransparency = blob.type === 'image/png';
-        const mimeType = preserveTransparency ? 'image/png' : 'image/jpeg';
-        const dataUrl = canvas.toDataURL(mimeType, preserveTransparency ? undefined : 0.85);
-        return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType };
-    }
-
-    protected async loadImageSource(blob: Blob): Promise<CanvasImageSource & { width: number; height: number }> {
-        if (typeof createImageBitmap === 'function') {
-            return await createImageBitmap(blob);
-        }
-        const objectUrl = URL.createObjectURL(blob);
-        try {
-            return await new Promise<HTMLImageElement>((resolve, reject) => {
-                const image = new Image();
-                image.onload = () => resolve(image);
-                image.onerror = () => reject(new Error('Failed to load image'));
-                image.src = objectUrl;
-            });
-        } finally {
-            URL.revokeObjectURL(objectUrl);
         }
     }
 

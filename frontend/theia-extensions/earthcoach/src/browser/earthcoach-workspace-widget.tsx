@@ -7,14 +7,17 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import {
     buildGeoAppOpenChatRequestDetail,
-    decodeGeoAppChatImage,
     dispatchGeoAppOpenChatRequest,
+    encodeGeoAppChatImage,
     GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT,
+    GeoAppChatImageQuality,
     GeoAppChatImagesTransmittedDetail,
+    rememberPreparedGeoAppChatImage,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
 import { selectEarthCoachDescription } from './earthcoach-description-selector';
 import {
+    dispatchEarthCoachDataUpdated,
     EarthCoachRefreshScheduler,
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
@@ -33,6 +36,7 @@ import {
 import { buildEarthCoachFinalAnswerPrompt, buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
 import {
     EarthCoachAgentId,
+    EarthCoachObserveTaskCommandId,
     EarthCoachOpenCommandId,
     EarthCoachVerbosity,
     GeoImage,
@@ -47,7 +51,6 @@ import {
     EarthCoachSaveState,
     EarthCoachSendAction,
     EarthCoachWorkspace,
-    EarthCoachWorkspaceGroup,
     EarthCoachWorkspaceImageContext,
     EarthCoachWorkspaceOpenOptions,
 } from './earthcoach-workspace-types';
@@ -55,8 +58,19 @@ import {
     EarthCoachWorkspaceConflictError,
     EarthCoachWorkspaceService,
 } from './earthcoach-workspace-service';
-import { EarthCoachResultCaptureService, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
-import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from './earthcoach-workspace-logic';
+import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
+import {
+    applicableProposalIndexes,
+    buildEarthCoachCoverage,
+    computeEarthCoachCropRect,
+    containedImageBox,
+    EarthCoachCoverageRow,
+    EarthCoachCoverageState,
+    EarthCoachRect,
+    prepareEarthCoachImagesForTransmission,
+    validateEarthCoachSelection,
+} from './earthcoach-workspace-logic';
+import { EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
 
@@ -79,6 +93,9 @@ const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
     { value: 'nl', label: 'Nederlands' },
     { value: 'pt', label: 'Português' },
 ];
+
+/** Les petits details des photos (grain, strates, fossiles) doivent rester lisibles par le modele. */
+const EARTHCOACH_IMAGE_QUALITY: GeoAppChatImageQuality = 'high';
 
 function numericId(value?: string): number | undefined {
     if (!value) {
@@ -107,8 +124,8 @@ function cloneWorkspace(workspace: EarthCoachWorkspace): EarthCoachWorkspace {
     };
 }
 
-function imageId(image: GeoImage): number | undefined {
-    const parsed = Number(image.id);
+function imageId(image?: GeoImage): number | undefined {
+    const parsed = Number(image?.id);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
@@ -119,11 +136,19 @@ function isImageFile(file: File): boolean {
     return /\.(avif|bmp|gif|hei[cf]|jpe?g|png|svg|tiff?|webp)$/i.test(file.name);
 }
 
-const CONFIDENCE_LABELS: Record<string, string> = {
-    high: 'haute',
-    medium: 'moyenne',
-    low: 'basse',
+const COVERAGE_LABELS: Record<EarthCoachCoverageState, string> = {
+    answered: 'Répondue',
+    ready_to_resolve: 'Prête à résoudre',
+    needs_field: 'Observation à faire',
+    needs_photo: 'Photo à ajouter',
 };
+
+/** Mode recadrage de l'apercu : rectangle en cours de trace, en pixels de l'element img. */
+interface CropDraft {
+    imageId: number;
+    start?: { x: number; y: number };
+    rect?: EarthCoachRect;
+}
 
 function statusLabel(state: EarthCoachSaveState): string {
     switch (state) {
@@ -165,6 +190,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected resultSaveTimers = new Map<number, number>();
     /** Copie locale conservée quand un conflit 409 charge la version serveur. */
     protected conflictBackup?: EarthCoachWorkspace;
+    /** Résultats dépliés : seuls ceux-ci rendent leur contenu. */
+    protected expandedResults = new Set<number>();
+    protected crop?: CropDraft;
+    protected cropping = false;
+    protected readonly previewImageRef = React.createRef<HTMLImageElement>();
     /** Numéro de la dernière demande de rafraîchissement des données terrain. */
     protected contextRefreshToken = 0;
     /**
@@ -175,6 +205,27 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         () => this.isVisible,
         () => { void this.refreshContextData(); }
     );
+
+    /** Reference stable : garde `React.memo` des cartes de resultat efficace. */
+    protected readonly resultHandlers: EarthCoachResultCardHandlers = {
+        onToggle: (resultId, open) => {
+            const next = new Set(this.expandedResults);
+            if (open) {
+                next.add(resultId);
+            } else {
+                next.delete(resultId);
+            }
+            this.expandedResults = next;
+            this.update();
+        },
+        onUpdateProposal: (resultId, proposalIndex, patch) => this.updateProposal(resultId, proposalIndex, patch),
+        onMoveAnswerToMissing: (resultId, proposalIndex) => this.moveAnswerToMissing(resultId, proposalIndex),
+        onApply: (resultId, proposalIndex) => { void this.applyProposal(resultId, proposalIndex); },
+        onApplyAll: resultId => { void this.applyAllReadyProposals(resultId); },
+        onGenerateFinal: resultId => { void this.generateFinalAnswer(resultId); },
+        onSaveNote: result => { void this.saveResultAsNote(result); },
+        onCopyFinal: finalAnswer => { void this.copyFinalAnswer(finalAnswer); },
+    };
 
     @inject(EarthCoachWorkspaceService)
     protected readonly workspaceService!: EarthCoachWorkspaceService;
@@ -213,6 +264,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         this.toDispose.push(this.resultCapture.onDidCapture(result => {
             if (result.geocache_id === this.context?.geocacheData.id) {
                 this.results = [result, ...this.results.filter(item => item.id !== result.id)];
+                this.expandedResults = new Set([...this.expandedResults, result.id]);
                 this.update();
             }
         }));
@@ -293,7 +345,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         const changed = this.context?.geocacheData.id !== context.geocacheData.id;
         this.context = context;
         this.pendingAction = options.pendingAction;
-        this.confirmWithoutPhoto = false;
+        if (changed) {
+            // La confirmation « sans photo » vaut pour une cache, pas pour la suivante.
+            this.confirmWithoutPhoto = false;
+            this.crop = undefined;
+        }
         this.title.label = `Dossier terrain — ${context.geocacheData.gc_code || context.geocacheData.name}`;
         if (changed || !this.workspace) {
             void this.load();
@@ -315,6 +371,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 this.context.workspace || await this.workspaceService.getWorkspace(this.context.geocacheData.id)
             );
             this.results = await this.workspaceService.listResults(this.context.geocacheData.id);
+            this.expandedResults = new Set(this.results.length ? [this.results[0].id] : []);
             this.selectedImageId = this.workspace.image_contexts[0]?.image_id;
             this.rebuildDescription();
             this.saveState = 'idle';
@@ -483,20 +540,6 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         return this.context?.images.find(image => imageId(image) === imageIdValue);
     }
 
-    /** Libelle lisible d'une preuve citee dans une proposition (image ou observation). */
-    protected describeEvidence(id: string): string {
-        const image = this.context?.images.find(item => item.id === id || String(imageId(item)) === id);
-        if (image) {
-            return image.label || `image ${id}`;
-        }
-        const observation = this.context?.observations.find(item => item.id === id || item.id === `observation-${id}`);
-        if (observation) {
-            const excerpt = observation.note.replace(/\s+/g, ' ').trim();
-            return excerpt.length > 50 ? `${excerpt.slice(0, 50)}…` : excerpt;
-        }
-        return id;
-    }
-
     protected filteredImages(): GeoImage[] {
         if (!this.context) {
             return [];
@@ -545,17 +588,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 throw new Error('Le dossier doit être enregistré avant d ajouter des images.');
             }
             await this.workspaceService.uploadImages(this.context.geocacheData.id, images);
-            this.contextService.invalidate(this.context.geocacheData.id);
-            const refreshed = await this.contextService.collectContext({
-                geocacheData: this.context.geocacheData,
-                forceRefresh: true,
-            });
-            if (refreshed) {
-                this.context = refreshed;
-                this.workspace = cloneWorkspace(
-                    refreshed.workspace || await this.workspaceService.getWorkspace(refreshed.geocacheData.id)
-                );
-                const latestPersonal = [...refreshed.images].reverse().find(image => image.origin === 'user_observation');
+            const refreshedImages = await this.reloadAfterImageChange(this.context.geocacheData.id);
+            if (refreshedImages) {
+                const latestPersonal = [...refreshedImages].reverse().find(image => image.origin === 'user_observation');
                 this.selectedImageId = imageId(latestPersonal);
                 this.filter = 'personal';
             }
@@ -692,12 +727,17 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     }
 
     protected async prepareAvailableImages(images: GeoImage[]): Promise<{ available: GeoImage[]; failures: Array<{ id: string; label?: string; reason: string }> }> {
-        return prepareEarthCoachImagesForTransmission(
+        const checked = await prepareEarthCoachImagesForTransmission(
             images,
             url => fetch(url, { credentials: url.startsWith(window.location.origin) ? 'include' : 'omit' }),
             imageIdValue => this.workspaceService.storeImageForChat(imageIdValue),
-            decodeGeoAppChatImage
+            blob => encodeGeoAppChatImage(blob, { quality: EARTHCOACH_IMAGE_QUALITY })
         );
+        // Le bridge reprend ces encodages au lieu de retelecharger et redecoder.
+        for (const [url, encoded] of checked.prepared) {
+            rememberPreparedGeoAppChatImage(url, EARTHCOACH_IMAGE_QUALITY, encoded);
+        }
+        return checked;
     }
 
     protected removeIncompleteGroupsAfterFailures(available: GeoImage[], failures: Array<{ id: string; label?: string; reason: string }>): GeoImage[] {
@@ -840,8 +880,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 earthcoachRequestId: snapshot.requestId,
                 sessionKind: 'earthcoach',
                 imageContexts: promptImages.map(toImageContext),
+                imageQuality: EARTHCOACH_IMAGE_QUALITY,
             }));
-            this.confirmWithoutPhoto = false;
             this.pendingAction = undefined;
             if (checked.failures.length) {
                 this.messages.warn(`${checked.failures.length} image(s) indisponible(s) ont été explicitement retirées de l’envoi.`);
@@ -997,12 +1037,44 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         try {
             await this.workspaceService.applyResultProposal(saved.id, proposalIndex);
             this.messages.info('Réponse reportée dans la question existante.');
-            if (this.context) {
-                this.contextService.invalidate(this.context.geocacheData.id);
-            }
+            this.notifyLoggingTasksChanged();
         } catch (error) {
             this.messages.error(error instanceof Error ? error.message : String(error));
         }
+    }
+
+    protected async applyAllReadyProposals(resultId: number): Promise<void> {
+        const saved = await this.flushResultSave(resultId);
+        if (!saved) {
+            return;
+        }
+        const indexes = applicableProposalIndexes(saved.proposals);
+        if (!indexes.length) {
+            this.messages.info('Aucune réponse prête à reporter.');
+            return;
+        }
+        try {
+            const applied = await this.workspaceService.applyResultProposals(saved.id, indexes);
+            this.messages.info(`${applied} réponse(s) reportée(s) dans les questions.`);
+            this.notifyLoggingTasksChanged();
+        } catch (error) {
+            // Tout ou rien cote backend : aucune question n'a ete modifiee.
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    /**
+     * Le widget Questions et la matrice de couverture de ce dossier doivent voir
+     * les reponses reportees : l'evenement invalide le micro-cache et declenche
+     * leur rafraichissement.
+     */
+    protected notifyLoggingTasksChanged(): void {
+        const geocacheId = this.context?.geocacheData.id;
+        if (geocacheId === undefined) {
+            return;
+        }
+        this.contextService.invalidate(geocacheId);
+        dispatchEarthCoachDataUpdated(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, geocacheId, EarthCoachWorkspaceWidget.ID);
     }
 
     protected async copyFinalAnswer(finalAnswer: string): Promise<void> {
@@ -1102,14 +1174,249 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
 
     protected renderPreview(): React.ReactNode {
         const image = this.imageFor(this.selectedImageId);
+        const id = imageId(image);
+        const crop = this.crop && this.crop.imageId === id ? this.crop : undefined;
         return <section className='ecw-panel ecw-preview'>
-            <h3>Aperçu</h3>
+            <div className='ecw-row'><h3>Aperçu</h3><span className='ecw-grow' />
+                {image && id && !crop && <button className='theia-button secondary' disabled={this.cropping}
+                    title='Tracer une zone : elle sera extraite en pleine résolution et envoyée avec la vue générale'
+                    onClick={() => this.startCrop(id)}>{this.cropping ? 'Recadrage…' : 'Recadrer un détail'}</button>}
+            </div>
             {image ? <>
-                <img src={image.fileUri} alt={image.label || 'Aperçu'} />
+                <div className='ecw-preview-stage'>
+                    <img ref={this.previewImageRef} src={image.fileUri} alt={image.label || 'Aperçu'} draggable={false} />
+                    {crop && <div className='ecw-crop-layer'
+                        onPointerDown={this.onCropPointerDown}
+                        onPointerMove={this.onCropPointerMove}
+                        onPointerUp={this.onCropPointerUp}>
+                        {crop.rect && <div className='ecw-crop-rect' style={{
+                            left: Math.min(crop.rect.x, crop.rect.x + crop.rect.width),
+                            top: Math.min(crop.rect.y, crop.rect.y + crop.rect.height),
+                            width: Math.abs(crop.rect.width),
+                            height: Math.abs(crop.rect.height),
+                        }} />}
+                    </div>}
+                </div>
+                {crop && <div className='ecw-row'>
+                    <span className='ecw-muted ecw-grow'>Tracez la zone à agrandir sur l’image.</span>
+                    <button className='theia-button secondary' onClick={() => { this.crop = undefined; this.update(); }}>Annuler</button>
+                    <button className='theia-button' disabled={!crop.rect} onClick={() => void this.createCrop()}>Créer le recadrage</button>
+                </div>}
                 <strong>{image.label || `Image ${image.id}`}</strong>
-                <span className='ecw-muted'>{image.origin === 'user_observation' ? 'Photo personnelle' : 'Image du listing'}</span>
+                <span className='ecw-muted'>{image.origin === 'user_observation' ? 'Photo personnelle' : 'Image du listing'}{image.parentImageId ? ' · image dérivée' : ''}</span>
             </> : <p className='ecw-muted'>Sélectionnez une image.</p>}
         </section>;
+    }
+
+    protected startCrop(imageIdValue: number): void {
+        this.crop = { imageId: imageIdValue };
+        this.update();
+    }
+
+    protected pointerPosition(event: React.PointerEvent<HTMLElement>): { x: number; y: number } {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        return {
+            x: Math.max(0, Math.min(bounds.width, event.clientX - bounds.left)),
+            y: Math.max(0, Math.min(bounds.height, event.clientY - bounds.top)),
+        };
+    }
+
+    protected readonly onCropPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
+        if (!this.crop) {
+            return;
+        }
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const start = this.pointerPosition(event);
+        this.crop = { ...this.crop, start, rect: undefined };
+        this.update();
+    };
+
+    protected readonly onCropPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
+        const start = this.crop?.start;
+        if (!this.crop || !start) {
+            return;
+        }
+        const current = this.pointerPosition(event);
+        this.crop = { ...this.crop, rect: { x: start.x, y: start.y, width: current.x - start.x, height: current.y - start.y } };
+        this.update();
+    };
+
+    protected readonly onCropPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
+        if (!this.crop) {
+            return;
+        }
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        const rect = this.crop.rect;
+        // Un simple clic ne laisse pas de rectangle fantome.
+        const tooSmall = !rect || Math.abs(rect.width) < 4 || Math.abs(rect.height) < 4;
+        this.crop = { imageId: this.crop.imageId, rect: tooSmall ? undefined : rect };
+        this.update();
+    };
+
+    /** Image source en pleine resolution, avec repli sur la copie locale du backend (CORS). */
+    protected async fetchFullResolution(image: GeoImage): Promise<Blob> {
+        const load = async (url: string): Promise<Blob> => {
+            const response = await fetch(url, { credentials: url.startsWith(window.location.origin) ? 'include' : 'omit' });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const blob = await response.blob();
+            if (!blob.type.startsWith('image/')) {
+                throw new Error('contenu non image');
+            }
+            return blob;
+        };
+        try {
+            return await load(image.fileUri);
+        } catch (error) {
+            const id = imageId(image);
+            if (!id) {
+                throw error;
+            }
+            return load(await this.workspaceService.storeImageForChat(id));
+        }
+    }
+
+    protected async renderCrop(bitmap: ImageBitmap, rect: EarthCoachRect, png: boolean): Promise<Blob> {
+        const canvas = document.createElement('canvas');
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        const context = canvas.getContext('2d');
+        if (!context) {
+            throw new Error('Canvas indisponible');
+        }
+        context.drawImage(bitmap, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+        const encode = (type: string, quality?: number) => new Promise<Blob>((resolve, reject) =>
+            canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('Encodage du recadrage impossible'))), type, quality)
+        );
+        // Limite de la route des sous-images : 10 Mo.
+        const maxBytes = 9.5 * 1024 * 1024;
+        if (png) {
+            const blob = await encode('image/png');
+            if (blob.size <= maxBytes) {
+                return blob;
+            }
+        }
+        for (const quality of [0.95, 0.9]) {
+            const blob = await encode('image/jpeg', quality);
+            if (blob.size <= maxBytes) {
+                return blob;
+            }
+        }
+        throw new Error('Recadrage trop volumineux : tracez une zone plus petite.');
+    }
+
+    /**
+     * Extrait la zone tracee de l'image source en pleine resolution, l'enregistre
+     * comme image derivee et la groupe avec la source (vue generale + detail) :
+     * le modele voit le detail a 1:1 au lieu d'une photo entiere reduite.
+     */
+    protected async createCrop(): Promise<void> {
+        const crop = this.crop;
+        const img = this.previewImageRef.current;
+        const image = this.imageFor(crop?.imageId);
+        const context = this.context;
+        if (!crop?.rect || !img || !image || !context || this.cropping) {
+            return;
+        }
+        const box = containedImageBox(
+            { width: img.clientWidth, height: img.clientHeight },
+            { width: img.naturalWidth, height: img.naturalHeight }
+        );
+        if (!box) {
+            return;
+        }
+        const selection = { ...crop.rect, x: crop.rect.x - box.x, y: crop.rect.y - box.y };
+        const sourceId = crop.imageId;
+        const label = image.label || `image ${sourceId}`;
+        this.cropping = true;
+        this.update();
+        try {
+            if (!(await this.flushSave())) {
+                throw new Error('Le dossier doit être enregistré avant de créer un recadrage.');
+            }
+            const blob = await this.fetchFullResolution(image);
+            const bitmap = await createImageBitmap(blob);
+            let createdId: number | undefined;
+            let pixels = '';
+            try {
+                const rect = computeEarthCoachCropRect(
+                    selection,
+                    { width: box.width, height: box.height },
+                    { width: bitmap.width, height: bitmap.height }
+                );
+                if (!rect) {
+                    this.messages.warn('Zone trop petite : tracez un rectangle plus grand.');
+                    return;
+                }
+                const rendered = await this.renderCrop(bitmap, rect, blob.type === 'image/png');
+                const created = await this.workspaceService.createCropImage(sourceId, rendered, rect, `Détail — ${label}`);
+                createdId = created.id;
+                pixels = `${rect.width}×${rect.height} px`;
+            } finally {
+                bitmap.close();
+            }
+            if (!createdId) {
+                throw new Error('Recadrage enregistré sans identifiant.');
+            }
+            await this.reloadAfterImageChange(context.geocacheData.id);
+            const detailId = createdId;
+            this.mutate(workspace => {
+                for (const item of workspace.image_contexts) {
+                    if (item.image_id === sourceId || item.image_id === detailId) {
+                        item.included = true;
+                    }
+                }
+                const existing = workspace.groups.find(group =>
+                    group.members.some(member => member.image_id === sourceId && member.role === 'overview')
+                );
+                if (existing) {
+                    if (!existing.members.some(member => member.image_id === detailId)) {
+                        existing.members.push({ image_id: detailId, role: 'detail', position: existing.members.length });
+                    }
+                } else {
+                    workspace.groups.push({
+                        title: `Vue générale + détail — ${label}`,
+                        instruction: 'Les images « Détail » sont des recadrages pleine résolution de la vue générale : appuie-toi sur elles pour les petits détails.',
+                        position: workspace.groups.length,
+                        members: [
+                            { image_id: sourceId, role: 'overview', position: 0 },
+                            { image_id: detailId, role: 'detail', position: 1 },
+                        ],
+                    });
+                }
+            });
+            this.selectedImageId = detailId;
+            dispatchEarthCoachDataUpdated(GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT, context.geocacheData.id, EarthCoachWorkspaceWidget.ID);
+            this.messages.info(`Recadrage ${pixels} ajouté et groupé avec la vue générale.`);
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        } finally {
+            this.crop = undefined;
+            this.cropping = false;
+            this.update();
+        }
+    }
+
+    /** Recharge contexte et dossier serveur apres un ajout d'image (dossier deja enregistre). */
+    protected async reloadAfterImageChange(geocacheId: number): Promise<GeoImage[] | undefined> {
+        if (!this.context) {
+            return undefined;
+        }
+        this.contextService.invalidate(geocacheId);
+        const refreshed = await this.contextService.collectContext({
+            geocacheData: this.context.geocacheData,
+            forceRefresh: true,
+        });
+        if (!refreshed) {
+            return undefined;
+        }
+        this.context = refreshed;
+        this.workspace = cloneWorkspace(
+            refreshed.workspace || await this.workspaceService.getWorkspace(refreshed.geocacheData.id)
+        );
+        return refreshed.images;
     }
 
     protected renderInspector(): React.ReactNode {
@@ -1195,13 +1502,52 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         </section>;
     }
 
-    protected renderSummary(): React.ReactNode {
+    protected coverageRows(): EarthCoachCoverageRow[] {
+        if (!this.context || !this.workspace) {
+            return [];
+        }
+        return buildEarthCoachCoverage(
+            this.context.loggingTasks,
+            this.context.observations,
+            this.context.images,
+            this.workspace.image_contexts
+        );
+    }
+
+    protected setGroupIncluded(groupIndex: number, included: boolean): void {
+        this.mutate(workspace => {
+            const group = workspace.groups[groupIndex];
+            if (!group) {
+                return;
+            }
+            const memberIds = new Set(group.members.map(member => member.image_id));
+            for (const item of workspace.image_contexts) {
+                if (memberIds.has(item.image_id)) {
+                    item.included = included;
+                }
+            }
+        });
+    }
+
+    protected renderSummary(coverage: EarthCoachCoverageRow[]): React.ReactNode {
         const unavailableIds = new Set(this.unavailable.map(item => item.id));
-        const selected = this.selectedImages().filter(image => !unavailableIds.has(image.id));
+        const allSelected = this.selectedImages();
+        const selected = allSelected.filter(image => !unavailableIds.has(image.id));
         const personal = selected.filter(image => image.origin === 'user_observation').length;
         const listing = selected.length - personal;
         const waypointCount = new Set((this.workspace?.image_contexts || []).filter(item => item.included && item.waypoint_id).map(item => item.waypoint_id)).size;
         const action = this.pendingAction;
+        const limit = this.imageLimit();
+        // Validation calculee en continu : le probleme et sa correction sont
+        // visibles avant le clic, plus seulement dans une notification.
+        const validation = validateEarthCoachSelection(allSelected, this.workspace?.groups || [], limit, this.confirmWithoutPhoto);
+        const incompleteGroupIndex = validation.incompleteGroupIndex;
+        const withoutObservation = coverage.filter(row => row.state === 'needs_field').length;
+        const withoutPhoto = coverage.filter(row => row.state === 'needs_photo').length;
+        const coverageWarning = [
+            withoutObservation > 0 ? `${withoutObservation} question(s) sans observation` : undefined,
+            withoutPhoto > 0 ? `${withoutPhoto} question(s) dont la photo exigée manque` : undefined,
+        ].filter(Boolean).join(' · ');
         return <section className='ecw-panel ecw-summary'>
             <h3>Vérification avant envoi</h3>
             {(this.context?.loadErrors || []).length ? <div className='ecw-warning'>Chargement incomplet : {(this.context?.loadErrors || []).join(', ')}. L’envoi est déconseillé tant que ces données ne sont pas disponibles.</div> : undefined}
@@ -1214,18 +1560,63 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 <span>Images listing : <strong>{listing}</strong></span>
                 <span>Groupes : <strong>{this.workspace?.groups.length || 0}</strong></span>
                 <span>Waypoints représentés : <strong>{waypointCount}</strong></span>
-                <span>Limite : <strong>{selected.length}/{this.imageLimit()}</strong></span>
+                <span className={validation.overLimit ? 'ecw-over-limit' : undefined}>Limite : <strong>{allSelected.length}/{limit}</strong></span>
             </div>
+            {coverageWarning && <div className='ecw-warning'>{coverageWarning} : elles ressortiront « Partielle » ou « Manquante ».</div>}
+            {validation.overLimit && <div className='ecw-error'>{validation.error} Décochez des images dans la galerie (filtre « Sélectionnées »).</div>}
+            {incompleteGroupIndex !== undefined && <div className='ecw-error ecw-row'>
+                <span className='ecw-grow'>{validation.error}</span>
+                <button className='theia-button' onClick={() => this.setGroupIncluded(incompleteGroupIndex, true)}>Inclure tout le groupe</button>
+                <button className='theia-button secondary' onClick={() => this.setGroupIncluded(incompleteGroupIndex, false)}>Retirer le groupe</button>
+            </div>}
             {personal === 0 && <label className='ecw-confirm'><input type='checkbox' checked={this.confirmWithoutPhoto} onChange={event => {
                 this.confirmWithoutPhoto = event.currentTarget.checked;
                 this.update();
-            }} /> Continuer sans photo personnelle pour cet envoi</label>}
+            }} /> Continuer sans photo personnelle pour cette cache</label>}
             {this.unavailable.length > 0 && <div className='ecw-error'>Images retirées : {this.unavailable.map(item => `${item.label || item.id} (${item.reason})`).join(', ')}</div>}
             {action && <div className='ecw-review'>Action demandée : <strong>{action === 'resolve' ? 'Résoudre avec mon dossier' : 'Analyser mes observations'}</strong></div>}
             <div className='ecw-actions'>
-                <button className='theia-button secondary' disabled={this.sending} onClick={() => void this.send('analyze_observations')}>Analyser mes observations</button>
-                <button className='theia-button' disabled={this.sending} onClick={() => void this.send('resolve')}>{this.sending ? 'Préparation…' : 'Résoudre avec mon dossier'}</button>
+                <button className='theia-button secondary' disabled={this.sending || !validation.valid} onClick={() => void this.send('analyze_observations')}>Analyser mes observations</button>
+                <button className='theia-button' disabled={this.sending || !validation.valid} onClick={() => void this.send('resolve')}>{this.sending ? 'Préparation…' : 'Résoudre avec mon dossier'}</button>
             </div>
+        </section>;
+    }
+
+    protected observeTask(row: EarthCoachCoverageRow): void {
+        const geocacheData = this.context?.geocacheData;
+        if (!geocacheData) {
+            return;
+        }
+        void this.commands.executeCommand(EarthCoachObserveTaskCommandId, {
+            geocacheData,
+            task: { id: row.taskId, position: row.position, question: row.question, guidance: row.guidance },
+        });
+    }
+
+    protected renderCoverage(coverage: EarthCoachCoverageRow[]): React.ReactNode {
+        const context = this.context;
+        if (!context) {
+            return undefined;
+        }
+        const covered = coverage.filter(row => row.state === 'ready_to_resolve' || row.state === 'answered').length;
+        return <section className='ecw-panel'>
+            <div className='ecw-row'><h3>Couverture des questions</h3><span className='ecw-grow' />
+                <strong>{context.observations.length} observation(s) · {covered}/{coverage.length} question(s) couverte(s)</strong></div>
+            {coverage.length ? <div className='ecw-coverage-scroll'><table className='ecw-coverage'>
+                <thead><tr><th>Q</th><th>Question</th><th>État</th><th>Observation liée</th><th>Photo</th><th /></tr></thead>
+                <tbody>{coverage.map(row => <tr key={row.taskId}>
+                    <td>Q{row.position}</td>
+                    <td title={row.guidance ? `À observer : ${row.guidance}` : undefined}>{row.question}</td>
+                    <td><span className={`ecw-badge ecw-badge-${row.state}`}>{COVERAGE_LABELS[row.state]}</span></td>
+                    <td>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
+                    <td>{row.requiresPhoto ? (row.hasPersonalPhoto ? 'Exigée · présente' : 'Exigée · absente') : <span className='ecw-muted'>—</span>}</td>
+                    <td>{(row.state === 'needs_field' || row.state === 'needs_photo') &&
+                        <button className='theia-button secondary' onClick={() => this.observeTask(row)}>Observer</button>}</td>
+                </tr>)}</tbody>
+            </table></div> : <div className='ecw-row'>
+                <p className='ecw-muted ecw-grow'>Aucune question enregistrée : la résolution devra les déduire du listing. Extrayez-les pour suivre leur couverture.</p>
+                <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: context.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
+            </div>}
         </section>;
     }
 
@@ -1233,45 +1624,22 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         if (!this.results.length) {
             return <section className='ecw-panel'><h3>Propositions EarthCoach</h3><p className='ecw-muted'>Les résultats capturés apparaîtront ici et resteront révisables.</p></section>;
         }
-        return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map((result, resultIndex) =>
-            <details key={result.id} open={resultIndex === 0}><summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}
-                {result.proposals_edited ? ' · corrigé' : ''}{this.dirtyResults.has(result.id) ? ' · modifications en cours…' : ''}</summary>
-                {result.markdown && <pre>{stripEarthCoachResultBlocks(result.markdown)}</pre>}
-                {result.proposals.map((proposal, proposalIndex) => <div key={`${result.id}-${proposalIndex}`} className='ecw-proposal'>
-                    <div className='ecw-question'><strong>{proposal.question}</strong>
-                        {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
-                            <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
-                    </div>
-                    {(proposal.confidence || Boolean(proposal.evidence_ids?.length)) && <div className='ecw-muted ecw-evidence'>
-                        {proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : ''}
-                        {proposal.evidence_ids?.length ? `${proposal.confidence ? ' · ' : ''}Fondée sur : ${proposal.evidence_ids.map(id => this.describeEvidence(id)).join(', ')}` : ''}
-                    </div>}
-                    <label>État<select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(result.id, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
-                        <option value='ready'>Prête</option><option value='partial'>Partielle</option><option value='missing'>Manquante</option>
-                    </select></label>
-                    <label>Réponse candidate — uniquement ce qui répond à la question<textarea className='theia-input' rows={4} value={proposal.answer || ''} onChange={event => this.updateProposal(result.id, proposalIndex, { answer: event.currentTarget.value })} /></label>
-                    <label>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''} placeholder='Ex. mesurer l’épaisseur sur place' onChange={event => this.updateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
-                    <div className='ecw-row'><button className='theia-button secondary' disabled={!this.dirtyResults.has(result.id)} onClick={() => void this.saveResult(result.id)}>Enregistrer</button>
-                        <button className='theia-button secondary' disabled={!proposal.answer?.trim()} onClick={() => this.moveAnswerToMissing(result.id, proposalIndex)}>Déplacer la réponse vers « À compléter »</button>
-                        <button className='theia-button' disabled={proposal.status !== 'ready' || !proposal.answer || Boolean(proposal.missing)} onClick={() => void this.applyProposal(result.id, proposalIndex)}>Reporter dans la question</button></div>
-                </div>)}
-                <div className='ecw-final-answer'>
-                    <label>Langue de la réponse finale<select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
-                        {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
-                    </select></label>
-                    {result.action === 'resolve' && <button className='theia-button' disabled={this.generatingFinalResultId !== undefined} onClick={() => void this.generateFinalAnswer(result.id)}>
-                        {this.generatingFinalResultId === result.id ? 'Préparation…' : (result.final_answer ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
-                    </button>}
-                    <button className='theia-button secondary' onClick={() => void this.saveResultAsNote(result)}>Enregistrer la synthèse dans les notes</button>
-                </div>
-                {result.final_answer && <div className='ecw-proposal'>
-                    <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
-                    <pre>{result.final_answer}</pre>
-                    <div className='ecw-row'>
-                        <button className='theia-button' onClick={() => void this.copyFinalAnswer(result.final_answer as string)}>Copier la réponse</button>
-                    </div>
-                </div>}
-            </details>
+        const images = this.context?.images || [];
+        const observations = this.context?.observations || [];
+        const loggingTasks = this.context?.loggingTasks || [];
+        return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map(result =>
+            <EarthCoachResultCard
+                key={result.id}
+                result={result}
+                expanded={this.expandedResults.has(result.id)}
+                dirty={this.dirtyResults.has(result.id)}
+                finalBusy={this.generatingFinalResultId !== undefined}
+                generatingFinal={this.generatingFinalResultId === result.id}
+                images={images}
+                observations={observations}
+                loggingTasks={loggingTasks}
+                handlers={this.resultHandlers}
+            />
         )}</section>;
     }
 
@@ -1282,6 +1650,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         if (!this.context || !this.workspace) {
             return <div className='ecw-loading ecw-error'>{this.saveError || 'Aucun dossier terrain disponible.'}</div>;
         }
+        const coverage = this.coverageRows();
         return <div className='ecw-root'
             onDragEnter={event => this.onFileDragEnter(event)}
             onDragOver={event => this.onFileDragOver(event)}
@@ -1305,6 +1674,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 .ecw-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.ecw-muted{color:var(--theia-descriptionForeground);font-size:12px}.ecw-warning,.ecw-error,.ecw-review{padding:9px;border-radius:5px}.ecw-warning{background:var(--theia-inputValidation-warningBackground);border:1px solid var(--theia-inputValidation-warningBorder)}.ecw-error{background:var(--theia-inputValidation-errorBackground);border:1px solid var(--theia-inputValidation-errorBorder)}.ecw-review{background:var(--theia-list-activeSelectionBackground)}
                 .ecw-confirm{font-weight:600;display:flex;align-items:center;gap:8px}.ecw-actions{position:sticky;bottom:0;padding:8px;background:var(--theia-sideBar-background);justify-content:flex-end;border-top:1px solid var(--theia-panel-border)}
                 .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:9px;padding:12px;margin:10px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-proposal label,.ecw-final-answer label{display:grid;gap:5px}.ecw-question{display:grid;gap:5px}.ecw-translation{padding:7px 9px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}.ecw-translation span{font-weight:600}.ecw-final-answer{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--theia-panel-border)}.ecw-loading{padding:24px}
+                .ecw-preview-stage{position:relative}.ecw-crop-layer{position:absolute;inset:0;cursor:crosshair;touch-action:none}.ecw-crop-rect{position:absolute;border:2px solid var(--theia-focusBorder);background:color-mix(in srgb,var(--theia-focusBorder) 18%,transparent);pointer-events:none}
+                .ecw-coverage-scroll{overflow-x:auto}.ecw-coverage{width:100%;border-collapse:collapse;font-size:12px}.ecw-coverage th,.ecw-coverage td{padding:5px 6px;border-bottom:1px solid var(--theia-panel-border);text-align:left;vertical-align:top}.ecw-coverage td:first-child{white-space:nowrap;font-weight:600}
+                .ecw-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;white-space:nowrap;border:1px solid var(--theia-panel-border)}.ecw-badge-ready_to_resolve,.ecw-badge-answered,.ecw-badge-ready{background:var(--theia-inputValidation-infoBackground);border-color:var(--theia-inputValidation-infoBorder)}.ecw-badge-needs_field,.ecw-badge-needs_photo,.ecw-badge-partial,.ecw-badge-missing{background:var(--theia-inputValidation-warningBackground);border-color:var(--theia-inputValidation-warningBorder)}
+                .ecw-over-limit{color:var(--theia-errorForeground)}.ecw-markdown{line-height:1.45;min-width:0;overflow-wrap:anywhere}.ecw-markdown p{margin:.4em 0}.ecw-markdown pre{white-space:pre-wrap}.ecw-todo{padding:9px;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-todo ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px}
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
             `}</style>
             <header className='ecw-head'><h2>Dossier terrain</h2><span className='ecw-muted'>{this.context.geocacheData.name}</span><span className='ecw-grow' />
@@ -1329,11 +1702,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             <div className='ecw-main'>{this.renderGallery()}{this.renderPreview()}{this.renderInspector()}</div>
             {this.renderGroups()}
             <section className='ecw-panel'><h3>Commentaire général</h3><textarea className='theia-input' rows={4} value={this.workspace.general_comment || ''} onChange={event => this.mutate(workspace => { workspace.general_comment = event.currentTarget.value; })} placeholder='Contexte global utile au modèle, conditions terrain, objectif de comparaison…' /></section>
-            <section className='ecw-panel'><div className='ecw-row'><h3>Observations et couverture</h3><span className='ecw-grow' /><strong>{this.context.observations.length} observation(s) · {this.context.loggingTasks.filter(task => task.observationId).length}/{this.context.loggingTasks.length} question(s) liée(s)</strong></div>
-                {this.context.observations.slice(0, 8).map(observation => <div key={observation.id}>{observation.note}</div>)}
-                {!this.context.observations.length && <p className='ecw-muted'>Aucune observation structurée. Ce n’est pas une erreur si vous n’en avez pas encore saisi.</p>}
-            </section>
-            {this.renderSummary()}
+            {this.renderCoverage(coverage)}
+            {this.renderSummary(coverage)}
             {this.renderResults()}
         </div>;
     }

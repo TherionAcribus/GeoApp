@@ -22,6 +22,11 @@ import {
     resolveGeoAppChatWorkflowKindFromClassification,
     resolveGeoAppChatWorkflowKindFromOrchestrator,
     sanitizeGeoAppSessionSettings,
+    clearPreparedGeoAppChatImages,
+    GEOAPP_CHAT_IMAGE_MAX_DIMENSION,
+    geoAppChatJpegQuality,
+    rememberPreparedGeoAppChatImage,
+    takePreparedGeoAppChatImage,
 } from '../geoapp-chat-shared';
 
 function testResolveGeoAppChatProfileForWorkflow(): void {
@@ -232,6 +237,7 @@ function testOpenChatDetailBuilder(): void {
         earthcoachVerbosity: undefined,
         earthcoachResponseLanguage: undefined,
         earthcoachRequestId: undefined,
+        imageQuality: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
@@ -246,6 +252,37 @@ function testOpenChatDetailBuilder(): void {
     });
     assert.equal(localized.earthcoachMode, 'resolver');
     assert.equal(localized.earthcoachResponseLanguage, 'en');
+
+    const highQuality = buildGeoAppOpenChatRequestDetail({ prompt: 'Photos', imageQuality: 'high' });
+    assert.equal(highQuality.imageQuality, 'high');
+}
+
+function testChatImageQuality(): void {
+    assert.equal(geoAppChatJpegQuality('high'), 0.95);
+    assert.equal(geoAppChatJpegQuality('standard'), 0.85);
+    assert.equal(geoAppChatJpegQuality(undefined), 0.85);
+    assert.equal(GEOAPP_CHAT_IMAGE_MAX_DIMENSION, 1568);
+}
+
+function testPreparedChatImageCache(): void {
+    clearPreparedGeoAppChatImages();
+    const image = { data: 'abc', mimeType: 'image/jpeg' };
+    rememberPreparedGeoAppChatImage('http://x/1.jpg', 'high', image, 1000);
+    // La qualite fait partie de la cle : une preparation standard ne sert pas une demande haute qualite.
+    assert.equal(takePreparedGeoAppChatImage('http://x/1.jpg', 'standard', 1000), undefined);
+    assert.deepEqual(takePreparedGeoAppChatImage('http://x/1.jpg', 'high', 1000), image);
+    // Lecture consommante.
+    assert.equal(takePreparedGeoAppChatImage('http://x/1.jpg', 'high', 1000), undefined);
+    // Expiration.
+    rememberPreparedGeoAppChatImage('http://x/2.jpg', undefined, image, 0);
+    assert.equal(takePreparedGeoAppChatImage('http://x/2.jpg', 'standard', 5 * 60 * 1000 + 1), undefined);
+    // Plafond : les plus anciennes entrees sortent.
+    for (let index = 0; index < 45; index++) {
+        rememberPreparedGeoAppChatImage(`http://x/n${index}.jpg`, 'high', image, 0);
+    }
+    assert.equal(takePreparedGeoAppChatImage('http://x/n0.jpg', 'high', 1), undefined);
+    assert.deepEqual(takePreparedGeoAppChatImage('http://x/n44.jpg', 'high', 1), image);
+    clearPreparedGeoAppChatImages();
 }
 
 function testDispatchGeoAppOpenChatRequest(): void {
@@ -297,6 +334,7 @@ function testDispatchGeoAppOpenChatRequest(): void {
         earthcoachVerbosity: undefined,
         earthcoachResponseLanguage: undefined,
         earthcoachRequestId: undefined,
+        imageQuality: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
@@ -311,6 +349,8 @@ function run(): void {
     testWorkflowPreferenceCoverage();
     testWorkflowKindRoutingHelpers();
     testOpenChatDetailBuilder();
+    testChatImageQuality();
+    testPreparedChatImageCache();
     testDispatchGeoAppOpenChatRequest();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-shared tests passed');

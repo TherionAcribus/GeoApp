@@ -111,13 +111,22 @@ export interface EarthCoachResultProposal {
     missing?: string | null;
 }
 
+export interface EarthCoachSnapshotTask {
+    id: number;
+    position?: number | null;
+    question?: string | null;
+}
+
 export interface EarthCoachResult {
     id: number;
     geocache_id: number;
     request_id: string;
     action: 'analyze' | 'resolve';
     session_id?: string | null;
-    context_snapshot: EarthCoachPreparedRequest | Record<string, unknown>;
+    /** Absent de la liste (`GET .../earthcoach-results`), trop lourd : voir `snapshot_tasks`. */
+    context_snapshot?: EarthCoachPreparedRequest | Record<string, unknown>;
+    /** Questions de l'instantane, version legere : numerotation des propositions. */
+    snapshot_tasks?: EarthCoachSnapshotTask[];
     /** Version effective : corrections utilisateur si elles existent, sinon version IA. */
     proposals: EarthCoachResultProposal[];
     /** Version brute produite par le modele, pour comparaison ou reinitialisation. */

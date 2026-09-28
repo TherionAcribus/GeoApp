@@ -124,10 +124,39 @@ export class EarthCoachWorkspaceService {
     }
 
     async applyResultProposal(resultId: number, proposalIndex: number): Promise<void> {
-        await this.apiClient.requestJson(
+        await this.applyResultProposals(resultId, [proposalIndex]);
+    }
+
+    /** Report groupe : le backend applique tout ou rien (rollback au premier refus). */
+    async applyResultProposals(resultId: number, proposalIndexes: number[]): Promise<number> {
+        const response = await this.apiClient.requestJson<{ applied?: unknown[] }>(
             `/api/earthcoach-results/${resultId}/apply`,
-            this.apiClient.createJsonInit('POST', { proposal_indexes: [proposalIndex] }),
-            'Erreur lors du report de la réponse EarthCoach'
+            this.apiClient.createJsonInit('POST', { proposal_indexes: proposalIndexes }),
+            'Erreur lors du report des réponses EarthCoach'
+        );
+        return response.applied?.length ?? 0;
+    }
+
+    /**
+     * Enregistre un recadrage pleine resolution comme image derivee de la source
+     * (route des sous-images de l'editeur GeoApp).
+     */
+    async createCropImage(
+        sourceImageId: number,
+        rendered: Blob,
+        rect: { x: number; y: number; width: number; height: number },
+        title: string
+    ): Promise<EarthCoachObservationImageDto> {
+        const extension = rendered.type === 'image/png' ? 'png' : 'jpg';
+        const formData = new FormData();
+        formData.append('rendered_file', rendered, `detail.${extension}`);
+        formData.append('mime_type', rendered.type);
+        formData.append('title', title);
+        formData.append('crop_rect_json', JSON.stringify({ left: rect.x, top: rect.y, width: rect.width, height: rect.height }));
+        return this.apiClient.requestJson<EarthCoachObservationImageDto>(
+            `/api/geocache-images/${sourceImageId}/snippets/new`,
+            { method: 'POST', body: formData },
+            'Impossible de créer le recadrage'
         );
     }
 }

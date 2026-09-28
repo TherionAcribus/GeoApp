@@ -237,6 +237,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 earthcoachResponseLanguage: this.readResponseLanguage(),
                 sessionKind: 'earthcoach',
                 imageContexts: selectedImages.map(toImageContext),
+                imageQuality: 'high',
             })
         );
     }

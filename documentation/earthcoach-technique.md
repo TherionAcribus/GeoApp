@@ -58,6 +58,11 @@ Fichiers principaux :
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
 | `earthcoach-preferences.ts` | Constantes des preferences EarthCoach. |
+| `earthcoach-workspace-widget.tsx` | Dossier terrain : images, groupes, couverture des questions, verification avant envoi, recadrage, resultats. |
+| `earthcoach-workspace-results.tsx` | Carte de resultat memoisee (resolution ou analyse), rendu Markdown, propositions. |
+| `earthcoach-workspace-logic.ts` | Helpers purs du dossier : preparation des images, validation, couverture, numerotation, report, recadrage. |
+| `earthcoach-workspace-service.ts` | Client des routes dossier, resultats, report et sous-images. |
+| `earthcoach-result-capture.ts` / `-tools.ts` / `-observer.ts` | Instantane par `requestId`, tool `earthcoach_capture_result`, rattachement du Markdown et de la reponse finale. |
 
 L'extension est declaree comme package Theia :
 
@@ -396,6 +401,60 @@ Cote widget Observations :
 - l'evenement `earthcoach-logging-tasks-updated` est emis pour rafraichir le widget Questions.
 
 La liaison inverse (choisir une observation existante pour une question) reste disponible via le menu deroulant du formulaire de question. La boucle se ferme donc dans les deux sens : terrain -> observation -> question -> resolution.
+
+## Dossier terrain et resolution
+
+Le Dossier terrain (`EarthCoachWorkspaceWidget`, un onglet par cache) prepare ce qui part au modele pour **Analyser mes observations** et **Resoudre avec mon dossier**. Spec d'origine des evolutions de septembre 2026 : `documentation/earthcoach-resolution-spec.md`.
+
+### Donnees et routes
+
+| Route | Role |
+|---|---|
+| `GET/PUT /api/geocaches/<id>/earthcoach-workspace` | Dossier versionne (conflit 409 avec la version serveur) : contextes d'images (`included`, commentaire, waypoint, observation), groupes et roles, commentaire general, langue du listing. |
+| `GET /api/geocaches/<id>/earthcoach-results` | Resultats du dossier, **sans** `context_snapshot` (lourd) mais avec `snapshot_tasks` `[{id, position, question}]`. |
+| `POST /api/geocaches/<id>/earthcoach-results` | Capture (idempotente par `request_id`) ; la reponse garde l'instantane complet. |
+| `PATCH /api/earthcoach-results/<id>` | Corrections humaines dans `edited_proposals` (la version IA reste dans `proposals`, exposee en `ai_proposals`), `final_answer`. |
+| `POST /api/earthcoach-results/<id>/apply` | Report dans les questions, tout ou rien, refuse si la question a change depuis l'instantane. |
+| `POST /api/geocache-images/<id>/snippets/new` | Sous-image recadree (route de l'editeur d'images), utilisee par le recadrage du dossier. |
+
+### Envoi
+
+1. `flushSave()` puis `validateEarthCoachSelection` (limite, groupes entiers, confirmation sans photo). La validation est aussi calculee a chaque rendu : la verification avant envoi montre le probleme et sa correction (**Inclure / Retirer le groupe**) avant le clic.
+2. `prepareEarthCoachImagesForTransmission` telecharge chaque image (repli `/store` si CORS) et produit **directement l'encodage final** (`encodeGeoAppChatImage`, qualite `high`). Les encodages sont deposes dans le cache partage `rememberPreparedGeoAppChatImage` sous l'URL retenue.
+3. Instantane `EarthCoachPreparedRequest` enregistre par `requestId`, prompt `buildEarthCoachPrompt`, puis `dispatchGeoAppOpenChatRequest` avec `imageQuality: 'high'`.
+4. Le bridge (`fetchImageAsVariable`) reprend l'encodage du cache (`takePreparedGeoAppChatImage`, lecture consommante) : une image n'est telechargee et decodee qu'une fois. Sans entree en cache (autres agents), il encode lui-meme, en `standard` par defaut.
+
+### Pipeline d'images
+
+- Long cote plafonne a `GEOAPP_CHAT_IMAGE_MAX_DIMENSION` (1568 px), lissage `high` a la reduction.
+- JPEG 0,95 en qualite `high` (EarthCoach), 0,85 en `standard`. Le cout en tokens depend des dimensions, pas du poids : la qualite haute ne coute rien cote modele.
+- **Ne jamais degrader la resolution** : le modele doit lire de petits details. Pour aller au-dela du plafond, utiliser le recadrage.
+- Cache des encodages : cle `url|qualite`, TTL 5 min, 40 entrees ; les entrees non consommees (image retiree avant l'envoi) expirent seules.
+
+### Recadrage pleine resolution
+
+Dans l'apercu, **Recadrer un detail** active un calque de trace (pointer events). A la validation :
+
+- `containedImageBox` retire les bandes `object-fit: contain`, `computeEarthCoachCropRect` convertit la selection en pixels source (bornage, taille minimale 32 px) ;
+- l'image source est rechargee en pleine resolution, decoupee sur canvas (PNG si source PNG, sinon JPEG 0,95, repli 0,9 sous la limite de 10 Mo de la route), puis enregistree par `createCropImage` ;
+- le dossier est recharge, la source et le recadrage sont inclus, et un groupe **Vue generale + detail** est cree (ou le groupe dont la source est `overview` est complete).
+
+### Prompt de resolution
+
+Avec un dossier prepare (`preparedRequest`) :
+
+- le detail par question passe **uniquement** par `earthcoach_capture_result` ; le chat ne contient qu'une synthese courte (bilan pretes / partielles / manquantes, points bloquants, prochaines mesures). Sans dossier (chat libre), le gabarit texte question par question reste en vigueur ;
+- les images ne sont decrites qu'une fois, dans « Contextes exacts des images transmises » (libelle compris) ; un dossier sans image l'annonce explicitement ;
+- une **analyse** enregistre une proposition par question avec `status` et `missing` (reponse vide) : le dossier l'affiche comme liste « A relever sur le terrain ».
+
+### Couverture et resultats
+
+- `buildEarthCoachCoverage` : une ligne par question, etat `answered` / `ready_to_resolve` / `needs_field` / `needs_photo`. Une photo compte si elle est personnelle et liee a l'observation de la question (par l'observation elle-meme ou par le contexte d'image du dossier). Bouton **Observer** -> `earthcoach.observeTask`.
+- `EarthCoachResultCard` (`React.memo`, callbacks stables `resultHandlers`) : contenu rendu seulement une fois deplie ; saisir un commentaire ne redessine pas les resultats.
+- Propositions numerotees via `resolveProposalPosition` (`snapshot_tasks`, repli sur les questions courantes) ; `findUncoveredSnapshotTasks` signale les questions sans proposition.
+- Report unitaire ou groupe (`applicableProposalIndexes`, meme regle que le backend), suivi de l'evenement `earthcoach-logging-tasks-updated` pour rafraichir le widget Questions et la couverture.
+- **Revenir a la version IA** : `revertProposalPatch` remplace tous les champs, y compris ceux ajoutes par l'utilisateur.
+- Corrections sauvegardees automatiquement (1 s) ; la reponse finale est generee dans la langue choisie en tete du dossier et rattachee au resultat par `requestId`.
 
 ## Collecte du contexte (route agregee et micro-cache)
 
