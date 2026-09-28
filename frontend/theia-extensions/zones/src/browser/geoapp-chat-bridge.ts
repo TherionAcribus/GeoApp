@@ -44,6 +44,7 @@ interface GeoAppOpenChatRequestDetail {
     preferredAgentId?: string;
     earthcoachMode?: string;
     earthcoachVerbosity?: string;
+    earthcoachRequestId?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -124,7 +125,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                         text: prompt,
                         ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                     });
-                    this.observeResponse(invocation, existingSession.id, baseSessionTitle, pinnedAgent?.id);
+                    this.observeResponse(invocation, existingSession.id, baseSessionTitle, pinnedAgent?.id, detail.earthcoachRequestId);
                 }
                 return;
             }
@@ -140,7 +141,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                     text: prompt,
                     ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                 });
-                this.observeResponse(invocation, session.id, baseSessionTitle, pinnedAgent?.id);
+                this.observeResponse(invocation, session.id, baseSessionTitle, pinnedAgent?.id, detail.earthcoachRequestId);
             }
         } catch (error) {
             console.error('[GeoAppChatBridge] Failed to open GeoApp chat', error);
@@ -160,7 +161,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         invocation: ChatRequestInvocation | undefined,
         sessionId: string,
         sessionTitle: string,
-        agentId?: string
+        agentId?: string,
+        requestId?: string
     ): void {
         if (!invocation || this.responseObservers.length === 0) {
             return;
@@ -170,7 +172,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             const text = response?.response?.asDisplayString?.() ?? '';
             for (const observer of this.responseObservers) {
                 try {
-                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, text });
+                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, requestId, text });
                     Promise.resolve(outcome).catch(error =>
                         console.error('[GeoAppChatBridge] Observateur de réponse en échec', error)
                     );

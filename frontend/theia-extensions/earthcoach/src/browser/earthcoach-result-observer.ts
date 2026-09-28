@@ -23,9 +23,13 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         const visibleMarkdown = stripEarthCoachResultBlocks(event.text || '');
         if (!payload) {
             try {
-                await this.capture.attachLatestMarkdown(visibleMarkdown, event.sessionId);
+                if (event.requestId) {
+                    await this.capture.attachMarkdown(event.requestId, visibleMarkdown, event.sessionId);
+                } else {
+                    await this.capture.attachLatestMarkdown(visibleMarkdown, event.sessionId);
+                }
             } catch (error) {
-                console.warn('[EarthCoach] Unable to attach the response to the latest prepared request', error);
+                console.warn('[EarthCoach] Unable to attach the response to its prepared request', error);
             }
             return;
         }

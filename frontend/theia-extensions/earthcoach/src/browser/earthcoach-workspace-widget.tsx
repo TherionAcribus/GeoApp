@@ -698,6 +698,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 earthcoachVerbosity: verbosity,
+                earthcoachRequestId: snapshot.requestId,
                 sessionKind: 'earthcoach',
                 imageContexts: promptImages.map(toImageContext),
             }));

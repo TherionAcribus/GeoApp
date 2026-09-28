@@ -111,6 +111,12 @@ export interface GeoAppOpenChatRequestDetailPayload {
     preferredAgentId?: string;
     earthcoachMode?: string;
     earthcoachVerbosity?: string;
+    /**
+     * Correlation d'une requete EarthCoach dossier terrain : propagee dans
+     * l'evenement de fin de reponse pour que le Markdown soit attache a la
+     * requete exacte, jamais a "la derniere preparee".
+     */
+    earthcoachRequestId?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -379,6 +385,7 @@ export function buildGeoAppOpenChatRequestDetail(
         preferredAgentId: detail.preferredAgentId,
         earthcoachMode: detail.earthcoachMode,
         earthcoachVerbosity: detail.earthcoachVerbosity,
+        earthcoachRequestId: detail.earthcoachRequestId,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,
     };
@@ -425,6 +432,8 @@ export interface GeoAppChatResponseEvent {
     /** Titre de base, sans le suffixe d'agent ajouté à l'affichage. */
     sessionTitle: string;
     agentId?: string;
+    /** Identifiant de correlation fourni par le dispatch (ex. dossier EarthCoach), s'il existe. */
+    requestId?: string;
     /** Texte complet de la réponse, tel qu'il s'affiche dans la conversation. */
     text: string;
 }

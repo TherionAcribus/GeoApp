@@ -32,6 +32,31 @@ export class EarthCoachResultCaptureService {
         }
     }
 
+    /**
+     * Attache le Markdown de fin de reponse a la requete qui l'a produite.
+     * Correlation stricte par `requestId` : avec plusieurs dossiers envoyes en
+     * parallele, attacher "la derniere" requete melangeait les resultats.
+     */
+    async attachMarkdown(requestId: string, markdown: string, sessionId?: string): Promise<EarthCoachResult> {
+        const snapshot = this.requests.get(requestId);
+        if (!snapshot) {
+            throw new Error('Instantané EarthCoach introuvable pour cette réponse.');
+        }
+        if (!markdown.trim()) {
+            throw new Error('Réponse EarthCoach vide : rien à attacher.');
+        }
+        return this.capture({
+            request_id: snapshot.requestId,
+            geocache_id: snapshot.geocacheId,
+            action: snapshot.action === 'resolve' ? 'resolve' : 'analyze',
+            proposals: [],
+        }, { markdown, sessionId });
+    }
+
+    /**
+     * Repli pour les evenements anciens qui ne transportent pas encore de
+     * `requestId`. Ne pas l'utiliser pour les nouveaux envois.
+     */
     async attachLatestMarkdown(markdown: string, sessionId?: string): Promise<EarthCoachResult | undefined> {
         const requests = Array.from(this.requests.values());
         const snapshot = requests[requests.length - 1];

@@ -57,7 +57,11 @@ import { EarthCoachElevationTools, readElevationPoints } from '../earthcoach-ele
 import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
 import { selectEarthCoachDescription } from '../earthcoach-description-selector';
-import { extractEarthCoachResultBlock, stripEarthCoachResultBlocks } from '../earthcoach-result-capture';
+import {
+    EarthCoachResultCaptureService,
+    extractEarthCoachResultBlock,
+    stripEarthCoachResultBlocks,
+} from '../earthcoach-result-capture';
 import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from '../earthcoach-workspace-logic';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
@@ -1358,6 +1362,40 @@ function testResultCaptureToolShape(): void {
     assert.match(tools[0].description, /request_id/);
 }
 
+async function testResultCaptureAttachesMarkdownToItsOwnRequest(): Promise<void> {
+    // Deux dossiers envoyes en parallele (caches A puis B) : la reponse de A ne
+    // doit pas etre rattachee a B juste parce que B a ete prepare en dernier.
+    const service = new EarthCoachResultCaptureService();
+    const captured: Array<{ requestId: string; geocacheId: number }> = [];
+    (service as unknown as { workspaceService: unknown }).workspaceService = {
+        captureResult: async (input: { requestId: string; geocacheId: number }) => {
+            captured.push(input);
+            return { id: captured.length } as never;
+        },
+    };
+    const request = (requestId: string, geocacheId: number) => ({
+        requestId,
+        geocacheId,
+        action: 'resolve' as const,
+        preparedAt: '',
+        listing: { language: 'fr', fingerprint: 'x', reliableSeparation: true, html: '', text: '' },
+        observations: [],
+        loggingTasks: [],
+        images: [],
+        groups: [],
+        unavailableImages: [],
+    });
+    service.register(request('req-A', 1));
+    service.register(request('req-B', 2));
+
+    await service.attachMarkdown('req-A', 'Réponse A', 'session-A');
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0].requestId, 'req-A');
+    assert.equal(captured[0].geocacheId, 1);
+
+    await assert.rejects(() => service.attachMarkdown('req-inconnue', 'x'));
+}
+
 function testPromptSkipsExtractionHintWithoutQuestions(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -1624,6 +1662,7 @@ async function run(): Promise<void> {
     testWorkspaceSelectionValidation();
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
+    await testResultCaptureAttachesMarkdownToItsOwnRequest();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();
