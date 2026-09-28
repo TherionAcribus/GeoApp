@@ -142,6 +142,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected saveTimer?: number;
     protected savePromise?: Promise<void>;
     protected changeSequence = 0;
+    /** Résultats dont les propositions ont été modifiées et pas encore sauvées. */
+    protected dirtyResults = new Set<number>();
+    protected resultSaveTimers = new Map<number, number>();
+    /** Copie locale conservée quand un conflit 409 charge la version serveur. */
+    protected conflictBackup?: EarthCoachWorkspace;
 
     @inject(EarthCoachWorkspaceService)
     protected readonly workspaceService!: EarthCoachWorkspaceService;
@@ -233,6 +238,12 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             this.rebuildDescription();
             this.saveState = 'idle';
             this.saveError = undefined;
+            this.conflictBackup = undefined;
+            this.dirtyResults.clear();
+            for (const timer of this.resultSaveTimers.values()) {
+                window.clearTimeout(timer);
+            }
+            this.resultSaveTimers.clear();
         } catch (error) {
             this.saveError = error instanceof Error ? error.message : String(error);
             this.saveState = 'error';
@@ -270,6 +281,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         const next = cloneWorkspace(this.workspace);
         mutator(next);
         this.workspace = next;
+        // L'utilisateur continue d'éditer la version serveur : la copie gardée
+        // d'avant le conflit ne reflète plus son intention, on l'oublie.
+        this.conflictBackup = undefined;
         this.scheduleSave();
         this.update();
     }
@@ -320,6 +334,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             this.contextService.invalidate(saved.geocache_id);
         }).catch(error => {
             if (error instanceof EarthCoachWorkspaceConflictError) {
+                if (this.workspace) {
+                    this.conflictBackup = cloneWorkspace(this.workspace);
+                }
                 this.workspace = cloneWorkspace(error.workspace);
             }
             this.saveState = 'error';
@@ -713,24 +730,56 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         }
     }
 
-    protected updateProposal(resultIndex: number, proposalIndex: number, patch: Partial<EarthCoachResultProposal>): void {
-        this.results = this.results.map((result, currentResultIndex) => currentResultIndex === resultIndex ? {
+    /**
+     * Les résultats sont adressés par `id`, pas par index : une capture qui
+     * arrive en tête de liste pendant une sauvegarde ne doit pas récrire le
+     * mauvais résultat.
+     */
+    protected updateProposal(resultId: number, proposalIndex: number, patch: Partial<EarthCoachResultProposal>): void {
+        this.results = this.results.map(result => result.id === resultId ? {
             ...result,
-            proposals: result.proposals.map((proposal, currentProposalIndex) =>
-                currentProposalIndex === proposalIndex ? { ...proposal, ...patch } : proposal
+            proposals: result.proposals.map((proposal, index) =>
+                index === proposalIndex ? { ...proposal, ...patch } : proposal
             ),
         } : result);
+        this.dirtyResults.add(resultId);
+        this.scheduleResultSave(resultId);
         this.update();
     }
 
-    protected async saveResult(resultIndex: number): Promise<EarthCoachResult | undefined> {
-        const result = this.results[resultIndex];
+    protected scheduleResultSave(resultId: number): void {
+        const existing = this.resultSaveTimers.get(resultId);
+        if (existing !== undefined) {
+            window.clearTimeout(existing);
+        }
+        this.resultSaveTimers.set(resultId, window.setTimeout(() => {
+            this.resultSaveTimers.delete(resultId);
+            void this.saveResult(resultId);
+        }, 1000));
+    }
+
+    /** Annule le debounce et écrit tout de suite si le résultat a des modifications en attente. */
+    protected async flushResultSave(resultId: number): Promise<EarthCoachResult | undefined> {
+        const timer = this.resultSaveTimers.get(resultId);
+        if (timer !== undefined) {
+            window.clearTimeout(timer);
+            this.resultSaveTimers.delete(resultId);
+        }
+        if (!this.dirtyResults.has(resultId)) {
+            return this.results.find(item => item.id === resultId);
+        }
+        return this.saveResult(resultId);
+    }
+
+    protected async saveResult(resultId: number): Promise<EarthCoachResult | undefined> {
+        const result = this.results.find(item => item.id === resultId);
         if (!result) {
             return undefined;
         }
         try {
             const saved = await this.workspaceService.updateResult(result.id, result.proposals);
-            this.results = this.results.map((item, index) => index === resultIndex ? saved : item);
+            this.results = this.results.map(item => item.id === saved.id ? saved : item);
+            this.dirtyResults.delete(resultId);
             this.update();
             return saved;
         } catch (error) {
@@ -739,29 +788,45 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         }
     }
 
-    protected moveAnswerToMissing(resultIndex: number, proposalIndex: number): void {
-        const proposal = this.results[resultIndex]?.proposals[proposalIndex];
+    protected restoreConflictBackup(): void {
+        if (!this.conflictBackup || !this.workspace) {
+            return;
+        }
+        // On garde la version serveur courante : la réécriture des champs
+        // locaux repart sur la bonne base, la sauvegarde suivante peut réussir.
+        this.workspace = {
+            ...cloneWorkspace(this.conflictBackup),
+            version: this.workspace.version,
+            exists: this.workspace.exists,
+        };
+        this.conflictBackup = undefined;
+        this.scheduleSave();
+        this.update();
+    }
+
+    protected moveAnswerToMissing(resultId: number, proposalIndex: number): void {
+        const proposal = this.results.find(result => result.id === resultId)?.proposals[proposalIndex];
         const answer = proposal?.answer?.trim();
         if (!proposal || !answer) {
             return;
         }
         const previousMissing = proposal.missing?.trim();
-        this.updateProposal(resultIndex, proposalIndex, {
+        this.updateProposal(resultId, proposalIndex, {
             answer: '',
             missing: previousMissing ? `${previousMissing}\n${answer}` : answer,
             status: 'partial',
         });
     }
 
-    protected async generateFinalAnswer(resultIndex: number): Promise<void> {
-        const current = this.results[resultIndex];
+    protected async generateFinalAnswer(resultId: number): Promise<void> {
+        const current = this.results.find(result => result.id === resultId);
         if (!this.context || !current || current.action !== 'resolve' || this.generatingFinalResultId !== undefined) {
             return;
         }
         this.generatingFinalResultId = current.id;
         this.update();
         try {
-            const saved = await this.saveResult(resultIndex);
+            const saved = await this.flushResultSave(resultId);
             if (!saved) {
                 return;
             }
@@ -795,8 +860,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         }
     }
 
-    protected async applyProposal(resultIndex: number, proposalIndex: number): Promise<void> {
-        const saved = await this.saveResult(resultIndex);
+    protected async applyProposal(resultId: number, proposalIndex: number): Promise<void> {
+        const saved = await this.flushResultSave(resultId);
         if (!saved) {
             return;
         }
@@ -1029,27 +1094,28 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             return <section className='ecw-panel'><h3>Propositions EarthCoach</h3><p className='ecw-muted'>Les résultats capturés apparaîtront ici et resteront révisables.</p></section>;
         }
         return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map((result, resultIndex) =>
-            <details key={result.id} open={resultIndex === 0}><summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}</summary>
+            <details key={result.id} open={resultIndex === 0}><summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}
+                {result.proposals_edited ? ' · corrigé' : ''}{this.dirtyResults.has(result.id) ? ' · modifications en cours…' : ''}</summary>
                 {result.markdown && <pre>{stripEarthCoachResultBlocks(result.markdown)}</pre>}
                 {result.proposals.map((proposal, proposalIndex) => <div key={`${result.id}-${proposalIndex}`} className='ecw-proposal'>
                     <div className='ecw-question'><strong>{proposal.question}</strong>
                         {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
                             <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
                     </div>
-                    <label>État<select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(resultIndex, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
+                    <label>État<select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(result.id, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
                         <option value='ready'>Prête</option><option value='partial'>Partielle</option><option value='missing'>Manquante</option>
                     </select></label>
-                    <label>Réponse candidate — uniquement ce qui répond à la question<textarea className='theia-input' rows={4} value={proposal.answer || ''} onChange={event => this.updateProposal(resultIndex, proposalIndex, { answer: event.currentTarget.value })} /></label>
-                    <label>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''} placeholder='Ex. mesurer l’épaisseur sur place' onChange={event => this.updateProposal(resultIndex, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
-                    <div className='ecw-row'><button className='theia-button secondary' onClick={() => void this.saveResult(resultIndex)}>Enregistrer</button>
-                        <button className='theia-button secondary' disabled={!proposal.answer?.trim()} onClick={() => this.moveAnswerToMissing(resultIndex, proposalIndex)}>Déplacer la réponse vers « À compléter »</button>
-                        <button className='theia-button' disabled={proposal.status !== 'ready' || !proposal.answer || Boolean(proposal.missing)} onClick={() => void this.applyProposal(resultIndex, proposalIndex)}>Reporter dans la question</button></div>
+                    <label>Réponse candidate — uniquement ce qui répond à la question<textarea className='theia-input' rows={4} value={proposal.answer || ''} onChange={event => this.updateProposal(result.id, proposalIndex, { answer: event.currentTarget.value })} /></label>
+                    <label>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''} placeholder='Ex. mesurer l’épaisseur sur place' onChange={event => this.updateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
+                    <div className='ecw-row'><button className='theia-button secondary' disabled={!this.dirtyResults.has(result.id)} onClick={() => void this.saveResult(result.id)}>Enregistrer</button>
+                        <button className='theia-button secondary' disabled={!proposal.answer?.trim()} onClick={() => this.moveAnswerToMissing(result.id, proposalIndex)}>Déplacer la réponse vers « À compléter »</button>
+                        <button className='theia-button' disabled={proposal.status !== 'ready' || !proposal.answer || Boolean(proposal.missing)} onClick={() => void this.applyProposal(result.id, proposalIndex)}>Reporter dans la question</button></div>
                 </div>)}
                 <div className='ecw-final-answer'>
                     <label>Langue de la réponse finale<select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
                         {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
                     </select></label>
-                    {result.action === 'resolve' && <button className='theia-button' disabled={this.generatingFinalResultId !== undefined} onClick={() => void this.generateFinalAnswer(resultIndex)}>
+                    {result.action === 'resolve' && <button className='theia-button' disabled={this.generatingFinalResultId !== undefined} onClick={() => void this.generateFinalAnswer(result.id)}>
                         {this.generatingFinalResultId === result.id ? 'Préparation…' : 'Générer la réponse finale avec mes corrections'}
                     </button>}
                     <button className='theia-button secondary' onClick={() => void this.saveResultAsNote(result)}>Enregistrer la synthèse dans les notes</button>
@@ -1091,10 +1157,17 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
             `}</style>
             <header className='ecw-head'><h2>Dossier terrain</h2><span className='ecw-muted'>{this.context.geocacheData.name}</span><span className='ecw-grow' />
-                <span title={this.saveError}>{statusLabel(this.saveState)}</span>
+                <span title={this.saveError}>{this.dirtyResults.size ? 'Modifications…' : statusLabel(this.saveState)}</span>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'observations' })}>Gérer les observations</button>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </header>
+            {this.conflictBackup && <section className='ecw-panel ecw-warning'>
+                Le dossier a été modifié ailleurs : la version enregistrée a été chargée. Vos modifications locales sont conservées en réserve.
+                <div className='ecw-row'>
+                    <button className='theia-button' onClick={() => this.restoreConflictBackup()}>Reprendre mes modifications</button>
+                    <button className='theia-button secondary' onClick={() => { this.conflictBackup = undefined; this.update(); }}>Ignorer</button>
+                </div>
+            </section>}
             <section className='ecw-panel'><div className='ecw-row'><label>Version du listing <select className='theia-select' value={this.description?.selectedLanguage || ''} onChange={event => {
                 this.rebuildDescription(event.currentTarget.value); this.update();
             }}>{(this.description?.versions || []).map(candidate => <option key={candidate.language} value={candidate.language}>{candidate.label}</option>)}</select></label>

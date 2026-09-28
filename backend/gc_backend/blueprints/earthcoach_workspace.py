@@ -53,6 +53,21 @@ def _load_geocache(geocache_id: int) -> Geocache | None:
     return Geocache.query.get(geocache_id)
 
 
+def _validate_proposals(value: object) -> list[dict]:
+    """Une proposition non objet (null, string) passerait sinon en base et
+    casserait l'affichage du dossier terrain."""
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        raise ValueError('proposals must be a list of objects')
+    return value
+
+
+def _effective_proposals(result: EarthCoachResult) -> list:
+    """La version corrigee par l'utilisateur prime sur la version brute IA."""
+    if result.edited_proposals is not None:
+        return result.edited_proposals
+    return result.proposals or []
+
+
 def _is_personal_image(image: GeocacheImage) -> bool:
     return (image.source_url or '').startswith('geoapp-upload://')
 
@@ -370,10 +385,10 @@ def capture_result(geocache_id: int):
             return jsonify({'error': 'request_id is required'}), 400
         if action not in _ACTIONS:
             return jsonify({'error': 'action must be analyze or resolve'}), 400
-        proposals = data.get('proposals') or []
+        proposals = _validate_proposals(data.get('proposals') or [])
         context_snapshot = data.get('context_snapshot') or {}
-        if not isinstance(proposals, list) or not isinstance(context_snapshot, dict):
-            return jsonify({'error': 'proposals must be a list and context_snapshot an object'}), 400
+        if not isinstance(context_snapshot, dict):
+            return jsonify({'error': 'context_snapshot must be an object'}), 400
 
         result = EarthCoachResult.query.filter_by(request_id=request_id).first()
         if result is None:
@@ -390,6 +405,8 @@ def capture_result(geocache_id: int):
         else:
             if result.geocache_id != geocache_id or result.action != action:
                 return jsonify({'error': 'request_id already belongs to another EarthCoach request'}), 409
+            # Seule la version IA est recrite : les corrections de
+            # `edited_proposals` survivent a une recapture du meme request_id.
             if proposals:
                 result.proposals = proposals
             if data.get('markdown') is not None:
@@ -398,6 +415,9 @@ def capture_result(geocache_id: int):
                 result.session_id = _optional_text(data.get('session_id'))
         db.session.commit()
         return jsonify({'result': result.to_dict()}), 201
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
     except Exception as error:  # pragma: no cover
         logger.error('Error capturing EarthCoach result for %s: %s', geocache_id, error)
         db.session.rollback()
@@ -410,11 +430,13 @@ def update_result(result_id: int):
     if not result:
         return jsonify({'error': 'EarthCoach result not found'}), 404
     data = request.get_json(silent=True) or {}
-    proposals = data.get('proposals')
-    if proposals is not None:
-        if not isinstance(proposals, list):
-            return jsonify({'error': 'proposals must be a list'}), 400
-        result.proposals = proposals
+    if 'proposals' in data:
+        # Le PATCH est le canal des corrections humaines : il ecrit dans
+        # `edited_proposals` et laisse la version IA d'origine intacte.
+        try:
+            result.edited_proposals = _validate_proposals(data.get('proposals') or [])
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
     if 'markdown' in data:
         result.markdown = _optional_text(data.get('markdown'))
     db.session.commit()
@@ -439,16 +461,21 @@ def apply_result(result_id: int):
         applied = []
         for raw_index in selected:
             index = _required_int(raw_index, 'proposal index')
-            proposals = result.proposals or []
+            proposals = _effective_proposals(result)
             if index < 0 or index >= len(proposals):
                 raise ValueError('proposal index is out of range')
             proposal = proposals[index]
+            if not isinstance(proposal, dict):
+                raise ValueError('proposal must be an object')
             state = str(proposal.get('status') or '').strip().lower()
             answer = str(proposal.get('answer') or '').strip()
             missing = proposal.get('missing')
+            # `missing` doit etre une chaine : toute autre valeur non vide
+            # (liste, objet...) signifie qu'il reste quand meme des elements.
+            has_missing = bool(missing.strip()) if isinstance(missing, str) else bool(missing)
             if state not in _PROPOSAL_STATES:
                 raise ValueError('proposal status must be ready, partial or missing')
-            if state != 'ready' or not answer or (isinstance(missing, str) and missing.strip()):
+            if state != 'ready' or not answer or has_missing:
                 raise ValueError('only complete ready proposals can be applied')
             task_id = _required_int(proposal.get('task_id'), 'task_id')
             task = GeocacheLoggingTask.query.filter_by(id=task_id, geocache_id=result.geocache_id).first()

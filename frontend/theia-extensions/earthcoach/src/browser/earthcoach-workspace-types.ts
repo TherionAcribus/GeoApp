@@ -118,7 +118,12 @@ export interface EarthCoachResult {
     action: 'analyze' | 'resolve';
     session_id?: string | null;
     context_snapshot: EarthCoachPreparedRequest | Record<string, unknown>;
+    /** Version effective : corrections utilisateur si elles existent, sinon version IA. */
     proposals: EarthCoachResultProposal[];
+    /** Version brute produite par le modele, pour comparaison ou reinitialisation. */
+    ai_proposals?: EarthCoachResultProposal[];
+    /** true quand l'utilisateur a corrige les propositions du modele. */
+    proposals_edited?: boolean;
     markdown?: string | null;
     created_at?: string | null;
     updated_at?: string | null;

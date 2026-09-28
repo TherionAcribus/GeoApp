@@ -244,6 +244,24 @@ def init_db(app):
             db.session.rollback()
 
         try:
+            logger.info('Running lightweight SQLite migrations for earthcoach_result columns...')
+            existing_cols = set()
+            res = db.session.execute(text("PRAGMA table_info('earthcoach_result')"))
+            for row in res:
+                existing_cols.add(row[1])
+
+            # Ne rien faire si la table n'existe pas : create_all() vient de la
+            # créer avec le schéma complet. Sur une base ancienne, on ajoute la
+            # colonne qui sépare les corrections utilisateur des propositions IA.
+            if existing_cols and 'edited_proposals' not in existing_cols:
+                logger.info('Adding missing column earthcoach_result.edited_proposals (JSON)')
+                db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN edited_proposals JSON'))
+                db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (earthcoach_result): %s', error)
+            db.session.rollback()
+
+        try:
             default_zone = Zone.query.filter_by(name='default').first()
             if default_zone is None:
                 default_zone = Zone(name='default', description='Default zone')

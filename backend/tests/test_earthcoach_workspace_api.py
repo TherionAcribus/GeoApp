@@ -247,6 +247,137 @@ def test_result_capture_edit_and_explicit_apply(client, seeded):
     assert applied.get_json()['applied'][0]['answer'] == 'Des strates fines.'
 
 
+def test_result_recapture_preserves_user_edited_proposals(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-edit',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'ready',
+                'answer': 'Réponse IA',
+            }],
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+
+    edited = client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'proposals': [{
+            'task_id': seeded['task_id'],
+            'question': 'Q1',
+            'status': 'ready',
+            'answer': 'Réponse corrigée',
+        }]},
+    )
+    assert edited.status_code == 200
+    patched = edited.get_json()['result']
+    assert patched['proposals'][0]['answer'] == 'Réponse corrigée'
+    assert patched['ai_proposals'][0]['answer'] == 'Réponse IA'
+    assert patched['proposals_edited'] is True
+
+    recapture = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-edit',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'ready',
+                'answer': 'Réponse IA v2',
+            }],
+            'markdown': 'nouveau',
+        },
+    )
+    assert recapture.status_code == 201
+    recaptured = recapture.get_json()['result']
+    assert recaptured['id'] == result['id']
+    assert recaptured['ai_proposals'][0]['answer'] == 'Réponse IA v2'
+    assert recaptured['proposals'][0]['answer'] == 'Réponse corrigée'
+    assert recaptured['proposals_edited'] is True
+
+
+def test_apply_uses_edited_proposals(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-apply-edited',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'missing',
+                'answer': '',
+                'missing': 'À mesurer',
+            }],
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+
+    # La version IA est incomplète : le report doit refuser.
+    blocked = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert blocked.status_code == 400
+
+    client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'proposals': [{
+            'task_id': seeded['task_id'],
+            'question': 'Q1',
+            'status': 'ready',
+            'answer': 'Réponse corrigée',
+        }]},
+    )
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 200
+    assert applied.get_json()['applied'][0]['answer'] == 'Réponse corrigée'
+
+
+def test_result_rejects_non_object_proposals(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-null', 'action': 'resolve', 'proposals': [None, 'texte']},
+    )
+    assert create.status_code == 400
+
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-null-2', 'action': 'resolve', 'proposals': [{'question': 'Q1'}]},
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+    update = client.patch(f"/api/earthcoach-results/{result['id']}", json={'proposals': [None]})
+    assert update.status_code == 400
+
+
+def test_apply_rejects_non_empty_non_string_missing(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-missing-list',
+            'action': 'resolve',
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'ready',
+                'answer': 'Réponse',
+                'missing': ['à faire'],
+            }],
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 400
+
+
 def test_aggregated_context_contains_workspace(client, seeded):
     response = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-context")
 

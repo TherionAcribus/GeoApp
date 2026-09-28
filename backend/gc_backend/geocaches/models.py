@@ -656,7 +656,11 @@ class EarthCoachResult(db.Model):
     action = db.Column(db.String(20), nullable=False)
     session_id = db.Column(db.String(255))
     context_snapshot = db.Column(db.JSON, nullable=False)
+    # `proposals` = version produite par le modele. Les corrections relues par
+    # l'utilisateur vivent dans `edited_proposals` : une recapture IA du meme
+    # request_id ne peut pas les ecraser.
     proposals = db.Column(db.JSON, nullable=False)
+    edited_proposals = db.Column(db.JSON, nullable=True)
     markdown = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
@@ -676,7 +680,11 @@ class EarthCoachResult(db.Model):
             'action': self.action,
             'session_id': self.session_id,
             'context_snapshot': self.context_snapshot,
-            'proposals': self.proposals,
+            # `proposals` expose la version effective (corrigee si elle existe),
+            # `ai_proposals` la version brute du modele pour comparaison/reset.
+            'proposals': self.edited_proposals if self.edited_proposals is not None else self.proposals,
+            'ai_proposals': self.proposals,
+            'proposals_edited': self.edited_proposals is not None,
             'markdown': self.markdown,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
