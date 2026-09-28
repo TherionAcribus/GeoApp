@@ -172,12 +172,18 @@ export class FormulaSolverWidget extends ReactWidget {
         this.title.caption = FormulaSolverWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-symbol-variable';
+        this.node.tabIndex = 0;
 
         // Charger l'index des sessions sauvegardées au démarrage
         this.savedSessionsIndex = FormulaSessionManager.listSessions();
 
         // Les préférences seront chargées de manière asynchrone dans onAfterAttach
         this.update();
+    }
+
+    protected onActivateRequest(msg: unknown): void {
+        super.onActivateRequest(msg as any);
+        this.node.focus({ preventScroll: true });
     }
 
     protected parseManualFormulaInputs(): { north: string; east: string } | undefined {

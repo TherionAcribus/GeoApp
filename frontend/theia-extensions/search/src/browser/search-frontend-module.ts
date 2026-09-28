@@ -6,7 +6,7 @@
  */
 
 import { ContainerModule } from '@theia/core/shared/inversify';
-import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
+import { CommandContribution } from '@theia/core/lib/common';
 import { KeybindingContribution, FrontendApplicationContribution, WidgetFactory, bindViewContribution } from '@theia/core/lib/browser';
 import { SearchService } from './search-service';
 import { SearchOverlayRenderer } from './search-overlay-renderer';
@@ -40,8 +40,4 @@ export default new ContainerModule(bind => {
     })).inSingletonScope();
 
     bindViewContribution(bind, GlobalSearchContribution);
-    bind(FrontendApplicationContribution).toService(GlobalSearchContribution);
-    bind(CommandContribution).toService(GlobalSearchContribution);
-    bind(KeybindingContribution).toService(GlobalSearchContribution);
-    bind(MenuContribution).toService(GlobalSearchContribution);
 });

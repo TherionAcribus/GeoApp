@@ -4,10 +4,10 @@
  * Enregistre le widget sidebar, les commandes et keybindings.
  */
 
-import { injectable, inject } from '@theia/core/shared/inversify';
-import { CommandContribution, CommandRegistry, Command, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
+import { injectable } from '@theia/core/shared/inversify';
+import { Command, MenuModelRegistry } from '@theia/core/lib/common';
 import { KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
-import { FrontendApplicationContribution, FrontendApplication, AbstractViewContribution } from '@theia/core/lib/browser';
+import { AbstractViewContribution } from '@theia/core/lib/browser';
 import { GlobalSearchWidget } from './global-search-widget';
 
 export namespace GlobalSearchCommands {
@@ -29,13 +29,6 @@ export class GlobalSearchContribution extends AbstractViewContribution<GlobalSea
                 rank: 300
             },
             toggleCommandId: GlobalSearchCommands.OPEN.id
-        });
-    }
-
-    registerCommands(commands: CommandRegistry): void {
-        super.registerCommands(commands);
-        commands.registerCommand(GlobalSearchCommands.OPEN, {
-            execute: () => this.openView({ activate: true, reveal: true })
         });
     }
 
