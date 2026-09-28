@@ -658,6 +658,7 @@ export function buildEarthCoachFinalAnswerPrompt(
         'Respecte l ordre des questions. N invente aucune observation et ne transforme pas une action restant a faire en fait accompli.',
         'Si des elements restent a completer, produis un brouillon explicite avec des marqueurs [A completer: ...] et indique qu il n est pas encore pret a envoyer.',
         'Ne publie aucun log et n affiche aucun JSON technique.',
+        'N appelle pas earthcoach_capture_result : le texte produit est directement rattache au dossier.',
         '',
         '--- REPONSES VALIDEES OU CORRIGEES DANS LE DOSSIER ---',
     ];

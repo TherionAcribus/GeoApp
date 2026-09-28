@@ -662,6 +662,9 @@ class EarthCoachResult(db.Model):
     proposals = db.Column(db.JSON, nullable=False)
     edited_proposals = db.Column(db.JSON, nullable=True)
     markdown = db.Column(db.Text)
+    # Reponse finale generee depuis les propositions relues : rattachee au
+    # resultat source pour rester visible et copiable dans le dossier.
+    final_answer = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -686,6 +689,7 @@ class EarthCoachResult(db.Model):
             'ai_proposals': self.proposals,
             'proposals_edited': self.edited_proposals is not None,
             'markdown': self.markdown,
+            'final_answer': self.final_answer,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

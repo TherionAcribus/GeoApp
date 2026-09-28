@@ -114,6 +114,15 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
+    async saveFinalAnswer(resultId: number, finalAnswer: string): Promise<EarthCoachResult> {
+        const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
+            `/api/earthcoach-results/${resultId}`,
+            this.apiClient.createJsonInit('PATCH', { final_answer: finalAnswer }),
+            'Erreur lors de l enregistrement de la réponse finale EarthCoach'
+        );
+        return response.result;
+    }
+
     async applyResultProposal(resultId: number, proposalIndex: number): Promise<void> {
         await this.apiClient.requestJson(
             `/api/earthcoach-results/${resultId}/apply`,

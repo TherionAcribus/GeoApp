@@ -957,6 +957,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             const geocache = this.context.geocacheData;
             const label = geocache.gc_code || geocache.name;
             const verbosity = this.readVerbosity();
+            // La generation est correlee au resultat source : le requestId
+            // revient dans l'evenement de fin de reponse et permet de rattacher
+            // la reponse finale au dossier au lieu de la laisser dans le chat.
+            const requestId = `final-${saved.id}-${Date.now()}`;
+            this.resultCapture.registerFinalRequest(requestId, saved.id, geocache.id);
             dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
@@ -970,6 +975,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 earthcoachMode: 'resolver',
                 earthcoachVerbosity: verbosity,
                 earthcoachResponseLanguage: this.responseLanguage,
+                earthcoachRequestId: requestId,
                 sessionKind: 'earthcoach',
             }));
             if (saved.proposals.some(proposal => proposal.status !== 'ready' || Boolean(proposal.missing?.trim()))) {
@@ -997,11 +1003,22 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         }
     }
 
+    protected async copyFinalAnswer(finalAnswer: string): Promise<void> {
+        try {
+            await navigator.clipboard.writeText(finalAnswer);
+            this.messages.info('Réponse finale copiée dans le presse-papiers.');
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
     protected async saveResultAsNote(result: EarthCoachResult): Promise<void> {
         if (!this.context) {
             return;
         }
-        const content = (result.markdown || result.proposals.map(proposal =>
+        // Priorite a la reponse finale relue : c'est la version que
+        // l'utilisateur a validee pour le proprietaire de la cache.
+        const content = (result.final_answer || result.markdown || result.proposals.map(proposal =>
             `### ${proposal.question}\n${proposal.answer || 'À compléter'}\nÉtat : ${proposal.status}`
         ).join('\n\n')).trim();
         if (!content) {
@@ -1241,10 +1258,17 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                         {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
                     </select></label>
                     {result.action === 'resolve' && <button className='theia-button' disabled={this.generatingFinalResultId !== undefined} onClick={() => void this.generateFinalAnswer(result.id)}>
-                        {this.generatingFinalResultId === result.id ? 'Préparation…' : 'Générer la réponse finale avec mes corrections'}
+                        {this.generatingFinalResultId === result.id ? 'Préparation…' : (result.final_answer ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
                     </button>}
                     <button className='theia-button secondary' onClick={() => void this.saveResultAsNote(result)}>Enregistrer la synthèse dans les notes</button>
                 </div>
+                {result.final_answer && <div className='ecw-proposal'>
+                    <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
+                    <pre>{result.final_answer}</pre>
+                    <div className='ecw-row'>
+                        <button className='theia-button' onClick={() => void this.copyFinalAnswer(result.final_answer as string)}>Copier la réponse</button>
+                    </div>
+                </div>}
             </details>
         )}</section>;
     }

@@ -431,6 +431,27 @@ def test_result_patch_rejects_invalid_status(client, seeded):
     assert update.status_code == 400
 
 
+def test_result_patch_stores_final_answer(client, seeded):
+    # La reponse finale generee revient dans le dossier : elle est stockee sur
+    # le resultat source et survit a une recapture ulterieure.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-final', 'action': 'resolve', 'proposals': [{'question': 'Q'}]},
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+    assert result['final_answer'] is None
+
+    update = client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'final_answer': 'Réponse finale relue.'},
+    )
+    assert update.status_code == 200
+    assert update.get_json()['result']['final_answer'] == 'Réponse finale relue.'
+    # Le PATCH final_answer ne touche ni les propositions ni le markdown.
+    assert update.get_json()['result']['proposals'] == [{'question': 'Q'}]
+
+
 def test_result_capture_normalizes_missing_list(client, seeded):
     create = client.post(
         f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",

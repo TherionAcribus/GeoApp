@@ -482,6 +482,8 @@ def update_result(result_id: int):
             return jsonify({'error': str(error)}), 400
     if 'markdown' in data:
         result.markdown = _optional_text(data.get('markdown'))
+    if 'final_answer' in data:
+        result.final_answer = _optional_text(data.get('final_answer'))
     db.session.commit()
     return jsonify({'result': result.to_dict()})
 

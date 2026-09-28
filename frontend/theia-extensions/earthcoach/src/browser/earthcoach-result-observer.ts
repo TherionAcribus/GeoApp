@@ -15,6 +15,21 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
     protected readonly messages!: MessageService;
 
     async handleChatResponse(event: GeoAppChatResponseEvent): Promise<void> {
+        // Les generations de reponse finale sont correlees par requestId, pas
+        // par titre de session : elles doivent revenir dans le dossier meme si
+        // le titre EARTHCOACH FINAL change un jour.
+        if (this.capture.isFinalRequest(event.requestId)) {
+            try {
+                await this.capture.attachFinalAnswer(
+                    event.requestId as string,
+                    stripEarthCoachResultBlocks(event.text || '')
+                );
+            } catch (error) {
+                console.warn('[EarthCoach] Unable to attach the final answer to its result', error);
+                this.messages.warn('La réponse finale reste dans le chat, mais son rattachement au dossier a échoué.');
+            }
+            return;
+        }
         const title = event.sessionTitle || '';
         if (!title.startsWith('EARTHCOACH ANALYSE') && !title.startsWith('EARTHCOACH RÉSOLUTION')) {
             return;

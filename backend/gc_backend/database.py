@@ -257,6 +257,12 @@ def init_db(app):
                 logger.info('Adding missing column earthcoach_result.edited_proposals (JSON)')
                 db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN edited_proposals JSON'))
                 db.session.commit()
+            # La reponse finale generee est rattachee au resultat source pour
+            # rester disponible dans le dossier apres fermeture du chat.
+            if existing_cols and 'final_answer' not in existing_cols:
+                logger.info('Adding missing column earthcoach_result.final_answer (TEXT)')
+                db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN final_answer TEXT'))
+                db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (earthcoach_result): %s', error)
             db.session.rollback()

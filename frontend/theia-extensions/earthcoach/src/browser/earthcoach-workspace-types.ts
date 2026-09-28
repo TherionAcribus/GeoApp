@@ -125,6 +125,8 @@ export interface EarthCoachResult {
     /** true quand l'utilisateur a corrige les propositions du modele. */
     proposals_edited?: boolean;
     markdown?: string | null;
+    /** Reponse finale generee depuis les propositions relues, rattachee a ce resultat. */
+    final_answer?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
 }

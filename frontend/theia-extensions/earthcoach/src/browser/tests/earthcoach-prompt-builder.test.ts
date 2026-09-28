@@ -1554,6 +1554,35 @@ async function testCaptureSnapshotCorrectedOnTransmissionFailure(): Promise<void
     assert.match(snapshot!.unavailableImages[0].reason, /transmission/);
 }
 
+async function testFinalAnswerAttachesToSourceResult(): Promise<void> {
+    // La generation de reponse finale est correlee au resultat source par
+    // requestId : meme avec deux generations en parallele, chaque reponse
+    // rejoint son propre resultat au lieu de la derniere requete connue.
+    const service = new EarthCoachResultCaptureService();
+    const saved: Array<{ resultId: number; finalAnswer: string }> = [];
+    (service as unknown as { workspaceService: unknown }).workspaceService = {
+        saveFinalAnswer: async (resultId: number, finalAnswer: string) => {
+            saved.push({ resultId, finalAnswer });
+            return { id: resultId, geocache_id: 1, final_answer: finalAnswer } as never;
+        },
+    };
+    service.registerFinalRequest('final-1-100', 7, 1);
+    service.registerFinalRequest('final-9-200', 9, 1);
+
+    assert.equal(service.isFinalRequest('final-1-100'), true);
+    assert.equal(service.isFinalRequest('req-autre'), false);
+    assert.equal(service.isFinalRequest(undefined), false);
+
+    await service.attachFinalAnswer('final-1-100', 'Réponse finale A');
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].resultId, 7);
+    assert.equal(saved[0].finalAnswer, 'Réponse finale A');
+
+    await assert.rejects(() => service.attachFinalAnswer('final-inconnu', 'x'));
+    await assert.rejects(() => service.attachFinalAnswer('final-9-200', '   '));
+    assert.equal(saved.length, 1);
+}
+
 function testPromptSkipsExtractionHintWithoutQuestions(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -1844,6 +1873,7 @@ async function run(): Promise<void> {
     await testResultCaptureAttachesMarkdownToItsOwnRequest();
     await testPreparedImagesDetectUndecodableBlob();
     await testCaptureSnapshotCorrectedOnTransmissionFailure();
+    await testFinalAnswerAttachesToSourceResult();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

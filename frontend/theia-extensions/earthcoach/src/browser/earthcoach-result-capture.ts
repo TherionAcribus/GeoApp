@@ -10,9 +10,16 @@ export interface EarthCoachCapturePayload {
     proposals?: EarthCoachResultProposal[];
 }
 
+interface EarthCoachFinalRequest {
+    resultId: number;
+    geocacheId: number;
+}
+
 @injectable()
 export class EarthCoachResultCaptureService {
     protected readonly requests = new Map<string, EarthCoachPreparedRequest>();
+    /** Requetes de generation de la reponse finale, correlees au resultat source. */
+    protected readonly finalRequests = new Map<string, EarthCoachFinalRequest>();
     protected readonly capturedEmitter = new Emitter<EarthCoachResult>();
 
     @inject(EarthCoachWorkspaceService)
@@ -30,6 +37,42 @@ export class EarthCoachResultCaptureService {
                 this.requests.delete(oldest);
             }
         }
+    }
+
+    /**
+     * Une generation de reponse finale n'est pas un dossier prepare : elle est
+     * correlee directement au resultat dont elle derive. Le `requestId` envoye
+     * avec le dispatch revient dans l'evenement de fin de reponse.
+     */
+    registerFinalRequest(requestId: string, resultId: number, geocacheId: number): void {
+        this.finalRequests.set(requestId, { resultId, geocacheId });
+        if (this.finalRequests.size > 20) {
+            const oldest = this.finalRequests.keys().next().value;
+            if (oldest) {
+                this.finalRequests.delete(oldest);
+            }
+        }
+    }
+
+    isFinalRequest(requestId: string | undefined): boolean {
+        return Boolean(requestId) && this.finalRequests.has(requestId as string);
+    }
+
+    /**
+     * Rattache la reponse finale au resultat source : elle reste visible et
+     * copiable dans le dossier au lieu de ne vivre que dans la session de chat.
+     */
+    async attachFinalAnswer(requestId: string, markdown: string): Promise<EarthCoachResult> {
+        const target = this.finalRequests.get(requestId);
+        if (!target) {
+            throw new Error('Requête de réponse finale EarthCoach introuvable.');
+        }
+        if (!markdown.trim()) {
+            throw new Error('Réponse finale EarthCoach vide : rien à enregistrer.');
+        }
+        const result = await this.workspaceService.saveFinalAnswer(target.resultId, markdown);
+        this.capturedEmitter.fire(result);
+        return result;
     }
 
     /**
