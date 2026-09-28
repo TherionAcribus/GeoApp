@@ -5,6 +5,7 @@ interface ResolverServices {
     preferences?: Record<string, unknown>;
     assignedIdentifier?: string;
     resolvedModelId?: string;
+    settingsError?: Error;
 }
 
 function createResolver(services: ResolverServices): GeoAppAiScorerModelResolver {
@@ -15,11 +16,16 @@ function createResolver(services: ResolverServices): GeoAppAiScorerModelResolver
                 ? services.preferences[key] as T
                 : fallback,
     };
-    if (services.assignedIdentifier !== undefined) {
+    if (services.assignedIdentifier !== undefined || services.settingsError) {
         (resolver as any).aiSettingsService = {
-            getAgentSettings: async () => ({
-                languageModelRequirements: [{ purpose: 'chat', identifier: services.assignedIdentifier }],
-            }),
+            getAgentSettings: async () => {
+                if (services.settingsError) {
+                    throw services.settingsError;
+                }
+                return {
+                    languageModelRequirements: [{ purpose: 'chat', identifier: services.assignedIdentifier }],
+                };
+            },
         };
         (resolver as any).languageModelRegistry = {
             selectLanguageModel: async () => ({ id: services.resolvedModelId || services.assignedIdentifier }),
@@ -150,6 +156,21 @@ async function testUnsupportedAssignedModelFailsExplicitly(): Promise<void> {
     );
 }
 
+async function testUnreadableAssignmentDoesNotFallBackToPreferences(): Promise<void> {
+    const resolver = createResolver({
+        preferences: {
+            'geoApp.aiScorer.provider': 'lmstudio',
+            'geoApp.aiScorer.lmstudio.model': 'legacy-model',
+        },
+        settingsError: new Error('settings unavailable'),
+    });
+
+    await assert.rejects(
+        () => resolver.resolveForRequest({}),
+        /impossible de lire l'affectation Theia/
+    );
+}
+
 async function main(): Promise<void> {
     await testOpenRouterAgentAssignment();
     await testOpenAiOfficialAssignment();
@@ -158,6 +179,7 @@ async function main(): Promise<void> {
     await testPreferenceFallbackWithoutAssignment();
     await testExplicitRequestWinsOverAgentAssignment();
     await testUnsupportedAssignedModelFailsExplicitly();
+    await testUnreadableAssignmentDoesNotFallBackToPreferences();
     console.log('ai-scorer-model-resolver tests passed');
 }
 

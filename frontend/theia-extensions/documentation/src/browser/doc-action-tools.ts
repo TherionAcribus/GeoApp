@@ -42,6 +42,7 @@ import {
     GeocachePromptData,
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
+import { GeoAppAiModelResolutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-model-resolution-service';
 import {
     checkGeoAppLocalModel,
     GeoAppLocalModelPreferences,
@@ -262,6 +263,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     @inject(GeoAppAiScorerModelResolver) @optional()
     protected readonly aiScorerModelResolver: GeoAppAiScorerModelResolver | undefined;
+
+    @inject(GeoAppAiModelResolutionService) @optional()
+    protected readonly aiModelResolutionService: GeoAppAiModelResolutionService | undefined;
 
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
@@ -2970,6 +2974,10 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             };
         }));
         const description: Record<string, unknown> = { id: agent.id, name: agent.name, requirements };
+        const taskResolutions = await this.aiModelResolutionService?.resolveForAgent(agent.id) ?? [];
+        if (taskResolutions.length) {
+            description.task_resolutions = taskResolutions;
+        }
         if (agent.id === 'geoapp-ocr') {
             const pluginProvider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
                 ? 'openrouter'

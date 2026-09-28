@@ -39,6 +39,11 @@ export interface GeoAppLocalModelCheck {
     reason: string;
 }
 
+export interface GeoAppLocalEndpointCheck {
+    status: GeoAppLocalModelStatus;
+    host?: string;
+}
+
 const KNOWN_CLOUD_MODEL_PREFIXES = [
     'openrouter/',
     'openai/',
@@ -227,7 +232,11 @@ function toAllowlist(value: unknown): string[] {
         .filter(Boolean);
 }
 
-function inspectLocalEndpoint(value: unknown): { status: GeoAppLocalModelStatus; host?: string } {
+export function checkGeoAppLocalEndpoint(value: unknown): GeoAppLocalEndpointCheck {
+    return inspectLocalEndpoint(value);
+}
+
+function inspectLocalEndpoint(value: unknown): GeoAppLocalEndpointCheck {
     const raw = typeof value === 'string' ? value.trim() : '';
     if (!raw) {
         return { status: 'unknown' };
@@ -261,19 +270,12 @@ function isLocalHostname(hostname: string): boolean {
     if (isPrivateIpv4(hostname)) {
         return true;
     }
-    return hostname === '::1'
-        || hostname.startsWith('fc')
-        || hostname.startsWith('fd')
-        || hostname.startsWith('fe80');
+    return isLocalIpv6(hostname);
 }
 
 function isPrivateIpv4(hostname: string): boolean {
-    const parts = hostname.split('.');
-    if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part))) {
-        return false;
-    }
-    const numbers = parts.map(Number);
-    if (numbers.some(part => part < 0 || part > 255)) {
+    const numbers = parseIpv4(hostname);
+    if (!numbers) {
         return false;
     }
     const [a, b] = numbers;
@@ -283,6 +285,89 @@ function isPrivateIpv4(hostname: string): boolean {
         || (a === 169 && b === 254)
         || (a === 172 && b >= 16 && b <= 31)
         || (a === 192 && b === 168);
+}
+
+function parseIpv4(value: string): number[] | undefined {
+    const parts = value.split('.');
+    if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part))) {
+        return undefined;
+    }
+    const numbers = parts.map(Number);
+    return numbers.some(part => part < 0 || part > 255) ? undefined : numbers;
+}
+
+function isLocalIpv6(hostname: string): boolean {
+    const groups = parseIpv6Groups(hostname.split('%')[0]);
+    if (!groups) {
+        return false;
+    }
+
+    const isLoopback = groups.slice(0, 7).every(group => group === 0) && groups[7] === 1;
+    const isIpv4Mapped = groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff;
+    if (isLoopback) {
+        return true;
+    }
+    if (isIpv4Mapped) {
+        return isPrivateIpv4([
+            groups[6] >> 8,
+            groups[6] & 0xff,
+            groups[7] >> 8,
+            groups[7] & 0xff,
+        ].join('.'));
+    }
+    return (groups[0] >= 0xfc00 && groups[0] <= 0xfdff)
+        || (groups[0] >= 0xfe80 && groups[0] <= 0xfebf);
+}
+
+function parseIpv6Groups(value: string): number[] | undefined {
+    const hasCompression = value.includes('::');
+    if (!value.includes(':') || value.split('::').length > 2) {
+        return undefined;
+    }
+
+    const [left, right] = hasCompression ? value.split('::') : [value, ''];
+    const leftGroups = parseIpv6Side(left);
+    const rightGroups = parseIpv6Side(right);
+    if (!leftGroups || !rightGroups) {
+        return undefined;
+    }
+
+    const groups = [...leftGroups, ...rightGroups];
+    if (!hasCompression) {
+        return groups.length === 8 ? groups : undefined;
+    }
+    if (groups.length >= 8) {
+        return undefined;
+    }
+    return [
+        ...leftGroups,
+        ...new Array<number>(8 - groups.length).fill(0),
+        ...rightGroups,
+    ];
+}
+
+function parseIpv6Side(value: string): number[] | undefined {
+    if (value === '') {
+        return [];
+    }
+    const parts = value.split(':');
+    if (parts.some(part => !part)) {
+        return undefined;
+    }
+
+    const groups: number[] = [];
+    for (const [index, part] of parts.entries()) {
+        if (/^[0-9a-f]{1,4}$/i.test(part)) {
+            groups.push(Number.parseInt(part, 16));
+            continue;
+        }
+        const ipv4 = index === parts.length - 1 ? parseIpv4(part) : undefined;
+        if (!ipv4) {
+            return undefined;
+        }
+        groups.push((ipv4[0] << 8) | ipv4[1], (ipv4[2] << 8) | ipv4[3]);
+    }
+    return groups;
 }
 
 export function isGeoAppStrictLocalAgent(agentId: string | undefined): boolean {

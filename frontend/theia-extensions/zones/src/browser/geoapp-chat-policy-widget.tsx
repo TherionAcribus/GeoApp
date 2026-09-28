@@ -5,7 +5,6 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
-import { LanguageModelRegistry } from '@theia/ai-core';
 import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
 import {
     PromptFragment,
@@ -51,13 +50,8 @@ import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills'
 import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
-import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
-import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
-import {
-    checkGeoAppLocalModel,
-    GeoAppLocalModelPreferences,
-    GEOAPP_LOCAL_MODEL_IDS_PREF,
-} from './geoapp-local-model-guard';
+import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
+import { GeoAppAiModelResolution } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -87,37 +81,6 @@ const SKILL_PACK_OPTIONS: Array<{ value: GeoAppChatSkillPack; label: string }> =
 // Presets partages avec le tool IA `aide_apply_chat_preset` (source unique).
 const PRESET_OPTIONS = GEOAPP_CHAT_PRESET_OPTIONS;
 
-type GeoAppChatAgentModelKind = 'chat' | 'internal' | 'backend';
-
-interface GeoAppChatAgentModelRow {
-    id: string;
-    label: string;
-    kind: GeoAppChatAgentModelKind;
-    purpose: string;
-    requiresLocalModel?: boolean;
-}
-
-// Agents GeoApp exposes aux reglages IA Theia. Le panneau resout le modele effectif de
-// chacun pour répondre à la question "quel modèle pour quoi ?" en un seul endroit.
-const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
-    { id: 'GeoApp', label: 'GeoApp (principal)', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-chat-local', label: 'GeoApp Chat (Local)', kind: 'chat', purpose: 'chat', requiresLocalModel: true },
-    { id: 'geoapp-chat-fast', label: 'GeoApp Chat (Fast)', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-chat-strong', label: 'GeoApp Chat (Strong)', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-chat-web', label: 'GeoApp Chat (Web)', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-formula-solver-local', label: 'Formula Solver (Local)', kind: 'internal', purpose: 'formula-solving', requiresLocalModel: true },
-    { id: 'geoapp-formula-solver-fast', label: 'Formula Solver (Fast)', kind: 'internal', purpose: 'formula-solving' },
-    { id: 'geoapp-formula-solver-strong', label: 'Formula Solver (Strong)', kind: 'internal', purpose: 'formula-solving' },
-    { id: 'geoapp-formula-solver-web', label: 'Formula Solver (Web)', kind: 'internal', purpose: 'formula-solving' },
-    { id: 'geoapp-outing-analyzer', label: 'Analyse de sortie', kind: 'chat', purpose: 'chat' },
-    { id: 'geoapp-ocr', label: 'OCR galerie via Theia', kind: 'internal', purpose: 'vision-ocr' },
-    { id: 'geoapp-vision-ocr-plugin', label: 'OCR plugin vision_ocr', kind: 'backend', purpose: '' },
-    { id: 'geoapp-translate-description', label: 'Traduction descriptions', kind: 'internal', purpose: 'chat' },
-    { id: 'geoapp-logs-analyzer', label: 'Analyse des logs', kind: 'internal', purpose: 'chat' },
-    { id: 'geoapp-log-improver', label: 'Correction de logs', kind: 'internal', purpose: 'chat' },
-    { id: 'geoapp-log-translator', label: 'Traduction de logs', kind: 'internal', purpose: 'chat' },
-    { id: 'geoapp-ai-scorer', label: 'AI Scorer (plugins)', kind: 'internal', purpose: 'chat' },
-];
 
 const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
     'workflow',
@@ -218,20 +181,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected skillStatesLoaded = false;
     protected selectedPromptVariantId = GeoAppChatPromptVariantByPack.guided;
     protected promptImportText = '';
-    protected agentModels = new Map<string, string>();
-    protected agentModelDiagnostics = new Map<string, string>();
+    protected agentModels = new Map<string, GeoAppAiModelResolution>();
     protected agentModelsLoading = false;
     protected agentModelsLoaded = false;
+    protected agentModelsGeneration = 0;
     protected activeTab: GeoAppChatPolicyTab = 'general';
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
 
-    @inject(LanguageModelRegistry) @optional()
-    protected readonly languageModelRegistry: LanguageModelRegistry | undefined;
-
-    @inject(GeoAppAiScorerModelResolver) @optional()
-    protected readonly aiScorerModelResolver: GeoAppAiScorerModelResolver | undefined;
+    @inject(GeoAppAiModelResolutionService) @optional()
+    protected readonly aiModelResolutionService: GeoAppAiModelResolutionService | undefined;
 
     @inject(PromptService) @optional()
     protected readonly promptService: PromptService | undefined;
@@ -266,6 +226,12 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         if (this.skillService) {
             this.toDispose.push(this.skillService.onSkillsChanged(() => {
                 this.skillStatesLoaded = false;
+                this.update();
+            }));
+        }
+        if (this.aiModelResolutionService) {
+            this.toDispose.push(this.aiModelResolutionService.onDidChange(() => {
+                this.agentModelsLoaded = false;
                 this.update();
             }));
         }
@@ -502,38 +468,66 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     protected renderAgentModels(): React.ReactNode {
         void this.ensureAgentModels();
+        const tasks = this.aiModelResolutionService?.getTasks() ?? [];
         return (
             <section className='geoapp-chat-policy-agents'>
                 <div className='geoapp-chat-policy-agents-head'>
                     <div>
-                        <h3>Modeles par agent</h3>
-                        <p>Modele effectif pour chaque tache/agent GeoApp. L'OCR distingue le chemin Theia (affectation geoapp-ocr) du plugin backend vision_ocr (preferences geoApp.ocr.*).</p>
+                        <h3>Modèles par tâche</h3>
+                        <p>Choix configuré, modèle effectivement résolu et chemin d’exécution. L’OCR distingue l’appel Theia du plugin backend vision_ocr.</p>
                     </div>
                     <button className='theia-button secondary' type='button' onClick={() => this.refreshAgentModels()}>
-                        Rafraichir
+                        Rafraîchir
                     </button>
                 </div>
-                {!this.languageModelRegistry && (
-                    <p className='geoapp-chat-policy-muted'>Registre de modeles indisponible.</p>
+                {!this.aiModelResolutionService && (
+                    <p className='geoapp-chat-policy-muted'>Service de résolution des modèles indisponible.</p>
                 )}
-                {this.agentModelsLoading && <p className='geoapp-chat-policy-muted'>Resolution des modeles en cours...</p>}
+                {this.agentModelsLoading && <p className='geoapp-chat-policy-muted'>Résolution des modèles en cours...</p>}
                 <table className='geoapp-chat-policy-agent-table'>
                     <thead>
-                        <tr><th>Tache / agent</th><th>Type</th><th>Modele resolu</th></tr>
+                        <tr>
+                            <th>Tâche / agent</th>
+                            <th>Type</th>
+                            <th>Choix configuré</th>
+                            <th>Modèle effectif</th>
+                            <th>Exécution</th>
+                        </tr>
                     </thead>
                     <tbody>
-                        {AGENT_MODEL_ROWS.map(row => {
-                            const model = this.agentModels.get(row.id);
-                            const diagnostic = this.agentModelDiagnostics.get(row.id);
+                        {tasks.map(task => {
+                            const resolution = this.agentModels.get(task.id);
+                            const statusClass = resolution && resolution.status !== 'ready'
+                                ? 'geoapp-chat-policy-warn'
+                                : 'geoapp-chat-policy-muted';
                             return (
-                                <tr key={row.id}>
-                                    <td>{row.label}</td>
-                                    <td>{row.kind === 'chat' ? 'Chat' : row.kind === 'backend' ? 'Backend' : 'Interne'}</td>
+                                <tr key={task.id}>
                                     <td>
-                                        {model
-                                            ? model
-                                            : <span className='geoapp-chat-policy-warn'>Aucun modele assigne</span>}
-                                        {diagnostic && <div className='geoapp-chat-policy-warn'>{diagnostic}</div>}
+                                        {task.label}
+                                        {task.agentId && <div className='geoapp-chat-policy-muted'>{task.agentId}</div>}
+                                    </td>
+                                    <td>{task.kind === 'chat' ? 'Chat' : task.kind === 'backend' ? 'Backend' : 'Interne'}</td>
+                                    <td>
+                                        {resolution?.requestedIdentifier || resolution?.backingPreference || '—'}
+                                        {resolution?.sourceLabel && <div className='geoapp-chat-policy-muted'>{resolution.sourceLabel}</div>}
+                                    </td>
+                                    <td>
+                                        {resolution?.displayModel
+                                            ? resolution.displayModel
+                                            : <span className='geoapp-chat-policy-warn'>Aucun modèle assigné</span>}
+                                        {resolution?.backingModel && resolution.backingModel !== resolution.resolvedModelId && (
+                                            <div className='geoapp-chat-policy-muted'>Sous-jacent : {resolution.backingModel}</div>
+                                        )}
+                                        {resolution?.diagnostics.map(diagnostic => (
+                                            <div key={diagnostic} className='geoapp-chat-policy-warn'>{diagnostic}</div>
+                                        ))}
+                                    </td>
+                                    <td>
+                                        {resolution?.executionPath === 'backend-plugin' ? 'Backend' : 'Theia'}
+                                        {resolution?.transport && <div className='geoapp-chat-policy-muted'>{this.formatModelTransport(resolution)}</div>}
+                                        <div className={statusClass}>
+                                            {resolution ? `${this.formatModelLocality(resolution)} · ${this.formatModelStatus(resolution)}` : '—'}
+                                        </div>
                                     </td>
                                 </tr>
                             );
@@ -547,69 +541,58 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected refreshAgentModels(): void {
         this.agentModelsLoaded = false;
         this.agentModels = new Map();
-        this.agentModelDiagnostics = new Map();
+        this.agentModelsGeneration += 1;
         void this.ensureAgentModels();
     }
 
     protected async ensureAgentModels(): Promise<void> {
-        if (this.agentModelsLoaded || this.agentModelsLoading || (!this.languageModelRegistry && !this.aiScorerModelResolver)) {
+        if (this.agentModelsLoaded || this.agentModelsLoading || !this.aiModelResolutionService) {
             return;
         }
+        const generation = ++this.agentModelsGeneration;
         this.agentModelsLoading = true;
         try {
-            const registry = this.languageModelRegistry;
-            const diagnostics = new Map<string, string>();
-            const resolved = await Promise.all(AGENT_MODEL_ROWS.map(async row => {
-                try {
-                    if (row.kind === 'backend') {
-                        const provider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
-                            ? 'openrouter'
-                            : 'lmstudio';
-                        return [row.id, formatGeocacheVisionPluginModel(
-                            provider,
-                            this.preferenceService.get<string>('geoApp.ocr.lmstudio.model', ''),
-                            this.preferenceService.get<string>('geoApp.ocr.openRouter.model', 'openai/gpt-4o-mini')
-                        )] as const;
-                    }
-                    if (row.id === GEOAPP_AI_SCORER_AGENT_ID && this.aiScorerModelResolver) {
-                        return [row.id, await this.aiScorerModelResolver.describeEffectiveSelection()] as const;
-                    }
-                    if (!registry) {
-                        return [row.id, ''] as const;
-                    }
-                    const model = await registry.selectLanguageModel({
-                        agent: row.id,
-                        purpose: row.purpose,
-                        identifier: 'default/universal',
-                    });
-                    if (model && row.requiresLocalModel) {
-                        const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
-                        if (localCheck.status !== 'local') {
-                            diagnostics.set(row.id, `Non compatible local/offline : ${localCheck.reason}.`);
-                        }
-                    }
-                    return [row.id, model ? (model.name || model.id) : ''] as const;
-                } catch {
-                    return [row.id, ''] as const;
-                }
-            }));
-            this.agentModels = new Map(resolved.filter(([, model]) => model));
-            this.agentModelDiagnostics = diagnostics;
+            const resolved = await this.aiModelResolutionService.resolveAll();
+            if (generation !== this.agentModelsGeneration) {
+                return;
+            }
+            this.agentModels = new Map(resolved.map(resolution => [resolution.taskId, resolution]));
             this.agentModelsLoaded = true;
+        } catch (error) {
+            console.error('[GeoAppChatPolicyWidget] model resolution error', error);
         } finally {
             this.agentModelsLoading = false;
             this.update();
         }
     }
 
-    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
-        return {
-            ollamaHost: this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
-            lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
-            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
-            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
-            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
-        };
+    protected formatModelTransport(resolution: GeoAppAiModelResolution): string {
+        switch (resolution.transport) {
+            case 'theia-managed': return 'API gérée par Theia';
+            case 'chat-completions': return 'Chat Completions';
+            case 'responses-api': return 'Responses API';
+            default: return 'transport inconnu';
+        }
+    }
+
+    protected formatModelLocality(resolution: GeoAppAiModelResolution): string {
+        if (resolution.locality === 'local') {
+            return 'local';
+        }
+        if (resolution.locality === 'remote') {
+            return 'distant';
+        }
+        return 'localité inconnue';
+    }
+
+    protected formatModelStatus(resolution: GeoAppAiModelResolution): string {
+        switch (resolution.status) {
+            case 'ready': return 'prêt';
+            case 'unconfigured': return 'non configuré';
+            case 'incompatible': return 'incompatible';
+            case 'unsupported': return 'non pris en charge';
+            default: return 'indisponible';
+        }
     }
 
     protected renderPromptPackEditor(): React.ReactNode {

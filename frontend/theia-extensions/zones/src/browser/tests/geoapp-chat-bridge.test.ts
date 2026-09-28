@@ -290,6 +290,75 @@ async function testReusesExistingSessionByGcCode(): Promise<void> {
     });
 }
 
+async function testExistingSessionKeepsPinnedAgentAndModelOverride(): Promise<void> {
+    const { bridge, chatService, languageModelRegistry } = createBridge({
+        agents: [
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+            { id: GeoAppChatStrongAgentId, name: 'GeoApp Chat (Strong)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'fast',
+            'geoApp.chat.workflowProfile.formula': 'strong',
+        },
+        readyAgentIds: [GeoAppChatFastAgentId, GeoAppChatStrongAgentId],
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCKEEP1',
+        prompt: 'Premier envoi.',
+        workflowKind: 'general',
+    });
+    const session = chatService.sessions[0];
+    const currentCommonSettings = session.model.settings.commonSettings as Record<string, unknown> | undefined;
+    session.model.settings = {
+        commonSettings: {
+            modelId: 'ollama/session-model',
+            geoapp: currentCommonSettings?.geoapp,
+        },
+    };
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCKEEP1',
+        prompt: 'Reprise sans choix explicite.',
+        workflowKind: 'formula',
+    });
+
+    assert.equal(session.pinnedAgent?.id, GeoAppChatFastAgentId);
+    assert.equal(session.title, 'CHAT IA - GCKEEP1 [Fast]');
+    assert.equal(languageModelRegistry.calls.length, 1);
+    const nextCommonSettings = session.model.settings.commonSettings as Record<string, unknown> | undefined;
+    assert.equal(nextCommonSettings?.modelId, 'ollama/session-model');
+}
+
+async function testExplicitProfileChangesExistingSessionAgent(): Promise<void> {
+    const { bridge, chatService } = createBridge({
+        agents: [
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+            { id: GeoAppChatStrongAgentId, name: 'GeoApp Chat (Strong)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'fast',
+        },
+        readyAgentIds: [GeoAppChatFastAgentId, GeoAppChatStrongAgentId],
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCCHANGE1',
+        prompt: 'Premier envoi.',
+        workflowKind: 'general',
+    });
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCCHANGE1',
+        prompt: 'Passage explicite en fort.',
+        workflowKind: 'general',
+        preferredProfile: 'strong',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, GeoAppChatStrongAgentId);
+    assert.equal(chatService.sessions[0].title, 'CHAT IA - GCCHANGE1 [Strong]');
+}
+
 async function testFallsBackToConfiguredReadyAgent(): Promise<void> {
     const universalAgent = { id: 'universal-chat', name: 'Universal Agent' };
     const { bridge, chatService, languageModelRegistry } = createBridge({
@@ -737,6 +806,8 @@ async function testOfflineBehaviorForcesLocalAgent(): Promise<void> {
 async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
+    await testExistingSessionKeepsPinnedAgentAndModelOverride();
+    await testExplicitProfileChangesExistingSessionAgent();
     await testFallsBackToConfiguredReadyAgent();
     await testPreferredAgentIdWinsOverWorkflowProfile();
     await testFallbackNeverSelectsForeignAgent();

@@ -145,7 +145,9 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
             const existingSession = this.findExistingSession(detail, baseSessionTitle);
             if (existingSession) {
-                const pinnedAgent = await this.resolveDefaultChatAgent(detail);
+                const pinnedAgent = this.hasExplicitAgentSelection(detail) || !existingSession.pinnedAgent
+                    ? await this.resolveDefaultChatAgent(detail)
+                    : existingSession.pinnedAgent;
                 existingSession.pinnedAgent = pinnedAgent;
                 existingSession.title = this.buildDisplaySessionTitle(baseSessionTitle, pinnedAgent);
                 this.setSessionMetadata(existingSession, detail, baseSessionTitle, pinnedAgent);
@@ -216,6 +218,12 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             // Réponse annulée ou en erreur : rien à observer, et le chat l'a déjà signalé.
             console.debug('[GeoAppChatBridge] Réponse non aboutie, observateurs non appelés', error);
         });
+    }
+
+    protected hasExplicitAgentSelection(detail: GeoAppOpenChatRequestDetail): boolean {
+        return Boolean(detail.preferredAgentId?.trim())
+            || detail.preferredProfile !== undefined
+            || detail.preferredBehaviorProfile !== undefined;
     }
 
     protected findExistingSession(detail: GeoAppOpenChatRequestDetail, sessionTitle: string): ChatSession | undefined {

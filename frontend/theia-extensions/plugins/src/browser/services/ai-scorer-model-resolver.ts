@@ -122,8 +122,8 @@ export class GeoAppAiScorerModelResolver {
                 ?.find(requirement => requirement.purpose === 'chat')
                 ?.identifier;
         } catch (error) {
-            console.warn('[PluginsService] Impossible de lire l\'affectation IA Scorer', error);
-            return undefined;
+            const detail = error instanceof Error ? error.message : String(error);
+            throw new Error(`AI Scorer : impossible de lire l'affectation Theia (${detail}).`);
         }
     }
 

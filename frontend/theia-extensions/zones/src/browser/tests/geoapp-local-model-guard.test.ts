@@ -126,6 +126,54 @@ function testUnknownModelIsRejected(): void {
     assert.equal(check.status, 'unknown');
 }
 
+function testIpv6PrivateHostsAreLocal(): void {
+    for (const host of [
+        'http://[::1]:11434',
+        'http://[fc00::1]:11434',
+        'http://[fd12::1]:11434',
+        'http://[fe80::1]:11434',
+        'http://[fe90::1]:11434',
+    ]) {
+        const check = checkGeoAppLocalModel({ id: 'ollama/llama3.1' }, { ollamaHost: host });
+        assert.equal(check.status, 'local', host);
+    }
+}
+
+function testIpv6PublicHostIsRejected(): void {
+    const check = checkGeoAppLocalModel(
+        { id: 'ollama/llama3.1' },
+        { ollamaHost: 'http://[2001:4860:4860::8888]:11434' }
+    );
+    assert.equal(check.status, 'remote');
+    assert.equal(check.source, 'ollama-endpoint');
+}
+
+function testDnsNameWithIpv6PrefixIsRejected(): void {
+    for (const host of [
+        'https://fc-example.com',
+        'https://fd-example.com',
+        'https://fe80-example.com',
+    ]) {
+        const check = checkGeoAppLocalModel({ id: 'ollama/llama3.1' }, { ollamaHost: host });
+        assert.equal(check.status, 'remote', host);
+        assert.equal(check.source, 'ollama-endpoint', host);
+    }
+}
+
+function testIpv4MappedIpv6UsesIpv4Classification(): void {
+    const local = checkGeoAppLocalModel(
+        { id: 'ollama/llama3.1' },
+        { ollamaHost: 'http://[::ffff:127.0.0.1]:11434' }
+    );
+    assert.equal(local.status, 'local');
+
+    const remote = checkGeoAppLocalModel(
+        { id: 'ollama/llama3.1' },
+        { ollamaHost: 'http://[::ffff:8.8.8.8]:11434' }
+    );
+    assert.equal(remote.status, 'remote');
+}
+
 function testStrictLocalAgentIds(): void {
     assert.equal(isGeoAppStrictLocalAgent('geoapp-chat-local'), true);
     assert.equal(isGeoAppStrictLocalAgent('geoapp-formula-solver-local'), true);
@@ -146,6 +194,10 @@ function run(): void {
     testAllowlistAcceptsUnknownLocalModel();
     testAllowlistCannotOverrideKnownCloudId();
     testUnknownModelIsRejected();
+    testIpv6PrivateHostsAreLocal();
+    testIpv6PublicHostIsRejected();
+    testDnsNameWithIpv6PrefixIsRejected();
+    testIpv4MappedIpv6UsesIpv4Classification();
     testStrictLocalAgentIds();
     // eslint-disable-next-line no-console
     console.log('geoapp-local-model-guard tests passed');
