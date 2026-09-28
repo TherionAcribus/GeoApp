@@ -834,6 +834,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 earthcoachVerbosity: verbosity,
+                earthcoachResponseLanguage: this.responseLanguage,
                 earthcoachRequestId: snapshot.requestId,
                 sessionKind: 'earthcoach',
                 imageContexts: promptImages.map(toImageContext),
@@ -968,6 +969,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: 'resolver',
                 earthcoachVerbosity: verbosity,
+                earthcoachResponseLanguage: this.responseLanguage,
                 sessionKind: 'earthcoach',
             }));
             if (saved.proposals.some(proposal => proposal.status !== 'ready' || Boolean(proposal.missing?.trim()))) {

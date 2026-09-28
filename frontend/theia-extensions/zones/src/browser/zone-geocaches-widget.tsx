@@ -2010,7 +2010,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         anchor.download = filename;
         anchor.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
-        this.messageService.info(`Export CSV : ${this.outing.friends.length} ami(s) × ${rows.length} cache(s).`);
+        this.messages.info(`Export CSV : ${this.outing.friends.length} ami(s) × ${rows.length} cache(s).`);
     };
 
     /**

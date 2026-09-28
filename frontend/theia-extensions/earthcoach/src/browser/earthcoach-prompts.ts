@@ -110,22 +110,41 @@ const RESOLVER_RULES = [
     '- Ne dis jamais que la proposition est certaine sans preuve dans le contexte.',
 ].join('\n');
 
-function buildResponseStyleRule(verbosity: EarthCoachVerbosity): string {
+/** Noms de langues tels qu'on les donne au modele dans la consigne de reponse. */
+const RESPONSE_LANGUAGE_NAMES: Record<string, string> = {
+    fr: 'francais',
+    en: 'anglais',
+    de: 'allemand',
+    es: 'espagnol',
+    it: 'italien',
+    nl: 'neerlandais',
+    pt: 'portugais',
+};
+
+function buildResponseStyleRule(verbosity: EarthCoachVerbosity, responseLanguage = 'fr'): string {
+    // La consigne systeme doit suivre la langue choisie dans l'UI: imposer le
+    // francais ici contredisait la demande passee dans le prompt utilisateur,
+    // qui a une priorite moindre.
+    const language = RESPONSE_LANGUAGE_NAMES[responseLanguage] || 'francais';
     if (verbosity === 'detailed') {
-        return 'Reponds en francais, avec le niveau de detail utile, sans inventer de terrain.';
+        return `Reponds en ${language}, avec le niveau de detail utile, sans inventer de terrain.`;
     }
     if (verbosity === 'normal') {
-        return 'Reponds en francais, de facon pratique et concise, sans cours general inutile.';
+        return `Reponds en ${language}, de facon pratique et concise, sans cours general inutile.`;
     }
-    return 'Reponds en francais, tres brievement par defaut: privilegie un compte rendu rapide en quelques puces.';
+    return `Reponds en ${language}, tres brievement par defaut: privilegie un compte rendu rapide en quelques puces.`;
 }
 
-export function buildEarthCoachSystemPrompt(mode: EarthCoachMode, verbosity: EarthCoachVerbosity = 'compact'): string {
+export function buildEarthCoachSystemPrompt(
+    mode: EarthCoachMode,
+    verbosity: EarthCoachVerbosity = 'compact',
+    responseLanguage = 'fr'
+): string {
     return [
         SHARED_RULES,
         '',
         mode === 'resolver' ? RESOLVER_RULES : COACH_RULES,
         '',
-        buildResponseStyleRule(verbosity),
+        buildResponseStyleRule(verbosity, responseLanguage),
     ].join('\n');
 }

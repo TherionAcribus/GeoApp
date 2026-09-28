@@ -36,7 +36,11 @@ import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget'
 import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
 import { EarthCoachLoggingTasksWidget } from './earthcoach-logging-tasks-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
-import { EARTHCOACH_LISTING_LANGUAGE_PREF, EARTHCOACH_RESPONSE_VERBOSITY_PREF } from './earthcoach-preferences';
+import {
+    EARTHCOACH_LISTING_LANGUAGE_PREF,
+    EARTHCOACH_RESPONSE_LANGUAGE_PREF,
+    EARTHCOACH_RESPONSE_VERBOSITY_PREF,
+} from './earthcoach-preferences';
 import { buildQuickActionPicks, buildQuickActionPlaceHolder } from './earthcoach-quick-actions';
 import { EarthCoachWorkspaceTabsManager } from './earthcoach-workspace-tabs-manager';
 import { selectEarthCoachDescription } from './earthcoach-description-selector';
@@ -230,10 +234,16 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 earthcoachVerbosity: verbosity,
+                earthcoachResponseLanguage: this.readResponseLanguage(),
                 sessionKind: 'earthcoach',
                 imageContexts: selectedImages.map(toImageContext),
             })
         );
+    }
+
+    protected readResponseLanguage(): string {
+        const value = this.preferenceService.get<string>(EARTHCOACH_RESPONSE_LANGUAGE_PREF, 'fr');
+        return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : 'fr';
     }
 
     protected readResponseVerbosity(): EarthCoachVerbosity {

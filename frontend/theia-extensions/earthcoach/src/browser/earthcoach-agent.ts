@@ -103,7 +103,13 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     }
 
     protected override async getSystemMessageDescription(context: AIVariableContext): Promise<SystemMessageDescription | undefined> {
-        return { text: buildEarthCoachSystemPrompt(this.readMode(context), this.readVerbosity(context)) };
+        return {
+            text: buildEarthCoachSystemPrompt(
+                this.readMode(context),
+                this.readVerbosity(context),
+                this.readResponseLanguage(context)
+            ),
+        };
     }
 
     protected readMode(context: AIVariableContext): EarthCoachMode {
@@ -116,6 +122,14 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
         const commonSettings = request?.session?.settings?.commonSettings as { geoapp?: { earthcoachVerbosity?: unknown } } | undefined;
         const value = commonSettings?.geoapp?.earthcoachVerbosity;
         return value === 'normal' || value === 'detailed' ? value : 'compact';
+    }
+
+    /** Langue de reponse choisie dans le dossier terrain, propagee via les settings de session. */
+    protected readResponseLanguage(context: AIVariableContext): string {
+        const request = ChatSessionContext.is(context) ? context.request : undefined;
+        const commonSettings = request?.session?.settings?.commonSettings as { geoapp?: { earthcoachResponseLanguage?: unknown } } | undefined;
+        const value = commonSettings?.geoapp?.earthcoachResponseLanguage;
+        return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : 'fr';
     }
 }
 

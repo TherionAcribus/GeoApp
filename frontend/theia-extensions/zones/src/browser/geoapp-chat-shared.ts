@@ -111,6 +111,8 @@ export interface GeoAppOpenChatRequestDetailPayload {
     preferredAgentId?: string;
     earthcoachMode?: string;
     earthcoachVerbosity?: string;
+    /** Langue choisie pour les reponses EarthCoach (code: fr, en, de...). */
+    earthcoachResponseLanguage?: string;
     /**
      * Correlation d'une requete EarthCoach dossier terrain : propagee dans
      * l'evenement de fin de reponse pour que le Markdown soit attache a la
@@ -433,6 +435,7 @@ export function buildGeoAppOpenChatRequestDetail(
         preferredAgentId: detail.preferredAgentId,
         earthcoachMode: detail.earthcoachMode,
         earthcoachVerbosity: detail.earthcoachVerbosity,
+        earthcoachResponseLanguage: detail.earthcoachResponseLanguage,
         earthcoachRequestId: detail.earthcoachRequestId,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,

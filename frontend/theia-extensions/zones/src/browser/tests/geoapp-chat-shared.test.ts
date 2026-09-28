@@ -230,9 +230,22 @@ function testOpenChatDetailBuilder(): void {
         preferredAgentId: undefined,
         earthcoachMode: undefined,
         earthcoachVerbosity: undefined,
+        earthcoachResponseLanguage: undefined,
+        earthcoachRequestId: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
+
+    const localized = buildGeoAppOpenChatRequestDetail({
+        geocacheId: 13,
+        gcCode: 'GC1313',
+        geocacheName: 'Localized cache',
+        prompt: 'Resoudre',
+        earthcoachMode: 'resolver',
+        earthcoachResponseLanguage: 'en',
+    });
+    assert.equal(localized.earthcoachMode, 'resolver');
+    assert.equal(localized.earthcoachResponseLanguage, 'en');
 }
 
 function testDispatchGeoAppOpenChatRequest(): void {
@@ -282,6 +295,8 @@ function testDispatchGeoAppOpenChatRequest(): void {
         preferredAgentId: undefined,
         earthcoachMode: undefined,
         earthcoachVerbosity: undefined,
+        earthcoachResponseLanguage: undefined,
+        earthcoachRequestId: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });

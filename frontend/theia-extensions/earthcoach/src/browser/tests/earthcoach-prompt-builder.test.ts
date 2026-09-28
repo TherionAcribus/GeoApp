@@ -171,6 +171,24 @@ function testSystemPromptModes(): void {
     assert.match(detailedPrompt, /niveau de detail utile/);
 }
 
+function testSystemPromptResponseLanguage(): void {
+    // La langue choisie dans l'UI doit gouverner la consigne systeme: sans
+    // parametrage, le francais reste le repli.
+    const defaultPrompt = buildEarthCoachSystemPrompt('coach');
+    assert.match(defaultPrompt, /Reponds en francais/);
+
+    const englishPrompt = buildEarthCoachSystemPrompt('resolver', 'normal', 'en');
+    assert.match(englishPrompt, /Reponds en anglais/);
+    assert.doesNotMatch(englishPrompt, /Reponds en francais/);
+
+    const germanPrompt = buildEarthCoachSystemPrompt('coach', 'detailed', 'de');
+    assert.match(germanPrompt, /Reponds en allemand/);
+    assert.doesNotMatch(germanPrompt, /Reponds en francais/);
+
+    const unknownPrompt = buildEarthCoachSystemPrompt('coach', 'compact', 'xx');
+    assert.match(unknownPrompt, /Reponds en francais/);
+}
+
 function testReferenceToolShape(): void {
     const tools = new EarthCoachReferenceTools().buildAllTools();
     assert.equal(tools.length, 1);
@@ -1803,6 +1821,7 @@ async function testContextCacheDropsRequestsStartedBeforeAMutation(): Promise<vo
 
 async function run(): Promise<void> {
     testSystemPromptModes();
+    testSystemPromptResponseLanguage();
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
