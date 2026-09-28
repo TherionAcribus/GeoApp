@@ -1,6 +1,7 @@
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, optional } from '@theia/core/shared/inversify';
 import { nls } from '@theia/core';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     Agent,
     AgentService,
@@ -61,6 +62,12 @@ import {
 } from './geoapp-chat-system-prompts';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
 import { GeoAppChatToolScope } from './geoapp-chat-tool-catalog';
+import {
+    checkGeoAppLocalModel,
+    GeoAppLocalModelPreferences,
+    GEOAPP_LOCAL_MODEL_IDS_PREF,
+    isGeoAppStrictLocalAgent,
+} from './geoapp-local-model-guard';
 
 export const GeoAppChatLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -135,6 +142,60 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
      */
     protected readonly toolScope: GeoAppChatToolScope = 'chat';
 
+    @inject(PreferenceService) @optional()
+    protected readonly preferenceService: PreferenceService | undefined;
+
+    /**
+     * Theia 1.76 allows each session to override the agent model through
+     * commonSettings.modelId. Keep validating the model resolved for the actual
+     * request, not only the model assigned when the session was opened.
+     */
+    protected override async getLanguageModelForRequest(
+        request: MutableChatRequestModel,
+        languageModelPurpose: string
+    ): Promise<LanguageModel> {
+        if (!this.requiresLocalModel(request)) {
+            return super.getLanguageModelForRequest(request, languageModelPurpose);
+        }
+
+        const overrideId = request.session.settings?.commonSettings?.modelId;
+        if (overrideId) {
+            const overrideModel = await this.resolveModelById(overrideId);
+            this.assertLocalModel(overrideModel ?? { id: overrideId });
+        }
+
+        const languageModel = await super.getLanguageModelForRequest(request, languageModelPurpose);
+        this.assertLocalModel(languageModel);
+        return languageModel;
+    }
+
+    protected requiresLocalModel(request: MutableChatRequestModel): boolean {
+        const commonSettings = request.session.settings?.commonSettings as Record<string, unknown> | undefined;
+        const geoapp = commonSettings?.geoapp as Record<string, unknown> | undefined;
+        return isGeoAppStrictLocalAgent(this.id)
+            || geoapp?.preferredBehaviorProfile === 'offline'
+            || geoapp?.preferredModelProfile === 'local'
+            || geoapp?.preferredAgentId === GeoAppChatLocalAgentId;
+    }
+
+    protected assertLocalModel(model: LanguageModel | { id: string }): void {
+        const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+        if (localCheck.status !== 'local') {
+            throw new Error(`Le mode local/offline ne peut pas utiliser le modèle résolu : ${localCheck.reason}. Aucun repli cloud n'a été appliqué.`);
+        }
+    }
+
+    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
+        const get = <T>(key: string, fallback: T): T => this.preferenceService?.get(key, fallback) ?? fallback;
+        return {
+            ollamaHost: get('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
+            lmstudioBaseUrl: get('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
+            openAiCustomModels: get('ai-features.openAiCustom.customOpenAiModels', []),
+            vercelCustomModels: get('ai-features.vercelAi.customModels', []),
+            localModelIds: get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
+        };
+    }
+
     /**
      * Theia's chat confirmation layer matches streamed tool calls by ToolRequest.id,
      * while OpenAI-compatible models stream the public function name. GeoApp keeps
@@ -145,6 +206,7 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
         toolRequests: ToolRequest[],
+        deferredToolIds: string[] | undefined,
         languageModel: LanguageModel,
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
@@ -157,6 +219,7 @@ export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent
             request,
             messages,
             [...nonManagedToolRequests, ...geoAppToolRequests],
+            deferredToolIds,
             languageModel,
             promptVariantId,
             isPromptVariantCustomized

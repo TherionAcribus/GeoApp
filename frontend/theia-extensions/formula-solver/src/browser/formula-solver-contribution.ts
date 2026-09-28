@@ -4,26 +4,22 @@
  */
 
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { Command, CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
+import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import { AbstractViewContribution, ApplicationShell, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
 import { FormulaSolverWidget } from './formula-solver-widget';
+import {
+    FormulaSolverCommand,
+    FormulaSolverSolveFromGeocacheCommand,
+    FormulaSolverToggleCommand
+} from './formula-solver-commands';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { CommonMenus } from '@theia/core/lib/browser/common-frontend-contribution';
 
-export const FormulaSolverCommand: Command = {
-    id: 'formula-solver:open',
-    label: 'Formula Solver: Ouvrir'
-};
-
-export const FormulaSolverToggleCommand: Command = {
-    id: 'formula-solver:toggle',
-    label: 'Formula Solver'
-};
-
-export const FormulaSolverSolveFromGeocacheCommand: Command = {
-    id: 'formula-solver:solve-from-geocache',
-    label: 'Résoudre la formule'
-};
+export {
+    FormulaSolverCommand,
+    FormulaSolverSolveFromGeocacheCommand,
+    FormulaSolverToggleCommand
+} from './formula-solver-commands';
 
 @injectable()
 export class FormulaSolverContribution

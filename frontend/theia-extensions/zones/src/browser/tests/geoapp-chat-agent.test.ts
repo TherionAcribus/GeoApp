@@ -1,7 +1,7 @@
 import * as assert from 'assert/strict';
 import { ToolRequest } from '@theia/ai-core';
 
-import { GeoAppChatAgent } from '../geoapp-chat-agent';
+import { GeoAppChatAgent, GeoAppChatLocalAgent } from '../geoapp-chat-agent';
 import { GeoAppChatPolicyService } from '../geoapp-chat-policy-service';
 import { GeoAppAiToolCatalog } from '../geoapp-chat-tool-catalog';
 
@@ -91,6 +91,7 @@ async function testSendLlmRequestUsesPolicyFilteredTools(): Promise<void> {
             tool('theia.generic.read', 'theia_read'),
             tool('plugin.coordinate_projection', 'coordinate_projection'),
         ],
+        undefined,
         { id: 'fake-lm' },
         'geoapp-chat-system-guided',
         false
@@ -111,6 +112,83 @@ async function testSendLlmRequestUsesPolicyFilteredTools(): Promise<void> {
     ]);
     assert.ok(capturedTools!.find(candidate => candidate.name === 'save_found_coordinates')?.confirmAlwaysAllow);
     assert.equal(capturedTools!.some(candidate => candidate.name === 'coordinate_projection'), false);
+}
+
+function fakeLanguageModel(id: string, vendor?: string): any {
+    return {
+        id,
+        vendor,
+        status: { status: 'ready' },
+    };
+}
+
+async function testSessionModelOverrideCannotBypassLocalGuard(): Promise<void> {
+    const agent = new GeoAppChatLocalAgent();
+    let selectCalls = 0;
+    (agent as any).preferenceService = new FakePreferenceService({
+        'geoApp.ai.localModelIds': ['ollama/*'],
+    });
+    (agent as any).languageModelRegistry = {
+        getReadyLanguageModel: async (id: string) => fakeLanguageModel(id, id.split('/')[0]),
+        selectLanguageModel: async () => {
+            selectCalls++;
+            return fakeLanguageModel('ollama/local', 'ollama');
+        },
+    };
+
+    await assert.rejects(
+        () => (agent as any).getLanguageModelForRequest(createRequest({
+            commonSettings: { modelId: 'openrouter/cloud-model' },
+        }), 'chat'),
+        /mode local\/offline/
+    );
+    assert.equal(selectCalls, 0);
+}
+
+async function testOfflineSessionRejectsCloudModelOverride(): Promise<void> {
+    const agent = new GeoAppChatAgent();
+    let selectCalls = 0;
+    (agent as any).preferenceService = new FakePreferenceService({
+        'geoApp.ai.localModelIds': ['ollama/*'],
+    });
+    (agent as any).languageModelRegistry = {
+        getReadyLanguageModel: async (id: string) => fakeLanguageModel(id, id.split('/')[0]),
+        selectLanguageModel: async () => {
+            selectCalls++;
+            return fakeLanguageModel('ollama/local', 'ollama');
+        },
+    };
+
+    await assert.rejects(
+        () => (agent as any).getLanguageModelForRequest(createRequest({
+            commonSettings: {
+                modelId: 'openrouter/cloud-model',
+                geoapp: { preferredBehaviorProfile: 'offline' },
+            },
+        }), 'chat'),
+        /mode local\/offline/
+    );
+    assert.equal(selectCalls, 0);
+}
+
+async function testOfflineSessionAcceptsLocalModelOverride(): Promise<void> {
+    const agent = new GeoAppChatAgent();
+    (agent as any).preferenceService = new FakePreferenceService({
+        'geoApp.ai.localModelIds': ['ollama/*'],
+    });
+    (agent as any).languageModelRegistry = {
+        getReadyLanguageModel: async (id: string) => fakeLanguageModel(id, id.split('/')[0]),
+        selectLanguageModel: async () => fakeLanguageModel('openrouter/default', 'openrouter'),
+    };
+
+    const model = await (agent as any).getLanguageModelForRequest(createRequest({
+        commonSettings: {
+            modelId: 'ollama/local',
+            geoapp: { preferredBehaviorProfile: 'offline' },
+        },
+    }), 'chat');
+
+    assert.equal(model.id, 'ollama/local');
 }
 
 async function testSystemMessageContainsResolvedPromptAndPolicy(): Promise<void> {
@@ -150,6 +228,9 @@ async function testSystemMessageContainsResolvedPromptAndPolicy(): Promise<void>
 
 async function run(): Promise<void> {
     await testSendLlmRequestUsesPolicyFilteredTools();
+    await testSessionModelOverrideCannotBypassLocalGuard();
+    await testOfflineSessionRejectsCloudModelOverride();
+    await testOfflineSessionAcceptsLocalModelOverride();
     await testSystemMessageContainsResolvedPromptAndPolicy();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-agent tests passed');

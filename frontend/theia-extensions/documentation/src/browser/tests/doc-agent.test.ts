@@ -126,7 +126,7 @@ function createRequest(): any {
 async function testCalculatorToolsReachTheModel(): Promise<void> {
     const { agent, captured } = createAgent({});
 
-    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+    await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
 
     const ids = (captured.tools ?? []).map(t => t.id);
     for (const expected of ['aide_calculate', 'aide_calculate_batch', 'aide_open_calculator']) {
@@ -141,7 +141,7 @@ async function testCalculatorToolsReachTheModel(): Promise<void> {
 async function testGuidedProfileConfirmsDestructiveAideTools(): Promise<void> {
     const { agent, captured } = createAgent({});
 
-    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+    await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
 
     const byId = new Map((captured.tools ?? []).map(t => [t.id, t]));
     assert.equal(
@@ -158,7 +158,7 @@ async function testOfflineProfileBlocksNetworkAideTools(): Promise<void> {
         preferences: { 'geoApp.chat.behaviorProfile.default': 'offline' },
     });
 
-    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+    await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
 
     const ids = (captured.tools ?? []).map(t => t.id);
     assert.equal(ids.includes('aide_refresh_geocache'), false, 'aide_refresh_geocache devrait être bloqué en offline');
@@ -171,7 +171,7 @@ async function testToolOverrideCanDisableAideTool(): Promise<void> {
         preferences: { 'geoApp.chat.toolPolicy.overrides': { aide_list_zones: 'disabled' } },
     });
 
-    await (agent as any).sendLlmRequest(createRequest(), [], [], { id: 'fake-lm' });
+    await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
 
     const ids = (captured.tools ?? []).map(t => t.id);
     assert.equal(ids.includes('aide_list_zones'), false);
@@ -187,6 +187,7 @@ async function testNonManagedToolsAreKeptWithoutDuplicates(): Promise<void> {
         createRequest(),
         [],
         [tool('theia.generic.read'), tool('aide_calculate')],
+        undefined,
         { id: 'fake-lm' }
     );
 

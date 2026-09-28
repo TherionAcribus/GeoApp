@@ -64,6 +64,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
         toolRequests: ToolRequest[],
+        deferredToolIds: string[] | undefined,
         languageModel: LanguageModel,
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
@@ -75,6 +76,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             request,
             messages,
             [...nonManagedToolRequests, ...managedToolRequests],
+            deferredToolIds,
             languageModel,
             promptVariantId,
             isPromptVariantCustomized

@@ -76,6 +76,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
         toolRequests: ToolRequest[],
+        deferredToolIds: string[] | undefined,
         languageModel: LanguageModel,
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
@@ -96,6 +97,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
             request,
             messages,
             [...nonEarthCoachTools, ...earthCoachTools],
+            deferredToolIds,
             languageModel,
             promptVariantId,
             isPromptVariantCustomized
