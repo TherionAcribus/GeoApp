@@ -311,6 +311,15 @@ Vous pouvez aussi demander a `@Aide` :
 @Aide regle EarthCoach en reponses compactes
 ```
 
+### Changer le modele d'EarthCoach
+
+Le modele d'EarthCoach ne se regle pas dans les Preferences GeoApp : il se choisit dans la vue **Configuration IA** (onglet **Agents** → **EarthCoach**), accessible depuis **Preferences GeoApp > IA > Configurer Agent Theia (IA)**. Ce modele sert au chat, a **Analyser mes observations** et a **Resoudre avec mon dossier**. Details et slots OpenRouter : page « Configurer l'intelligence artificielle ».
+
+```text
+@Aide quel modele utilise EarthCoach ?
+@Aide fais utiliser openrouter/strong a EarthCoach
+```
+
 ## Notes GeoApp
 
 EarthCoach peut enregistrer une synthese dans les notes GeoApp avec le tool `earthcoach_save_note`, uniquement si vous le demandez explicitement.

@@ -164,6 +164,18 @@ Les outils de préférences retournent aussi les métadonnées `x-ui` du schéma
 | « Liste les préférences EarthCoach » | Liste les préférences de catégorie `earthcoach` |
 | « Désactive les recherches externes EarthCoach » | Modifie `geoApp.earthCoach.references.web.enabled` à `false` |
 
+### Modèle IA de chaque agent
+
+`@Aide` peut indiquer et changer le modèle utilisé par un agent (EarthCoach, Chat GeoApp, OCR...), comme la vue **Configuration IA**. Détails dans la page « Configurer l'intelligence artificielle ».
+
+| Demande (exemples) | Action |
+|---|---|
+| « Quel modèle utilise EarthCoach ? » | Modèle choisi, modèle réellement utilisé, modèle OpenRouter réel du slot |
+| « Quels modèles sont disponibles ? » | Liste les modèles enregistrés et les alias |
+| « Fais utiliser openrouter/strong à EarthCoach » | Attribue ce modèle à l'agent |
+| « Remets EarthCoach sur son modèle par défaut » | Supprime le choix de l'utilisateur |
+| « Ouvre la configuration IA » | Ouvre la vue Configuration IA |
+
 > **Sécurité :** `@Aide` ne peut jamais lire ni modifier la clé API OpenRouter (`geoApp.ai.openRouter.apiKey`) ni aucune autre valeur marquée comme sensible.
 
 ### Calculatrice scientifique

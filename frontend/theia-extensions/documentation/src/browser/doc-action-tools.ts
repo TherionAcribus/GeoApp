@@ -2,6 +2,12 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandService, MessageService } from '@theia/core';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
+    Agent,
+    AgentService,
+    AISettingsService,
+    LanguageModelAliasRegistry,
+    LanguageModelRegistry,
+    LanguageModelRequirement,
     ToolInvocationRegistry,
     ToolRequest,
     ToolRequestParameters,
@@ -121,6 +127,17 @@ function buildParams(
     return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
 }
 
+/**
+ * Slots OpenRouter enregistres par GeoApp (geoapp-openrouter-language-models.ts) :
+ * l'id Theia est fixe, le modele OpenRouter reel vient de la preference associee.
+ */
+const OPENROUTER_SLOT_PREFS: Record<string, string> = {
+    'openrouter/fast': 'geoApp.ai.openRouter.model.fast',
+    'openrouter/strong': 'geoApp.ai.openRouter.model.strong',
+    'openrouter/web': 'geoApp.ai.openRouter.model.web',
+    'openrouter/vision': 'geoApp.ocr.openRouter.model',
+};
+
 /** §35 : paramètre commun aux actions destructrices — simule sans exécuter. */
 const DRY_RUN_PARAM = {
     type: 'boolean',
@@ -222,6 +239,18 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(MessageService)
     protected readonly messageService!: MessageService;
 
+    @inject(AgentService)
+    protected readonly agentService!: AgentService;
+
+    @inject(AISettingsService)
+    protected readonly aiSettingsService!: AISettingsService;
+
+    @inject(LanguageModelRegistry)
+    protected readonly languageModelRegistry!: LanguageModelRegistry;
+
+    @inject(LanguageModelAliasRegistry)
+    protected readonly languageModelAliasRegistry!: LanguageModelAliasRegistry;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -251,6 +280,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildMapTools(),
             ...this.buildOutingTools(),
             ...this.buildSystemAndImportTools(),
+            ...this.buildAiModelTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -2849,6 +2879,194 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             zone_created: target.created,
                             summary: summary ?? 'Import terminé.',
                         });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Modeles IA par agent ─────────────────────────────────────────────────
+
+    /**
+     * Resout un agent par id ou par nom (« EarthCoach », « @EarthCoach »), sans
+     * tenir compte de la casse ; une correspondance partielle n'est retenue que
+     * si elle est unique.
+     */
+    protected resolveAgent(query: string): Agent | string {
+        const needle = String(query ?? '').trim().replace(/^@/, '').toLowerCase();
+        if (!needle) { return 'Parametre "agent" vide.'; }
+        const agents = this.agentService.getAllAgents();
+        const label = (agent: Agent) => (agent.name || '').replace(/^@/, '').toLowerCase();
+        const exact = agents.find(agent => agent.id.toLowerCase() === needle || label(agent) === needle);
+        if (exact) { return exact; }
+        const partial = agents.filter(agent => agent.id.toLowerCase().includes(needle) || label(agent).includes(needle));
+        if (partial.length === 1) { return partial[0]; }
+        if (partial.length > 1) {
+            return `Agent ambigu « ${query} » : ${partial.map(agent => `${agent.name} (${agent.id})`).join(', ')}.`;
+        }
+        return `Agent introuvable : « ${query} ». Utilisez aide_get_agent_models sans parametre pour la liste.`;
+    }
+
+    /** Modele OpenRouter reel derriere un slot GeoApp (openrouter/strong -> anthropic/...). */
+    protected describeOpenRouterSlot(modelId: string | undefined): { underlying_model?: string; underlying_model_preference?: string } {
+        const preferenceKey = modelId ? OPENROUTER_SLOT_PREFS[modelId] : undefined;
+        if (!preferenceKey) { return {}; }
+        const value = this.preferenceService.get<string>(preferenceKey, '');
+        return { underlying_model: value ? String(value) : undefined, underlying_model_preference: preferenceKey };
+    }
+
+    protected async describeAgentModels(agent: Agent): Promise<Record<string, unknown>> {
+        const userRequirements = (await this.aiSettingsService.getAgentSettings(agent.id))?.languageModelRequirements ?? [];
+        const requirements = await Promise.all(agent.languageModelRequirements.map(async requirement => {
+            const override = userRequirements.find(entry => entry.purpose === requirement.purpose);
+            let resolved: string | undefined;
+            try {
+                resolved = (await this.languageModelRegistry.selectLanguageModel({ agent: agent.id, ...requirement }))?.id;
+            } catch {
+                resolved = undefined;
+            }
+            return {
+                purpose: requirement.purpose,
+                default_identifier: requirement.identifier,
+                user_identifier: override?.identifier,
+                effective_identifier: override?.identifier ?? requirement.identifier,
+                resolved_model_id: resolved,
+                ...this.describeOpenRouterSlot(resolved),
+            };
+        }));
+        return { id: agent.id, name: agent.name, requirements };
+    }
+
+    private buildAiModelTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_ai_models',
+                name: 'aide_list_ai_models',
+                description: 'Liste les modeles de langage enregistres (id, fournisseur, statut ready/unavailable) et les alias ' +
+                    '(ex. default/universal). Pour les slots OpenRouter GeoApp (openrouter/fast, strong, web, vision), ' +
+                    'indique le modele OpenRouter reel et la preference qui le definit.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const models = await this.languageModelRegistry.getLanguageModels();
+                        await this.languageModelAliasRegistry.ready;
+                        return ok({
+                            models: models.map(model => ({
+                                id: model.id,
+                                name: model.name,
+                                vendor: model.vendor,
+                                status: model.status?.status,
+                                ...this.describeOpenRouterSlot(model.id),
+                            })),
+                            aliases: this.languageModelAliasRegistry.getAliases().map(alias => ({
+                                id: alias.id,
+                                description: alias.description,
+                                resolves_to: this.languageModelAliasRegistry.resolveAlias(alias.id) ?? [],
+                            })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_agent_models',
+                name: 'aide_get_agent_models',
+                description: 'Indique quel modele utilise chaque agent IA (EarthCoach, GeoApp, Aide, OCR, traduction...) : ' +
+                    'valeur par defaut, choix de l\'utilisateur et modele effectivement resolu. Sans "agent", liste tous les agents.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    agent: { type: 'string', description: 'Id ou nom de l\'agent (ex: "earthcoach", "@EarthCoach"). Optionnel.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.agent) {
+                            const agent = this.resolveAgent(args.agent);
+                            if (typeof agent === 'string') { return err(agent); }
+                            return ok(await this.describeAgentModels(agent));
+                        }
+                        const agents = this.agentService.getAllAgents().filter(agent => agent.languageModelRequirements.length > 0);
+                        return ok(await Promise.all(agents.map(agent => this.describeAgentModels(agent))));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_agent_model',
+                name: 'aide_set_agent_model',
+                description: 'Attribue un modele de langage a un agent IA (meme reglage que la vue Configuration IA > Agents). ' +
+                    'model_id = id d\'un modele ou d\'un alias (voir aide_list_ai_models). reset=true rend a l\'agent son modele par defaut.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    agent: { type: 'string', description: 'Id ou nom de l\'agent (ex: "earthcoach", "@EarthCoach").', required: true },
+                    model_id: { type: 'string', description: 'Id du modele ou de l\'alias (ex: "openrouter/strong").', required: false },
+                    purpose: { type: 'string', description: 'Usage du modele pour l\'agent (defaut : son unique usage, sinon "chat").', required: false },
+                    reset: { type: 'boolean', description: 'Supprime le choix utilisateur et revient au modele par defaut de l\'agent.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const agent = this.resolveAgent(args.agent);
+                        if (typeof agent === 'string') { return err(agent); }
+
+                        const purposes = agent.languageModelRequirements.map(requirement => requirement.purpose);
+                        if (!purposes.length) { return err(`L'agent ${agent.name} n'utilise pas de modele de langage.`); }
+                        const purpose = args.purpose
+                            ? String(args.purpose)
+                            : purposes.length === 1 ? purposes[0] : purposes.includes('chat') ? 'chat' : undefined;
+                        if (!purpose || !purposes.includes(purpose)) {
+                            return err(`Usage a preciser pour ${agent.name} : ${purposes.join(', ')}.`);
+                        }
+
+                        const reset = args.reset === true;
+                        const modelId = String(args.model_id ?? '').trim();
+                        if (!reset && !modelId) { return err('Fournissez model_id, ou reset=true.'); }
+                        if (!reset) {
+                            const models = await this.languageModelRegistry.getLanguageModels();
+                            await this.languageModelAliasRegistry.ready;
+                            const known = models.some(model => model.id === modelId)
+                                || this.languageModelAliasRegistry.getAliases().some(alias => alias.id === modelId);
+                            if (!known) {
+                                return err(`Modele ou alias inconnu : « ${modelId} ». Utilisez aide_list_ai_models pour les ids valides.`);
+                            }
+                        }
+
+                        const current = (await this.aiSettingsService.getAgentSettings(agent.id))?.languageModelRequirements ?? [];
+                        const previous = current.find(entry => entry.purpose === purpose)?.identifier;
+                        const next: LanguageModelRequirement[] = current.filter(entry => entry.purpose !== purpose);
+                        if (!reset) { next.push({ purpose, identifier: modelId }); }
+                        await this.aiSettingsService.updateAgentSettings(agent.id, {
+                            languageModelRequirements: next.length ? next : undefined,
+                        });
+
+                        const description = await this.describeAgentModels(agent);
+                        const requirement = (description.requirements as Array<Record<string, unknown>>)
+                            .find(entry => entry.purpose === purpose);
+                        const resolved = requirement?.resolved_model_id as string | undefined;
+                        this.messageService.info(reset
+                            ? `${agent.name} : modele par defaut retabli.`
+                            : `${agent.name} utilise maintenant ${modelId}.`);
+                        return ok({
+                            agent: agent.id,
+                            purpose,
+                            previous_identifier: previous,
+                            identifier: reset ? undefined : modelId,
+                            resolved_model_id: resolved,
+                            ...this.describeOpenRouterSlot(resolved),
+                            warning: resolved ? undefined : 'Aucun modele pret pour ce choix (cle API absente ou fournisseur indisponible).',
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_ai_configuration',
+                name: 'aide_open_ai_configuration',
+                description: 'Ouvre la vue Configuration IA de Theia (agents, modeles, alias, prompts).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('aiConfiguration:open');
+                        return ok('Vue Configuration IA ouverte.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

@@ -662,6 +662,79 @@ async function testFormulaSolverTools(): Promise<void> {
     assert.equal((await call(findTool(tools, 'aide_solve_formula_for_geocache'), {})).success, false);
 }
 
+// aide_set_agent_model écrit le même réglage que la vue Configuration IA
+// (ai-features.agentSettings) et expose le modèle OpenRouter réel du slot.
+async function testAiModelTools(): Promise<void> {
+    const settings: Record<string, { languageModelRequirements?: Array<{ purpose: string; identifier?: string }> }> = {
+        earthcoach: { languageModelRequirements: [{ purpose: 'chat', identifier: 'openrouter/fast' }] },
+    };
+    const models = [
+        { id: 'openrouter/fast', status: { status: 'ready' } },
+        { id: 'openrouter/strong', status: { status: 'ready' } },
+    ];
+    const manager = createManager({});
+    Object.assign(manager as any, {
+        agentService: {
+            getAllAgents: () => [
+                { id: 'earthcoach', name: '@EarthCoach', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
+                { id: 'geoapp-doc-aide', name: '@Aide', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
+            ],
+        },
+        aiSettingsService: {
+            getAgentSettings: async (id: string) => settings[id],
+            updateAgentSettings: async (id: string, patch: object) => { settings[id] = { ...settings[id], ...patch }; },
+        },
+        languageModelRegistry: {
+            getLanguageModels: async () => models,
+            selectLanguageModel: async (req: { agent: string; identifier?: string; purpose: string }) => {
+                const override = settings[req.agent]?.languageModelRequirements?.find(r => r.purpose === req.purpose);
+                return models.find(m => m.id === (override?.identifier ?? 'openrouter/fast'));
+            },
+        },
+        languageModelAliasRegistry: {
+            ready: Promise.resolve(),
+            getAliases: () => [{ id: 'default/universal', defaultModelIds: ['openrouter/fast'] }],
+            resolveAlias: () => ['openrouter/fast'],
+        },
+        preferenceService: {
+            get: (key: string) => ({
+                'geoApp.ai.openRouter.model.fast': 'openai/gpt-4o-mini',
+                'geoApp.ai.openRouter.model.strong': 'anthropic/claude-opus',
+            } as Record<string, string>)[key],
+        },
+    });
+    const tools = manager.buildAllTools();
+    const setTool = findTool(tools, 'aide_set_agent_model');
+
+    const before = await call(findTool(tools, 'aide_get_agent_models'), { agent: 'EarthCoach' });
+    const beforeReq = (before.data as any).requirements[0];
+    assert.equal(beforeReq.user_identifier, 'openrouter/fast');
+    assert.equal(beforeReq.underlying_model, 'openai/gpt-4o-mini');
+
+    const res = await call(setTool, { agent: '@earthcoach', model_id: 'openrouter/strong' });
+    assert.equal(res.success, true, res.error);
+    assert.deepEqual(settings.earthcoach.languageModelRequirements, [{ purpose: 'chat', identifier: 'openrouter/strong' }]);
+    assert.equal((res.data as any).previous_identifier, 'openrouter/fast');
+    assert.equal((res.data as any).underlying_model, 'anthropic/claude-opus');
+    assert.equal((res.data as any).underlying_model_preference, 'geoApp.ai.openRouter.model.strong');
+
+    // Modèle inconnu, agent inconnu, paramètres manquants : refus sans écriture.
+    assert.equal((await call(setTool, { agent: 'earthcoach', model_id: 'openrouter/nope' })).success, false);
+    assert.equal((await call(setTool, { agent: 'inconnu', model_id: 'openrouter/fast' })).success, false);
+    assert.equal((await call(setTool, { agent: 'earthcoach' })).success, false);
+    assert.equal((await call(setTool, { agent: 'earthcoach', model_id: 'openrouter/fast', purpose: 'ocr' })).success, false);
+    assert.deepEqual(settings.earthcoach.languageModelRequirements, [{ purpose: 'chat', identifier: 'openrouter/strong' }]);
+
+    // Un alias est accepté ; reset retire le choix utilisateur.
+    assert.equal((await call(setTool, { agent: 'earthcoach', model_id: 'default/universal' })).success, true);
+    assert.equal((await call(setTool, { agent: 'earthcoach', reset: true })).success, true);
+    assert.equal(settings.earthcoach.languageModelRequirements, undefined);
+
+    const listed = await call(findTool(tools, 'aide_list_ai_models'));
+    assert.equal((listed.data as any).models[1].underlying_model, 'anthropic/claude-opus');
+    assert.deepEqual((listed.data as any).aliases[0].resolves_to, ['openrouter/fast']);
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -683,6 +756,7 @@ async function run(): Promise<void> {
     await testDryRun();
     await testTableFilterTool();
     await testFormulaSolverTools();
+    await testAiModelTools();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

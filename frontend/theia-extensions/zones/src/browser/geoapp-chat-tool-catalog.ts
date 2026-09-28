@@ -354,6 +354,12 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_import_around': { registryId: 'aide_import_around', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
     'aide_list_chat_presets': { registryId: 'aide_list_chat_presets', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_apply_chat_preset': { registryId: 'aide_apply_chat_preset', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Modeles IA par agent
+    'aide_list_ai_models': { registryId: 'aide_list_ai_models', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_get_agent_models': { registryId: 'aide_get_agent_models', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_set_agent_model': { registryId: 'aide_set_agent_model', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_open_ai_configuration': { registryId: 'aide_open_ai_configuration', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
 };
 
 @injectable()
