@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import unicodedata
 
 from flask import Blueprint, jsonify, request
@@ -30,6 +31,12 @@ def _normalize_ascii(value: str) -> str:
         .strip()
         .lower()
     )
+
+
+def _question_key(value: str) -> str:
+    """Cle de comparaison des questions: insensible a la casse, aux accents et
+    aux espaces, pour qu'une re-extraction aux espaces pres conserve le travail."""
+    return re.sub(r'\s+', ' ', _normalize_ascii(value))
 
 
 def _normalize_status(value: object) -> str | None:
@@ -161,6 +168,10 @@ def replace_logging_tasks(geocache_id: int):
     Utilise par l'extraction IA (earthcoach_extract_logging_tasks): supprime les
     taches existantes puis insere celles fournies. A n'appeler que sur demande
     explicite, car cette operation ecrase les reponses deja saisies.
+
+    Une question re-extraites a l'identique (texte normalise identique) conserve
+    la reponse, le statut et l'observation liee saisis par l'utilisateur: une
+    re-extraction ne doit pas jeter le travail de terrain deja fait.
     """
     try:
         geocache = Geocache.query.get(geocache_id)
@@ -172,6 +183,11 @@ def replace_logging_tasks(geocache_id: int):
         if not isinstance(raw_tasks, list):
             return jsonify({'error': 'tasks must be a list'}), 400
 
+        existing_by_question = {
+            _question_key(task.question): task
+            for task in GeocacheLoggingTask.query.filter_by(geocache_id=geocache_id).all()
+        }
+
         default_source = _optional_text(data.get('source')) or 'extracted'
         new_tasks: list[GeocacheLoggingTask] = []
         for index, item in enumerate(raw_tasks):
@@ -180,20 +196,30 @@ def replace_logging_tasks(geocache_id: int):
             question = str(item.get('question') or '').strip()
             if not question:
                 continue
+            previous = existing_by_question.get(_question_key(question))
             status = _normalize_status(item.get('status'))
             if status is None:
                 return jsonify({'error': 'status must be one of: todo, field, answered'}), 400
-            observation = _load_observation(geocache_id, item.get('observation_id'))
+            if item.get('status') in (None, '') and previous and previous.status:
+                status = previous.status
+            answer = _optional_text(item.get('answer'))
+            if answer is None and previous:
+                answer = previous.answer
+            if 'observation_id' in item:
+                observation = _load_observation(geocache_id, item.get('observation_id'))
+                observation_id = observation.id if observation else None
+            else:
+                observation_id = previous.observation_id if previous else None
             position = _optional_int(item.get('position'), 'position')
             new_tasks.append(GeocacheLoggingTask(
                 geocache_id=geocache.id,
                 position=position if position is not None else index + 1,
                 question=question,
                 guidance=_optional_text(item.get('guidance')),
-                answer=_optional_text(item.get('answer')),
+                answer=answer,
                 status=status,
                 requires_photo=_coerce_bool(item.get('requires_photo')),
-                observation_id=observation.id if observation else None,
+                observation_id=observation_id,
                 source=(_optional_text(item.get('source')) or default_source),
             ))
 

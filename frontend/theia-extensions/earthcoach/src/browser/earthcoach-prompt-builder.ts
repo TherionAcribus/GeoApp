@@ -698,7 +698,12 @@ function buildVerbosityInstruction(verbosity: EarthCoachVerbosity): string[] {
 export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
     const verbosity = normalizeVerbosity(input.verbosity);
     const baseLimits = PROMPT_LIMITS_BY_VERBOSITY[verbosity];
-    const evidenceAction = input.action === 'analyze_observations' || input.action === 'resolve';
+    // extract_logging_tasks aussi: le modele ne peut lister que ce qu'il lit,
+    // un extrait borne en mode compact produisait une liste de questions
+    // incomplete (audit: 5 questions sur 15 conservees).
+    const evidenceAction = input.action === 'analyze_observations'
+        || input.action === 'resolve'
+        || input.action === 'extract_logging_tasks';
     const limits: EarthCoachPromptLimits = evidenceAction ? {
         ...baseLimits,
         description: Number.MAX_SAFE_INTEGER,

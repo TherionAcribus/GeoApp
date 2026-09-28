@@ -79,15 +79,54 @@ function version(language: string, html: string, source: EarthCoachDescriptionVe
     };
 }
 
+const LANG_CONTAINER_OPEN_PATTERN = /<(div|section|article|main)\b[^>]*\blang=["']?([a-zA-Z]{2,8}(?:[-_][a-zA-Z]{2,8})?)["']?[^>]*>/gi;
+
+/**
+ * Trouve l'index de la balise fermante correspondant a l'ouvrante qui finit
+ * a `openEnd`. Une regex non gourmande `.*?<\/div>` s'arrete au premier
+ * </div> rencontre, meme quand il ferme un div imbrique: des questions
+ * situees apres ce div disparaissaient alors du segment de langue tout en
+ * restant declare "fiable". On compte donc l'imbrication des balises du
+ * meme nom pour atteindre la vraie fin du bloc.
+ */
+function findMatchingCloseIndex(html: string, tagName: string, openEnd: number): number {
+    const pattern = new RegExp(`<\\/?${tagName}\\b[^>]*>`, 'gi');
+    pattern.lastIndex = openEnd;
+    let depth = 1;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(html))) {
+        if (match[0].startsWith('</')) {
+            depth -= 1;
+        } else if (!/\/\s*>$/.test(match[0])) {
+            depth += 1;
+        }
+        if (depth === 0) {
+            return match.index;
+        }
+    }
+    return -1;
+}
+
 function extractLangAttributeVersions(html: string): EarthCoachDescriptionVersion[] {
     const versions: EarthCoachDescriptionVersion[] = [];
-    const pattern = /<(div|section|article|main)\b[^>]*\blang=["']?([a-zA-Z]{2,8}(?:[-_][a-zA-Z]{2,8})?)["']?[^>]*>([\s\S]*?)<\/\1>/gi;
+    const pattern = new RegExp(LANG_CONTAINER_OPEN_PATTERN.source, 'gi');
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(html))) {
         const language = normalizeLanguage(match[2]);
-        if (language) {
-            versions.push(version(language, match[3], 'segmented'));
+        if (!language || /\/\s*>$/.test(match[0])) {
+            continue;
         }
+        const openEnd = match.index + match[0].length;
+        const closeIndex = findMatchingCloseIndex(html, match[1].toLowerCase(), openEnd);
+        // Balise fermante manquante: le reste du document fait office de
+        // segment, plutot que de perdre la fin du listing.
+        versions.push(version(language, html.slice(openEnd, closeIndex >= 0 ? closeIndex : html.length), 'segmented'));
+        if (closeIndex < 0) {
+            break;
+        }
+        // Les blocs de langue ne s'imbriquent pas: on reprend apres celui-ci
+        // pour ne pas re-detector un sous-div porteur de son propre lang.
+        pattern.lastIndex = closeIndex;
     }
     return versions;
 }

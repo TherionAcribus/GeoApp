@@ -1234,6 +1234,60 @@ function testMultilingualDescriptionSelection(): void {
     assert.match(manual.selected.text, /English/);
 }
 
+function testMultilingualDescriptionHandlesNestedDivs(): void {
+    // La segmentation par regex s'arretait au premier </div> imbrique: la
+    // question placee apres l'encart disparaissait du segment francais alors
+    // que la selection restait annoncee fiable.
+    const frIntro = `Français. ${'Description geologique complete du site. '.repeat(5)}`;
+    const frQuestion = 'Pour valider cette EarthCache, repondez : quelle est la couleur de la roche ?';
+    const enPara = `English. ${'Full geological description of the site. '.repeat(6)}`;
+    const selection = selectEarthCoachDescription({
+        id: 3,
+        name: 'Imbrique',
+        description_html:
+            `<div lang='en'>${enPara}</div>` +
+            `<div lang='fr'><p>${frIntro}</p><div class='row'><div><p>Encart imbrique.</p></div></div><p>${frQuestion}</p></div>`,
+    }, 'fr');
+
+    assert.equal(selection.reliable, true);
+    assert.equal(selection.selectedLanguage, 'fr');
+    assert.match(selection.selected.text, /Encart imbrique/);
+    assert.match(selection.selected.text, /quelle est la couleur de la roche/);
+    assert.doesNotMatch(selection.selected.text, /English/);
+}
+
+function testExtractActionReadsFullListingInCompact(): void {
+    // L'extraction doit voir TOUT le listing, meme en verbosite compacte:
+    // borne a 900 caracteres, le prompt ne gardait que les 5 dernieres
+    // questions d'un listing qui en compte 15.
+    const questions = Array.from(
+        { length: 15 },
+        (_, index) => `<li>Question ${index + 1} : releve terrain numero ${index + 1} ?</li>`
+    ).join('');
+    const context = Array.from(
+        { length: 12 },
+        (_, index) => `<p>Contexte geologique ${index + 1}. Le calcaire urgonien affleure ici en strates decimetriques bien visibles.</p>`
+    ).join('');
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: `<h2>Site</h2>${context}<h3>Pour valider cette EarthCache</h3><ol>${questions}</ol>`,
+        },
+        mode: 'coach',
+        action: 'extract_logging_tasks',
+        verbosity: 'compact',
+        observations: [],
+        images: [],
+    });
+
+    assert.match(prompt, /Description du listing \(integrale\)/);
+    assert.match(prompt, /Question 1 : releve terrain numero 1/);
+    assert.match(prompt, /Question 8 : releve terrain numero 8/);
+    assert.match(prompt, /Question 15 : releve terrain numero 15/);
+}
+
 function testMultilingualDescriptionFallsBackToFullContent(): void {
     const selection = selectEarthCoachDescription({
         id: 2,
@@ -1655,7 +1709,9 @@ async function run(): Promise<void> {
     testDescriptionExcerptKeepsShortListingIntact();
     testPromptRequiresExplicitLoggingTaskExtractionWhenMissing();
     testMultilingualDescriptionSelection();
+    testMultilingualDescriptionHandlesNestedDivs();
     testMultilingualDescriptionFallsBackToFullContent();
+    testExtractActionReadsFullListingInCompact();
     testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
     testEarthCoachResultFallbackBlock();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();

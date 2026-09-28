@@ -167,6 +167,49 @@ def test_replace_logging_tasks_overwrites_set(client, seed_data):
     assert all(t['source'] == 'extracted' for t in tasks)
 
 
+def test_replace_logging_tasks_preserves_work_on_unchanged_questions(client, seed_data):
+    create_response = client.post(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={
+            'question': 'Couleur de la roche ?',
+            'answer': 'Gris clair.',
+            'status': 'answered',
+            'observation_id': seed_data['observation_id'],
+        },
+    )
+    assert create_response.status_code == 201
+
+    # Re-extraction: la meme question revient sans reponse. Le travail saisi
+    # doit survivre au remplacement en masse.
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': [
+            {'question': '  couleur   de la Roche ? '},
+            {'question': 'Nouvelle question ?'},
+        ]},
+    )
+    assert response.status_code == 200
+    tasks = json.loads(response.data)['logging_tasks']
+    assert len(tasks) == 2
+    kept, new = tasks
+    assert kept['answer'] == 'Gris clair.'
+    assert kept['status'] == 'answered'
+    assert kept['observation_id'] == seed_data['observation_id']
+    assert new['answer'] is None
+    assert new['status'] == 'todo'
+
+    # Mais un remplacement explicite par des valeurs fournies reste honore.
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': [{'question': 'Couleur de la roche ?', 'status': 'todo', 'answer': ''}]},
+    )
+    assert response.status_code == 200
+    task = json.loads(response.data)['logging_tasks'][0]
+    assert task['status'] == 'todo'
+    # '' est normalise en None -> reprise de la valeur precedente conservee;
+    # le status explicite, lui, prime.
+
+
 def test_replace_logging_tasks_requires_list(client, seed_data):
     response = client.put(
         f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
