@@ -73,6 +73,9 @@ backend/data/log_images/
 **/src-gen/
 **/gen-webpack.config.js
 **/gen-webpack.node.config.js
+**/gen-esbuild.browser.mjs
+**/gen-esbuild.node.mjs
+**/gen-esbuild.electron.mjs
 frontend/plugins/
 !frontend/theia-extensions/plugins/
 !frontend/theia-extensions/plugins/**

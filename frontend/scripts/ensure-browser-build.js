@@ -4,9 +4,10 @@ const { spawnSync } = require('child_process');
 
 const browserDir = path.resolve(__dirname, '..', 'applications', 'browser');
 const requiredOutputs = [
-    path.join(browserDir, 'src-gen', 'backend', 'main.js'),
-    path.join(browserDir, 'src-gen', 'frontend', 'index.html'),
-    path.join(browserDir, 'gen-webpack.config.js')
+    path.join(browserDir, 'lib', 'backend', 'main.js'),
+    path.join(browserDir, 'lib', 'frontend', 'index.html'),
+    path.join(browserDir, 'lib', 'frontend', 'bundle.js'),
+    path.join(browserDir, 'lib', 'frontend', 'bundle.css')
 ];
 
 function ensureBrowserBuild() {
