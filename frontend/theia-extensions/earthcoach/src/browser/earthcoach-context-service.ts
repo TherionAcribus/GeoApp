@@ -12,6 +12,7 @@ import {
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
     GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    GEOAPP_GEOCACHE_NOTES_UPDATED_EVENT,
     readUpdatedGeocacheId,
     subscribeEarthCoachDataUpdates,
 } from './earthcoach-events';
@@ -129,6 +130,7 @@ export class EarthCoachContextService implements FrontendApplicationContribution
                 EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
                 EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
                 GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+                GEOAPP_GEOCACHE_NOTES_UPDATED_EVENT,
             ],
             detail => {
                 const geocacheId = readUpdatedGeocacheId(detail);

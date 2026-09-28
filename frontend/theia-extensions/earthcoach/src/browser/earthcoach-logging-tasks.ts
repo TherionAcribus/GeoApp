@@ -137,6 +137,68 @@ function coerceBool(value: unknown): boolean {
 }
 
 /**
+ * Cle de comparaison des questions, identique a celle du backend
+ * (logging_tasks / earthcoach_workspace): casse, accents et espaces ne font
+ * pas une question differente.
+ */
+export function loggingTaskQuestionKey(question: string | null | undefined): string {
+    return (question || '')
+        .normalize('NFKD')
+        .replace(/[̀-ͯ]/g, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+export interface LoggingTaskReplacementRisk {
+    question: string;
+    hasAnswer: boolean;
+    hasObservation: boolean;
+}
+
+export interface LoggingTaskReplacementDiff {
+    /** Questions retrouvees a l'identique (reponses et observations conservees). */
+    unchanged: number;
+    /** Questions presentes uniquement dans la nouvelle extraction. */
+    added: string[];
+    /**
+     * Questions existantes absentes de la nouvelle extraction. Celles qui
+     * portent une reponse ou une observation liee sont un travail perdu.
+     */
+    removed: LoggingTaskReplacementRisk[];
+}
+
+/**
+ * Compare les questions en place a celles qu'une nouvelle extraction
+ * enregistrerait, avec la meme correspondance normalisee que le backend :
+ * une question retrouvee conserve son travail, les autres le perdent.
+ */
+export function diffLoggingTaskReplacement(
+    existing: LoggingTaskDto[],
+    incoming: LoggingTaskInput[]
+): LoggingTaskReplacementDiff {
+    const incomingKeys = new Set(incoming.map(task => loggingTaskQuestionKey(task.question)));
+    const existingKeys = new Set(
+        existing.map(task => loggingTaskQuestionKey(task.question)).filter(key => key.length > 0)
+    );
+    const removed = existing
+        .filter(task => !incomingKeys.has(loggingTaskQuestionKey(task.question)))
+        .map(task => ({
+            question: (task.question || '').trim(),
+            hasAnswer: Boolean((task.answer || '').trim()),
+            hasObservation: task.observation_id != null,
+        }));
+    const added = incoming
+        .filter(task => !existingKeys.has(loggingTaskQuestionKey(task.question)))
+        .map(task => task.question.trim());
+    return {
+        unchanged: existing.length - removed.length,
+        added,
+        removed,
+    };
+}
+
+/**
  * Normalise la liste de taches proposee par le LLM (tool earthcoach_extract_logging_tasks)
  * en entrees backend propres: questions non vides, ordre par position croissante,
  * indicateur photo coerce et eventuel rappel d'observation.

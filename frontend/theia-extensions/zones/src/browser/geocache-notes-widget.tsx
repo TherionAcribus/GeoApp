@@ -348,7 +348,7 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
 
         try {
-            const updatedNote = await this.notesController.updateNote(this.editingNoteId, content, this.editingType);
+            const updatedNote = await this.notesController.updateNote(this.editingNoteId, content, this.editingType, this.geocacheId);
             const noteId = this.editingNoteId;
             this.cancelEdit();
             // Mise a jour locale : on remplace la note dans la liste sans
@@ -428,7 +428,7 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
 
         try {
-            await this.notesController.deleteNote(note.id);
+            await this.notesController.deleteNote(note.id, this.geocacheId);
             // Mise a jour locale : on retire la note supprimee sans recharger
             // toute la liste.
             this.notes = this.notes.filter(n => n.id !== note.id);

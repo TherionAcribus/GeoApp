@@ -10,6 +10,7 @@ import {
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
     EarthCoachRefreshScheduler,
     GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    GEOAPP_GEOCACHE_NOTES_UPDATED_EVENT,
     isUpdateForGeocache,
     readUpdatedGeocacheId,
 } from '../earthcoach-events';
@@ -76,6 +77,7 @@ import {
     createLoggingTaskDraft,
     createLoggingTaskDraftFromDto,
     formatLoggingTaskSeedLabel,
+    diffLoggingTaskReplacement,
     normalizeExtractionTasks,
 } from '../earthcoach-logging-tasks';
 import {
@@ -827,6 +829,39 @@ function testNormalizeExtractionTasks(): void {
     assert.equal(tasks[1].status, 'todo');
 
     assert.deepEqual(normalizeExtractionTasks('nope'), []);
+}
+
+function testLoggingTaskReplacementDiff(): void {
+    // Meme correspondance normalisee que le backend : casse, accents et
+    // espaces ne comptent pas. Une question retrouvee conserve son travail ;
+    // les autres sont signalees, surtout si elles portent reponse ou
+    // observation liee.
+    const diff = diffLoggingTaskReplacement(
+        [
+            { id: 1, question: 'Couleur de la roche ?', answer: 'Gris clair.' },
+            { id: 2, question: 'Hauteur  de la strate ?', observation_id: 4 },
+            { id: 3, question: 'Question brouillon vide' },
+        ],
+        [
+            { question: '  couleur de la ROCHE ?' },
+            { question: 'Quelle est la hauteur de la strate ?' },
+            { question: 'Nouvelle question' },
+        ]
+    );
+    assert.equal(diff.unchanged, 1);
+    assert.deepEqual(diff.added, ['Quelle est la hauteur de la strate ?', 'Nouvelle question']);
+    assert.equal(diff.removed.length, 2);
+    assert.deepEqual(diff.removed[0], { question: 'Hauteur  de la strate ?', hasAnswer: false, hasObservation: true });
+    assert.deepEqual(diff.removed[1], { question: 'Question brouillon vide', hasAnswer: false, hasObservation: false });
+
+    // Extraction qui conserve tout: aucun diff destructeur.
+    const safe = diffLoggingTaskReplacement(
+        [{ id: 1, question: 'Couleur ?', answer: 'Gris.' }],
+        [{ question: 'Couleur ?' }, { question: 'Épaisseur ?' }]
+    );
+    assert.equal(safe.unchanged, 1);
+    assert.deepEqual(safe.removed, []);
+    assert.deepEqual(safe.added, ['Épaisseur ?']);
 }
 
 function testExtractActionInstruction(): void {
@@ -1608,6 +1643,9 @@ function testDataUpdatedEventNames(): void {
     assert.equal(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, 'earthcoach-logging-tasks-updated');
     assert.equal(EARTHCOACH_OBSERVATIONS_UPDATED_EVENT, 'earthcoach-observations-updated');
     assert.equal(GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT, 'geoapp-geocache-images-updated');
+    // Emis par GeocacheNotesService (zones): le dossier se rafraichit quand
+    // une note classique change, sans quoi le contexte IA resterait perime.
+    assert.equal(GEOAPP_GEOCACHE_NOTES_UPDATED_EVENT, 'geoapp-geocache-notes-updated');
 }
 
 function testReadUpdatedGeocacheId(): void {
@@ -1901,6 +1939,7 @@ async function run(): Promise<void> {
     testLoggingTaskInputBuilder();
     testLoggingTaskDraftFromDto();
     testNormalizeExtractionTasks();
+    testLoggingTaskReplacementDiff();
     testLoggingTaskSeed();
     testExtractActionInstruction();
     testGeoCalculatorToolShape();

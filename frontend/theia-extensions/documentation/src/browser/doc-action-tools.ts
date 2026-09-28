@@ -1763,7 +1763,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         await this.notesService.updateNote(args.note_id, {
                             content: args.content,
                             note_type: noteType,
-                        });
+                        }, Number(args.geocache_id) || undefined);
                         const geocacheId = Number(args.geocache_id);
                         if (Number.isFinite(geocacheId) && geocacheId > 0) {
                             this.widgetEventsService.notifyGeocacheChanged({
@@ -1797,7 +1797,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 consequence: 'La note serait définitivement supprimée.',
                             });
                         }
-                        await this.notesService.deleteNote(args.note_id);
+                        await this.notesService.deleteNote(args.note_id, Number(args.geocache_id) || undefined);
                         const geocacheId = Number(args.geocache_id);
                         if (Number.isFinite(geocacheId) && geocacheId > 0) {
                             this.widgetEventsService.notifyGeocacheChanged({

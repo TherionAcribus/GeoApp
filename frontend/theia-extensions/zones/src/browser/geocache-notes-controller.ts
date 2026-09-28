@@ -46,15 +46,15 @@ export class GeocacheNotesController {
         });
     }
 
-    async updateNote(noteId: number, content: string, noteType: GeocacheNoteType): Promise<GeocacheNoteDto> {
+    async updateNote(noteId: number, content: string, noteType: GeocacheNoteType, geocacheId?: number): Promise<GeocacheNoteDto> {
         return this.notesService.updateNote(noteId, {
             content,
             note_type: noteType
-        });
+        }, geocacheId);
     }
 
-    async deleteNote(noteId: number): Promise<void> {
-        await this.notesService.deleteNote(noteId);
+    async deleteNote(noteId: number, geocacheId?: number): Promise<void> {
+        await this.notesService.deleteNote(noteId, geocacheId);
     }
 
     async syncFromGeocaching(geocacheId: number, force: boolean = false): Promise<SyncFromGeocachingResponse> {

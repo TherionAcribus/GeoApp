@@ -10,7 +10,7 @@ import {
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
 } from './earthcoach-events';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
-import { normalizeExtractionTasks } from './earthcoach-logging-tasks';
+import { diffLoggingTaskReplacement, normalizeExtractionTasks } from './earthcoach-logging-tasks';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
 
@@ -78,6 +78,8 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                 'Cette operation REMPLACE toutes les questions deja enregistrees pour la cache:',
                 'ne l utilise que si l utilisateur demande explicitement d extraire ou de rafraichir les questions.',
                 'Liste les questions dans l ordre du listing; n invente aucune question et ne fabrique aucune reponse.',
+                'Si la reponse contient requires_confirmation, montre le resume du diff a l utilisateur',
+                'et ne reapplique qu apres son accord explicite, en repassant confirmed=true.',
             ].join(' '),
             providerName: PROVIDER_NAME,
             parameters: buildParams({
@@ -110,6 +112,10 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                         additionalProperties: false,
                     },
                 },
+                confirmed: {
+                    type: 'boolean',
+                    description: 'true uniquement apres que l utilisateur a accepte le diff presente. Optionnel.',
+                },
             }),
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
@@ -121,6 +127,30 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                     const tasks = normalizeExtractionTasks(args.tasks);
                     if (!tasks.length) {
                         return err('tasks must contain at least one question');
+                    }
+                    // Une reformulation du modele ferait perdre reponses et
+                    // observations liees: on mesure le diff et, s'il detruit
+                    // du travail, on exige une confirmation explicite plutot
+                    // que d'appliquer en silence.
+                    if (args.confirmed !== true) {
+                        const existing = await this.loggingTaskService.listLoggingTasks(geocacheId);
+                        const diff = diffLoggingTaskReplacement(existing.logging_tasks || [], tasks);
+                        const losingWork = diff.removed.filter(task => task.hasAnswer || task.hasObservation);
+                        if (losingWork.length) {
+                            return JSON.stringify({
+                                success: false,
+                                requires_confirmation: true,
+                                message: [
+                                    `${losingWork.length} question(s) avec reponse ou observation liee disparaitraient.`,
+                                    'Montre le diff a l utilisateur et demande son accord avant de rejouer avec confirmed=true.',
+                                ].join(' '),
+                                diff: {
+                                    unchanged: diff.unchanged,
+                                    added: diff.added,
+                                    removed: diff.removed,
+                                },
+                            });
+                        }
                     }
                     const response = await this.loggingTaskService.replaceLoggingTasks(geocacheId, tasks);
                     this.notifyUpdated(geocacheId);

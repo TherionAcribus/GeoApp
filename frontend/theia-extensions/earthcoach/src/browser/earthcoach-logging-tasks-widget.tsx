@@ -571,13 +571,14 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         if (!geocacheData) {
             return;
         }
-        // L'extraction remplace en masse toutes les questions existantes, y
-        // compris les reponses brouillon et observations liees saisies a la main.
-        // On confirme quand il y a du travail a perdre.
+        // L'extraction remplace en masse la liste des questions. Celles
+        // retrouvees a l'identique conservent reponses et observations liees ;
+        // les reformulations qui detruiraient du travail sont signalees par
+        // l'outil avant application. On confirme le principe du remplacement.
         if (this.tasks.length > 0) {
             const dialog = new ConfirmDialog({
                 title: 'Extraire les questions via EarthCoach',
-                msg: `Cette extraction remplacera les ${this.tasks.length} question(s) existante(s), y compris leurs reponses brouillon et observations liees. Continuer ?`,
+                msg: `Cette extraction remplacera les ${this.tasks.length} question(s) existante(s). Les questions retrouvées à l'identique conservent leurs réponses et observations liées ; toute perte de travail sera signalée avant application. Continuer ?`,
                 ok: 'Remplacer',
                 cancel: Dialog.CANCEL,
             });

@@ -19,6 +19,9 @@ export const EARTHCOACH_OBSERVATIONS_UPDATED_EVENT = 'earthcoach-observations-up
 /** Deja emis par les widgets images de GeoApp (extension zones): on s'y raccroche. */
 export const GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT = 'geoapp-geocache-images-updated';
 
+/** Emis par GeocacheNotesService (extension zones) a chaque mutation de note. */
+export const GEOAPP_GEOCACHE_NOTES_UPDATED_EVENT = 'geoapp-geocache-notes-updated';
+
 export interface EarthCoachDataUpdatedDetail {
     geocacheId?: number;
     /** Emetteur de l'evenement: un widget peut ainsi ignorer ses propres mutations. */

@@ -82,9 +82,9 @@ def _validate_proposals(value: object) -> list[dict]:
     return value
 
 
-def _snapshot_task_question(snapshot: object, task_id: int) -> str | None:
-    """Retrouve le texte de la question tel qu'il etait quand le resultat a ete
-    genere. Les taches du dossier portent des ids 'logging-task-N'."""
+def _snapshot_task(snapshot: object, task_id: int) -> dict | None:
+    """Retrouve la tache telle qu'elle etait quand le resultat a ete genere.
+    Les taches du dossier portent des ids 'logging-task-N'."""
     if not isinstance(snapshot, dict):
         return None
     tasks = snapshot.get('loggingTasks') or snapshot.get('logging_tasks') or []
@@ -95,8 +95,24 @@ def _snapshot_task_question(snapshot: object, task_id: int) -> str | None:
             continue
         match = re.search(r'(\d+)$', str(item.get('id') or ''))
         if match and int(match.group(1)) == task_id:
-            return _optional_text(item.get('question'))
+            return item
     return None
+
+
+def _task_stale_since_snapshot(snapshot_task: dict, task: GeocacheLoggingTask) -> bool:
+    """La proposition ne repond plus a la question actuelle si le texte, la
+    consigne ou l'exigence photo ont change depuis la generation. Les champs
+    absents de l'instantane (anciens dossiers) ne rendent pas la tache perimee."""
+    snapshot_question = _optional_text(snapshot_task.get('question'))
+    if snapshot_question is not None and _question_key(snapshot_question) != _question_key(task.question or ''):
+        return True
+    if 'guidance' in snapshot_task:
+        if _question_key(str(snapshot_task.get('guidance') or '')) != _question_key(task.guidance or ''):
+            return True
+    snapshot_photo = snapshot_task.get('requiresPhoto', snapshot_task.get('requires_photo'))
+    if snapshot_photo is not None and bool(snapshot_photo) != bool(task.requires_photo):
+        return True
+    return False
 
 
 def _effective_proposals(result: EarthCoachResult) -> list:
@@ -526,12 +542,13 @@ def apply_result(result_id: int):
             task = GeocacheLoggingTask.query.filter_by(id=task_id, geocache_id=result.geocache_id).first()
             if not task:
                 raise ValueError('task_id does not belong to this geocache')
-            # La question a ete re-ecrite depuis la generation du resultat: la
-            # proposition ne repond plus au texte actuel, on refuse le report
-            # plutot que d'appliquer une reponse perimee.
-            snapshot_question = _snapshot_task_question(result.context_snapshot, task_id)
-            if snapshot_question is not None and _question_key(snapshot_question) != _question_key(task.question):
-                raise ValueError('the question changed since this result was generated; re-run the resolution')
+            # La question a ete re-ecrite (texte, consigne ou exigence photo)
+            # depuis la generation du resultat: la proposition ne repond plus
+            # a la tache actuelle, on refuse le report plutot que d'appliquer
+            # une reponse perimee.
+            snapshot_task = _snapshot_task(result.context_snapshot, task_id)
+            if snapshot_task is not None and _task_stale_since_snapshot(snapshot_task, task):
+                raise ValueError('the logging task changed since this result was generated; re-run the resolution')
             task.answer = answer
             task.status = 'answered'
             applied.append(task.to_dict())

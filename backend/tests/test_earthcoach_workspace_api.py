@@ -417,6 +417,47 @@ def test_apply_rejects_result_when_question_changed_since_capture(client, seeded
     assert applied.status_code == 200
 
 
+def test_apply_rejects_result_when_guidance_or_photo_requirement_changed(client, seeded):
+    # Meme question qu'a la generation, mais consigne et exigence photo
+    # differentes: la proposition est tout aussi perimee.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-stale-fields',
+            'action': 'resolve',
+            'context_snapshot': {
+                'loggingTasks': [{
+                    'id': f"logging-task-{seeded['task_id']}",
+                    'question': 'Que voyez-vous ?',
+                    'guidance': 'ancienne consigne',
+                    'requiresPhoto': True,
+                }],
+            },
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Que voyez-vous ?',
+                'status': 'ready',
+                'answer': 'Réponse au contexte ancien.',
+            }],
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 400
+    assert 'changed since' in applied.get_json()['error']
+
+    # La tache redevient conforme a l'instantane: le report passe.
+    update = client.put(
+        f'/api/logging-tasks/{seeded["task_id"]}',
+        json={'guidance': 'Ancienne consigne', 'requires_photo': True},
+    )
+    assert update.status_code == 200
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 200
+
+
 def test_result_patch_rejects_invalid_status(client, seeded):
     create = client.post(
         f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
