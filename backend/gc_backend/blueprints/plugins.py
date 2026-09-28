@@ -6507,28 +6507,6 @@ def execute_plugin(plugin_name: str):
         except Exception as e:
             logger.warning(f"Scoring integration error for {plugin_name}: {e}")
 
-        # Scoring IA (enable_ai_scoring) - optionnel, ne bloque jamais
-        try:
-            enable_ai_scoring = bool(inputs.get('enable_ai_scoring', False))
-            if enable_ai_scoring and isinstance(result, dict) and isinstance(result.get('results'), list):
-                ai_items = [item for item in result['results'] if isinstance(item, dict) and item.get('text_output')]
-                if ai_items:
-                    from gc_backend.services.ai_scorer_service import AIScorer
-                    scorer = AIScorer()
-                    scored = scorer.ai_score_results(ai_items, plugin_name=plugin_name)
-                    if scored:
-                        # Fusionner les items scores dans leur position d'origine
-                        ai_idx = 0
-                        for item in result['results']:
-                            if isinstance(item, dict) and item.get('text_output') and ai_idx < len(scored):
-                                for key in ('confidence', 'metadata', 'coordinates'):
-                                    if key in scored[ai_idx]:
-                                        item[key] = scored[ai_idx][key]
-                                ai_idx += 1
-                        logger.info(f"[AI Scorer] {len(scored)} items scores pour {plugin_name}")
-        except Exception as ai_exc:
-            logger.warning(f"AI Scoring integration error for {plugin_name}: {ai_exc}")
-         
         # Tracking : si le plugin s'exécute avec succès sur une géocache, enregistrer dans l'archive
         try:
             geocache_id_raw = inputs.get('geocache_id')

@@ -817,6 +817,8 @@ export interface PluginsService {
     
     /**
      * Analyse et score des resultats de plugin via un LLM (AI scorer).
+     * Sans provider/model explicite, le service applique d'abord l'affectation
+     * Theia de geoapp-ai-scorer, puis les preferences geoApp.aiScorer.*.
      * Retourne les items enrichis avec confidence, metadata.ai_scoring et coordinates.
      */
     aiScoreItems(request: {

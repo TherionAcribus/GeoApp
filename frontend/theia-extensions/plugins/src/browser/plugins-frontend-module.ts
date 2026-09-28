@@ -12,6 +12,7 @@ import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { PluginsService } from '../common/plugin-protocol';
 import { TasksService } from '../common/task-protocol';
 import { PluginsServiceImpl } from './services/plugins-service';
+import { GeoAppAiScorerModelResolver } from './services/ai-scorer-model-resolver';
 import { TasksServiceImpl } from './services/tasks-service';
 import { BatchPluginService } from './services/batch-plugin-service';
 import { PluginsBrowserWidget } from './plugins-browser-widget';
@@ -31,6 +32,7 @@ export default new ContainerModule(bind => {
     // Services de communication avec l'API
     bind(PluginsService).to(PluginsServiceImpl).inSingletonScope();
     bind(PluginsServiceImpl).toSelf().inSingletonScope();
+    bind(GeoAppAiScorerModelResolver).toSelf().inSingletonScope();
     bind(TasksService).to(TasksServiceImpl).inSingletonScope();
     bind(TasksServiceImpl).toSelf().inSingletonScope();
     bind(BatchPluginService).to(BatchPluginService).inSingletonScope();

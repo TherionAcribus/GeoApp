@@ -142,10 +142,13 @@ L'**AI Scorer** (`geoapp-ai-scorer`) est un agent interne qui permet d'assigner 
 ```
 PluginResultDisplay (bouton Analyser avec IA)
   -> PluginsService.aiScoreItems()
+  -> affectation Theia de geoapp-ai-scorer, si définie
+  -> sinon préférences geoApp.aiScorer.*
   -> POST /api/plugins/ai-score
   -> ai_scorer_service.py (prompt + LLM + parsing JSON)
-  -> LLM assigné a geoapp-ai-scorer
 ```
+
+L'affectation Theia prend la priorité lorsqu'elle existe. Elle est traduite en configuration backend pour les slots `openrouter/*`, les modèles `openai/*`, `vercel/openai/*`, `ollama/*` et les endpoints OpenAI-compatibles. Les modèles nécessitant une API dédiée (Anthropic, Gemini, Vercel/Anthropic, Codex/Responses API) sont refusés explicitement plutôt que remplacés par un autre modèle.
 
 **Sortie :** identique au scoring algorithmique - `confidence` (0-1), `metadata.ai_scoring`, `coordinates` si détectées.
 
@@ -160,6 +163,7 @@ PluginResultDisplay (bouton Analyser avec IA)
 | `frontend/.../geoapp-ai-scorer-agent.ts` | Déclaration agent Theia. |
 | `frontend/.../plugin-tools-manager.ts` | Tool `ai_score_plugin_results` + handler. |
 | `frontend/.../plugins-service.ts` | Méthode `aiScoreItems()`. |
+| `frontend/.../ai-scorer-model-resolver.ts` | Traduit l'affectation Theia ou les préférences GeoApp en provider/base URL/modèle backend. |
 | `frontend/.../plugin-result-display.tsx` | Bouton Analyser avec IA dans le panneau. |
 | `frontend/.../geoapp-chat-tool-catalog.ts` | Entrée catalogue `geoapp.plugins.ai.score`. |
 | `frontend/.../zones-frontend-module.ts` | Binding Inversify. |

@@ -49,6 +49,7 @@ import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills'
 import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
+import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -213,6 +214,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     @inject(LanguageModelRegistry) @optional()
     protected readonly languageModelRegistry: LanguageModelRegistry | undefined;
+
+    @inject(GeoAppAiScorerModelResolver) @optional()
+    protected readonly aiScorerModelResolver: GeoAppAiScorerModelResolver | undefined;
 
     @inject(PromptService) @optional()
     protected readonly promptService: PromptService | undefined;
@@ -478,7 +482,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <div className='geoapp-chat-policy-agents-head'>
                     <div>
                         <h3>Modeles par agent</h3>
-                        <p>Modele resolu pour chaque agent GeoApp. L'assignation se fait dans « Config IA Theia ».</p>
+                        <p>Modele effectif pour chaque agent GeoApp. Pour AI Scorer, l'affectation Theia prime ; sans affectation, les preferences GeoApp du scorer sont utilisees.</p>
                     </div>
                     <button className='theia-button secondary' type='button' onClick={() => this.refreshAgentModels()}>
                         Rafraichir
@@ -520,7 +524,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     }
 
     protected async ensureAgentModels(): Promise<void> {
-        if (this.agentModelsLoaded || this.agentModelsLoading || !this.languageModelRegistry) {
+        if (this.agentModelsLoaded || this.agentModelsLoading || (!this.languageModelRegistry && !this.aiScorerModelResolver)) {
             return;
         }
         this.agentModelsLoading = true;
@@ -528,6 +532,12 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             const registry = this.languageModelRegistry;
             const resolved = await Promise.all(AGENT_MODEL_ROWS.map(async row => {
                 try {
+                    if (row.id === GEOAPP_AI_SCORER_AGENT_ID && this.aiScorerModelResolver) {
+                        return [row.id, await this.aiScorerModelResolver.describeEffectiveSelection()] as const;
+                    }
+                    if (!registry) {
+                        return [row.id, ''] as const;
+                    }
                     const model = await registry.selectLanguageModel({
                         agent: row.id,
                         purpose: row.purpose,

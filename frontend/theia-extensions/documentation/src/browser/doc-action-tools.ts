@@ -1,4 +1,4 @@
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, optional } from '@theia/core/shared/inversify';
 import { CommandService, MessageService } from '@theia/core';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
@@ -42,6 +42,7 @@ import {
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
+import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
 import { AlphabetsService } from '@mysterai/theia-alphabets/lib/browser/services/alphabets-service';
 import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alphabet-tabs-manager';
 import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
@@ -250,6 +251,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     @inject(LanguageModelAliasRegistry)
     protected readonly languageModelAliasRegistry!: LanguageModelAliasRegistry;
+
+    @inject(GeoAppAiScorerModelResolver) @optional()
+    protected readonly aiScorerModelResolver: GeoAppAiScorerModelResolver | undefined;
 
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
@@ -2934,7 +2938,28 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 ...this.describeOpenRouterSlot(resolved),
             };
         }));
-        return { id: agent.id, name: agent.name, requirements };
+        const description: Record<string, unknown> = { id: agent.id, name: agent.name, requirements };
+        if (agent.id === GEOAPP_AI_SCORER_AGENT_ID && this.aiScorerModelResolver) {
+            try {
+                const runtime = await this.aiScorerModelResolver.resolveForRequest({});
+                description.execution = {
+                    path: 'POST /api/plugins/ai-score',
+                    provider: runtime.provider,
+                    base_url: runtime.base_url,
+                    model: runtime.model,
+                    source: runtime.source,
+                    source_label: runtime.sourceLabel,
+                    theia_model_id: runtime.theiaModelId,
+                    assigned_identifier: runtime.assignedIdentifier,
+                };
+            } catch (error) {
+                description.execution = {
+                    path: 'POST /api/plugins/ai-score',
+                    error: error instanceof Error ? error.message : String(error),
+                };
+            }
+        }
+        return description;
     }
 
     private buildAiModelTools(): ToolRequest[] {
@@ -3042,9 +3067,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         const requirement = (description.requirements as Array<Record<string, unknown>>)
                             .find(entry => entry.purpose === purpose);
                         const resolved = requirement?.resolved_model_id as string | undefined;
-                        this.messageService.info(reset
-                            ? `${agent.name} : modele par defaut retabli.`
-                            : `${agent.name} utilise maintenant ${modelId}.`);
+                        const execution = description.execution as Record<string, unknown> | undefined;
+                        const executionError = typeof execution?.error === 'string' ? execution.error : undefined;
+                        if (agent.id === GEOAPP_AI_SCORER_AGENT_ID) {
+                            if (executionError) {
+                                this.messageService.warn(`${agent.name} : ${executionError}`);
+                            } else if (execution?.provider && execution?.model) {
+                                this.messageService.info(`${agent.name} utilisera ${execution.provider}/${execution.model} pour le scoring.`);
+                            } else {
+                                this.messageService.info(`${agent.name} utilisera la configuration GeoApp AI Scorer.`);
+                            }
+                        } else {
+                            this.messageService.info(reset
+                                ? `${agent.name} : modele par defaut retabli.`
+                                : `${agent.name} utilise maintenant ${modelId}.`);
+                        }
                         return ok({
                             agent: agent.id,
                             purpose,
@@ -3052,7 +3089,10 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             identifier: reset ? undefined : modelId,
                             resolved_model_id: resolved,
                             ...this.describeOpenRouterSlot(resolved),
-                            warning: resolved ? undefined : 'Aucun modele pret pour ce choix (cle API absente ou fournisseur indisponible).',
+                            execution,
+                            warning: resolved || agent.id === GEOAPP_AI_SCORER_AGENT_ID
+                                ? executionError
+                                : 'Aucun modele pret pour ce choix (cle API absente ou fournisseur indisponible).',
                         });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

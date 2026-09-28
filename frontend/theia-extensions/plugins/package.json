@@ -21,10 +21,12 @@
     "clean": "rimraf lib",
     "build": "tsc && yarn run copy:assets",
     "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/plugin-executor-geoapp-shared.test.ts",
+    "test:ai-scorer": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/ai-scorer-model-resolver.test.ts",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
     "watch": "tsc -w"
   },
   "devDependencies": {
+    "@theia/ai-core": "1.70.2",
     "@theia/core": "1.70.2",
     "@theia/filesystem": "1.70.2",
     "@theia/workspace": "1.70.2",
@@ -34,6 +36,7 @@
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
+    "@theia/ai-core": "1.70.2",
     "@theia/core": "1.70.2",
     "@theia/filesystem": "1.70.2",
     "@theia/workspace": "1.70.2"
