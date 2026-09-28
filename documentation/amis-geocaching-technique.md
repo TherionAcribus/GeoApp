@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif, notifications, events).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif, notifications, events ; simplification de l'interface, §13.14).
 
 ---
 
@@ -132,8 +132,12 @@ backend/tests/
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
 frontend/theia-extensions/zones/src/browser/
-├── geocaching-friends-widget.tsx           # Widget « Amis Geocaching »
-├── geocaching-friend-activity-widget.tsx   # Widget « Activité des amis »
+├── geocaching-friends-widget.tsx           # Widget « Amis » : onglets Amis / Activité / À faire (§13.14)
+├── friends-list-panel.tsx                  # Onglet « Amis » (cartes + compteurs en commun)
+├── friends-todo-panel.tsx                  # Onglet « À faire » (events, suggestions, import)
+├── friend-profile-finds.ts                 # « Récupérer toutes ses trouvailles » (widget + fiche ami)
+├── geocaching-friend-summary-widget.tsx    # Fiche ami
+├── friend-outing-side-panel.tsx            # Panneau du mode sortie (§13.12)
 ├── geocache-logs-widget.tsx                # Badge « ami » + filtre dans les logs d'une cache
 ├── geocache-friend-finds-banner.tsx        # Bandeau « N amis ont trouvé » + Message Center
 ├── map/map-widget-factory.ts               # openFriendsMap() : carte des amis à id fixe (§12)
@@ -142,9 +146,9 @@ frontend/theia-extensions/zones/src/browser/
 ├── zones-tree-widget.tsx                   # Zone « Amis » masquée selon la préférence
 ├── geocaches-table.tsx                     # Colonne « Amis » du tableau de zone
 ├── zone-geocaches-widget.tsx               # Analyse d'une zone (progression, estimation)
-├── zones-command-contribution.ts           # Commandes geoapp.friends[.activity].open
+├── zones-command-contribution.ts           # Commandes geoapp.friends[.activity|.todo].open
 ├── zones-menu-contribution.ts              # Entrées View > Views
-├── geoapp-sidebar-contribution.ts          # Entrées du menu compte
+├── geoapp-sidebar-contribution.ts          # Menu « Amis » de la barre latérale
 └── zones-frontend-module.ts                # Bindings DI + WidgetFactory
 
 shared/preferences/geo-preferences-schema.json
@@ -312,23 +316,31 @@ Le 401 est renvoyé **avant** toute requête réseau si
 ## 7. Frontend — widget « Amis Geocaching »
 
 `GeocachingFriendsWidget` (`ReactWidget`, ID `geocaching-friends-widget`),
-ouvert dans la zone principale.
+ouvert dans la zone principale. Depuis la simplification de septembre 2026
+(§13.14), la liste d'amis est l'onglet **Amis** de ce widget, à côté des
+onglets **Activité** (§9.6) et **À faire**.
 
 **Points d'entrée utilisateur :**
 
-1. Menu du compte dans la sidebar (icône en bas) → **« Mes amis »** — à côté de
-   « Gérer la connexion » ;
-2. **View → Views → Amis Geocaching.com** ;
-3. Palette de commandes : `GeoApp: Amis Geocaching.com` (`geoapp.friends.open`).
+1. Icône **Amis** en bas de la barre latérale → « Mes amis », « Activité des
+   amis », « Caches à faire » ;
+2. **View → Views → Amis** ;
+3. Palette de commandes : `GeoApp: Amis` (`geoapp.friends.open`),
+   `GeoApp: Activité des amis` (`geoapp.friends.activity.open`, accepte
+   `{ username }`), `GeoApp: Caches à faire avec les amis`
+   (`geoapp.friends.todo.open`).
 
 **Comportement :**
 
 - Affichage en cartes responsives (grille `auto-fill`, min 280 px) : avatar,
   pseudo cliquable vers le profil, badge Premium, trouvées/posées, dernière
   connexion (« aujourd'hui » en vert si c'est le jour même), lieu, ancienneté.
-- Filtre texte (pseudo ou lieu) et tri (pseudo / trouvailles / dernière
-  connexion) appliqués **côté client**, sans requête réseau.
-- Bouton **Rafraîchir** → `?force=true`.
+- Compteurs locaux « N en commun · M connues » sur chaque carte
+  (`/api/friends/stats`, §13.6).
+- Filtre texte (pseudo ou lieu) et tri (pseudo / trouvailles / en commun /
+  dernière connexion) appliqués **côté client**, sans requête réseau.
+- Le bouton **Mettre à jour** de l'en-tête recharge la liste avec `?force=true`
+  en même temps que le flux.
 - Rechargement automatique sur l'événement `geoapp-auth-changed` émis par le
   widget de connexion (l'écouteur est retiré dans `dispose()`).
 - Bandeaux d'avertissement si `truncated` (pagination, §8) ou si
@@ -519,15 +531,16 @@ Une synchro échouée (session expirée, réseau…) est journalisée et le thre
 continue : le prochain cycle réessaiera. Le scheduler ne tourne pas pendant les
 tests (`is_testing`) ni les migrations (`is_migration`).
 
-### 9.6 Frontend — widget « Activité des amis »
+### 9.6 Frontend — onglet « Activité » du widget Amis
 
-`GeocachingFriendActivityWidget` (ID `geocaching-friend-activity-widget`),
-accessible depuis le menu du compte, *View → Views* et la commande
-`GeoApp: Activité des amis`.
+Onglet **Activité** de `GeocachingFriendsWidget` (§7, §13.14), ouvert
+directement par la commande `GeoApp: Activité des amis`.
 
 - Timeline groupée par jour (« Aujourd'hui », « Hier », puis date longue).
 - Filtres ami / type de log / « Mes logs », appliqués **côté serveur** (donc
-  cohérents avec la pagination) ; profondeur de synchro 7/14/30 jours.
+  cohérents avec la pagination). La profondeur d'une mise à jour manuelle est
+  celle de la préférence `geoApp.friends.activity.autoSyncDays` : l'ancien
+  sélecteur 7/14/30 jours faisait doublon et se lisait comme un filtre.
 - Pagination « Charger plus » par tranches de 50.
 - Notes longues repliées derrière « Voir plus » (seuil 320 caractères).
 - Réutilise `LogTypeIcon` (smiley jaune / tête bleue) pour les logs 2 et 3.
@@ -837,12 +850,14 @@ redessinerait pas les popups.
 
 ### 12.4 Interface
 
-Bouton **🌐 Carte** dans la barre d'outils du widget « Activité des amis ».
+Bouton **🌐 Carte** dans la barre de l'onglet Activité du widget Amis.
 La carte suit ensuite les filtres (ami, type de log, « Mes logs ») et les
 synchronisations. Un bandeau annonce le bilan : nombre de caches placées,
 troncature éventuelle, logs sans coordonnées.
 
-Ouverture automatique à l'ouverture du widget, réglable par la préférence
+Ouverture automatique au premier affichage de l'onglet Activité (pas de
+l'onglet Amis : la carte n'aurait rien à voir avec ce qu'on regarde), réglable
+par la préférence
 `geoApp.friends.map.autoLoad` (activée par défaut, section *Amis* de la
 catégorie *Carte*).
 
@@ -990,8 +1005,8 @@ une recommandation active.
 Query params : `zone_id` (filtre par zone), `min_friends` (défaut 1, max 50),
 `limit` (défaut 50, max 200), `include_found` (défaut false).
 
-**Frontend** : une section repliable « Suggestions de caches à faire » en bas du
-widget « Activité des amis ». Affiche pour chaque suggestion le nombre d'amis,
+**Frontend** : onglet **À faire** du widget Amis (§13.14), section « Trouvées
+par vos amis, pas par vous ». Affiche pour chaque suggestion le nombre d'amis,
 le nom, le code GC, le type, D/T, les favoris, les coordonnées (si connues) et la
 liste des amis. Un filtre « min. N ami(s) » permet de monter le seuil pour ne
 voir que les caches les plus populaires auprès du cercle d'amis. Les caches non
@@ -1023,9 +1038,10 @@ Réponse : `friends` (liste triée par trouvailles décroissantes) + `summary`
 (nombre d'amis, total de trouvailles distinctes, total de caches en commun, ami
 le plus actif).
 
-**Frontend** : section repliable « Statistiques » en bas du widget, avec un
-tableau par ami (trouvailles, activité, en commun) et un résumé global. Cliquer
-sur un pseudo filtre le flux d'activité sur cet ami.
+**Frontend** : les compteurs « en commun » et « connues » s'affichent sur la
+carte de chaque ami (onglet Amis) et dans sa fiche. L'ancienne section
+« Statistiques » du flux, qui répétait ces chiffres dans un tableau à part, a
+été retirée (§13.14). Le résumé global n'est plus affiché.
 
 ### 13.7 Tableau de bord de fraîcheur
 
@@ -1047,10 +1063,10 @@ lecture (sans réseau) l'état de toutes les sources de données « amis » :
 |-------|------|
 | `GET /api/friends/freshness` | État de fraîcheur de toutes les sources |
 
-**Frontend** : panneau « Fraîcheur des données » en bas du widget, avec 4 cartes
-(Flux d'activité, Trouvailles déduites, Liste d'amis, Géocaches). Chaque carte
-affiche les timestamps en temps relatif (« il y a 12 min ») et un icône
-⚠️ quand une source est stale. Un bouton rafraîchit le panneau à la demande.
+**Frontend** : plus d'affichage depuis §13.14. Le panneau à 4 cartes exposait
+l'état des tables internes ; l'en-tête du widget n'affiche plus qu'une ligne
+« Mis à jour il y a 12 min ». La route reste disponible (agent @Aide,
+diagnostic).
 
 ### 13.8 Notifications de nouvelles trouvailles
 
@@ -1084,10 +1100,9 @@ la clé `friends.notifications.last_seen_at`.
 - `geoApp.friends.notifications.minFriends` (integer, défaut 1, 1–50) : nombre
   minimal d'amis ayant trouvé une même cache pour déclencher une notification.
 
-**Frontend** : un badge rouge avec le compte de notifications apparaît sur le
-titre du widget « Activité des amis ». Une section repliable liste les
-notifications (cache, amis, métadonnées) avec un bouton « Marquer comme lu ».
-Si la préférence est désactivée, rien ne s'affiche.
+**Frontend** : un badge rouge sur l'onglet Activité du widget Amis, et un
+bandeau d'une ligne en tête de cet onglet (« Voir » déplie la liste, « Marquer
+comme vu »). Si la préférence est désactivée, rien ne s'affiche.
 
 ### 13.9 Events geocaching
 
@@ -1112,14 +1127,12 @@ d'activité stocké. Les events correspondent aux log types :
 |-------|------|
 | `GET /api/friends/events` | Events (log types 9/10) agrégés par cache |
 
-**Frontend** : une section « Events » dédiée dans le widget affiche un badge
-vert avec le nombre d'events à venir, et une liste repliable des events (nom,
-date, location, amis participants). Les events passés sont aussi affichés mais
-sans badge vert.
+**Frontend** : onglet **À faire** du widget Amis, badge vert sur l'onglet avec
+le nombre d'events à venir. Les events passés sont derrière un bouton.
 
 ### 13.10 Interface
 
-Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
+Un sélecteur de source dans la barre de l'onglet Activité du widget Amis :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
 **Les deux**.
 
@@ -1131,9 +1144,10 @@ d'une cache trouvée récemment.
 Seul le filtre « ami » s'applique aux trouvailles déduites : cette table n'a ni
 type de log ni date, la filtrer par type de log n'aurait aucun sens.
 
-Un bandeau annonce les géocaches manquantes et propose l'import ; il se
-transforme en indicateur de progression discret (message + bouton *Arrêter*)
-pendant l'opération, sans modale bloquante.
+L'import des géocaches manquantes est proposé dans l'onglet **À faire**
+(§13.14) — c'est là qu'on voit les caches sans fiche GeoApp. Pendant
+l'opération, la progression (et *Arrêter*) s'affiche dans la ligne d'état de
+l'en-tête, visible quel que soit l'onglet, sans modale bloquante.
 
 Le compteur est rafraîchi par `refreshImportableCount()` **à l'ouverture du
 widget**, indépendamment de la carte.
@@ -1340,6 +1354,80 @@ Enfin, un **bandeau de mode d'une ligne** au-dessus du tableau — « 👥 Sorti
 avec A, B, C · 12 caches » et « Quitter » : le panneau se replie, mais un
 tableau qui colore et filtre doit toujours dire au nom de quelle sortie il le
 fait, et offrir la porte de sortie.
+
+### 13.14 Simplification de l'interface (septembre 2026)
+
+Chaque fonctionnalité amis avait été ajoutée là où c'était le plus commode au
+moment de l'écrire. Résultat : pour s'en servir, il fallait comprendre comment
+les données sont construites (§0). Le widget « Activité des amis » empilait sous
+sa timeline cinq sections repliables (Suggestions, Statistiques, Fraîcheur,
+Notifications, Events) et sept bandeaux possibles ; cinq boutons différents
+allaient chercher des données ; les statistiques par ami existaient à trois
+endroits. Principe de la refonte : **partir des questions de l'utilisateur, pas
+des sources**.
+
+**Un seul widget « Amis », trois onglets** (`geocaching-friends-widget.tsx`,
+qui reprend l'ID `geocaching-friends-widget` ; l'ancien ID
+`geocaching-friend-activity-widget` n'existe plus) :
+
+| Onglet | Contenu | Commande |
+|--------|---------|----------|
+| Amis | Liste du compte, compteurs « en commun / connues » | `geoapp.friends.open` |
+| Activité | Timeline, filtres, carte, bandeau des nouveautés | `geoapp.friends.activity.open` |
+| À faire | Import des caches manquantes, events, suggestions | `geoapp.friends.todo.open` |
+
+L'onglet affiché est exposé (`activeTab`) : le contexte de l'agent @Aide
+renvoie `friend-activity` sur l'onglet Activité, `friends` sinon.
+
+**Un seul bouton de rafraîchissement.** « Mettre à jour », dans l'en-tête,
+recharge la liste d'amis (`force`) et le flux, puis tout ce qui en dépend
+(carte, compteurs, notifications, events, suggestions). Sa profondeur est la
+préférence `autoSyncDays`. La ligne d'état sous les onglets remplace le panneau
+de fraîcheur et les bandeaux « dernière synchronisation » / bilan de synchro.
+
+**Un seul vocabulaire.** L'interface ne parle plus de synchronisation, de scan
+ni de trouvailles déduites :
+
+| Avant | Après |
+|-------|-------|
+| Synchroniser | Mettre à jour |
+| Compléter depuis le profil | Récupérer toutes ses trouvailles |
+| Analyser N ami(s) × M cache(s) | Vérifier qui a trouvé (N ami(s) × M) |
+| analysé / non analysé | vérifié / non vérifié |
+| Couverture des analyses (fiche ami) | Zones vérifiées |
+| Personne / Tous (filtres du tableau) | Nouvelles pour tous / Déjà faites par tous |
+
+« Récupérer toutes ses trouvailles » (`friend-profile-finds.ts`) est proposé à
+deux endroits avec la même confirmation : sur la **fiche ami** — sa place
+naturelle — et dans l'onglet Activité quand le flux est filtré sur un ami dont
+des trouvailles sont condensées (§9.2). Sans ami filtré, ce bandeau ne
+s'affiche plus : les « + N autres » de chaque entrée suffisent à signaler la
+condensation. La fiche ami affiche aussi « connues / total » pour qu'on voie ce
+qu'il reste à récupérer.
+
+**Le panneau de sortie passe de six sections à trois** (Amis, Caches,
+Résultats) :
+
+- les sorties nommées tiennent dans l'en-tête (sélecteur, « enregistrer
+  sous », corbeille) ;
+- les groupes d'amis tiennent sur une ligne : choisir un groupe l'applique ;
+- « Vérifier qui a trouvé » rejoint la section Caches, sur laquelle il porte ;
+- la section Suggestions (`friend-outing-suggestions.ts`, supprimé avec son
+  test) est remplacée par le filtre « Nouvelles pour tous » du tableau.
+
+Le bandeau de mode au-dessus du tableau est supprimé : il doublait le panneau
+(et sa bande repliée) et portait un troisième bouton « Quitter » dont
+l'infobulle annonçait à tort la suppression de la sortie. On entre et on sort
+du mode par le bouton **Sortie** de la barre d'outils ; le ✕ du panneau reste
+un raccourci de sortie.
+
+**Préférences** : les sept réglages `geoApp.friends.*` sont regroupés dans une
+catégorie **Amis** (avec son guide), au lieu d'être répartis entre *Carte*,
+*Interface* et *Amis*.
+
+**Barre latérale** : les amis ont leur propre icône en bas de la barre
+latérale, au lieu d'être rangés dans le menu du compte à côté de « Gérer la
+connexion ».
 
 ---
 

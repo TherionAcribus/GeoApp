@@ -7,7 +7,6 @@ import type { FriendGroup } from './friend-groups-state';
 import { coverageLabel, scanCoverage } from './friend-scan-state';
 import type { FriendScanCoverage } from './friend-scan-state';
 import { friendColor } from './friend-colors';
-import { outingSuggestions } from './friend-outing-suggestions';
 import { ZoneFriendAnalysisPanel } from './zone-friend-analysis-panel';
 import '../../src/browser/style/friend-outing-panel.css';
 
@@ -30,6 +29,11 @@ import '../../src/browser/style/friend-outing-panel.css';
  * « Caches » qui décide ce que la sélection courante devient (le périmètre, un
  * ajout, un retrait). Cocher une ligne ne change plus rien tant qu'on ne l'a pas
  * dit ici.
+ *
+ * Trois sections seulement — Amis, Caches (avec « Vérifier qui a trouvé »),
+ * Résultats. Les sorties nommées tiennent dans l'en-tête ; les suggestions
+ * « nouvelles pour le plus d'amis » ont cédé la place au filtre « Nouvelles
+ * pour tous » du tableau, qui répond à la même question là où on lit la liste.
  */
 
 export interface FriendOutingSidePanelProps {
@@ -222,33 +226,17 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
 
     return (
         <div className='geoapp-outing-panel'>
-            <div className='geoapp-outing-panel__header'>
-                <span className='geoapp-outing-panel__title'>👥 Sortie entre amis</span>
-                <button
-                    className='geoapp-outing-panel__icon-button'
-                    onClick={() => setCollapsed(true)}
-                    title='Replier le panneau'
-                >
-                    <span className='codicon codicon-chevron-right' />
-                </button>
-                <button
-                    className='geoapp-outing-panel__icon-button'
-                    onClick={props.onExit}
-                    title='Quitter le mode sortie (la sortie reste enregistrée)'
-                >
-                    <span className='codicon codicon-close' />
-                </button>
-            </div>
+            <OutingHeader
+                activeName={props.outing.name}
+                names={props.outingNames}
+                onSwitch={props.onSwitchOuting}
+                onSaveAs={props.onSaveOutingAs}
+                onDelete={props.onDeleteOuting}
+                onCollapse={() => setCollapsed(true)}
+                onExit={props.onExit}
+            />
 
             <div className='geoapp-outing-panel__body'>
-                <OutingsSection
-                    activeName={props.outing.name}
-                    names={props.outingNames}
-                    onSwitch={props.onSwitchOuting}
-                    onSaveAs={props.onSaveOutingAs}
-                    onDelete={props.onDeleteOuting}
-                />
-
                 <FriendsSection
                     rows={visibleRows}
                     totalCount={friendRows.length}
@@ -279,19 +267,19 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                     onAdd={props.onAddSelectionToCaches}
                     onRemove={props.onRemoveSelectionFromCaches}
                     onResetToZone={props.onResetCachesToZone}
-                />
-
-                <AnalysisSection
-                    friendCount={props.activeFriends.size}
-                    scopeSize={scopeRows.length}
-                    offline={props.backendOffline === true}
-                    onRetryConnection={props.onRetryConnection}
-                    wholeZone={wholeZone}
-                    progress={props.progress}
-                    summary={props.lastAnalysisSummary}
-                    onAnalyze={props.onAnalyze}
-                    onCancel={props.onCancelAnalyze}
-                />
+                >
+                    <VerifyBlock
+                        friendCount={props.activeFriends.size}
+                        scopeSize={scopeRows.length}
+                        offline={props.backendOffline === true}
+                        onRetryConnection={props.onRetryConnection}
+                        wholeZone={wholeZone}
+                        progress={props.progress}
+                        summary={props.lastAnalysisSummary}
+                        onAnalyze={props.onAnalyze}
+                        onCancel={props.onCancelAnalyze}
+                    />
+                </CachesSection>
 
                 <section className='geoapp-outing-panel__section'>
                     <h4 className='geoapp-outing-panel__section-title'>
@@ -327,93 +315,8 @@ export const FriendOutingSidePanel: React.FC<FriendOutingSidePanelProps> = props
                         onOpenGeocache={props.onOpenGeocache}
                     />
                 </section>
-
-                <SuggestionsSection
-                    rows={scopeRows}
-                    friends={props.outing.friends}
-                    friendFinds={props.friendFinds}
-                    friendScans={props.friendScans}
-                    onOpenGeocache={props.onOpenGeocache}
-                />
             </div>
         </div>
-    );
-};
-
-// -------------------------------------------------- Section « Suggestions »
-
-/** Nombre de suggestions affichées — le reste reste lisible via la matrice. */
-const MAX_SUGGESTIONS = 10;
-
-/**
- * Les caches du périmètre nouvelles pour le plus d'amis emmenés. Une cache
- * « nouvelle pour 3 » sur couverture fiable vaut mieux qu'une « nouvelle
- * pour 4 » dont deux scans sont tronqués : le compteur « ? » le rappelle.
- */
-const SuggestionsSection: React.FC<{
-    rows: Geocache[];
-    friends: string[];
-    friendFinds: Record<string, string[]>;
-    friendScans: FriendZoneScanEntry[];
-    onOpenGeocache?: (geocache: Geocache) => void;
-}> = props => {
-    if (props.friends.length === 0 || props.rows.length === 0) {
-        return null;
-    }
-    const suggestions = outingSuggestions(props.rows, props.friends, props.friendFinds, props.friendScans);
-    if (suggestions.length === 0) {
-        return null;
-    }
-    const shown = suggestions.slice(0, MAX_SUGGESTIONS);
-    return (
-        <section className='geoapp-outing-panel__section'>
-            <h4 className='geoapp-outing-panel__section-title'>
-                Suggestions
-                <span className='geoapp-outing-panel__section-count'>{suggestions.length}</span>
-            </h4>
-            <p className='geoapp-outing-panel__hint'>
-                Caches nouvelles pour le plus d'amis emmenés (analyse à jour requise).
-            </p>
-            <ul className='geoapp-outing-panel__suggestions'>
-                {shown.map(s => {
-                    const gc = s.geocache;
-                    return (
-                        <li key={gc.gc_code} className='geoapp-outing-panel__suggestion'>
-                            <button
-                                className='geoapp-outing-panel__suggestion-name'
-                                title='Ouvrir la fiche'
-                                onClick={() => props.onOpenGeocache?.(gc)}
-                            >
-                                {gc.name}
-                            </button>
-                            <span className='geoapp-outing-panel__suggestion-meta'>
-                                {gc.gc_code} · D{gc.difficulty} T{gc.terrain}
-                            </span>
-                            <span
-                                className='geoapp-outing-panel__suggestion-new'
-                                title={s.newFor.join(', ')}
-                            >
-                                nouvelle pour {s.newFor.length}
-                                {s.newFor.length === 1 ? ` (${s.newFor[0]})` : ''}
-                            </span>
-                            {s.toCheck.length > 0 && (
-                                <span
-                                    className='geoapp-outing-panel__suggestion-check'
-                                    title={`À vérifier pour : ${s.toCheck.join(', ')}`}
-                                >
-                                    ? {s.toCheck.length}
-                                </span>
-                            )}
-                        </li>
-                    );
-                })}
-            </ul>
-            {suggestions.length > shown.length && (
-                <p className='geoapp-outing-panel__hint'>
-                    … et {suggestions.length - shown.length} autre(s), voir la matrice ou l'export CSV.
-                </p>
-            )}
-        </section>
     );
 };
 
@@ -523,8 +426,8 @@ const FriendsSection: React.FC<{
 );
 
 /**
- * Groupes d'amis réutilisables : appliquer un groupe coches ses membres,
- * « Enregistrer » fige la sélection courante sous un nom.
+ * Groupes d'amis réutilisables, sur une ligne : choisir un groupe emmène ses
+ * membres, la disquette enregistre les amis cochés sous un nom.
  *
  * Les groupes sont globaux (pas par zone) : « Équipe du samedi » a le même
  * sens sur toutes les zones. Les pseudos d'un groupe qui ne sont plus dans la
@@ -539,120 +442,137 @@ const GroupsRow: React.FC<{
     onDelete: (name: string) => void;
 }> = ({ groups, checkedCount, onApply, onSave, onDelete }) => {
     const [selected, setSelected] = React.useState('');
+    const [naming, setNaming] = React.useState(false);
     const [nameInput, setNameInput] = React.useState('');
 
     const selectedGroup = groups.find(g => g.name === selected);
     const trimmedName = nameInput.trim();
+    const save = (): void => {
+        if (!trimmedName || checkedCount === 0) {
+            return;
+        }
+        onSave(trimmedName);
+        setSelected(trimmedName);
+        setNameInput('');
+        setNaming(false);
+    };
 
     return (
         <div className='geoapp-outing-panel__groups'>
-            {groups.length > 0 && (
+            <div className='geoapp-outing-panel__row'>
+                <select
+                    className='theia-input geoapp-outing-panel__search'
+                    value={selectedGroup ? selected : ''}
+                    onChange={e => {
+                        setSelected(e.target.value);
+                        if (e.target.value) {
+                            onApply(e.target.value);
+                        }
+                    }}
+                    disabled={groups.length === 0}
+                    title={groups.length === 0
+                        ? 'Aucun groupe : cochez des amis puis enregistrez-les avec la disquette.'
+                        : 'Emmener un groupe enregistré (remplace les amis cochés)'}
+                    aria-label='Groupe d’amis'
+                >
+                    <option value=''>{groups.length === 0 ? 'Aucun groupe' : 'Emmener un groupe…'}</option>
+                    {groups.map(g => (
+                        <option key={g.name} value={g.name}>
+                            {`${g.name} (${g.friends.length})`}
+                        </option>
+                    ))}
+                </select>
+                <button
+                    className='geoapp-outing-panel__icon-button'
+                    onClick={() => setNaming(!naming)}
+                    disabled={checkedCount === 0}
+                    title={checkedCount === 0
+                        ? 'Cochez des amis avant d’enregistrer un groupe.'
+                        : `Enregistrer les ${checkedCount} ami(s) coché(s) comme groupe`}
+                >
+                    <span className='codicon codicon-save' />
+                </button>
+                <button
+                    className='geoapp-outing-panel__icon-button'
+                    onClick={() => {
+                        if (selectedGroup) {
+                            onDelete(selectedGroup.name);
+                            setSelected('');
+                        }
+                    }}
+                    disabled={!selectedGroup}
+                    title={selectedGroup ? `Supprimer le groupe « ${selectedGroup.name} »` : 'Choisissez d’abord un groupe'}
+                >
+                    <span className='codicon codicon-trash' />
+                </button>
+            </div>
+            {naming && (
                 <div className='geoapp-outing-panel__row'>
-                    <select
+                    <input
                         className='theia-input geoapp-outing-panel__search'
-                        value={selected}
-                        onChange={e => setSelected(e.target.value)}
-                        title='Groupes enregistrés'
-                        aria-label='Groupe d’amis'
-                    >
-                        <option value=''>Groupe…</option>
-                        {groups.map(g => (
-                            <option key={g.name} value={g.name}>
-                                {`${g.name} (${g.friends.length})`}
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        className='theia-button secondary geoapp-outing-panel__mini-button'
-                        onClick={() => selectedGroup && onApply(selectedGroup.name)}
-                        disabled={!selectedGroup}
-                        title={selectedGroup
-                            ? `Emmener ${selectedGroup.friends.join(', ') || 'personne'}`
-                            : 'Choisissez un groupe'}
-                    >
-                        Emmener
-                    </button>
-                    <button
-                        className='theia-button secondary geoapp-outing-panel__mini-button'
-                        onClick={() => {
-                            if (selectedGroup) {
-                                onDelete(selectedGroup.name);
-                                setSelected('');
-                            }
+                        type='text'
+                        placeholder='Nom du groupe…'
+                        value={nameInput}
+                        autoFocus
+                        onChange={e => setNameInput(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') { save(); }
+                            if (e.key === 'Escape') { setNaming(false); }
                         }}
-                        disabled={!selectedGroup}
-                        title={selectedGroup ? `Supprimer le groupe « ${selectedGroup.name} »` : 'Choisissez un groupe'}
+                        aria-label='Nom du groupe à enregistrer'
+                    />
+                    <button
+                        className='theia-button secondary geoapp-outing-panel__mini-button'
+                        onClick={save}
+                        disabled={!trimmedName}
                     >
-                        <span className='codicon codicon-trash' />
+                        OK
                     </button>
                 </div>
             )}
-            <div className='geoapp-outing-panel__row'>
-                <input
-                    className='theia-input geoapp-outing-panel__search'
-                    type='text'
-                    placeholder='Nom du groupe…'
-                    value={nameInput}
-                    onChange={e => setNameInput(e.target.value)}
-                    onKeyDown={e => {
-                        if (e.key === 'Enter' && trimmedName) {
-                            onSave(trimmedName);
-                            setNameInput('');
-                        }
-                    }}
-                    aria-label='Nom du groupe à enregistrer'
-                />
-                <button
-                    className='theia-button secondary geoapp-outing-panel__mini-button'
-                    onClick={() => {
-                        onSave(trimmedName);
-                        setNameInput('');
-                    }}
-                    disabled={!trimmedName || checkedCount === 0}
-                    title={checkedCount === 0
-                        ? 'Cochez des amis avant d’enregistrer un groupe.'
-                        : `Enregistrer les ${checkedCount} ami(s) coché(s) sous « ${trimmedName || '…'} »`}
-                >
-                    Enregistrer
-                </button>
-            </div>
         </div>
     );
 };
 
 /**
- * Sorties nommées de la zone : le sélecteur bascule le mode sur une autre
- * préparation, « Nommer » enregistre la courante sous un nom (nouveau ou
- * existant — il est alors remplacé), la corbeille la supprime.
+ * En-tête du panneau : la sortie active et ses actions.
  *
- * Contrairement aux groupes d'amis, les sorties sont propres à la zone :
+ * Changer de sortie dans le sélecteur reprend une préparation enregistrée ;
+ * la disquette enregistre la courante sous un autre nom (un nom existant est
+ * remplacé) ; la corbeille la supprime. Les sorties sont propres à la zone :
  * « Les 30 du centre » ne veut rien dire ailleurs.
  */
-const OutingsSection: React.FC<{
+const OutingHeader: React.FC<{
     activeName: string;
     names: string[];
     onSwitch: (name: string) => void;
     onSaveAs: (name: string) => void;
     onDelete: (name: string) => void;
-}> = ({ activeName, names, onSwitch, onSaveAs, onDelete }) => {
+    onCollapse: () => void;
+    onExit: () => void;
+}> = ({ activeName, names, onSwitch, onSaveAs, onDelete, onCollapse, onExit }) => {
+    const [naming, setNaming] = React.useState(false);
     const [nameInput, setNameInput] = React.useState('');
     const trimmedName = nameInput.trim();
-    const others = names.filter(name => name !== activeName);
+    const replaces = names.some(n => n !== activeName && n.toLowerCase() === trimmedName.toLowerCase());
+    const save = (): void => {
+        if (!trimmedName || trimmedName === activeName) {
+            return;
+        }
+        onSaveAs(trimmedName);
+        setNameInput('');
+        setNaming(false);
+    };
 
     return (
-        <section className='geoapp-outing-panel__section'>
-            <h4 className='geoapp-outing-panel__section-title'>
-                Sortie
-                {names.length > 1 && (
-                    <span className='geoapp-outing-panel__section-count'>{names.length}</span>
-                )}
-            </h4>
-            <div className='geoapp-outing-panel__row'>
+        <>
+            <div className='geoapp-outing-panel__header'>
+                <span className='codicon codicon-organization' title='Sortie entre amis' />
                 <select
                     className='theia-input geoapp-outing-panel__search'
                     value={activeName}
                     onChange={e => onSwitch(e.target.value)}
-                    title='Sortie active — changer reprend la préparation enregistrée'
+                    title='Sortie en préparation — en choisir une autre reprend cette préparation'
                     aria-label='Sortie active'
                 >
                     {names.map(name => (
@@ -663,43 +583,62 @@ const OutingsSection: React.FC<{
                     )}
                 </select>
                 <button
-                    className='theia-button secondary geoapp-outing-panel__mini-button'
+                    className='geoapp-outing-panel__icon-button'
+                    onClick={() => setNaming(!naming)}
+                    title='Enregistrer cette sortie sous un autre nom'
+                >
+                    <span className='codicon codicon-save-as' />
+                </button>
+                <button
+                    className='geoapp-outing-panel__icon-button'
                     onClick={() => onDelete(activeName)}
                     title={`Supprimer la sortie « ${activeName} » et quitter le mode`}
                 >
                     <span className='codicon codicon-trash' />
                 </button>
-            </div>
-            <div className='geoapp-outing-panel__row'>
-                <input
-                    className='theia-input geoapp-outing-panel__search'
-                    type='text'
-                    placeholder='Nom de la sortie…'
-                    value={nameInput}
-                    onChange={e => setNameInput(e.target.value)}
-                    onKeyDown={e => {
-                        if (e.key === 'Enter' && trimmedName) {
-                            onSaveAs(trimmedName);
-                            setNameInput('');
-                        }
-                    }}
-                    aria-label='Nom sous lequel enregistrer la sortie'
-                />
                 <button
-                    className='theia-button secondary geoapp-outing-panel__mini-button'
-                    onClick={() => {
-                        onSaveAs(trimmedName);
-                        setNameInput('');
-                    }}
-                    disabled={!trimmedName || trimmedName === activeName}
-                    title={others.some(o => o.toLowerCase() === trimmedName.toLowerCase())
-                        ? `Remplacer la sortie « ${trimmedName} » par la préparation courante`
-                        : `Enregistrer la préparation courante sous « ${trimmedName || '…'} »`}
+                    className='geoapp-outing-panel__icon-button'
+                    onClick={onCollapse}
+                    title='Replier le panneau'
                 >
-                    Nommer
+                    <span className='codicon codicon-chevron-right' />
+                </button>
+                <button
+                    className='geoapp-outing-panel__icon-button'
+                    onClick={onExit}
+                    title='Quitter le mode sortie (la sortie reste enregistrée)'
+                >
+                    <span className='codicon codicon-close' />
                 </button>
             </div>
-        </section>
+            {naming && (
+                <div className='geoapp-outing-panel__row' style={{ padding: '6px 8px' }}>
+                    <input
+                        className='theia-input geoapp-outing-panel__search'
+                        type='text'
+                        placeholder='Nom de la sortie…'
+                        value={nameInput}
+                        autoFocus
+                        onChange={e => setNameInput(e.target.value)}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter') { save(); }
+                            if (e.key === 'Escape') { setNaming(false); }
+                        }}
+                        aria-label='Nom sous lequel enregistrer la sortie'
+                    />
+                    <button
+                        className='theia-button secondary geoapp-outing-panel__mini-button'
+                        onClick={save}
+                        disabled={!trimmedName || trimmedName === activeName}
+                        title={replaces
+                            ? `Remplacer la sortie « ${trimmedName} » par la préparation courante`
+                            : `Enregistrer la préparation courante sous « ${trimmedName || '…'} »`}
+                    >
+                        {replaces ? 'Remplacer' : 'OK'}
+                    </button>
+                </div>
+            )}
+        </>
     );
 };
 
@@ -712,7 +651,7 @@ const FriendItem: React.FC<{
 }> = ({ row, scopeSize, wholeZone, active, onToggle }) => {
     const color = friendColor(row.name);
     const scannedOn = row.scannedAt ? ` le ${new Date(row.scannedAt).toLocaleDateString('fr-FR')}` : '';
-    // « Analysé » vient de l'état de scan de la **zone** : le backend ne suit pas
+    // « Vérifié » vient de l'état de scan de la **zone** : le backend ne suit pas
     // la fraîcheur périmètre par périmètre. Sur un sous-ensemble, c'est donc une
     // approximation — le titre le dit, plutôt que de laisser croire à une garantie.
     const statusClass = {
@@ -722,12 +661,12 @@ const FriendItem: React.FC<{
         fresh: 'geoapp-outing-panel__status--fresh',
     }[row.coverage];
     const statusTitle = row.coverage === 'unscanned'
-        ? `${row.name} n'a jamais été analysé sur cette zone : ses absences sont des inconnues.`
+        ? `Jamais vérifié sur cette zone : on ne sait pas encore ce que ${row.name} n'a pas trouvé.`
         : row.coverage === 'partial'
-            ? `Analyse partielle${scannedOn} : résultats tronqués, à refaire pour garantir les absences.`
+            ? `Vérification partielle${scannedOn} : à refaire pour être sûr de ce qu'il n'a pas trouvé.`
             : row.coverage === 'stale'
-                ? `Analyse obsolète : la zone a changé depuis${scannedOn}.`
-                : `Analysé sur la zone${scannedOn}`
+                ? `Vérification à refaire : la zone a changé depuis${scannedOn}.`
+                : `Vérifié sur la zone${scannedOn}`
                     + (wholeZone ? '' : " — l'état de fraîcheur est celui de la zone, pas du périmètre.");
 
     return (
@@ -760,7 +699,7 @@ const FriendItem: React.FC<{
                         {!row.fromAccount && (
                             <span
                                 className='geoapp-outing-panel__friend-tag'
-                                title="Connu par les analyses de cette zone, absent de votre liste d'amis."
+                                title="Connu par les vérifications de cette zone, absent de votre liste d'amis."
                             >
                                 ?
                             </span>
@@ -797,6 +736,7 @@ const CachesSection: React.FC<{
     onAdd: () => void;
     onRemove: () => void;
     onResetToZone: () => void;
+    children?: React.ReactNode;
 }> = props => {
     const noSelection = props.selectionSize === 0;
     const selectionHint = "Cochez d'abord des lignes dans le tableau.";
@@ -853,13 +793,19 @@ const CachesSection: React.FC<{
                     Toute la zone
                 </button>
             </div>
+
+            {props.children}
         </section>
     );
 };
 
-// -------------------------------------------------- Section « Analyse »
+// -------------------------------------------------- « Vérifier qui a trouvé »
 
-const AnalysisSection: React.FC<{
+/**
+ * Parcourt les logbooks pour savoir quels amis cochés ont trouvé quelles caches
+ * du périmètre. Rattaché à la section Caches : c'est sur elles que ça porte.
+ */
+const VerifyBlock: React.FC<{
     friendCount: number;
     scopeSize: number;
     wholeZone: boolean;
@@ -870,15 +816,13 @@ const AnalysisSection: React.FC<{
     onCancel: () => void;
     onRetryConnection?: () => void;
 }> = props => (
-    <section className='geoapp-outing-panel__section'>
-        <h4 className='geoapp-outing-panel__section-title'>Analyse</h4>
-
+    <div style={{ marginTop: '8px' }}>
         {props.offline && (
             <div className='geoapp-outing-panel__notice geoapp-outing-panel__notice--warn'>
                 <span className='codicon codicon-debug-disconnect' />
                 <span style={{ flex: 1 }}>
-                    Backend injoignable — l'analyse nécessite le réseau. Matrice,
-                    suggestions et export restent consultables (données locales).
+                    Backend injoignable — la vérification nécessite le réseau. Résultats
+                    et export restent consultables (données locales).
                 </span>
                 {props.onRetryConnection && (
                     <button
@@ -904,7 +848,7 @@ const AnalysisSection: React.FC<{
                     <button
                         className='theia-button secondary geoapp-outing-panel__mini-button'
                         onClick={props.onCancel}
-                        title="Interrompre l'analyse"
+                        title='Interrompre la vérification'
                     >
                         Interrompre
                     </button>
@@ -924,13 +868,14 @@ const AnalysisSection: React.FC<{
                 onClick={props.onAnalyze}
                 disabled={props.friendCount === 0 || props.scopeSize === 0 || props.offline}
                 title={props.offline
-                    ? 'Backend injoignable — l’analyse nécessite le réseau'
+                    ? 'Backend injoignable — la vérification nécessite le réseau'
                     : props.friendCount === 0
                         ? 'Cochez au moins un ami.'
-                        : `Analyser ${props.friendCount} ami(s) sur ${props.scopeSize} cache(s)`
-                            + (props.wholeZone ? ' (toute la zone)' : '')}
+                        : `Chercher, pour ${props.friendCount} ami(s), lesquelles des ${props.scopeSize} cache(s)`
+                            + (props.wholeZone ? ' de la zone' : ' de la sortie')
+                            + ' ils ont déjà trouvées (interroge geocaching.com)'}
             >
-                Analyser {props.friendCount} ami(s) × {props.scopeSize} cache(s)
+                Vérifier qui a trouvé ({props.friendCount} ami(s) × {props.scopeSize})
             </button>
         )}
 
@@ -943,19 +888,19 @@ const AnalysisSection: React.FC<{
                 <span>
                     {props.summary.cancelled
                         ? `Interrompue après ${props.summary.scanned} ami(s)`
-                        : `${props.summary.scanned} ami(s) analysé(s)`}
+                        : `${props.summary.scanned} ami(s) vérifié(s)`}
                     {(props.summary.cachesScanned ?? 0) > 0 && (
                         ` · ${props.summary.cachesScanned} cache(s) parcourue(s)`
                             + ((props.summary.cacheErrors ?? 0) > 0 ? `, ${props.summary.cacheErrors} en échec` : '')
                     )}
-                    {props.summary.skipped > 0 && ` (${props.summary.skipped} skip)`}
+                    {props.summary.skipped > 0 && ` (${props.summary.skipped} déjà à jour)`}
                     {' — '}
                     <strong>{props.summary.withFriends}</strong> cache(s) trouvée(s)
                     {props.summary.rateLimited && (
-                        <span className='geoapp-outing-panel__status--stale'> · throttling</span>
+                        <span className='geoapp-outing-panel__status--stale'> · ralenti par geocaching.com</span>
                     )}
                 </span>
             </div>
         )}
-    </section>
+    </div>
 );

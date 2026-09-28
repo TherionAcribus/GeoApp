@@ -1626,7 +1626,7 @@
       "type": "boolean",
       "default": true,
       "title": "Ouvrir la carte des amis automatiquement",
-      "description": "À l'ouverture du widget « Activité des amis », affiche la carte et y place les découvertes correspondant aux filtres courants. Si désactivé, la carte n'est ouverte que sur clic du bouton « Carte ». Les données sont locales : aucune requête vers geocaching.com.",
+      "description": "À l'ouverture du widget « Amis », affiche la carte et y place les découvertes correspondant aux filtres courants. Si désactivé, la carte n'est ouverte que sur clic du bouton « Carte ». Les données sont locales : aucune requête vers geocaching.com.",
       "x-ui": {
         "section": "Amis",
         "label": "Carte des amis automatique",
@@ -1638,7 +1638,7 @@
           "découvertes"
         ]
       },
-      "x-category": "map",
+      "x-category": "friends",
       "x-targets": [
         "frontend"
       ],
@@ -1664,7 +1664,7 @@
           "arbre"
         ]
       },
-      "x-category": "ui",
+      "x-category": "friends",
       "x-targets": [
         "frontend"
       ],
@@ -1762,7 +1762,7 @@
       "type": "boolean",
       "default": false,
       "title": "Notifications de nouvelles trouvailles d'amis",
-      "description": "Affiche un badge sur le widget « Activité des amis » quand des amis trouvent de nouvelles caches depuis votre dernière visite. Les notifications sont calculées à partir des trouvailles déduites (flux d'activité et déduction par zone). Désactivé par défaut.",
+      "description": "Affiche un badge sur le widget « Amis » quand des amis trouvent de nouvelles caches depuis votre dernière visite. Les notifications sont calculées à partir des trouvailles déduites (flux d'activité et déduction par zone). Désactivé par défaut.",
       "x-ui": {
         "section": "Amis",
         "label": "Notifications de trouvailles",

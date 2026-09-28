@@ -106,8 +106,10 @@ export class DocActionContextService {
         if (widgetId === 'geoapp.archive.manager') { return { kind: 'archive' }; }
         if (widgetId === 'geoapp.outing.plan') { return { kind: 'outing-plan' }; }
         if (widgetId === 'geoapp-server-log-terminal') { return { kind: 'server-logs' }; }
-        if (widgetId === 'geocaching-friends-widget') { return { kind: 'friends' }; }
-        if (widgetId === 'geocaching-friend-activity-widget') { return { kind: 'friend-activity' }; }
+        if (widgetId === 'geocaching-friends-widget') {
+            // Un seul widget pour la liste et le flux : l'onglet dit lequel est regardé.
+            return { kind: widget?.activeTab === 'activity' ? 'friend-activity' : 'friends' };
+        }
         if (widgetId === 'geocaching-auth-widget') { return { kind: 'auth' }; }
         if (widgetId === 'alphabets-list') { return { kind: 'alphabets' }; }
 

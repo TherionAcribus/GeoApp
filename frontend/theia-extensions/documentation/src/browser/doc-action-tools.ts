@@ -2371,7 +2371,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             {
                 id: 'aide_open_friends',
                 name: 'aide_open_friends',
-                description: 'Ouvre le panneau des amis Geocaching.com.',
+                description: 'Ouvre le widget Amis Geocaching.com sur l\'onglet de la liste d\'amis.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({}),
                 handler: async () => {
@@ -2384,7 +2384,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             {
                 id: 'aide_open_friend_activity',
                 name: 'aide_open_friend_activity',
-                description: 'Ouvre le panneau d\'activité des amis Geocaching.com.',
+                description: 'Ouvre le widget Amis Geocaching.com sur l\'onglet Activité (flux des logs récents des amis).',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({}),
                 handler: async () => {

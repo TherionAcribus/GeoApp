@@ -217,13 +217,6 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
         { iconClass: 'codicon codicon-search', label: 'Pocket Query', title: 'Importer depuis une Pocket Query Geocaching.com (PQ)', action: props.onOpenPocketQueryDialog },
         { iconClass: 'codicon codicon-location', label: "Autour d'un point ou d'une cache…", title: "Rechercher et importer des géocaches autour d'un point ou d'une cache", action: props.onStartImportAround },
     ];
-    // Le bandeau de mode tient sur une ligne : au-delà de trois amis, on compte.
-    const outingFriendsLabel = outing && outing.friends.length > 0
-        ? (outing.friends.length > 3
-            ? `${outing.friends.slice(0, 3).join(', ')} +${outing.friends.length - 3}`
-            : outing.friends.join(', '))
-        : null;
-
     return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -324,7 +317,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                         className={`theia-button${outingMode ? '' : ' secondary'}`}
                         onClick={() => (outingMode ? props.onExitOutingMode?.() : props.onEnterOutingMode?.())}
                         title={outingMode
-                            ? 'Quitter le mode sortie entre amis'
+                            ? 'Quitter le mode sortie (la sortie reste enregistrée)'
                             : 'Préparer une sortie entre amis (les caches sélectionnées en définissent le périmètre)'}
                     >
                         <span className='codicon codicon-organization' aria-hidden='true' /> Sortie
@@ -364,44 +357,6 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     style={{ padding: '2px 8px' }}
                 >
                     <span className='codicon codicon-close' />
-                </button>
-            </div>
-        )}
-
-        {/* Bandeau de mode : le panneau latéral peut être replié, mais un tableau
-            qui colore et filtre doit toujours dire au nom de quelle sortie il le
-            fait — et offrir la porte de sortie. */}
-        {outing && (
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '4px 10px',
-                marginBottom: 8,
-                borderRadius: 4,
-                border: '1px solid var(--theia-panel-border)',
-                borderLeft: '3px solid var(--theia-charts-blue)',
-                background: 'var(--theia-editor-background)',
-                fontSize: '0.85em',
-            }}>
-                <span className='codicon codicon-organization' aria-hidden='true' />
-                <span title={outing.friends.length > 0 ? outing.friends.join(', ') : undefined}>
-                    {outingFriendsLabel
-                        ? `Sortie avec ${outingFriendsLabel}`
-                        : 'Sortie sans ami sélectionné'}
-                    {' · '}
-                    {outing.gcCodes.length > 0
-                        ? `${outing.gcCodes.length} cache(s)`
-                        : `toute la zone (${props.rows.length} cache(s))`}
-                </span>
-                <span style={{ flex: 1 }} />
-                <button
-                    className='theia-button secondary'
-                    onClick={() => props.onExitOutingMode?.()}
-                    title='Quitter le mode sortie (la sortie enregistrée est supprimée)'
-                    style={{ padding: '2px 8px' }}
-                >
-                    Quitter
                 </button>
             </div>
         )}

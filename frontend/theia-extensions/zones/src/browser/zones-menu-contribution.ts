@@ -25,16 +25,11 @@ export class ZonesMenuContribution implements MenuContribution {
             order: '1'
         });
 
+        // Un seul widget Amis : l'activité en est un onglet.
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_FRIENDS.id,
-            label: 'Amis Geocaching.com',
+            label: 'Amis',
             order: '1.5'
-        });
-
-        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
-            commandId: ZonesCommands.OPEN_FRIEND_ACTIVITY.id,
-            label: 'Activité des amis',
-            order: '1.6'
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {

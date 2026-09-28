@@ -695,8 +695,8 @@ const OutingTableFilters: React.FC<{
                     Sortie seulement ({props.scopeSize})
                 </label>
             )}
-            {stateButton('nobody', 'Personne', "Caches qu'aucun ami de la sortie n'a trouvées")}
-            {stateButton('everybody', 'Tous', 'Caches que tous les amis de la sortie ont trouvées')}
+            {stateButton('nobody', 'Nouvelles pour tous', "Caches qu'aucun ami de la sortie n'a trouvées")}
+            {stateButton('everybody', 'Déjà faites par tous', 'Caches que tous les amis de la sortie ont trouvées')}
             {missingFor && (
                 <span
                     style={{

@@ -81,7 +81,7 @@ const scanned = (over: Partial<FriendZoneScanEntry> = {}): FriendZoneScanEntry =
     assert.equal(coverageLabel('fresh'), 'à jour');
     assert.equal(coverageLabel('partial'), 'partielle');
     assert.equal(coverageLabel('stale'), 'obsolète');
-    assert.equal(coverageLabel('unscanned'), 'non analysé');
+    assert.equal(coverageLabel('unscanned'), 'non vérifié');
 }
 
 console.log('friend-scan-state: OK');

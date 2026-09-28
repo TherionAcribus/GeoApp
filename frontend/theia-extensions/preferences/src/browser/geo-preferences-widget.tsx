@@ -62,6 +62,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     images: 'Images',
     notes: 'Notes et GPX',
     logs: 'Logs',
+    friends: 'Amis',
     archive: 'Archive',
     generic: 'Général'
 };
@@ -84,6 +85,7 @@ const CATEGORY_ORDER = [
     'updates',
     'search',
     'logs',
+    'friends',
     'generic'
 ];
 
@@ -121,7 +123,7 @@ const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
         label: 'Interface et onglets',
         description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
         categories: ['ui', 'alphabets', 'logs'],
-        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage', 'Amis'],
+        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage'],
         keyPrefixes: ['geoApp.ui.', 'geoApp.geocache.', 'geoApp.geocaches.table.', 'geoApp.logs.', 'geoApp.alphabets.'],
         tags: ['ui', 'navigation', 'table']
     },
@@ -151,6 +153,13 @@ const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
         sections: ['Geocaching.com', 'GPX'],
         keyPrefixes: ['geoApp.notes.', 'geoApp.gpxExport.'],
         tags: ['notes', 'gpx', 'export']
+    },
+    {
+        id: 'friends',
+        label: 'Amis',
+        description: 'Mise à jour automatique, carte des amis, notifications et zone « Amis ».',
+        categories: ['friends'],
+        keyPrefixes: ['geoApp.friends.']
     },
     {
         id: 'system',

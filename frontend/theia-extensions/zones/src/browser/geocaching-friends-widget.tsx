@@ -10,6 +10,9 @@ import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-ap
 import { CommandService } from '@theia/core';
 import { FriendsService } from './friends-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
+import { FriendsListPanel } from './friends-list-panel';
+import { FriendsTodoPanel } from './friends-todo-panel';
+import { fetchFriendProfileFinds } from './friend-profile-finds';
 import type {
     FriendActivity,
     FriendMapPoint,
@@ -18,13 +21,21 @@ import type {
     FriendFindsMapResponse,
     FriendSuggestion,
     FriendStat,
-    FriendStatsSummary,
-    FreshnessResponse,
     FriendNotification,
     FriendEvent,
+    GeocachingFriend,
     MapSource,
     AggregatedPoint,
 } from './friends-types';
+
+/** Les trois onglets du widget Amis. */
+export type FriendsTab = 'friends' | 'activity' | 'todo';
+
+const TABS: { id: FriendsTab; label: string; icon: string }[] = [
+    { id: 'friends', label: 'Amis', icon: 'codicon-organization' },
+    { id: 'activity', label: 'Activité', icon: 'codicon-pulse' },
+    { id: 'todo', label: 'À faire', icon: 'codicon-lightbulb' },
+];
 
 const PAGE_SIZE = 50;
 
@@ -47,15 +58,25 @@ const IMPORT_CONFIRM_THRESHOLD = 500;
 const SECONDS_PER_IMPORT = 1.2;
 
 const MAP_SOURCES: { id: MapSource; label: string }[] = [
-    { id: 'activity', label: 'Activité récente' },
-    { id: 'finds', label: 'Toutes les trouvailles' },
-    { id: 'both', label: 'Les deux' },
+    { id: 'activity', label: 'Carte : activité récente' },
+    { id: 'finds', label: 'Carte : toutes leurs trouvailles' },
+    { id: 'both', label: 'Carte : les deux' },
 ];
 
+/**
+ * Widget « Amis » : la liste du compte, le flux d'activité et ce qu'on peut en
+ * tirer (events, caches à faire), en trois onglets.
+ *
+ * Il remplace deux widgets séparés (« Amis Geocaching.com » et « Activité des
+ * amis ») dont le second avait accumulé cinq sections repliables sous sa
+ * timeline. Un seul bouton « Mettre à jour » alimente tout : les sources de
+ * données (§0 de amis-geocaching-technique.md) ne sont pas un concept que
+ * l'utilisateur devrait avoir à connaître.
+ */
 @injectable()
-export class GeocachingFriendActivityWidget extends ReactWidget {
-    static readonly ID = 'geocaching-friend-activity-widget';
-    static readonly LABEL = 'Activité des amis';
+export class GeocachingFriendsWidget extends ReactWidget {
+    static readonly ID = 'geocaching-friends-widget';
+    static readonly LABEL = 'Amis';
 
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
@@ -78,6 +99,17 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     @inject(GeocacheTabsManager)
     protected readonly geocacheTabsManager: GeocacheTabsManager;
 
+    /** Onglet affiché ; exposé pour le contexte de l'agent @Aide. */
+    activeTab: FriendsTab = 'friends';
+
+    /** Liste d'amis du compte (onglet « Amis »). */
+    protected friends: GeocachingFriend[] = [];
+    protected friendsLoading: boolean = false;
+    protected friendsLoaded: boolean = false;
+    protected friendsError: string | null = null;
+    protected friendsTruncated: boolean = false;
+    protected pendingRequests: number | null = null;
+
     protected activities: FriendActivity[] = [];
     protected authors: { username: string; count: number }[] = [];
     protected logTypeLabels: Record<string, string> = {};
@@ -96,7 +128,6 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected authorFilter: string = '';
     protected typeFilter: string = 'all';
     protected includeSelf: boolean = false;
-    protected syncDays: number = 7;
     protected expandedNotes = new Set<number>();
 
     protected mapSource: MapSource = 'activity';
@@ -114,50 +145,35 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     /** Suggestions de caches à faire, trouvées par des amis mais pas par moi. */
     protected suggestions: FriendSuggestion[] = [];
     protected suggestionsLoading: boolean = false;
-    protected suggestionsVisible: boolean = false;
     protected suggestionsMinFriends: number = 1;
     /** Dernière erreur de chargement des suggestions ; la liste est conservée. */
     protected suggestionsError: string | null = null;
 
-    /** Statistiques croisées entre amis. */
-    protected stats: FriendStat[] = [];
-    protected statsSummary: FriendStatsSummary | null = null;
-    protected statsLoading: boolean = false;
-    protected statsVisible: boolean = false;
-    /** Dernière erreur de chargement des stats ; les données sont conservées. */
-    protected statsError: string | null = null;
-
-    /** État de fraîcheur des données. */
-    protected freshness: FreshnessResponse | null = null;
-    protected freshnessLoading: boolean = false;
+    /** Compteurs locaux par ami, affichés sur les cartes de l'onglet « Amis ». */
+    protected stats = new Map<string, FriendStat>();
 
     /** Notifications de nouvelles trouvailles d'amis. */
     protected notifications: FriendNotification[] = [];
     protected notificationsCount: number = 0;
-    protected notificationsLoading: boolean = false;
     protected notificationsVisible: boolean = false;
 
     /** Events geocaching auxquels des amis participent. */
     protected events: FriendEvent[] = [];
-    protected eventsCount: number = 0;
-    protected eventsUpcomingCount: number = 0;
-    protected eventsPastCount: number = 0;
-    protected eventsLoading: boolean = false;
-    protected eventsVisible: boolean = false;
 
     @postConstruct()
     protected init(): void {
-        this.id = GeocachingFriendActivityWidget.ID;
-        this.title.label = GeocachingFriendActivityWidget.LABEL;
-        this.title.caption = "Flux d'activité de vos amis Geocaching.com";
+        this.id = GeocachingFriendsWidget.ID;
+        this.title.label = GeocachingFriendsWidget.LABEL;
+        this.title.caption = 'Vos amis Geocaching.com : liste, activité, caches à faire';
         this.title.closable = true;
-        this.title.iconClass = 'codicon codicon-pulse';
-        this.addClass('geocaching-friend-activity-widget');
-        this.node.tabIndex = 0;
+        this.title.iconClass = 'codicon codicon-organization';
+        this.addClass('geocaching-friends-widget');
+        this.node.tabIndex = 0; // sinon Theia signale "did not accept focus after 2000ms"
 
+        void this.fetchFriends();
+        void this.loadStats();
         this.loadActivities()
             .then(() => this.autoSyncIfStale())
-            .then(() => this.autoOpenMapIfEnabled())
             .then(() => this.refreshImportableCount())
             .then(() => this.refreshNotifications())
             .then(() => this.refreshEvents());
@@ -188,18 +204,20 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     };
 
     protected onAuthChanged = (event: Event): void => {
+        // Déconnexion : inutile d'interroger le backend, l'état est connu. Les
+        // données locales (flux, suggestions) restent consultables.
+        if ((event as CustomEvent).detail?.isConnected === false) {
+            this.friends = [];
+            this.friendsLoaded = false;
+            this.friendsError = 'Connectez-vous à Geocaching.com pour voir vos amis.';
+            this.update();
+            return;
+        }
         if ((event as CustomEvent).detail?.isConnected === true) {
+            void this.fetchFriends(true);
             void this.loadActivities(0);
         }
     };
-
-    /** Ouverture automatique de la carte, réglable par préférence (activée par défaut). */
-    protected async autoOpenMapIfEnabled(): Promise<void> {
-        if (this.error || !this.preferenceService.get<boolean>('geoApp.friends.map.autoLoad', true)) {
-            return;
-        }
-        await this.showOnMap(true);
-    }
 
     protected onActivateRequest(msg: Message): void {
         super.onActivateRequest(msg);
@@ -209,13 +227,75 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     }
 
     /**
-     * Filtre le flux sur un auteur précis. Point d'entrée inter-widgets :
-     * la commande `geoapp.friends.activity.open` accepte `{ username }`
+     * Affiche un onglet. Point d'entrée des commandes : `geoapp.friends.open`
+     * (« Amis »), `geoapp.friends.activity.open` (« Activité »),
+     * `geoapp.friends.todo.open` (« À faire »).
+     */
+    showTab(tab: FriendsTab): void {
+        if (this.activeTab === tab) {
+            return;
+        }
+        this.activeTab = tab;
+        this.onTabShown(tab);
+        this.update();
+    }
+
+    protected mapAutoOpened = false;
+
+    /** Affichage d'un onglet : charge ce qu'il montre, une fois. */
+    protected onTabShown(tab: FriendsTab): void {
+        if (tab === 'todo' && this.suggestions.length === 0 && !this.suggestionsLoading) {
+            void this.loadSuggestions();
+        }
+        // La carte accompagne l'onglet Activité : l'ouvrir dès l'onglet « Amis »
+        // ferait surgir une carte sans rapport avec ce qu'on regarde.
+        if (tab === 'activity' && !this.mapAutoOpened && !this.error
+            && this.preferenceService.get<boolean>('geoApp.friends.map.autoLoad', true)) {
+            this.mapAutoOpened = true;
+            void this.showOnMap(true);
+        }
+    }
+
+    /**
+     * Filtre le flux sur un auteur précis et affiche l'onglet Activité.
+     * La commande `geoapp.friends.activity.open` accepte `{ username }`
      * (bouton « Activité » d'une carte ami, par exemple).
      */
     async focusAuthor(username: string): Promise<void> {
         this.authorFilter = username;
+        this.showTab('activity');
         await this.applyFilters();
+    }
+
+    // -------------------------------------------------- Liste d'amis
+
+    protected async fetchFriends(force: boolean = false): Promise<void> {
+        this.friendsLoading = true;
+        this.friendsError = null;
+        this.update();
+
+        try {
+            const result = await this.friendsService.getFriends(force);
+            if (result.success && result.friends) {
+                this.friends = result.friends;
+                this.pendingRequests = result.pending_requests ?? null;
+                this.friendsTruncated = result.truncated === true;
+                this.friendsLoaded = true;
+            } else {
+                // Un rafraîchissement raté ne vide pas une liste déjà chargée.
+                this.friendsError = result.error_message || result.error || 'Impossible de récupérer la liste des amis';
+            }
+        } catch (err) {
+            if (err instanceof BackendApiError && err.status === 404) {
+                this.friendsError = 'Route /api/friends introuvable : le backend GeoApp doit être redémarré.';
+            } else {
+                this.friendsError = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
+            }
+            console.error('[Friends] Failed to fetch friends:', err);
+        } finally {
+            this.friendsLoading = false;
+            this.update();
+        }
     }
 
     /**
@@ -234,9 +314,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             this.preferenceService.get<number>('geoApp.friends.activity.autoSyncIntervalHours', 1));
         const last = this.lastSyncAt ? new Date(this.lastSyncAt).getTime() : 0;
         if (!last || Date.now() - last > intervalHours * 3600 * 1000) {
-            const days = Math.max(1, Math.min(30,
-                this.preferenceService.get<number>('geoApp.friends.activity.autoSyncDays', 7)));
-            await this.sync(days);
+            await this.sync();
         }
     }
 
@@ -551,12 +629,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     }
 
     /**
-     * Récupère les trouvailles d'un ami depuis son profil geocaching.com.
-     *
-     * C'est la réponse à la condensation du flux : celui-ci regroupe les
-     * trouvailles d'affilée sans les nommer, cette recherche les donne une par
-     * une, de la plus récente à la plus ancienne — donc en commençant par celles
-     * que le flux a justement masquées.
+     * « Récupérer toutes ses trouvailles » pour l'ami filtré : la réponse à la
+     * condensation du flux (voir `fetchFriendProfileFinds`).
      */
     protected async fetchProfileFinds(): Promise<void> {
         const friend = this.authorFilter;
@@ -570,43 +644,16 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const estimate = await this.friendsService.estimateFriendFinds(friend);
-
-            if (estimate?.total !== undefined) {
-                const minutes = Math.ceil((estimate.seconds || 0) / 60);
-                const capped = (estimate.reachable || 0) < estimate.total;
-                const confirmed = await new ConfirmDialog({
-                    title: `Trouvailles de ${friend}`,
-                    msg: `${estimate.total} trouvaille(s) annoncée(s)`
-                        + (capped
-                            ? `, dont les ${estimate.reachable} plus récentes accessibles `
-                              + `(geocaching.com limite la pagination). `
-                            : '. ')
-                        + `Durée estimée : ${minutes} minute(s).`,
-                    ok: 'Récupérer',
-                    cancel: Dialog.CANCEL
-                }).open();
-                if (!confirmed) {
-                    return;
-                }
+            const outcome = await fetchFriendProfileFinds(this.friendsService, friend);
+            if (outcome.status === 'error') {
+                this.notAuthenticated = outcome.notAuthenticated;
+                this.error = outcome.message;
+            } else if (outcome.status === 'done') {
+                this.syncMessage = outcome.message;
+                await this.showOnMap();
+                await this.refreshImportableCount();
+                void this.loadStats();
             }
-
-            const result = await this.friendsService.syncFriendFinds(friend);
-
-            if (!result.success) {
-                this.notAuthenticated = result.error === 'not_authenticated';
-                this.error = result.error_message || 'Échec de la récupération des trouvailles.';
-                return;
-            }
-
-            this.syncMessage = `${result.fetched} trouvaille(s) de ${friend} récupérée(s)`
-                + ` (${result.created} nouvelle(s))`
-                + (result.truncated ? ', liste partielle.' : '.');
-            await this.showOnMap();
-            await this.refreshImportableCount();
-        } catch (err) {
-            this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
-            console.error('[FriendActivity] Profile finds fetch failed:', err);
         } finally {
             this.profileSyncing = false;
             this.update();
@@ -716,11 +763,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     }
 
     /**
-     * `days` : fenêtre de synchro. Par défaut la valeur du sélecteur
-     * (`syncDays`) ; la synchro auto passe sa propre profondeur sans modifier
-     * le réglage visible de l'utilisateur.
+     * « Mettre à jour » : le seul bouton de rafraîchissement du widget.
+     *
+     * Récupère le flux d'activité (profondeur réglée par la préférence
+     * `geoApp.friends.activity.autoSyncDays`, comme la synchro automatique —
+     * l'ancien sélecteur 7/14/30 jours faisait doublon et se confondait avec
+     * un filtre d'affichage), recharge la liste d'amis, puis tout ce qui en
+     * dépend : carte, compteurs, suggestions, events, notifications.
      */
-    protected async sync(days?: number): Promise<void> {
+    protected async sync(): Promise<void> {
         if (this.syncing) {
             return;
         }
@@ -729,34 +780,39 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.error = null;
         this.update();
 
+        const days = Math.max(1, Math.min(30,
+            this.preferenceService.get<number>('geoApp.friends.activity.autoSyncDays', 7)));
+
         try {
-            const result = await this.friendsService.syncActivity(days ?? this.syncDays);
+            void this.fetchFriends(true);
+            const result = await this.friendsService.syncActivity(days);
 
             if (result.success) {
                 const bits = [
                     result.created > 0
-                        ? `${result.created} nouvelle(s) activité(s) récupérée(s).`
+                        ? `${result.created} nouvelle(s) activité(s).`
                         : 'Aucune nouvelle activité.'
                 ];
-                if (result.finds_projected > 0) {
-                    bits.push(`${result.finds_projected} trouvaille(s) ajoutée(s) à vos amis.`);
+                if (result.finds_projected && result.finds_projected > 0) {
+                    bits.push(`${result.finds_projected} trouvaille(s) d'amis ajoutée(s).`);
                 }
                 this.syncMessage = bits.join(' ');
                 await this.loadActivities(0);
-                // Une synchro peut apporter de nouvelles caches : la carte suit.
                 await this.showOnMap();
                 await this.refreshImportableCount();
-                // … et les badges aussi : sans ça ils ne se mettraient à jour
-                // qu'à la prochaine ouverture du widget.
                 await this.refreshNotifications();
                 await this.refreshEvents();
+                void this.loadStats();
+                if (this.activeTab === 'todo' || this.suggestions.length > 0) {
+                    void this.loadSuggestions();
+                }
             } else {
                 this.notAuthenticated = result.error === 'not_authenticated';
-                this.error = result.error_message || 'Échec de la synchronisation';
+                this.error = result.error_message || 'Échec de la mise à jour';
             }
         } catch (err) {
             this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
-            console.error('[FriendActivity] Sync failed:', err);
+            console.error('[Friends] Update failed:', err);
         } finally {
             this.syncing = false;
             this.update();
@@ -804,43 +860,210 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected render(): React.ReactNode {
         return (
             <div style={{ padding: '16px', height: '100%', overflow: 'auto' }}>
-                <h2 style={{ marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span className="codicon codicon-pulse"></span>
-                    Activité des amis
-                    {this.loaded && (
-                        <span style={{ fontSize: '0.7em', fontWeight: 'normal', color: 'var(--theia-descriptionForeground)' }}>
-                            {`(${this.total})`}
-                        </span>
-                    )}
-                    {this.notificationsCount > 0 && (
-                        <span
-                            style={{
-                                fontSize: '0.75em',
-                                fontWeight: 'bold',
-                                color: 'white',
-                                backgroundColor: 'var(--theia-charts-red)',
-                                borderRadius: '10px',
-                                padding: '1px 8px',
-                                minWidth: '20px',
-                                textAlign: 'center',
-                            }}
-                            title={`${this.notificationsCount} nouvelle(s) trouvaille(s) d'ami(s) depuis votre dernière visite`}
-                        >
-                            {this.notificationsCount}
-                        </span>
-                    )}
-                </h2>
-
-                {this.renderToolbar()}
+                {this.renderHeader()}
                 {this.renderNotices()}
-                {this.renderFeed()}
-                {this.renderSuggestions()}
-                {this.renderStats()}
-                {this.renderFreshness()}
-                {this.renderNotifications()}
-                {this.renderEvents()}
+                {this.activeTab === 'friends' && this.renderFriendsTab()}
+                {this.activeTab === 'activity' && this.renderActivityTab()}
+                {this.activeTab === 'todo' && this.renderTodoTab()}
             </div>
         );
+    }
+
+    /**
+     * En-tête commun : onglets, bouton « Mettre à jour » et ligne d'état. La
+     * ligne d'état remplace l'ancien panneau « Fraîcheur des données » : ce que
+     * l'utilisateur veut savoir, c'est si c'est à jour, pas l'état de 4 tables.
+     */
+    protected renderHeader(): React.ReactNode {
+        const upcomingEvents = this.events.filter(e => e.is_upcoming).length;
+        const badge = (count: number, color: string, title: string): React.ReactNode => count > 0 && (
+            <span
+                style={{
+                    fontSize: '0.8em', fontWeight: 'bold', color: 'white', backgroundColor: color,
+                    borderRadius: '10px', padding: '0 7px', marginLeft: '6px'
+                }}
+                title={title}
+            >
+                {count}
+            </span>
+        );
+
+        return (
+            <div style={{ marginBottom: '12px' }}>
+                <div style={{
+                    display: 'flex', alignItems: 'flex-end', gap: '4px', flexWrap: 'wrap',
+                    borderBottom: '1px solid var(--theia-panel-border)'
+                }}>
+                    {TABS.map(tab => {
+                        const active = this.activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => this.showTab(tab.id)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    borderBottom: `2px solid ${active ? 'var(--theia-focusBorder)' : 'transparent'}`,
+                                    color: active ? 'var(--theia-foreground)' : 'var(--theia-descriptionForeground)',
+                                    fontWeight: active ? 'bold' : 'normal',
+                                    padding: '6px 12px',
+                                    cursor: 'pointer',
+                                    fontSize: '1em',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <span className={`codicon ${tab.icon}`}></span>
+                                {tab.label}
+                                {tab.id === 'friends' && this.friendsLoaded && (
+                                    <span style={{ fontWeight: 'normal', color: 'var(--theia-descriptionForeground)' }}>
+                                        {`(${this.friends.length})`}
+                                    </span>
+                                )}
+                                {tab.id === 'activity' && badge(this.notificationsCount, 'var(--theia-charts-red)',
+                                    `${this.notificationsCount} nouvelle(s) trouvaille(s) d'ami(s) depuis votre dernière visite`)}
+                                {tab.id === 'todo' && badge(upcomingEvents, 'var(--theia-charts-green)',
+                                    `${upcomingEvents} event(s) à venir avec vos amis`)}
+                            </button>
+                        );
+                    })}
+                    <div style={{ flex: 1 }}></div>
+                    <button
+                        className="theia-button"
+                        style={{ marginBottom: '4px' }}
+                        onClick={() => this.sync()}
+                        disabled={this.syncing || !this.apiClient.isBackendReachable()}
+                        title="Récupérer depuis geocaching.com la liste de vos amis et leur activité récente"
+                    >
+                        <span className="codicon codicon-cloud-download"></span>
+                        {this.syncing ? ' Mise à jour…' : ' Mettre à jour'}
+                    </button>
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '0.85em', color: 'var(--theia-descriptionForeground)' }}>
+                    {this.renderStatusLine()}
+                </div>
+            </div>
+        );
+    }
+
+    protected renderStatusLine(): React.ReactNode {
+        if (this.syncing) {
+            return 'Mise à jour en cours…';
+        }
+        if (this.importing) {
+            return (
+                <span>
+                    <span className="codicon codicon-cloud-download" style={{ fontSize: '0.9em' }}></span>
+                    {` Import : ${this.importProgress || '…'} `}
+                    <a style={{ cursor: 'pointer' }} onClick={() => this.cancelImport()}>Arrêter</a>
+                </span>
+            );
+        }
+        const parts: string[] = [];
+        if (this.lastSyncAt) {
+            parts.push(`Mis à jour ${this.formatRelativeTime(this.lastSyncAt)}`);
+        } else if (this.loaded) {
+            parts.push('Jamais mis à jour');
+        }
+        if (this.syncMessage) {
+            parts.push(this.syncMessage);
+        } else if (this.importProgress) {
+            parts.push(this.importProgress);
+        }
+        return parts.join(' · ');
+    }
+
+    protected renderFriendsTab(): React.ReactNode {
+        return (
+            <>
+                {this.friendsError && (
+                    <div style={{ ...this.noticeStyle('warning'), marginBottom: '12px' }}>
+                        <span className="codicon codicon-warning"></span>
+                        {` ${this.friendsError}`}
+                        {this.friendsLoaded && ' — liste précédente conservée.'}
+                        <button
+                            className="theia-button secondary"
+                            style={{ marginLeft: '8px' }}
+                            onClick={() => this.fetchFriends(true)}
+                            disabled={this.friendsLoading}
+                        >
+                            Réessayer
+                        </button>
+                    </div>
+                )}
+                {this.friendsTruncated && (
+                    <div style={{ ...this.noticeStyle('warning'), marginBottom: '12px' }}>
+                        <span className="codicon codicon-warning"></span>
+                        {' La page geocaching.com est paginée : tous vos amis ne sont pas affichés.'}
+                    </div>
+                )}
+                {!!this.pendingRequests && (
+                    <div style={{ ...this.noticeStyle('info'), marginBottom: '12px' }}>
+                        <span className="codicon codicon-mail"></span>
+                        {` ${this.pendingRequests} demande(s) d'ami en attente sur geocaching.com.`}
+                    </div>
+                )}
+                <FriendsListPanel
+                    friends={this.friends}
+                    stats={this.stats}
+                    loading={this.friendsLoading}
+                    loaded={this.friendsLoaded}
+                    onOpenSummary={username => this.commandService.executeCommand('geoapp.friends.summary.open', { username })}
+                    onShowActivity={username => void this.focusAuthor(username)}
+                />
+            </>
+        );
+    }
+
+    protected renderActivityTab(): React.ReactNode {
+        return (
+            <>
+                {this.renderToolbar()}
+                {this.renderActivityNotices()}
+                {this.renderNotifications()}
+                {this.renderFeed()}
+            </>
+        );
+    }
+
+    protected renderTodoTab(): React.ReactNode {
+        return (
+            <FriendsTodoPanel
+                suggestions={this.suggestions}
+                suggestionsLoading={this.suggestionsLoading}
+                suggestionsError={this.suggestionsError}
+                minFriends={this.suggestionsMinFriends}
+                onMinFriendsChange={value => { this.suggestionsMinFriends = value; void this.loadSuggestions(); }}
+                events={this.events}
+                importableCount={this.importableCount}
+                importing={this.importing}
+                importProgress={this.importProgress}
+                onImport={() => void this.importMissingFinds()}
+                onCancelImport={() => this.cancelImport()}
+                onOpenGeocache={(geocacheId, name) => this.openGeocache(geocacheId, name)}
+            />
+        );
+    }
+
+    protected openGeocache(geocacheId: number, name: string): void {
+        void this.geocacheTabsManager
+            .openGeocacheDetails({ geocacheId, name })
+            .catch(e => console.error('[Friends] openGeocacheDetails failed:', e));
+    }
+
+    protected noticeStyle(kind: 'info' | 'warning' | 'error'): React.CSSProperties {
+        const backgrounds = {
+            info: 'var(--theia-inputValidation-infoBackground)',
+            warning: 'var(--theia-inputValidation-warningBackground)',
+            error: 'var(--theia-inputValidation-errorBackground)',
+        };
+        return {
+            padding: '8px 12px',
+            backgroundColor: backgrounds[kind],
+            borderRadius: '4px',
+            fontSize: '0.9em'
+        };
     }
 
     // -------------------------------------------------- Suggestions de caches
@@ -865,105 +1088,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             }
         } catch (err) {
             this.suggestionsError = getErrorMessage(err, 'Impossible de charger les suggestions.');
-            console.error('[FriendActivity] Failed to load suggestions:', err);
+            console.error('[Friends] Failed to load suggestions:', err);
         } finally {
             this.suggestionsLoading = false;
             this.update();
         }
-    }
-
-    protected toggleSuggestions(): void {
-        this.suggestionsVisible = !this.suggestionsVisible;
-        if (this.suggestionsVisible && this.suggestions.length === 0 && !this.suggestionsLoading) {
-            this.loadSuggestions();
-        }
-        this.update();
-    }
-
-    protected renderSuggestions(): React.ReactNode {
-        if (!this.suggestionsVisible) {
-            return (
-                <div style={{ marginTop: '24px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.toggleSuggestions()}
-                        title="Caches trouvées par vos amis mais pas encore par vous"
-                    >
-                        <span className="codicon codicon-lightbulb"></span>
-                        {' Suggestions de caches à faire'}
-                    </button>
-                </div>
-            );
-        }
-
-        return (
-            <div style={{ marginTop: '24px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <span className="codicon codicon-lightbulb"></span>
-                    <strong>Suggestions de caches à faire</strong>
-                    <label
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em' }}
-                        title="Nombre minimum d'amis ayant trouvé la cache"
-                    >
-                        min.
-                        <input
-                            type="number"
-                            className="theia-input"
-                            min={1}
-                            max={50}
-                            value={this.suggestionsMinFriends}
-                            onChange={e => {
-                                this.suggestionsMinFriends = Math.max(1, Math.min(50, Number(e.target.value) || 1));
-                                this.loadSuggestions();
-                            }}
-                            style={{ width: '3em' }}
-                        />
-                        ami(s)
-                    </label>
-                    <div style={{ flex: 1 }}></div>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.toggleSuggestions()}
-                        title="Replier la section"
-                    >
-                        <span className="codicon codicon-chevron-up"></span>
-                    </button>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.loadSuggestions()}
-                        disabled={this.suggestionsLoading}
-                        title="Rafraîchir les suggestions"
-                    >
-                        <span className="codicon codicon-refresh"></span>
-                    </button>
-                </div>
-
-                {this.suggestionsLoading && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des suggestions…</div>
-                )}
-
-                {!this.suggestionsLoading && this.suggestionsError && (
-                    <div style={{ color: 'var(--theia-errorForeground)', marginBottom: '8px' }}>
-                        <span className="codicon codicon-error"></span>
-                        {` ${this.suggestionsError}`}
-                        {this.suggestions.length > 0 && ' (liste précédente conservée ci-dessous)'}
-                    </div>
-                )}
-
-                {!this.suggestionsLoading && !this.suggestionsError && this.suggestions.length === 0 && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                        Aucune suggestion pour ce filtre. Vos amis n'ont pas encore trouvé de cache que vous n'auriez pas faite,
-                        ou la base est vide : synchronisez le flux ou déduisez les trouvailles d'une zone.
-                    </div>
-                )}
-
-                {!this.suggestionsLoading && this.suggestions.length > 0 && (
-                    <div>
-                        {this.suggestions.map(s => this.renderSuggestion(s))}
-                    </div>
-                )}
-            </div>
-        );
     }
 
     /**
@@ -973,384 +1102,42 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected renderCacheNameLink(geocacheId: number, gcCode: string, name: string): React.ReactNode {
         if (geocacheId > 0) {
             return (
-                <a
-                    onClick={() => {
-                        void this.geocacheTabsManager
-                            .openGeocacheDetails({ geocacheId, name })
-                            .catch(e => console.error('[FriendActivity] openGeocacheDetails failed:', e));
-                    }}
-                    style={{ cursor: 'pointer' }}
-                    title="Ouvrir la fiche dans GeoApp"
-                >
+                <a onClick={() => this.openGeocache(geocacheId, name)} style={{ cursor: 'pointer' }} title="Ouvrir la fiche dans GeoApp">
                     {name}
                 </a>
             );
         }
         return (
-            <a
-                href={`https://www.geocaching.com/geocache/${gcCode}`}
-                target="_blank"
-                rel="noreferrer"
-                title="Ouvrir sur geocaching.com"
-            >
+            <a href={`https://www.geocaching.com/geocache/${gcCode}`} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
                 {name}
             </a>
         );
     }
 
-    protected renderSuggestion(s: FriendSuggestion): React.ReactNode {
+    // -------------------------------------------------- Compteurs par ami
 
-        return (
-            <div
-                key={s.gc_code}
-                style={{
-                    display: 'flex',
-                    gap: '10px',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}
-            >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span
-                            className="codicon codicon-people"
-                            style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
-                            title={`${s.friends_count} ami(s) ont trouvé cette cache`}
-                        ></span>
-                        <strong style={{ color: 'var(--theia-charts-blue)' }}>{s.friends_count}</strong>
-                        {this.renderCacheNameLink(s.geocache_id, s.gc_code, s.name)}
-                        <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
-                            {s.gc_code}
-                        </span>
-                        {s.found && (
-                            <span style={{
-                                fontSize: '0.75em',
-                                padding: '0 6px',
-                                borderRadius: '8px',
-                                backgroundColor: 'var(--theia-charts-green)',
-                                color: 'white'
-                            }}>
-                                trouvée
-                            </span>
-                        )}
-                        {s.status === 'archived' && (
-                            <span style={{ color: 'var(--theia-errorForeground)', fontSize: '0.85em' }}>archivée</span>
-                        )}
-                    </div>
-
-                    <div style={{
-                        fontSize: '0.8em',
-                        color: 'var(--theia-descriptionForeground)',
-                        display: 'flex',
-                        gap: '10px',
-                        flexWrap: 'wrap',
-                        marginTop: '2px'
-                    }}>
-                        {s.cache_type && <span>{s.cache_type}</span>}
-                        {s.difficulty !== null && s.terrain !== null && (
-                            <span>{`D ${s.difficulty} / T ${s.terrain}`}</span>
-                        )}
-                        {s.favorites_count > 0 && (
-                            <span title="Points favoris" style={{ color: 'var(--theia-charts-red)' }}>
-                                <span className="codicon codicon-heart-filled" style={{ fontSize: '0.9em' }}></span>
-                                {` ${s.favorites_count}`}
-                            </span>
-                        )}
-                        {s.latitude !== null && s.longitude !== null && (
-                            <span>
-                                <span className="codicon codicon-location" style={{ fontSize: '0.9em' }}></span>
-                                {` ${s.latitude.toFixed(4)}, ${s.longitude.toFixed(4)}`}
-                            </span>
-                        )}
-                    </div>
-
-                    <div style={{
-                        fontSize: '0.8em',
-                        color: 'var(--theia-descriptionForeground)',
-                        marginTop: '2px'
-                    }}>
-                        {s.friends.join(', ')}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // -------------------------------------------------- Statistiques croisées
-
+    /** Compteurs locaux (« en commun », « connues ») des cartes de l'onglet Amis. */
     protected async loadStats(): Promise<void> {
-        this.statsLoading = true;
-        this.statsError = null;
-        this.update();
-
         try {
             const result = await this.friendsService.loadStats();
             if (result.success) {
-                this.stats = result.friends || [];
-                this.statsSummary = result.summary || null;
-            } else {
-                this.statsError = result.error_message || 'Impossible de charger les statistiques.';
+                this.stats = new Map((result.friends || []).map(stat => [stat.username, stat]));
+                this.update();
             }
         } catch (err) {
-            this.statsError = getErrorMessage(err, 'Impossible de charger les statistiques.');
-            console.error('[FriendActivity] Failed to load stats:', err);
-        } finally {
-            this.statsLoading = false;
-            this.update();
-        }
-    }
-
-    protected toggleStats(): void {
-        this.statsVisible = !this.statsVisible;
-        if (this.statsVisible && this.stats.length === 0 && !this.statsLoading) {
-            this.loadStats();
-        }
-        this.update();
-    }
-
-    protected renderStats(): React.ReactNode {
-        if (!this.statsVisible) {
-            return (
-                <div style={{ marginTop: '16px' }}>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.toggleStats()}
-                        title="Statistiques croisées sur vos amis"
-                    >
-                        <span className="codicon codicon-graph"></span>
-                        {' Statistiques'}
-                    </button>
-                </div>
-            );
-        }
-
-        return (
-            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <span className="codicon codicon-graph"></span>
-                    <strong>Statistiques</strong>
-                    <div style={{ flex: 1 }}></div>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.toggleStats()}
-                        title="Replier la section"
-                    >
-                        <span className="codicon codicon-chevron-up"></span>
-                    </button>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.loadStats()}
-                        disabled={this.statsLoading}
-                        title="Rafraîchir les statistiques"
-                    >
-                        <span className="codicon codicon-refresh"></span>
-                    </button>
-                </div>
-
-                {this.statsLoading && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des statistiques…</div>
-                )}
-
-                {!this.statsLoading && this.statsError && (
-                    <div style={{ color: 'var(--theia-errorForeground)', marginBottom: '8px' }}>
-                        <span className="codicon codicon-error"></span>
-                        {` ${this.statsError}`}
-                        {this.stats.length > 0 && ' (données précédentes conservées ci-dessous)'}
-                    </div>
-                )}
-
-                {!this.statsLoading && this.statsSummary && this.stats.length > 0 && (
-                    <>
-                        <div style={{
-                            display: 'flex',
-                            gap: '16px',
-                            marginBottom: '12px',
-                            flexWrap: 'wrap',
-                            fontSize: '0.9em',
-                            color: 'var(--theia-descriptionForeground)'
-                        }}>
-                            <span title="Nombre d'amis avec au moins une trouvaille ou un log">
-                                <strong>{this.statsSummary.friends_count}</strong> ami(s)
-                            </span>
-                            <span title="Caches distinctes trouvées par au moins un ami">
-                                <strong>{this.statsSummary.total_distinct_finds}</strong> cache(s) trouvée(s)
-                            </span>
-                            <span title="Caches que j'ai trouvées et qu'un ami a aussi trouvées">
-                                <strong>{this.statsSummary.total_shared_with_me}</strong> en commun
-                            </span>
-                            {this.statsSummary.most_active_friend && (
-                                <span title="Ami avec le plus de trouvailles connues">
-                                    Plus actif : <strong>{this.statsSummary.most_active_friend}</strong>
-                                </span>
-                            )}
-                        </div>
-
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em' }}>
-                            <thead>
-                                <tr style={{ borderBottom: '1px solid var(--theia-panel-border)', textAlign: 'left' }}>
-                                    <th style={{ padding: '4px 8px' }}>Ami</th>
-                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Trouvailles connues (friend_find)">Trouvailles</th>
-                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Logs dans le flux d'activité">Activité</th>
-                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Caches que j'ai aussi trouvées">En commun</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {this.stats.map(stat => (
-                                    <tr key={stat.username} style={{ borderBottom: '1px solid var(--theia-panel-border)' }}>
-                                        <td style={{ padding: '4px 8px' }}>
-                                            <a
-                                                onClick={() => { this.authorFilter = stat.username; this.applyFilters(); }}
-                                                style={{ cursor: 'pointer' }}
-                                                title={`Filtrer le flux sur ${stat.username}`}
-                                            >
-                                                {stat.username}
-                                            </a>
-                                        </td>
-                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>{stat.finds_count}</td>
-                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>{stat.activity_count}</td>
-                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>
-                                            {stat.shared_with_me > 0 ? (
-                                                <span style={{ color: 'var(--theia-charts-blue)' }}>{stat.shared_with_me}</span>
-                                            ) : (
-                                                <span style={{ color: 'var(--theia-descriptionForeground)' }}>0</span>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </>
-                )}
-
-                {!this.statsLoading && !this.statsError && this.stats.length === 0 && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                        Aucune statistique disponible : synchronisez le flux d'activité ou déduisez les trouvailles d'une zone.
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    // -------------------------------------------------- Panneau de fraîcheur
-
-    protected async loadFreshness(): Promise<void> {
-        this.freshnessLoading = true;
-        this.update();
-
-        try {
-            const result = await this.friendsService.loadFreshness();
-            this.freshness = result.success ? result : null;
-        } catch {
-            this.freshness = null;
-        } finally {
-            this.freshnessLoading = false;
-            this.update();
+            // Silencieux : les cartes s'affichent sans ces compteurs.
+            console.error('[Friends] Failed to load stats:', err);
         }
     }
 
     protected formatRelativeTime(iso: string | null): string {
         if (!iso) return 'jamais';
-        const date = new Date(iso);
-        const diffMs = Date.now() - date.getTime();
-        const diffMin = Math.floor(diffMs / 60000);
+        const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
         if (diffMin < 1) return 'à l\'instant';
         if (diffMin < 60) return `il y a ${diffMin} min`;
         const diffHours = Math.floor(diffMin / 60);
         if (diffHours < 24) return `il y a ${diffHours} h`;
-        const diffDays = Math.floor(diffHours / 24);
-        return `il y a ${diffDays} j`;
-    }
-
-    protected renderFreshness(): React.ReactNode {
-        return (
-            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <span className="codicon codicon-dashboard"></span>
-                    <strong>Fraîcheur des données</strong>
-                    <div style={{ flex: 1 }}></div>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => this.loadFreshness()}
-                        disabled={this.freshnessLoading}
-                        title="Rafraîchir l'état des données"
-                    >
-                        <span className="codicon codicon-refresh"></span>
-                    </button>
-                </div>
-
-                {this.freshnessLoading && !this.freshness && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
-                )}
-
-                {this.freshness && (
-                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.85em' }}>
-                        {this.renderFreshnessCard('Flux d\'activité', [
-                            { label: 'Dernière synchro', value: this.formatRelativeTime(this.freshness.activity?.last_sync_at ?? null), stale: this.freshness.activity?.is_stale },
-                            { label: 'Logs stockés', value: String(this.freshness.activity?.logs_stored ?? 0) },
-                            { label: 'Amis dans le flux', value: String(this.freshness.activity?.authors_in_feed ?? 0) },
-                            { label: 'Dernier log', value: this.formatRelativeTime(this.freshness.activity?.latest_log_date ?? null) },
-                        ])}
-                        {this.renderFreshnessCard('Trouvailles déduites', [
-                            { label: 'Dernière projection', value: this.formatRelativeTime(this.freshness.activity?.last_projection_at ?? null), stale: this.freshness.finds?.is_stale },
-                            { label: 'Lignes', value: String(this.freshness.finds?.total_rows ?? 0) },
-                            { label: 'Caches distinctes', value: String(this.freshness.finds?.distinct_caches ?? 0) },
-                            { label: 'Amis distincts', value: String(this.freshness.finds?.distinct_friends ?? 0) },
-                        ])}
-                        {this.renderFreshnessCard('Liste d\'amis', [
-                            { label: 'Récupérée', value: this.formatRelativeTime(this.freshness.friends_list?.fetched_at ?? null) },
-                            { label: 'Amis', value: String(this.freshness.friends_list?.count ?? 0) },
-                            { label: 'Pages', value: String(this.freshness.friends_list?.pages_fetched ?? 1) },
-                            { label: 'Tronquée', value: this.freshness.friends_list?.truncated ? 'oui' : 'non', stale: this.freshness.friends_list?.truncated },
-                        ])}
-                        {this.renderFreshnessCard('Géocaches', [
-                            { label: 'Total importé', value: String(this.freshness.geocaches?.total ?? 0) },
-                            { label: 'Trouvées', value: String(this.freshness.geocaches?.found ?? 0) },
-                            { label: 'Zone « Amis »', value: String(this.freshness.geocaches?.in_friends_zone ?? 0) },
-                        ])}
-                    </div>
-                )}
-
-                {!this.freshnessLoading && !this.freshness && (
-                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                        Cliquez sur le bouton pour charger l'état des données.
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    protected renderFreshnessCard(
-        title: string,
-        items: { label: string; value: string; stale?: boolean }[]
-    ): React.ReactNode {
-        return (
-            <div style={{
-                flex: '1 1 200px',
-                padding: '10px',
-                border: '1px solid var(--theia-panel-border)',
-                borderRadius: '4px',
-            }}>
-                <div style={{ fontWeight: 'bold', marginBottom: '6px', fontSize: '0.9em' }}>{title}</div>
-                {items.map((item, i) => (
-                    <div key={i} style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        gap: '8px',
-                        marginBottom: '2px',
-                        color: 'var(--theia-descriptionForeground)',
-                    }}>
-                        <span>{item.label}</span>
-                        <span style={{
-                            color: item.stale ? 'var(--theia-errorForeground)' : 'var(--theia-foreground)',
-                            fontWeight: item.stale ? 'bold' : 'normal',
-                        }}>
-                            {item.stale && <span className="codicon codicon-warning" style={{ fontSize: '0.85em', marginRight: '4px' }}></span>}
-                            {item.value}
-                        </span>
-                    </div>
-                ))}
-            </div>
-        );
+        return `il y a ${Math.floor(diffHours / 24)} j`;
     }
 
     // -------------------------------------------------- Notifications
@@ -1390,77 +1177,46 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Nouvelles trouvailles depuis la dernière visite, en tête de l'onglet
+     * Activité (préférence `geoApp.friends.notifications.enabled`). Une ligne
+     * repliée par défaut plutôt qu'une section en bas du widget.
+     */
     protected renderNotifications(): React.ReactNode {
-        const enabled = this.preferenceService.get<boolean>('geoApp.friends.notifications.enabled', false);
-        if (!enabled) {
-            return null;
-        }
-
-        if (this.notificationsCount === 0 && !this.notificationsVisible) {
+        if (this.notificationsCount === 0) {
             return null;
         }
 
         return (
-            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+            <div style={{ ...this.noticeStyle('info'), marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span className="codicon codicon-bell"></span>
-                    <strong>Notifications</strong>
-                    {this.notificationsCount > 0 && (
-                        <span style={{
-                            fontSize: '0.75em',
-                            fontWeight: 'bold',
-                            color: 'white',
-                            backgroundColor: 'var(--theia-charts-red)',
-                            borderRadius: '10px',
-                            padding: '1px 8px',
-                        }}>
-                            {this.notificationsCount}
-                        </span>
-                    )}
-                    <div style={{ flex: 1 }}></div>
-                    {this.notificationsCount > 0 && (
-                        <button
-                            className="theia-button secondary"
-                            onClick={() => this.markNotificationsSeen()}
-                            title={`Marquer les ${this.notificationsCount} notification(s) non lues comme lues (y compris celles non affichées)`}
-                        >
-                            <span className="codicon codicon-check"></span>
-                            {' Marquer comme lu'}
-                        </button>
-                    )}
+                    <span style={{ flex: 1 }}>
+                        {`${this.notificationsCount} cache(s) trouvée(s) par vos amis depuis votre dernière visite.`}
+                    </span>
                     <button
                         className="theia-button secondary"
                         onClick={() => { this.notificationsVisible = !this.notificationsVisible; this.update(); }}
-                        title={this.notificationsVisible ? 'Replier' : 'Déplier'}
                     >
-                        <span className={`codicon codicon-chevron-${this.notificationsVisible ? 'up' : 'down'}`}></span>
+                        {this.notificationsVisible ? 'Masquer' : 'Voir'}
+                    </button>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.markNotificationsSeen()}
+                        title="Y compris celles qui ne sont pas affichées"
+                    >
+                        Marquer comme vu
                     </button>
                 </div>
-
                 {this.notificationsVisible && (
-                    <>
-                        {this.notificationsLoading && (
-                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
-                        )}
-
-                        {!this.notificationsLoading && this.notifications.length === 0 && (
-                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                                Aucune nouvelle trouvaille d'ami depuis votre dernière visite.
-                            </div>
-                        )}
-
-                        {this.notifications.length > 0 && (
-                            <div>
-                                {this.notifications.map(n => this.renderNotification(n))}
-                            </div>
-                        )}
-
-                        {this.notifications.length > 0 && this.notificationsCount > this.notifications.length && (
+                    <div style={{ marginTop: '8px' }}>
+                        {this.notifications.map(n => this.renderNotification(n))}
+                        {this.notificationsCount > this.notifications.length && (
                             <div style={{ fontSize: '0.85em', color: 'var(--theia-descriptionForeground)', marginTop: '8px' }}>
-                                {`${this.notifications.length} affichée(s) sur ${this.notificationsCount} — « Marquer comme lu » concerne aussi les non affichées.`}
+                                {`${this.notifications.length} affichée(s) sur ${this.notificationsCount}.`}
                             </div>
                         )}
-                    </>
+                    </div>
                 )}
             </div>
         );
@@ -1525,154 +1281,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     // -------------------------------------------------- Events
 
     protected async refreshEvents(): Promise<void> {
-        this.eventsLoading = true;
-        this.update();
         try {
             const result = await this.friendsService.loadEvents(100);
             if (result.success) {
                 this.events = result.items || [];
-                this.eventsCount = result.count || 0;
-                this.eventsUpcomingCount = result.upcoming_count || 0;
-                this.eventsPastCount = result.past_count || 0;
+                this.update();
             }
         } catch {
-            // Silencieux.
-        } finally {
-            this.eventsLoading = false;
-            this.update();
+            // Silencieux : les events sont un bonus.
         }
-    }
-
-    protected renderEvents(): React.ReactNode {
-        if (this.eventsCount === 0 && !this.eventsVisible) {
-            return null;
-        }
-
-        return (
-            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <span className="codicon codicon-calendar"></span>
-                    <strong>Events</strong>
-                    {this.eventsUpcomingCount > 0 && (
-                        <span style={{
-                            fontSize: '0.75em',
-                            fontWeight: 'bold',
-                            color: 'white',
-                            backgroundColor: 'var(--theia-charts-green)',
-                            borderRadius: '10px',
-                            padding: '1px 8px',
-                        }} title="Events à venir">
-                            {this.eventsUpcomingCount}
-                        </span>
-                    )}
-                    {this.eventsPastCount > 0 && (
-                        <span style={{
-                            fontSize: '0.75em',
-                            color: 'var(--theia-descriptionForeground)',
-                        }}>
-                            {`${this.eventsPastCount} passé(s)`}
-                        </span>
-                    )}
-                    <div style={{ flex: 1 }}></div>
-                    <button
-                        className="theia-button secondary"
-                        onClick={() => { this.eventsVisible = !this.eventsVisible; this.update(); }}
-                        title={this.eventsVisible ? 'Replier' : 'Déplier'}
-                    >
-                        <span className={`codicon codicon-chevron-${this.eventsVisible ? 'up' : 'down'}`}></span>
-                    </button>
-                </div>
-
-                {this.eventsVisible && (
-                    <>
-                        {this.eventsLoading && (
-                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
-                        )}
-
-                        {!this.eventsLoading && this.events.length === 0 && (
-                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                                Aucun event d'ami dans le flux d'activité.
-                            </div>
-                        )}
-
-                        {this.events.length > 0 && (
-                            <div>
-                                {this.events.map(e => this.renderEvent(e))}
-                            </div>
-                        )}
-                    </>
-                )}
-            </div>
-        );
-    }
-
-    protected renderEvent(e: FriendEvent): React.ReactNode {
-        const cacheUrl = e.gc_code
-            ? `https://www.geocaching.com/geocache/${e.gc_code}`
-            : undefined;
-
-        const formattedDate = e.event_date
-            ? new Date(e.event_date).toLocaleDateString('fr-FR', {
-                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-            })
-            : 'Date inconnue';
-
-        return (
-            <div
-                key={(e.gc_code || '') + (e.name || '')}
-                style={{
-                    display: 'flex',
-                    gap: '10px',
-                    padding: '10px 0',
-                    borderBottom: '1px solid var(--theia-panel-border)'
-                }}
-            >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                        <span
-                            className="codicon codicon-people"
-                            style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
-                        ></span>
-                        <strong style={{ color: 'var(--theia-charts-blue)' }}>{e.friends_count}</strong>
-                        {cacheUrl ? (
-                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
-                                {e.name}
-                            </a>
-                        ) : (
-                            <span>{e.name}</span>
-                        )}
-                        {e.gc_code && (
-                            <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
-                                {e.gc_code}
-                            </span>
-                        )}
-                    </div>
-
-                    <div style={{
-                        fontSize: '0.8em',
-                        color: 'var(--theia-descriptionForeground)',
-                        display: 'flex',
-                        gap: '10px',
-                        flexWrap: 'wrap',
-                        marginTop: '2px'
-                    }}>
-                        <span style={{ color: e.is_upcoming ? 'var(--theia-charts-green)' : 'var(--theia-descriptionForeground)' }}>
-                            {e.is_upcoming ? 'À venir' : 'Passé'}
-                        </span>
-                        <span>{formattedDate}</span>
-                        {e.location_name && <span>{e.location_name}</span>}
-                    </div>
-
-                    <div style={{
-                        fontSize: '0.8em',
-                        color: 'var(--theia-descriptionForeground)',
-                        marginTop: '2px'
-                    }}>
-                        {e.friends.join(', ')}
-                    </div>
-                </div>
-            </div>
-        );
     }
 
     protected renderToolbar(): React.ReactNode {
@@ -1707,7 +1324,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
                 <label
                     style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.9em' }}
-                    title="Le flux « communauté » de geocaching.com inclut aussi vos propres logs"
+                    title="Afficher aussi vos propres logs"
                 >
                     <input
                         type="checkbox"
@@ -1725,7 +1342,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                     value={this.mapSource}
                     onChange={e => { this.mapSource = e.target.value as MapSource; this.showOnMap(); }}
                     disabled={this.mapLoading || !this.loaded}
-                    title="Ce que la carte affiche"
+                    title="Ce que la carte affiche : les logs récents du flux, ou toutes les trouvailles connues de vos amis"
                 >
                     {MAP_SOURCES.map(source => (
                         <option key={source.id} value={source.id}>{source.label}</option>
@@ -1736,65 +1353,25 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                     className="theia-button secondary"
                     onClick={() => this.showOnMap(true)}
                     disabled={this.mapLoading || !this.loaded}
-                    title="Afficher les découvertes de vos amis sur une carte"
+                    title="Afficher les découvertes de vos amis sur une carte (suit les filtres)"
                 >
                     <span className="codicon codicon-globe"></span>
                     {this.mapLoading ? ' Carte…' : ' Carte'}
-                </button>
-
-                <button
-                    className="theia-button secondary"
-                    onClick={() => this.commandService.executeCommand('geoapp.friends.open')}
-                    title="Ouvrir la liste de vos amis"
-                >
-                    <span className="codicon codicon-organization"></span>
-                    {' Amis'}
-                </button>
-
-                <select
-                    className="theia-input"
-                    value={String(this.syncDays)}
-                    onChange={e => { this.syncDays = Number(e.target.value); this.update(); }}
-                    disabled={this.syncing}
-                    title="Profondeur de la synchronisation"
-                >
-                    <option value="7">7 jours</option>
-                    <option value="14">14 jours</option>
-                    <option value="30">30 jours</option>
-                </select>
-
-                <button
-                    className="theia-button"
-                    onClick={() => this.sync()}
-                    disabled={this.syncing}
-                    title="Récupérer les nouvelles activités depuis geocaching.com"
-                >
-                    <span className="codicon codicon-cloud-download"></span>
-                    {this.syncing ? ' Synchronisation…' : ' Synchroniser'}
                 </button>
             </div>
         );
     }
 
+    /** Bandeaux communs aux trois onglets : backend injoignable, erreur, connexion. */
     protected renderNotices(): React.ReactNode {
         const notices: React.ReactNode[] = [];
 
         if (!this.apiClient.isBackendReachable()) {
             notices.push(
-                <div key="offline" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-warningBackground)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                }}>
+                <div key="offline" style={{ ...this.noticeStyle('warning'), marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="codicon codicon-debug-disconnect"></span>
                     <span style={{ flex: 1 }}>
-                        Backend GeoApp injoignable — flux, suggestions et notifications affichés sont les données locales.
+                        Backend GeoApp injoignable — les données affichées sont les données locales.
                     </span>
                     <button
                         className="theia-button secondary"
@@ -1810,14 +1387,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
         if (this.error) {
             notices.push(
-                <div key="error" style={{
-                    padding: '12px',
-                    marginBottom: '12px',
-                    backgroundColor: this.notAuthenticated
-                        ? 'var(--theia-inputValidation-warningBackground)'
-                        : 'var(--theia-inputValidation-errorBackground)',
-                    borderRadius: '4px'
-                }}>
+                <div key="error" style={{ ...this.noticeStyle(this.notAuthenticated ? 'warning' : 'error'), marginBottom: '12px' }}>
                     <span className={`codicon ${this.notAuthenticated ? 'codicon-key' : 'codicon-error'}`}></span>
                     {` ${this.error}`}
                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
@@ -1844,134 +1414,44 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             );
         }
 
-        if (this.syncMessage && !this.error) {
-            notices.push(
-                <div key="sync" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-infoBackground)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em'
-                }}>
-                    <span className="codicon codicon-check"></span>
-                    {` ${this.syncMessage}`}
-                </div>
-            );
-        }
+        return notices;
+    }
+
+    /** Bandeaux propres à l'onglet Activité : bilan de la carte, flux incomplet. */
+    protected renderActivityNotices(): React.ReactNode {
+        const notices: React.ReactNode[] = [];
 
         if (this.mapMessage) {
             notices.push(
-                <div key="map" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-infoBackground)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em'
-                }}>
+                <div key="map" style={{ ...this.noticeStyle('info'), marginBottom: '12px' }}>
                     <span className="codicon codicon-globe"></span>
                     {` ${this.mapMessage}`}
                 </div>
             );
         }
 
-        // Le flux n'est pas exhaustif, et rien dans son contenu ne le dit :
+        // Le flux n'est pas exhaustif et rien dans son contenu ne le dit :
         // geocaching.com regroupe les trouvailles d'affilée en une seule entrée
-        // dont il ne nomme qu'une cache. Les DNF, presque toujours isolés,
-        // apparaissent tous — d'où l'impression que les trouvailles manquent.
-        if (this.condensedHidden > 0) {
+        // dont il ne nomme qu'une cache (§9.2). Le bandeau n'apparaît qu'avec un
+        // ami choisi, seul cas où l'on peut y remédier : sans filtre, les
+        // « + N autres » de chaque entrée suffisent à le signaler.
+        if (this.condensedHidden > 0 && this.authorFilter) {
             notices.push(
-                <div key="condensed" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-warningBackground)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em'
-                }}>
+                <div key="condensed" style={{ ...this.noticeStyle('info'), marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <span className="codicon codicon-fold"></span>
                         <span style={{ flex: 1, minWidth: '240px' }}>
-                            {`${this.condensedHidden} trouvaille(s) regroupée(s) par geocaching.com : `}
-                            {'seule une cache par groupe est nommée dans le flux. '}
-                            {this.authorFilter
-                                ? `Récupérez la liste complète de ${this.authorFilter} depuis son profil.`
-                                : 'Choisissez un ami ci-dessus pour récupérer sa liste complète depuis son profil.'}
+                            {`geocaching.com ne détaille pas ${this.condensedHidden} trouvaille(s) de ${this.authorFilter} dans ce flux.`}
                         </span>
-                        {this.authorFilter && (
-                            <button
-                                className="theia-button"
-                                onClick={() => this.fetchProfileFinds()}
-                                disabled={this.profileSyncing}
-                                title={`Récupérer les trouvailles de ${this.authorFilter} depuis son profil geocaching.com`}
-                            >
-                                {this.profileSyncing ? 'Récupération…' : 'Compléter depuis le profil'}
-                            </button>
-                        )}
+                        <button
+                            className="theia-button"
+                            onClick={() => this.fetchProfileFinds()}
+                            disabled={this.profileSyncing}
+                            title={`Récupérer la liste complète des trouvailles de ${this.authorFilter} depuis son profil geocaching.com`}
+                        >
+                            {this.profileSyncing ? 'Récupération…' : 'Récupérer toutes ses trouvailles'}
+                        </button>
                     </div>
-                </div>
-            );
-        }
-
-        // Trouvailles connues mais non plaçables : la déduction par zone ne les a
-        // pas géolocalisées (lignes antérieures aux colonnes de coordonnées) et
-        // la cache n'est pas importée. Un import les rend plaçables.
-        if (this.importableCount > 0 || this.importing) {
-            notices.push(
-                <div key="import" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-infoBackground)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    flexWrap: 'wrap'
-                }}>
-                    {this.importing ? (
-                        <React.Fragment>
-                            <span className="codicon codicon-cloud-download"></span>
-                            <span style={{ flex: 1, minWidth: '200px' }}>{this.importProgress}</span>
-                            <button className="theia-button secondary" onClick={() => this.cancelImport()}>
-                                Arrêter
-                            </button>
-                        </React.Fragment>
-                    ) : (
-                        <React.Fragment>
-                            <span className="codicon codicon-location"></span>
-                            <span style={{ flex: 1, minWidth: '200px' }}>
-                                {`${this.importableCount} géocache(s) trouvée(s) par vos amis ne sont pas dans GeoApp `}
-                                {'— sans elles, ces trouvailles ne peuvent pas être placées sur la carte.'}
-                            </span>
-                            <button className="theia-button" onClick={() => this.importMissingFinds()}>
-                                Importer dans « Amis »
-                            </button>
-                        </React.Fragment>
-                    )}
-                </div>
-            );
-        } else if (this.importProgress && !this.importing) {
-            notices.push(
-                <div key="import-done" style={{
-                    padding: '8px 12px',
-                    marginBottom: '12px',
-                    backgroundColor: 'var(--theia-inputValidation-infoBackground)',
-                    borderRadius: '4px',
-                    fontSize: '0.9em'
-                }}>
-                    <span className="codicon codicon-check"></span>
-                    {` ${this.importProgress}`}
-                </div>
-            );
-        }
-
-        if (this.lastSyncAt) {
-            notices.push(
-                <div key="last" style={{
-                    marginBottom: '12px',
-                    fontSize: '0.85em',
-                    color: 'var(--theia-descriptionForeground)'
-                }}>
-                    {`Dernière synchronisation : ${new Date(this.lastSyncAt).toLocaleString('fr-FR')}`}
                 </div>
             );
         }
@@ -1991,7 +1471,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 <div style={{ color: 'var(--theia-descriptionForeground)' }}>
                     {this.lastSyncAt
                         ? 'Aucune activité pour ces filtres.'
-                        : 'Aucune activité enregistrée : lancez une synchronisation.'}
+                        : 'Aucune activité enregistrée : cliquez sur « Mettre à jour ».'}
                 </div>
             );
         }

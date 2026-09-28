@@ -1,6 +1,6 @@
 // Fiche synthétique d'un ami : trouvailles connues, caches en commun,
-// activité récente et couverture des analyses par zone — données locales,
-// sans appel à geocaching.com.
+// activité récente et zones vérifiées — données locales. Seul « Récupérer
+// toutes ses trouvailles » interroge geocaching.com.
 
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
@@ -10,6 +10,7 @@ import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-ap
 import { FriendsService } from './friends-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { coverageLabel, scanCoverage } from './friend-scan-state';
+import { fetchFriendProfileFinds } from './friend-profile-finds';
 import type {
     FriendSummaryResponse,
     FriendSummaryZone,
@@ -42,6 +43,9 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
     protected loaded: boolean = false;
     protected error: string | null = null;
 
+    protected fetchingFinds: boolean = false;
+    protected fetchMessage: string | null = null;
+
     @postConstruct()
     protected init(): void {
         this.id = GeocachingFriendSummaryWidget.ID;
@@ -73,6 +77,7 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
         this.summary = null;
         this.loaded = false;
         this.error = null;
+        this.fetchMessage = null;
         this.title.label = `${GeocachingFriendSummaryWidget.LABEL} — ${username}`;
         this.update();
         await this.load();
@@ -118,6 +123,31 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
         } catch (err) {
             // Le profil est un bonus : la fiche reste utilisable sans.
             console.warn('[FriendSummary] Friends list unavailable:', err);
+        }
+    }
+
+    /**
+     * Recherche par profil (§11.2) : la seule façon d'obtenir ses trouvailles
+     * hors des zones vérifiées et au-delà de ce que le flux détaille.
+     */
+    protected async fetchAllFinds(): Promise<void> {
+        if (!this.username || this.fetchingFinds) {
+            return;
+        }
+        this.fetchingFinds = true;
+        this.fetchMessage = null;
+        this.update();
+        try {
+            const outcome = await fetchFriendProfileFinds(this.friendsService, this.username);
+            if (outcome.status !== 'cancelled') {
+                this.fetchMessage = outcome.message;
+            }
+            if (outcome.status === 'done') {
+                await this.load();
+            }
+        } finally {
+            this.fetchingFinds = false;
+            this.update();
         }
     }
 
@@ -188,7 +218,16 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
                     )}
                 </div>
                 {username && (
-                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
+                        <button
+                            className="theia-button"
+                            onClick={() => this.fetchAllFinds()}
+                            disabled={this.fetchingFinds || !this.apiClient.isBackendReachable()}
+                            title={`Récupérer depuis geocaching.com la liste des trouvailles de ${username}`}
+                        >
+                            <span className="codicon codicon-cloud-download"></span>
+                            {this.fetchingFinds ? ' Récupération…' : ' Récupérer toutes ses trouvailles'}
+                        </button>
                         <button
                             className="theia-button secondary"
                             onClick={() => this.commandService.executeCommand(
@@ -234,7 +273,18 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
             );
         }
         if (!this.error) {
-            return null;
+            return this.fetchMessage && (
+                <div style={{
+                    padding: '8px 12px',
+                    marginBottom: '12px',
+                    backgroundColor: 'var(--theia-inputValidation-infoBackground)',
+                    borderRadius: '4px',
+                    fontSize: '0.9em'
+                }}>
+                    <span className="codicon codicon-info"></span>
+                    {` ${this.fetchMessage}`}
+                </div>
+            );
         }
         return (
             <div style={{
@@ -279,8 +329,12 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
         );
         return (
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
-                {cell('Trouvailles connues', s.finds_count.toLocaleString('fr-FR'),
-                    'Caches trouvées par cet ami, déduites par GeoApp (zones, flux, logs)')}
+                {cell('Trouvailles connues',
+                    this.profile?.finds_count
+                        ? `${s.finds_count.toLocaleString('fr-FR')} / ${this.profile.finds_count.toLocaleString('fr-FR')}`
+                        : s.finds_count.toLocaleString('fr-FR'),
+                    'Trouvailles de cet ami que GeoApp a déjà récupérées, sur son total geocaching.com. '
+                    + '« Récupérer toutes ses trouvailles » complète la liste.')}
                 {cell('En commun avec moi', s.shared_with_me.toLocaleString('fr-FR'),
                     'Caches que vous avez trouvées et que cet ami a aussi trouvées')}
                 {cell('Logs du flux', s.activity_count.toLocaleString('fr-FR'),
@@ -295,10 +349,11 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
         const zones = this.summary!.zones;
         return (
             <div style={{ marginBottom: '16px' }}>
-                <h3 style={{ marginTop: 0 }}>Couverture des analyses</h3>
+                <h3 style={{ marginTop: 0 }}>Zones vérifiées</h3>
                 {zones.length === 0 ? (
                     <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                        Jamais analysé sur une zone — ses « non trouvées » sont inconnues.
+                        Aucune zone vérifiée pour cet ami : on ne sait pas encore quelles caches il n'a pas trouvées.
+                        Utilisez « Vérifier qui a trouvé » en mode sortie sur une zone.
                     </div>
                 ) : (
                     <table style={{ borderCollapse: 'collapse', fontSize: '0.9em', width: '100%' }}>
@@ -306,7 +361,7 @@ export class GeocachingFriendSummaryWidget extends ReactWidget {
                             <tr>
                                 <th style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--theia-panel-border)' }}>Zone</th>
                                 <th style={{ textAlign: 'right', padding: '4px 8px', borderBottom: '1px solid var(--theia-panel-border)' }}>Trouvées</th>
-                                <th style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--theia-panel-border)' }}>Analyse</th>
+                                <th style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--theia-panel-border)' }}>État</th>
                                 <th style={{ textAlign: 'left', padding: '4px 8px', borderBottom: '1px solid var(--theia-panel-border)' }}>Vérifiée le</th>
                             </tr>
                         </thead>

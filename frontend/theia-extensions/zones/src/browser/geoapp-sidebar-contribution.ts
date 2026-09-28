@@ -9,6 +9,7 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 
 export const GEOAPP_PREFERENCES_MENU = ['geoapp-preferences-menu'];
 export const GEOAPP_AUTH_MENU = ['geoapp-auth-menu'];
+export const GEOAPP_FRIENDS_MENU = ['geoapp-friends-menu'];
 
 @injectable()
 export class GeoAppSidebarContribution implements FrontendApplicationContribution, MenuContribution {
@@ -61,15 +62,23 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             order: '0'
         });
 
-        menus.registerMenuAction(GEOAPP_AUTH_MENU, {
+        // Les amis ont leur propre entrée : rangés dans le menu du compte, à
+        // côté de « Gérer la connexion », ils passaient inaperçus.
+        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
             commandId: 'geoapp.friends.open',
             label: 'Mes amis',
+            order: '0'
+        });
+
+        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
+            commandId: 'geoapp.friends.activity.open',
+            label: 'Activité des amis',
             order: '1'
         });
 
-        menus.registerMenuAction(GEOAPP_AUTH_MENU, {
-            commandId: 'geoapp.friends.activity.open',
-            label: 'Activité des amis',
+        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
+            commandId: 'geoapp.friends.todo.open',
+            label: 'Caches à faire',
             order: '2'
         });
     }
@@ -137,11 +146,19 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
         });
 
         this.sidebarBottomMenu.addMenu({
+            id: 'geoapp-friends-menu',
+            iconClass: 'codicon codicon-organization',
+            title: 'Amis Geocaching.com',
+            menuPath: GEOAPP_FRIENDS_MENU,
+            order: 1
+        });
+
+        this.sidebarBottomMenu.addMenu({
             id: 'geoapp-auth-menu',
             iconClass: this.getAuthIconClass(),
             title: this.getAuthTitle(),
             menuPath: GEOAPP_AUTH_MENU,
-            order: 1
+            order: 2
         });
     }
 
@@ -196,7 +213,7 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             iconClass: this.getAuthIconClass(),
             title: this.getAuthTitle(),
             menuPath: GEOAPP_AUTH_MENU,
-            order: 1
+            order: 2
         });
     }
 }

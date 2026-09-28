@@ -64,7 +64,7 @@ export function friendFindCell(found: boolean, coverage: FriendScanCoverage): Fr
 /** Libellé court du statut d'analyse, pour les listes d'amis. */
 export function coverageLabel(coverage: FriendScanCoverage): string {
     switch (coverage) {
-        case 'unscanned': return 'non analysé';
+        case 'unscanned': return 'non vérifié';
         case 'partial': return 'partielle';
         case 'stale': return 'obsolète';
         default: return 'à jour';

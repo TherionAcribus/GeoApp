@@ -5,8 +5,7 @@ import { ZonesTreeWidget } from './zones-tree-widget';
 import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { MapWidget } from './map/map-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
-import { GeocachingFriendsWidget } from './geocaching-friends-widget';
-import { GeocachingFriendActivityWidget } from './geocaching-friend-activity-widget';
+import { FriendsTab, GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
@@ -18,8 +17,9 @@ export const ZonesCommands = {
     OPEN_ZONE: <Command>{ id: 'zones:open-zone', label: 'Zones: Ouvrir Zone' },
     OPEN_MAP: <Command>{ id: 'geoapp.map.toggle', label: 'GeoApp: Afficher la carte' },
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
-    OPEN_FRIENDS: <Command>{ id: 'geoapp.friends.open', label: 'GeoApp: Amis Geocaching.com' },
+    OPEN_FRIENDS: <Command>{ id: 'geoapp.friends.open', label: 'GeoApp: Amis' },
     OPEN_FRIEND_ACTIVITY: <Command>{ id: 'geoapp.friends.activity.open', label: 'GeoApp: Activité des amis' },
+    OPEN_FRIEND_TODO: <Command>{ id: 'geoapp.friends.todo.open', label: 'GeoApp: Caches à faire avec les amis' },
     OPEN_FRIEND_SUMMARY: <Command>{ id: 'geoapp.friends.summary.open', label: 'GeoApp: Fiche ami' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
@@ -82,30 +82,34 @@ export class ZonesCommandContribution implements CommandContribution {
             }
         });
 
-        // Ouvre la liste des amis Geocaching.com
-        commands.registerCommand(ZonesCommands.OPEN_FRIENDS, {
-            execute: async () => {
-                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendsWidget.ID);
-                if (!widget.isAttached) {
-                    this.shell.addWidget(widget, { area: 'main' });
-                }
-                this.shell.activateWidget(widget.id);
+        // Widget Amis : les trois commandes ouvrent le même widget sur un onglet
+        // différent (liste, activité, à faire).
+        const openFriendsTab = async (tab: FriendsTab): Promise<GeocachingFriendsWidget> => {
+            const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendsWidget.ID) as GeocachingFriendsWidget;
+            if (!widget.isAttached) {
+                this.shell.addWidget(widget, { area: 'main' });
             }
+            widget.showTab(tab);
+            this.shell.activateWidget(widget.id);
+            return widget;
+        };
+
+        commands.registerCommand(ZonesCommands.OPEN_FRIENDS, {
+            execute: async () => { await openFriendsTab('friends'); }
         });
 
-        // Ouvre le flux d'activité des amis Geocaching.com
         commands.registerCommand(ZonesCommands.OPEN_FRIEND_ACTIVITY, {
             execute: async (args?: { username?: string }) => {
-                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendActivityWidget.ID) as GeocachingFriendActivityWidget;
-                if (!widget.isAttached) {
-                    this.shell.addWidget(widget, { area: 'main' });
-                }
+                const widget = await openFriendsTab('activity');
                 // `{ username }` : vue focalisée sur un ami (depuis sa carte).
                 if (args?.username) {
                     void widget.focusAuthor(args.username);
                 }
-                this.shell.activateWidget(widget.id);
             }
+        });
+
+        commands.registerCommand(ZonesCommands.OPEN_FRIEND_TODO, {
+            execute: async () => { await openFriendsTab('todo'); }
         });
 
         // Ouvre la fiche synthétique d'un ami (`{ username }` requis)
