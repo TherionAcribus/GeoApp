@@ -10,6 +10,7 @@ export const GEOAPP_CHAT_FORMULA_PROFILE_PREF = 'geoApp.chat.workflowProfile.for
 export const GEOAPP_CHAT_CHECKER_PROFILE_PREF = 'geoApp.chat.workflowProfile.checker';
 export const GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.workflowProfile.hiddenContent';
 export const GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.workflowProfile.imagePuzzle';
+export const GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF = 'geoApp.chat.localModelIds';
 export const GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF = 'geoApp.chat.behaviorProfile.default';
 export const GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.secretCode';
 export const GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.formula';
@@ -49,19 +50,20 @@ export interface GeoAppChatPreset {
     id: string;
     label: string;
     description: string;
+    modelProfile?: GeoAppChatProfile;
     behavior: GeoAppChatBehaviorProfile;
     promptPack: GeoAppChatBehaviorProfile;
     skillPack: GeoAppChatSkillPack;
 }
 
-// Presets combines : reglent d'un clic les trois axes (profil comportemental par
-// defaut, prompt pack, skill pack). Partages entre la vue Policy et le tool IA
-// `aide_apply_chat_preset`.
+// Presets combines : reglent d'un clic les axes comportement/prompt/skills et,
+// quand necessaire, le profil de modele. Partages entre la vue Policy et le tool
+// IA `aide_apply_chat_preset`.
 export const GEOAPP_CHAT_PRESET_OPTIONS: GeoAppChatPreset[] = [
     { id: 'discovery', label: 'Découverte', description: 'Aide active, confirmation sur les actions sensibles.', behavior: 'guided', promptPack: 'guided', skillPack: 'workflow' },
     { id: 'autonomous', label: 'Autonome', description: 'Exécute davantage d\'étapes, toutes les skills exposées.', behavior: 'automation', promptPack: 'automation', skillPack: 'full' },
     { id: 'cautious', label: 'Prudent', description: 'Peu d\'automatisation, skills essentielles seulement.', behavior: 'safe', promptPack: 'safe', skillPack: 'minimal' },
-    { id: 'offline', label: 'Hors-ligne', description: 'Aucun réseau ni checker, calculs locaux.', behavior: 'offline', promptPack: 'offline', skillPack: 'minimal' },
+    { id: 'offline', label: 'Hors-ligne', description: 'Modèle local, aucun réseau ni checker.', modelProfile: 'local', behavior: 'offline', promptPack: 'offline', skillPack: 'minimal' },
 ];
 
 export interface GeoAppChatPreferenceValues {

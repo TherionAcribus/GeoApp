@@ -4,6 +4,7 @@ import { DEFAULT_CHAT_AGENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-prefe
 import { GEOAPP_OPEN_CHAT_REQUEST_EVENT, GeoAppChatBridge } from '../geoapp-chat-bridge';
 import {
     GeoAppChatFastAgentId,
+    GeoAppChatLocalAgentId,
     GeoAppChatStrongAgentId,
     GeoAppChatWebAgentId,
 } from '../geoapp-chat-agent';
@@ -95,12 +96,15 @@ class FakePreferenceService {
 class FakeLanguageModelRegistry {
     readonly calls: Array<{ agent: string; purpose: string; identifier: string }> = [];
 
-    constructor(readonly readyAgentIds: Set<string>) {}
+    constructor(
+        readonly readyAgentIds: Set<string>,
+        readonly modelIdsByAgent: Record<string, string> = {}
+    ) {}
 
     async selectLanguageModel(request: { agent: string; purpose: string; identifier: string }): Promise<{ id: string }> {
         this.calls.push(request);
         if (this.readyAgentIds.has(request.agent)) {
-            return { id: request.agent };
+            return { id: this.modelIdsByAgent[request.agent] || request.agent };
         }
         throw new Error(`Agent not ready: ${request.agent}`);
     }
@@ -108,9 +112,19 @@ class FakeLanguageModelRegistry {
 
 class FakeMessageService {
     readonly errors: string[] = [];
+    readonly warnings: string[] = [];
+    readonly infos: string[] = [];
 
     error(message: string): void {
         this.errors.push(message);
+    }
+
+    warn(message: string): void {
+        this.warnings.push(message);
+    }
+
+    info(message: string): void {
+        this.infos.push(message);
     }
 }
 
@@ -151,6 +165,7 @@ function createBridge(options?: {
     agents?: FakeAgent[];
     preferences?: Record<string, unknown>;
     readyAgentIds?: string[];
+    modelIdsByAgent?: Record<string, string>;
 }) {
     const agents = options?.agents || [
         { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
@@ -161,7 +176,10 @@ function createBridge(options?: {
     const chatService = new FakeChatService();
     const chatAgentService = new FakeChatAgentService(agents);
     const preferenceService = new FakePreferenceService(preferences);
-    const languageModelRegistry = new FakeLanguageModelRegistry(new Set(options?.readyAgentIds || []));
+    const languageModelRegistry = new FakeLanguageModelRegistry(
+        new Set(options?.readyAgentIds || []),
+        options?.modelIdsByAgent || {}
+    );
     const messages = new FakeMessageService();
 
     const bridge = new GeoAppChatBridge(
@@ -576,6 +594,146 @@ async function testFallbackPrefersGeoAppWhenNothingReady(): Promise<void> {
     assert.equal(chatService.sessions[0].pinnedAgent?.id, 'GeoApp');
 }
 
+async function testLocalProfileAcceptsLocalOllamaModel(): Promise<void> {
+    const { bridge, chatService, messages } = createBridge({
+        agents: [
+            { id: GeoAppChatLocalAgentId, name: 'GeoApp Chat (Local)' },
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'local',
+            'ai-features.ollama.ollamaHost': 'http://localhost:11434',
+        },
+        readyAgentIds: [GeoAppChatLocalAgentId, GeoAppChatFastAgentId],
+        modelIdsByAgent: {
+            [GeoAppChatLocalAgentId]: 'ollama/llama3.1',
+            [GeoAppChatFastAgentId]: 'openrouter/fast',
+        },
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCLOCAL1',
+        prompt: 'Réponds sans quitter la machine.',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, GeoAppChatLocalAgentId);
+    assert.equal(chatService.sessions[0].title, 'CHAT IA - GCLOCAL1 [Local]');
+    assert.deepEqual(messages.errors, []);
+}
+
+async function testLocalProfileRejectsCloudModelWithoutFallback(): Promise<void> {
+    const { bridge, chatService, messages } = createBridge({
+        agents: [
+            { id: GeoAppChatLocalAgentId, name: 'GeoApp Chat (Local)' },
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'local',
+        },
+        readyAgentIds: [GeoAppChatLocalAgentId, GeoAppChatFastAgentId],
+        modelIdsByAgent: {
+            [GeoAppChatLocalAgentId]: 'openai/gpt-4o',
+            [GeoAppChatFastAgentId]: 'openrouter/fast',
+        },
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCCLOUD',
+        prompt: 'Ne doit pas partir vers le cloud.',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 0);
+    assert.equal(messages.errors.length, 1);
+    assert.match(messages.errors[0], /Aucun repli cloud/);
+}
+
+async function testLocalProfileRejectsMissingReadyModel(): Promise<void> {
+    const { bridge, chatService, messages } = createBridge({
+        agents: [
+            { id: GeoAppChatLocalAgentId, name: 'GeoApp Chat (Local)' },
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'local',
+        },
+        readyAgentIds: [GeoAppChatFastAgentId],
+        modelIdsByAgent: {
+            [GeoAppChatFastAgentId]: 'openrouter/fast',
+        },
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCNOLOCAL',
+        prompt: 'Aucun modèle local disponible.',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 0);
+    assert.equal(messages.errors.length, 1);
+    assert.match(messages.errors[0], /aucun modèle prêt|Aucun repli cloud/);
+}
+
+async function testExplicitLocalAgentRejectsCloudAssignment(): Promise<void> {
+    const { bridge, chatService, messages } = createBridge({
+        agents: [
+            { id: GeoAppChatLocalAgentId, name: 'GeoApp Chat (Local)' },
+            { id: GeoAppChatStrongAgentId, name: 'GeoApp Chat (Strong)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'strong',
+        },
+        readyAgentIds: [GeoAppChatLocalAgentId, GeoAppChatStrongAgentId],
+        modelIdsByAgent: {
+            [GeoAppChatLocalAgentId]: 'openrouter/strong',
+            [GeoAppChatStrongAgentId]: 'ollama/llama3.1',
+        },
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCEXPLICIT',
+        prompt: 'L\'agent local ne doit pas être remplacé.',
+        workflowKind: 'general',
+        preferredAgentId: GeoAppChatLocalAgentId,
+    });
+
+    assert.equal(chatService.sessions.length, 0);
+    assert.equal(messages.errors.length, 1);
+    assert.match(messages.errors[0], /Aucun repli cloud/);
+}
+
+async function testOfflineBehaviorForcesLocalAgent(): Promise<void> {
+    const { bridge, chatService, messages } = createBridge({
+        agents: [
+            { id: GeoAppChatLocalAgentId, name: 'GeoApp Chat (Local)' },
+            { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'fast',
+            'geoApp.chat.behaviorProfile.default': 'offline',
+        },
+        readyAgentIds: [GeoAppChatLocalAgentId, GeoAppChatFastAgentId],
+        modelIdsByAgent: {
+            [GeoAppChatLocalAgentId]: 'ollama/llama3.1',
+            [GeoAppChatFastAgentId]: 'openrouter/fast',
+        },
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GCOFFLINE',
+        prompt: 'Session hors ligne.',
+        workflowKind: 'general',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, GeoAppChatLocalAgentId);
+    assert.equal(messages.warnings.length, 1);
+    assert.match(messages.warnings[0], /profil modèle « fast » n'est pas utilisé/);
+    assert.deepEqual(messages.errors, []);
+}
+
 async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
@@ -588,6 +746,11 @@ async function run(): Promise<void> {
     await testBridgeAcceptsGeocacheDetailsPayloadBuilder();
     await testBridgeReusesSessionAcrossGeoappEntryPoints();
     await testOutingSessionIsPinnedAndMatchedByTitle();
+    await testLocalProfileAcceptsLocalOllamaModel();
+    await testLocalProfileRejectsCloudModelWithoutFallback();
+    await testLocalProfileRejectsMissingReadyModel();
+    await testExplicitLocalAgentRejectsCloudAssignment();
+    await testOfflineBehaviorForcesLocalAgent();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-bridge tests passed');
 }

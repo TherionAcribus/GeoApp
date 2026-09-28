@@ -22,6 +22,8 @@ import {
     GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
+    GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
@@ -34,6 +36,7 @@ import {
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatWorkflowKind,
     normalizeGeoAppChatBehaviorProfile,
+    normalizeGeoAppChatProfile,
 } from './geoapp-chat-shared';
 import {
     GeoAppChatPolicy,
@@ -51,6 +54,7 @@ import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from '.
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
+import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from './geoapp-local-model-guard';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -207,6 +211,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected selectedPromptVariantId = GeoAppChatPromptVariantByPack.guided;
     protected promptImportText = '';
     protected agentModels = new Map<string, string>();
+    protected agentModelDiagnostics = new Map<string, string>();
     protected agentModelsLoading = false;
     protected agentModelsLoaded = false;
     protected activeTab: GeoAppChatPolicyTab = 'general';
@@ -425,7 +430,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             <section className='geoapp-chat-policy-presets'>
                 <div className='geoapp-chat-policy-presets-head'>
                     <h3>Presets</h3>
-                    <p>Reglent d'un clic le profil comportemental par defaut, le prompt pack et le skill pack.</p>
+                    <p>Reglent d'un clic le profil comportemental, le prompt pack et le skill pack. Hors-ligne impose aussi le profil modèle local.</p>
                 </div>
                 <div className='geoapp-chat-policy-presets-list'>
                     {PRESET_OPTIONS.map(preset => (
@@ -438,7 +443,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         >
                             <strong>{preset.label}{preset.id === activePresetId ? ' ✓' : ''}</strong>
                             <span>{preset.description}</span>
-                            <em>{preset.behavior} · prompt {preset.promptPack} · skills {preset.skillPack}</em>
+                            <em>{preset.modelProfile ? `modèle ${preset.modelProfile} · ` : ''}{preset.behavior} · prompt {preset.promptPack} · skills {preset.skillPack}</em>
                         </button>
                     ))}
                 </div>
@@ -455,18 +460,28 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, behavior)
         ) || behavior;
         const skillPack = this.preferenceService.get(GEOAPP_CHAT_SKILL_PACK_PREF, 'workflow');
+        const modelProfile = normalizeGeoAppChatProfile(
+            this.preferenceService.get(GEOAPP_CHAT_DEFAULT_PROFILE_PREF, 'fast')
+        ) || 'fast';
         return PRESET_OPTIONS.find(preset =>
-            preset.behavior === behavior && preset.promptPack === promptPack && preset.skillPack === skillPack
+            preset.behavior === behavior
+            && preset.promptPack === promptPack
+            && preset.skillPack === skillPack
+            && (!preset.modelProfile || preset.modelProfile === modelProfile)
         )?.id;
     }
 
     protected async applyPreset(preset: GeoAppChatPreset): Promise<void> {
         try {
-            await Promise.all([
+            const updates = [
                 this.preferenceService.set(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, preset.behavior, PreferenceScope.User),
                 this.preferenceService.set(GEOAPP_CHAT_PROMPT_PACK_PREF, preset.promptPack, PreferenceScope.User),
                 this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, preset.skillPack, PreferenceScope.User),
-            ]);
+            ];
+            if (preset.modelProfile) {
+                updates.push(this.preferenceService.set(GEOAPP_CHAT_DEFAULT_PROFILE_PREF, preset.modelProfile, PreferenceScope.User));
+            }
+            await Promise.all(updates);
             // Revenir a "Preference effective" pour que l'apercu reflete le nouveau defaut.
             this.behaviorOverride = 'default';
             this.messages.info(`Preset « ${preset.label} » applique.`);
@@ -501,6 +516,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <tbody>
                         {AGENT_MODEL_ROWS.map(row => {
                             const model = this.agentModels.get(row.id);
+                            const diagnostic = this.agentModelDiagnostics.get(row.id);
                             return (
                                 <tr key={row.id}>
                                     <td>{row.label}</td>
@@ -509,6 +525,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                                         {model
                                             ? model
                                             : <span className='geoapp-chat-policy-warn'>Aucun modele assigne</span>}
+                                        {diagnostic && <div className='geoapp-chat-policy-warn'>{diagnostic}</div>}
                                     </td>
                                 </tr>
                             );
@@ -522,6 +539,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected refreshAgentModels(): void {
         this.agentModelsLoaded = false;
         this.agentModels = new Map();
+        this.agentModelDiagnostics = new Map();
         void this.ensureAgentModels();
     }
 
@@ -532,6 +550,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         this.agentModelsLoading = true;
         try {
             const registry = this.languageModelRegistry;
+            const diagnostics = new Map<string, string>();
             const resolved = await Promise.all(AGENT_MODEL_ROWS.map(async row => {
                 try {
                     if (row.kind === 'backend') {
@@ -555,17 +574,34 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         purpose: row.purpose,
                         identifier: 'default/universal',
                     });
+                    if (model && row.id === 'geoapp-chat-local') {
+                        const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+                        if (localCheck.status !== 'local') {
+                            diagnostics.set(row.id, `Non compatible local/offline : ${localCheck.reason}.`);
+                        }
+                    }
                     return [row.id, model ? (model.name || model.id) : ''] as const;
                 } catch {
                     return [row.id, ''] as const;
                 }
             }));
             this.agentModels = new Map(resolved.filter(([, model]) => model));
+            this.agentModelDiagnostics = diagnostics;
             this.agentModelsLoaded = true;
         } finally {
             this.agentModelsLoading = false;
             this.update();
         }
+    }
+
+    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
+        return {
+            ollamaHost: this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
+            lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
+            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
+            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
+            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+        };
     }
 
     protected renderPromptPackEditor(): React.ReactNode {
@@ -795,7 +831,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                                 <dt>safe</dt>
                                 <dd>Mode prudent : moins d'automatisation, davantage de blocages.</dd>
                                 <dt>offline</dt>
-                                <dd>Mode local : évite réseau, auth, checkers et services externes.</dd>
+                                <dd>Mode local strict : exige un modèle vérifié local et évite réseau, auth, checkers et services externes.</dd>
                                 <dt>automation</dt>
                                 <dd>Mode rapide : exécute davantage d'étapes quand les données suffisent.</dd>
                                 <dt>debug</dt>

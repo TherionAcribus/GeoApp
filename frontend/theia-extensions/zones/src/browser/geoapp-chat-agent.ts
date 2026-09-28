@@ -91,7 +91,7 @@ const geoAppChatAgentConfigurations: Agent[] = [
     buildChatAgentConfiguration({
         id: GeoAppChatLocalAgentId,
         name: 'GeoApp Chat (Local)',
-        description: 'Agent GeoApp pour un modèle local ou économique. Adapté aux essais rapides et peu coûteux.',
+        description: 'Agent GeoApp réservé à un modèle vérifiable comme local. Refuse tout repli cloud quand il est demandé explicitement.',
         tags: ['GeoApp', 'Chat', 'Geocaching', 'Local'],
     }),
     buildChatAgentConfiguration({

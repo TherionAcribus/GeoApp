@@ -2,13 +2,14 @@ import { injectable, inject, multiInject, optional } from '@theia/core/shared/in
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { LanguageModelRegistry } from '@theia/ai-core';
+import { LanguageModel, LanguageModelRegistry } from '@theia/ai-core';
 import { DEFAULT_CHAT_AGENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { ChatAgent, ChatAgentLocation, ChatAgentService, ChatRequestInvocation, ChatService, ChatSession, isSessionDeletedEvent } from '@theia/ai-chat';
 import { ImageContextVariable } from '@theia/ai-chat/lib/common/image-context-variable';
 import { AIVariableResolutionRequest } from '@theia/ai-core';
 import {
     GeoAppChatAgentId,
+    GeoAppChatLocalAgentId,
     GeoAppChatAgentIdsByProfile,
     GeoAppChatSessionKind,
     GeoAppChatWorkflowBehaviorProfile,
@@ -29,9 +30,12 @@ import {
     takePreparedGeoAppChatImage,
     normalizeGeoAppChatWorkflowBehaviorProfile,
     normalizeGeoAppChatWorkflowKind,
+    resolveGeoAppChatBehaviorProfileForWorkflow,
     resolveGeoAppChatProfileForWorkflow,
     sanitizeGeoAppSessionSettings,
+    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
 } from './geoapp-chat-shared';
+import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from './geoapp-local-model-guard';
 export { GEOAPP_OPEN_CHAT_REQUEST_EVENT } from './geoapp-chat-shared';
 
 interface GeoAppOpenChatRequestDetail {
@@ -169,7 +173,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             }
         } catch (error) {
             console.error('[GeoAppChatBridge] Failed to open GeoApp chat', error);
-            this.messages.error('Impossible d\'ouvrir le chat GeoApp.');
+            const reason = error instanceof Error ? error.message : String(error);
+            this.messages.error(`Impossible d'ouvrir le chat GeoApp. ${reason}`);
         }
     };
 
@@ -449,9 +454,42 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
     protected async resolveDefaultChatAgent(detail?: GeoAppOpenChatRequestDetail): Promise<ChatAgent | undefined> {
         const available = this.chatAgentService.getAgents();
-        const candidates: ChatAgent[] = [];
-
         const preferredAgentId = (detail?.preferredAgentId || '').trim();
+        const preferredProfile = this.resolveRequestedProfile(detail);
+        const behaviorProfile = this.resolveRequestedBehaviorProfile(detail);
+        const requiresLocalModel =
+            preferredProfile === 'local'
+            || behaviorProfile === 'offline'
+            || preferredAgentId.toLowerCase() === GeoAppChatLocalAgentId;
+
+        if (requiresLocalModel) {
+            const localAgent = preferredAgentId
+                ? this.chatAgentService.getAgent(preferredAgentId)
+                : this.chatAgentService.getAgent(GeoAppChatLocalAgentId);
+            const requestLabel = preferredAgentId
+                ? `l'agent « ${preferredAgentId} »`
+                : `l'agent local « ${GeoAppChatLocalAgentId} »`;
+
+            if (!localAgent) {
+                throw new Error(`Le mode local/offline demande ${requestLabel}, mais cet agent n'est pas disponible. Aucun repli cloud n'a été appliqué.`);
+            }
+            if (behaviorProfile === 'offline' && !preferredAgentId && preferredProfile !== 'local') {
+                this.messages.warn(`Le comportement offline impose l'agent local : le profil modèle « ${preferredProfile} » n'est pas utilisé pour cette session.`);
+            }
+
+            const model = await this.selectAgentLanguageModel(localAgent);
+            if (!model) {
+                throw new Error(`Le mode local/offline demande ${requestLabel}, mais aucun modèle prêt ne lui est assigné. Aucun repli cloud n'a été appliqué.`);
+            }
+
+            const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+            if (localCheck.status !== 'local') {
+                throw new Error(`Le mode local/offline ne peut pas utiliser ${requestLabel} : ${localCheck.reason}. Aucun repli cloud n'a été appliqué.`);
+            }
+            return localAgent;
+        }
+
+        const candidates: ChatAgent[] = [];
         if (preferredAgentId) {
             const preferredAgent = this.chatAgentService.getAgent(preferredAgentId);
             if (preferredAgent) {
@@ -459,7 +497,6 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             }
         }
 
-        const preferredProfile = this.resolveRequestedProfile(detail);
         if (preferredProfile) {
             const preferredGeoAppAgent = this.chatAgentService.getAgent(GeoAppChatAgentIdsByProfile[preferredProfile]);
             if (preferredGeoAppAgent) {
@@ -493,15 +530,46 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             }
         }
 
+        const requestedCandidate = candidates[0];
+        const requestedLabel = preferredAgentId
+            ? `l'agent « ${preferredAgentId} »`
+            : `le profil « ${preferredProfile || 'default'} »`;
+        const rejectedLocalAgents = new Set<string>();
+
         for (const agent of candidates) {
-            if (await this.isAgentReady(agent)) {
-                return agent;
+            const model = await this.selectAgentLanguageModel(agent);
+            if (!model) {
+                continue;
             }
+            if ((agent.id || '').toLowerCase() === GeoAppChatLocalAgentId.toLowerCase()) {
+                const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+                if (localCheck.status !== 'local') {
+                    rejectedLocalAgents.add(agent.id || GeoAppChatLocalAgentId);
+                    this.messages.warn(`GeoApp Chat : l'agent local a été ignoré car ${localCheck.reason}.`);
+                    continue;
+                }
+            }
+            if (requestedCandidate && agent !== requestedCandidate) {
+                this.messages.warn(`GeoApp Chat : ${requestedLabel} n'est pas prêt. Repli sur « ${this.describeAgent(agent)} ».`);
+            }
+            return agent;
         }
 
         // Aucun candidat pret (aucun modele assigne) : preferer l'agent GeoApp
-        // principal plutot qu'un agent tiers sans contexte GeoApp.
-        return geoApp ?? candidates.find(candidate => this.isGeoAppAgent(candidate)) ?? candidates[0];
+        // principal plutot qu'un agent tiers sans contexte GeoApp. Un agent local
+        // deja rejete pour modele cloud ne doit pas revenir comme placeholder.
+        const fallback = geoApp ?? candidates.find(candidate =>
+            this.isGeoAppAgent(candidate) && !rejectedLocalAgents.has(candidate.id || '')
+        );
+        if (!fallback) {
+            throw new Error('Aucun agent GeoApp utilisable n\'a été trouvé. Aucun repli vers un agent tiers n\'a été appliqué.');
+        }
+        this.messages.warn(`GeoApp Chat : aucun modèle prêt n'a été trouvé. Session ouverte avec « ${this.describeAgent(fallback)} », sans repli vers un agent tiers.`);
+        return fallback;
+    }
+
+    protected describeAgent(agent: ChatAgent): string {
+        return agent.name || agent.id || 'agent inconnu';
     }
 
     protected isGeoAppAgent(agent: ChatAgent): boolean {
@@ -521,19 +589,43 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         });
     }
 
-    protected async isAgentReady(agent: ChatAgent | undefined): Promise<boolean> {
+    protected resolveRequestedBehaviorProfile(detail?: GeoAppOpenChatRequestDetail): GeoAppChatWorkflowBehaviorProfile {
+        return resolveGeoAppChatBehaviorProfileForWorkflow(detail?.workflowKind, detail?.preferredBehaviorProfile, {
+            'geoApp.chat.behaviorProfile.default': this.preferenceService.get('geoApp.chat.behaviorProfile.default', 'guided'),
+            'geoApp.chat.behaviorProfile.workflow.secretCode': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.secretCode', 'default'),
+            'geoApp.chat.behaviorProfile.workflow.formula': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.formula', 'default'),
+            'geoApp.chat.behaviorProfile.workflow.checker': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.checker', 'default'),
+            'geoApp.chat.behaviorProfile.workflow.hiddenContent': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.hiddenContent', 'default'),
+            'geoApp.chat.behaviorProfile.workflow.imagePuzzle': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.imagePuzzle', 'default'),
+        });
+    }
+
+    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
+        return {
+            ollamaHost: this.preferenceService.get('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
+            lmstudioBaseUrl: this.preferenceService.get('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
+            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
+            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
+            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+        };
+    }
+
+    protected async selectAgentLanguageModel(agent: ChatAgent | undefined): Promise<LanguageModel | undefined> {
         if (!agent?.id) {
-            return false;
+            return undefined;
         }
         try {
-            const model = await this.languageModelRegistry.selectLanguageModel({
+            return await this.languageModelRegistry.selectLanguageModel({
                 agent: agent.id,
                 purpose: 'chat',
                 identifier: 'default/universal'
             });
-            return !!model;
         } catch {
-            return false;
+            return undefined;
         }
+    }
+
+    protected async isAgentReady(agent: ChatAgent | undefined): Promise<boolean> {
+        return !!(await this.selectAgentLanguageModel(agent));
     }
 }

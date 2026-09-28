@@ -32,6 +32,8 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import {
     GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF,
     GEOAPP_CHAT_PRESET_OPTIONS,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
@@ -41,6 +43,7 @@ import {
     GeocachePromptData,
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
+import { checkGeoAppLocalModel, GeoAppLocalModelPreferences } from 'theia-ide-zones-ext/lib/browser/geoapp-local-model-guard';
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
 import { GeoAppAiScorerModelResolver, GEOAPP_AI_SCORER_AGENT_ID } from '@mysterai/theia-plugins/lib/browser/services/ai-scorer-model-resolver';
@@ -2763,19 +2766,19 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_list_chat_presets',
                 name: 'aide_list_chat_presets',
                 description: 'Liste les presets du Chat IA (Découverte, Autonome, Prudent, Hors-ligne) ' +
-                    'qui règlent en une fois profil comportemental, prompt pack et skill pack.',
+                    'qui règlent en une fois comportement, prompt pack et skill pack ; Hors-ligne impose aussi le profil modèle local.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({}),
                 handler: async () => ok(GEOAPP_CHAT_PRESET_OPTIONS.map(p => ({
                     id: p.id, label: p.label, description: p.description,
-                    behavior: p.behavior, prompt_pack: p.promptPack, skill_pack: p.skillPack,
+                    model_profile: p.modelProfile, behavior: p.behavior, prompt_pack: p.promptPack, skill_pack: p.skillPack,
                 }))),
             },
             {
                 id: 'aide_apply_chat_preset',
                 name: 'aide_apply_chat_preset',
                 description: 'Applique un preset du Chat IA (voir aide_list_chat_presets) : règle les préférences ' +
-                    'geoApp.chat.behaviorProfile.default, promptPack et skillPack.',
+                    'geoApp.chat.behaviorProfile.default, promptPack et skillPack ; Hors-ligne règle aussi geoApp.chat.defaultProfile sur local.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     preset: {
@@ -2784,18 +2787,22 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         enum: GEOAPP_CHAT_PRESET_OPTIONS.map(p => p.id),
                     },
                 }),
-                confirmAlwaysAllow: 'Appliquer ce preset Chat IA ? Il remplace les réglages comportement/prompt/skills actuels.',
+                confirmAlwaysAllow: 'Appliquer ce preset Chat IA ? Il remplace les réglages comportement/prompt/skills actuels et, pour Hors-ligne, impose aussi le profil modèle local.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
                         const preset = GEOAPP_CHAT_PRESET_OPTIONS.find(p => p.id === args.preset);
                         if (!preset) { return err(`Preset inconnu : ${args.preset}.`); }
-                        await Promise.all([
+                        const updates = [
                             this.preferenceService.set(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, preset.behavior, PreferenceScope.User),
                             this.preferenceService.set(GEOAPP_CHAT_PROMPT_PACK_PREF, preset.promptPack, PreferenceScope.User),
                             this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, preset.skillPack, PreferenceScope.User),
-                        ]);
-                        return ok(`Preset « ${preset.label} » appliqué (${preset.behavior} / ${preset.promptPack} / ${preset.skillPack}).`);
+                        ];
+                        if (preset.modelProfile) {
+                            updates.push(this.preferenceService.set(GEOAPP_CHAT_DEFAULT_PROFILE_PREF, preset.modelProfile, PreferenceScope.User));
+                        }
+                        await Promise.all(updates);
+                        return ok(`Preset « ${preset.label} » appliqué (${preset.modelProfile ? `${preset.modelProfile} / ` : ''}${preset.behavior} / ${preset.promptPack} / ${preset.skillPack}).`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -2912,6 +2919,16 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         return `Agent introuvable : « ${query} ». Utilisez aide_get_agent_models sans parametre pour la liste.`;
     }
 
+    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
+        return {
+            ollamaHost: this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
+            lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
+            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
+            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
+            localModelIds: this.preferenceService.get(GEOAPP_CHAT_LOCAL_MODEL_IDS_PREF, []),
+        };
+    }
+
     /** Modele OpenRouter reel derriere un slot GeoApp (openrouter/strong -> anthropic/...). */
     protected describeOpenRouterSlot(modelId: string | undefined): { underlying_model?: string; underlying_model_preference?: string } {
         const preferenceKey = modelId ? OPENROUTER_SLOT_PREFS[modelId] : undefined;
@@ -2925,8 +2942,13 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         const requirements = await Promise.all(agent.languageModelRequirements.map(async requirement => {
             const override = userRequirements.find(entry => entry.purpose === requirement.purpose);
             let resolved: string | undefined;
+            let localCheck: ReturnType<typeof checkGeoAppLocalModel> | undefined;
             try {
-                resolved = (await this.languageModelRegistry.selectLanguageModel({ agent: agent.id, ...requirement }))?.id;
+                const model = await this.languageModelRegistry.selectLanguageModel({ agent: agent.id, ...requirement });
+                resolved = model?.id;
+                if (model && agent.id === 'geoapp-chat-local') {
+                    localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+                }
             } catch {
                 resolved = undefined;
             }
@@ -2936,6 +2958,10 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 user_identifier: override?.identifier,
                 effective_identifier: override?.identifier ?? requirement.identifier,
                 resolved_model_id: resolved,
+                ...(localCheck ? {
+                    local_status: localCheck.status,
+                    local_reason: localCheck.reason,
+                } : {}),
                 ...this.describeOpenRouterSlot(resolved),
             };
         }));
@@ -3016,7 +3042,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_get_agent_models',
                 name: 'aide_get_agent_models',
                 description: 'Indique quel modele utilise chaque agent IA (EarthCoach, GeoApp, Aide, OCR, traduction...) : ' +
-                    'valeur par defaut, choix de l\'utilisateur et modele effectivement resolu. Sans "agent", liste tous les agents.',
+                    'valeur par defaut, choix de l\'utilisateur et modele effectivement resolu. Pour geoapp-chat-local, ajoute local_status/local_reason. Sans "agent", liste tous les agents.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     agent: { type: 'string', description: 'Id ou nom de l\'agent (ex: "earthcoach", "@EarthCoach"). Optionnel.', required: false },

@@ -53,6 +53,7 @@ function createManager(services: {
     alphabetsService?: unknown;
     alphabetTabsManager?: unknown;
     preferenceStore?: unknown;
+    preferenceService?: unknown;
     globalSearchService?: unknown;
     docSearchService?: unknown;
     docContentService?: unknown;
@@ -667,12 +668,14 @@ async function testFormulaSolverTools(): Promise<void> {
 async function testAiModelTools(): Promise<void> {
     const settings: Record<string, { languageModelRequirements?: Array<{ purpose: string; identifier?: string }> }> = {
         earthcoach: { languageModelRequirements: [{ purpose: 'chat', identifier: 'openrouter/fast' }] },
+        'geoapp-chat-local': { languageModelRequirements: [{ purpose: 'chat', identifier: 'openai/gpt-4o' }] },
         'geoapp-ocr': { languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'openrouter/vision' }] },
     };
     const models = [
         { id: 'openrouter/fast', status: { status: 'ready' } },
         { id: 'openrouter/strong', status: { status: 'ready' } },
         { id: 'openrouter/vision', status: { status: 'ready' } },
+        { id: 'openai/gpt-4o', status: { status: 'ready' } },
     ];
     const manager = createManager({});
     Object.assign(manager as any, {
@@ -680,6 +683,7 @@ async function testAiModelTools(): Promise<void> {
             getAllAgents: () => [
                 { id: 'earthcoach', name: '@EarthCoach', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
                 { id: 'geoapp-doc-aide', name: '@Aide', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
+                { id: 'geoapp-chat-local', name: 'GeoApp Chat (Local)', languageModelRequirements: [{ purpose: 'chat', identifier: 'default/universal' }] },
                 { id: 'geoapp-ocr', name: 'GeoApp OCR', languageModelRequirements: [{ purpose: 'vision-ocr', identifier: 'default/universal' }] },
             ],
         },
@@ -723,6 +727,12 @@ async function testAiModelTools(): Promise<void> {
     assert.equal((ocr.data as any).execution.path, 'Theia LanguageModelService');
     assert.equal((ocr.data as any).execution.related_plugin_execution.provider_model, 'OpenRouter/qwen/qwen3-vl');
 
+    const local = await call(findTool(tools, 'aide_get_agent_models'), { agent: 'geoapp-chat-local' });
+    assert.equal(local.success, true, local.error);
+    assert.equal((local.data as any).requirements[0].resolved_model_id, 'openai/gpt-4o');
+    assert.equal((local.data as any).requirements[0].local_status, 'remote');
+    assert.match((local.data as any).requirements[0].local_reason, /fournisseur cloud/);
+
     const res = await call(setTool, { agent: '@earthcoach', model_id: 'openrouter/strong' });
     assert.equal(res.success, true, res.error);
     assert.deepEqual(settings.earthcoach.languageModelRequirements, [{ purpose: 'chat', identifier: 'openrouter/strong' }]);
@@ -747,6 +757,30 @@ async function testAiModelTools(): Promise<void> {
     assert.deepEqual((listed.data as any).aliases[0].resolves_to, ['openrouter/fast']);
 }
 
+async function testOfflineChatPresetAppliesLocalModelProfile(): Promise<void> {
+    const writes: Array<{ key: string; value: unknown; scope: unknown }> = [];
+    const manager = createManager({
+        preferenceService: {
+            set: async (key: string, value: unknown, scope: unknown) => { writes.push({ key, value, scope }); },
+            get: () => undefined,
+        },
+    });
+    const tools = manager.buildAllTools();
+
+    const listed = await call(findTool(tools, 'aide_list_chat_presets'));
+    const offline = (listed.data as any[]).find(preset => preset.id === 'offline');
+    assert.equal(offline.model_profile, 'local');
+
+    const applied = await call(findTool(tools, 'aide_apply_chat_preset'), { preset: 'offline' });
+    assert.equal(applied.success, true, applied.error);
+    assert.ok(writes.some(write =>
+        write.key === 'geoApp.chat.defaultProfile' && write.value === 'local'
+    ));
+    assert.ok(writes.some(write =>
+        write.key === 'geoApp.chat.behaviorProfile.default' && write.value === 'offline'
+    ));
+}
+
 async function run(): Promise<void> {
     testConfirmationFlags();
     await testZoneMutationsRequestRefresh();
@@ -769,6 +803,7 @@ async function run(): Promise<void> {
     await testTableFilterTool();
     await testFormulaSolverTools();
     await testAiModelTools();
+    await testOfflineChatPresetAppliesLocalModelProfile();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

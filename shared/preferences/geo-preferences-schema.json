@@ -572,6 +572,38 @@
         "formula-solver"
       ]
     },
+    "geoApp.chat.localModelIds": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "title": "Chat IA - modèles déclarés locaux",
+      "description": "Identifiants de modèles, ou préfixes terminés par *, explicitement considérés comme locaux. Ollama et LM Studio sur un hôte local, ainsi que les endpoints OpenAI-compatibles localhost/privés, sont reconnus automatiquement ; cette liste sert aux modèles dont l'endpoint n'est pas inspectable. Ne déclarez local qu'un modèle que vous savez exécuté sans service cloud.",
+      "x-ui": {
+        "section": "Profils",
+        "label": "Modèles déclarés locaux",
+        "advanced": true,
+        "order": 15,
+        "keywords": [
+          "modele",
+          "local",
+          "offline",
+          "hors-ligne"
+        ]
+      },
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "local",
+        "offline"
+      ]
+    },
     "geoApp.chat.defaultProfile": {
       "type": "string",
       "enum": [
@@ -582,7 +614,7 @@
       ],
       "default": "fast",
       "title": "Chat IA - profil modèle par défaut",
-      "description": "Profil IA par defaut pour les conversations GeoApp (local=LLM local, fast=petit modele, strong=qualite, web=modele potentiellement connecte).",
+      "description": "Profil IA par défaut pour les conversations GeoApp (fast=petit modèle, strong=qualité, web=modèle potentiellement connecté). Le profil local exige un modèle vérifiable comme local ; sinon l'ouverture échoue au lieu de replier vers le cloud.",
       "x-ui": {
         "section": "Profils",
         "label": "Profil modèle par défaut",
@@ -814,7 +846,7 @@
         "debug"
       ],
       "default": "guided",
-      "description": "Profil comportemental GeoApp applique aux conversations IA. Les profils modele local/fast/strong/web restent separes.",
+      "description": "Profil comportemental GeoApp appliqué aux conversations IA. Les profils modèle fast/strong/web restent séparés ; offline force aussi l'agent local et exige un modèle vérifiable comme local.",
       "x-ui": {
         "section": "Comportement",
         "label": "Comportement par défaut",

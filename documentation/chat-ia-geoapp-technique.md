@@ -32,7 +32,8 @@ Le système a été conçu pour rester compatible avec Theia. GeoApp ne remplace
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-skill-state-service.ts` | Inspecte, restaure, exporte et importe les skills GeoApp personnalisées. |
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-configuration-service.ts` | Gère l'import/export complet de la configuration IA GeoApp. |
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-policy-widget.tsx` | Interface de diagnostic et de configuration avancée. |
-| `frontend/theia-extensions/zones/src/browser/geoapp-chat-bridge.ts` | Ouvre/reprend les sessions Chat IA depuis les widgets GeoApp ; télécharge et redimensionne les images en parallèle. |
+| `frontend/theia-extensions/zones/src/browser/geoapp-chat-bridge.ts` | Ouvre/reprend les sessions Chat IA depuis les widgets GeoApp ; applique le garde-fou local/offline et rend les replis visibles. |
+| `frontend/theia-extensions/zones/src/browser/geoapp-local-model-guard.ts` | Vérifie qu'un modèle résolu est réellement local (préfixe cloud, Ollama, LM Studio, endpoint privé, allowlist). |
 | `frontend/theia-extensions/zones/src/browser/geocache-listing-tools-manager.ts` | Enregistre le tool read-only `get_geocache_listing` (listing complet d'une géocache). |
 | `frontend/theia-extensions/zones/src/browser/geoapp-outing-analyzer-agent.ts` | Agent chat `geoapp-outing-analyzer` et son enregistrement Theia. |
 | `frontend/theia-extensions/zones/src/browser/outing-analysis-types.ts` | Contrat du bundle d'analyse de sortie, préréglages de détail, constantes partagées. |
@@ -103,13 +104,15 @@ Agents disponibles :
 | Agent | ID | Usage |
 |---|---|---|
 | Principal | `GeoApp` | Agent GeoApp générique. |
-| Local | `geoapp-chat-local` | Modèle local ou économique. |
+| Local | `geoapp-chat-local` | Agent strictement réservé à un modèle vérifiable comme local. |
 | Fast | `geoapp-chat-fast` | Réponses rapides. |
 | Strong | `geoapp-chat-strong` | Raisonnement plus robuste. |
 | Web | `geoapp-chat-web` | Cas pouvant utiliser un modèle connecté. |
 | Analyse de sortie | `geoapp-outing-analyzer` | Rapport de préparation de sortie sur un lot de géocaches (voir § 31). |
 
 Chaque agent partage la même base technique via `BaseGeoAppChatAgent`.
+
+Le nom « Local » ne suffit pas à déclarer un modèle local : `GeoAppChatBridge` vérifie le modèle effectivement résolu par Theia avant d'épingler l'agent. Les préfixes cloud connus, les hôtes Ollama/LM Studio distants et les endpoints OpenAI-compatibles publics sont refusés. Un modèle local non identifiable automatiquement peut être déclaré dans `geoApp.chat.localModelIds`.
 
 `geoapp-outing-analyzer` est le seul à ne pas utiliser le prompt système du chat : il a le
 sien (`GEOAPP_OUTING_SYSTEM_PROMPT_ID`) et surcharge `getSystemMessageDescription()` pour
@@ -220,6 +223,7 @@ Préférences :
 | Préférence | Description |
 |---|---|
 | `geoApp.chat.defaultProfile` | Profil modèle par défaut. |
+| `geoApp.chat.localModelIds` | Identifiants ou préfixes (`prefixe/*`) explicitement déclarés locaux quand l'endpoint n'est pas inspectable automatiquement. |
 | `geoApp.chat.workflowProfile.secretCode` | Profil modèle pour codes secrets. |
 | `geoApp.chat.workflowProfile.formula` | Profil modèle pour formules. |
 | `geoApp.chat.workflowProfile.checker` | Profil modèle pour checkers. |
@@ -227,6 +231,8 @@ Préférences :
 | `geoApp.chat.workflowProfile.imagePuzzle` | Profil modèle pour image/OCR. |
 
 La fonction `resolveGeoAppChatProfileForWorkflow()` décide le profil modèle effectif.
+
+Le profil `local` est strict : si l'agent demandé n'a pas de modèle prêt, ou si le modèle résolu est cloud/inconnu, l'ouverture échoue au lieu de remplacer silencieusement l'agent. Pour `fast`, `strong` et `web`, un repli vers un autre candidat reste possible mais est signalé dans l'interface.
 
 ## 6. Profils comportementaux
 
@@ -260,6 +266,8 @@ La fonction `resolveGeoAppChatBehaviorProfileForWorkflow()` applique :
 2. le profil spécifique au workflow ;
 3. le profil par défaut ;
 4. `guided` comme fallback.
+
+Le comportement `offline` a deux effets : il bloque les tools réseau/auth/risque élevé et il force l'agent local côté chat. Si le modèle assigné à cet agent n'est pas vérifiable comme local, la session n'est pas ouverte : il n'y a pas de repli cloud.
 
 ## 7. Workflows
 
@@ -851,20 +859,20 @@ La vue permet :
 
 ### Presets combinés
 
-Quatre presets règlent les trois axes de configuration d'un seul clic, en écrivant les préférences correspondantes (`geoApp.chat.behaviorProfile.default`, `geoApp.chat.promptPack`, `geoApp.chat.skillPack`) :
+Quatre presets règlent les axes de configuration d'un seul clic, en écrivant les préférences correspondantes (`geoApp.chat.behaviorProfile.default`, `geoApp.chat.promptPack`, `geoApp.chat.skillPack`). Le preset Hors-ligne règle aussi `geoApp.chat.defaultProfile` sur `local` :
 
-| Preset | Comportement | Prompt pack | Skill pack |
-|---|---|---|---|
-| Découverte | `guided` | `guided` | `workflow` |
-| Autonome | `automation` | `automation` | `full` |
-| Prudent | `safe` | `safe` | `minimal` |
-| Hors-ligne | `offline` | `offline` | `minimal` |
+| Preset | Profil modèle | Comportement | Prompt pack | Skill pack |
+|---|---|---|---|---|
+| Découverte | inchangé | `guided` | `guided` | `workflow` |
+| Autonome | inchangé | `automation` | `automation` | `full` |
+| Prudent | inchangé | `safe` | `safe` | `minimal` |
+| Hors-ligne | `local` | `offline` | `offline` | `minimal` |
 
-Le preset actif (celui dont les trois préférences correspondent) est mis en évidence. Appliquer un preset remet l'aperçu comportemental sur `Préférence effective`.
+Le preset actif est mis en évidence quand les préférences correspondent ; pour Hors-ligne, le profil modèle `local` fait partie de la comparaison. Appliquer un preset remet l'aperçu comportemental sur `Préférence effective`.
 
 ### Modèles par agent
 
-Un panneau liste les agents GeoApp (chat et internes), les chemins backend explicites et résout le modèle effectif de chacun via `LanguageModelRegistry.selectLanguageModel`, en respectant le `purpose` propre à l'agent (`chat`, ou `vision-ocr` pour l'OCR). Il répond à la question « quel modèle pour quoi ? » sans parcourir les réglages IA Theia un par un. L'OCR affiche séparément le modèle de l'agent `geoapp-ocr` et celui du plugin `vision_ocr`. Un bouton `Rafraîchir` relance la résolution (l'assignation des modèles se fait, elle, dans « Config IA Theia »).
+Un panneau liste les agents GeoApp (chat et internes), les chemins backend explicites et résout le modèle effectif de chacun via `LanguageModelRegistry.selectLanguageModel`, en respectant le `purpose` propre à l'agent (`chat`, ou `vision-ocr` pour l'OCR). Il répond à la question « quel modèle pour quoi ? » sans parcourir les réglages IA Theia un par un. L'OCR affiche séparément le modèle de l'agent `geoapp-ocr` et celui du plugin `vision_ocr`. L'agent `geoapp-chat-local` est signalé explicitement si le modèle résolu n'est pas vérifiable comme local. Un bouton `Rafraîchir` relance la résolution (l'assignation des modèles se fait, elle, dans « Config IA Theia »).
 
 ### Matrice des tools
 
@@ -911,6 +919,8 @@ Valeurs :
 
 | Clé | Défaut |
 |---|---|
+| `geoApp.chat.defaultProfile` | `fast` |
+| `geoApp.chat.localModelIds` | `[]` |
 | `geoApp.chat.behaviorProfile.default` | `guided` |
 | `geoApp.chat.behaviorProfile.workflow.secretCode` | `default` |
 | `geoApp.chat.behaviorProfile.workflow.formula` | `default` |
@@ -978,7 +988,8 @@ Tests exécutés :
 | `geoapp-chat-policy-service.test.ts` | Catalogue, policy, profils, overrides, diagnostics, prompt preview. |
 | `geoapp-chat-configuration-service.test.ts` | Import/export complet, preview d'import, compat legacy. |
 | `geoapp-chat-agent.test.ts` | Tools envoyés au modèle et prompt final agent. |
-| `geoapp-chat-bridge.test.ts` | Ouverture/reprise de sessions Chat IA. |
+| `geoapp-chat-bridge.test.ts` | Ouverture/reprise de sessions Chat IA, repli visible, strict local/offline. |
+| `geoapp-local-model-guard.test.ts` | Classification local/cloud : Ollama, LM Studio, endpoints privés, allowlist, modèles inconnus. |
 | `outing-analysis-prompt.test.ts` | Mise en forme du prompt de sortie, sections omises, attributs non redits après un signal, final inconnu, niveaux de détail. |
 | `outing-analysis-controller.test.ts` | Plafond partagé par les deux points d'entrée, déduplication, titre de session (stable quelle que soit la taille de la sélection), avertissements, préférences, pré-vol de fraîcheur des logs, ordre rafraîchissement/collecte, relance actionnable. |
 | `geoapp-outing-analyzer-agent.test.ts` | Identité de l'agent, contenu du prompt système, repli. |
@@ -1086,7 +1097,7 @@ Le système distingue plusieurs niveaux de risque :
 
 Les comportements attendus :
 
-- `offline` bloque les outils réseau/auth/risque élevé ;
+- `offline` bloque les outils réseau/auth/risque élevé et exige le modèle local vérifié de `geoapp-chat-local` ;
 - `safe` réduit fortement l'automatisation ;
 - `guided` autorise les outils utiles mais confirme les actions sensibles ;
 - `automation` autorise davantage d'actions ;
