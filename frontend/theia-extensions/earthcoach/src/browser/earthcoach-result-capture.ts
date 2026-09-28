@@ -54,6 +54,36 @@ export class EarthCoachResultCaptureService {
     }
 
     /**
+     * Le bridge chat reteste chaque image a l'envoi (decodage puis reencodage):
+     * une image qui echoue a cette derniere etape n'a jamais atteint le modele.
+     * On la sort de `images`/`groups` et on la bascule dans `unavailableImages`
+     * pour que l'instantane corresponde a ce que le modele a reellement vu.
+     */
+    markImagesUntransmitted(requestId: string, failedIds: string[], reason: string): boolean {
+        const snapshot = this.requests.get(requestId);
+        if (!snapshot || !failedIds.length) {
+            return false;
+        }
+        const failed = new Set(failedIds.map(String));
+        const lost = snapshot.images.filter(image => failed.has(String(image.id)));
+        if (!lost.length) {
+            return false;
+        }
+        snapshot.images = snapshot.images.filter(image => !failed.has(String(image.id)));
+        snapshot.groups = snapshot.groups
+            .map(group => ({
+                ...group,
+                members: group.members.filter(member => !failed.has(String(member.image_id))),
+            }))
+            .filter(group => group.members.length > 0);
+        snapshot.unavailableImages = [
+            ...snapshot.unavailableImages,
+            ...lost.map(image => ({ id: image.id, label: image.label, reason })),
+        ];
+        return true;
+    }
+
+    /**
      * Repli pour les evenements anciens qui ne transportent pas encore de
      * `requestId`. Ne pas l'utiliser pour les nouveaux envois.
      */

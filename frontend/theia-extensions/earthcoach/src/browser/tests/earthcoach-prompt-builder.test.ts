@@ -63,6 +63,7 @@ import {
     stripEarthCoachResultBlocks,
 } from '../earthcoach-result-capture';
 import { prepareEarthCoachImagesForTransmission, validateEarthCoachSelection } from '../earthcoach-workspace-logic';
+import { EarthCoachPreparedRequest } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -1450,6 +1451,68 @@ async function testResultCaptureAttachesMarkdownToItsOwnRequest(): Promise<void>
     await assert.rejects(() => service.attachMarkdown('req-inconnue', 'x'));
 }
 
+async function testPreparedImagesDetectUndecodableBlob(): Promise<void> {
+    const image: GeoImage = { id: '7', origin: 'user_observation', fileUri: 'https://example.test/heic.heic' };
+    const result = await prepareEarthCoachImagesForTransmission(
+        [image],
+        async () => ({ ok: true, blob: async () => ({ type: 'image/heic' }) } as Response),
+        async () => 'http://localhost:8000/stored.jpg',
+        async () => { throw new Error('image illisible par le navigateur'); }
+    );
+    // Le repli backend retombe sur le meme decodeur: le blob stocke est lui
+    // aussi indechiffrable -> echec explicite au lieu d'une fausse promesse.
+    assert.equal(result.available.length, 0);
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0].reason, /illisible/);
+}
+
+async function testCaptureSnapshotCorrectedOnTransmissionFailure(): Promise<void> {
+    // Le bridge peut encore perdre une image a l'envoi (canvas indisponible):
+    // l'instantane persiste doit refleter ce que le modele a vraiment recu.
+    const service = new EarthCoachResultCaptureService();
+    let snapshot: EarthCoachPreparedRequest | undefined;
+    (service as unknown as { workspaceService: unknown }).workspaceService = {
+        captureResult: async (input: { contextSnapshot: EarthCoachPreparedRequest }) => {
+            snapshot = input.contextSnapshot;
+            return { id: 1 } as never;
+        },
+    };
+    service.register({
+        requestId: 'req-img',
+        geocacheId: 1,
+        action: 'resolve',
+        preparedAt: '',
+        listing: { language: 'fr', fingerprint: 'x', reliableSeparation: true, html: '', text: '' },
+        observations: [],
+        loggingTasks: [],
+        images: [
+            { id: '1', origin: 'user_observation', fileUri: '/a.jpg' },
+            { id: '2', origin: 'user_observation', fileUri: '/b.jpg' },
+        ],
+        groups: [{
+            title: 'Paire',
+            position: 0,
+            members: [
+                { image_id: 1, role: 'original', position: 0 },
+                { image_id: 2, role: 'detail', position: 1 },
+            ],
+        }],
+        unavailableImages: [],
+    });
+
+    assert.equal(service.markImagesUntransmitted('req-img', ['2'], 'Échec de transmission au modèle.'), true);
+    // id inconnu ou requete inconnue: aucune correction.
+    assert.equal(service.markImagesUntransmitted('req-img', ['999'], 'x'), false);
+    assert.equal(service.markImagesUntransmitted('req-autre', ['1'], 'x'), false);
+
+    await service.attachMarkdown('req-img', 'Réponse', 's1');
+    assert.ok(snapshot);
+    assert.deepEqual(snapshot!.images.map(image => image.id), ['1']);
+    assert.deepEqual(snapshot!.groups[0].members.map(member => member.image_id), [1]);
+    assert.deepEqual(snapshot!.unavailableImages.map(item => item.id), ['2']);
+    assert.match(snapshot!.unavailableImages[0].reason, /transmission/);
+}
+
 function testPromptSkipsExtractionHintWithoutQuestions(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -1736,6 +1799,8 @@ async function run(): Promise<void> {
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
     await testResultCaptureAttachesMarkdownToItsOwnRequest();
+    await testPreparedImagesDetectUndecodableBlob();
+    await testCaptureSnapshotCorrectedOnTransmissionFailure();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

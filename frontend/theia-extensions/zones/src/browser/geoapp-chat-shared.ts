@@ -123,6 +123,54 @@ export interface GeoAppOpenChatRequestDetailPayload {
 
 export const GEOAPP_OPEN_CHAT_REQUEST_EVENT = 'geoapp-open-chat-request';
 
+/**
+ * Emis par le bridge apres preparation des images, juste avant l'envoi au
+ * modele. Le dossier terrain EarthCoach s'en sert pour corriger l'instantane
+ * enregistre: une image qui echoue au decodage/reencodage final n'a jamais ete
+ * vue par le modele et ne doit pas y figurer comme transmise.
+ */
+export const GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT = 'geoapp-chat-images-transmitted';
+
+export interface GeoAppChatImagesTransmittedDetail {
+    /** Correlation dossier EarthCoach, si la requete en portait un. */
+    requestId?: string;
+    /** Ids des images converties en variables du modele. */
+    transmittedIds: string[];
+    /** Ids des images abandonnees a la derniere etape. */
+    failedIds: string[];
+    /** Libelles lisibles des echecs (pour messages et instantane). */
+    failedLabels: string[];
+}
+
+/**
+ * Verifie que le navigateur sait decoder l'image, comme le fera le bridge au
+ * moment de l'envoi (decodage puis reencodage canvas). Un blob dont le
+ * Content-Type est image/* peut etre indechiffrable (HEIC, fichier tronque):
+ * tester le decodage en amont evite de la declarer transmissible a tort.
+ * En environnement sans DOM (tests Node), on ne peut pas verifier: on passe.
+ */
+export async function decodeGeoAppChatImage(blob: Blob): Promise<void> {
+    if (typeof createImageBitmap === 'function') {
+        const bitmap = await createImageBitmap(blob);
+        bitmap.close();
+        return;
+    }
+    if (typeof Image === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        return;
+    }
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+        await new Promise<void>((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('image illisible par le navigateur'));
+            image.src = objectUrl;
+        });
+    } finally {
+        URL.revokeObjectURL(objectUrl);
+    }
+}
+
 export interface GeoAppOpenChatEventTarget {
     dispatchEvent(event: unknown): boolean | void;
 }

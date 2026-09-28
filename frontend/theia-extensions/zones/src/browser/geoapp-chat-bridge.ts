@@ -20,6 +20,7 @@ import {
     GeoAppChatResponseObserver,
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
+    GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
     GeoAppChatImageContext,
     normalizeGeoAppChatWorkflowBehaviorProfile,
@@ -106,6 +107,23 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             const imageContexts = this.getImageContexts(detail);
             const imagePreparation = await this.fetchImagesAsVariables(imageContexts);
             const imageVariables = imagePreparation.variables;
+            // Le dossier terrain corrige son instantane sur cette annonce: une
+            // image declaree prete au moment du "envoyer" peut encore echouer
+            // ici au decodage/reencodage, elle n'a alors jamais atteint le modele.
+            if (imageContexts.length) {
+                window.dispatchEvent(new CustomEvent(GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT, {
+                    detail: {
+                        requestId: detail.earthcoachRequestId,
+                        transmittedIds: imagePreparation.transmitted
+                            .map(context => context.id)
+                            .filter((id): id is string => Boolean(id)),
+                        failedIds: imagePreparation.failures
+                            .map(context => context.id)
+                            .filter((id): id is string => Boolean(id)),
+                        failedLabels: imagePreparation.failures.map(context => context.label || context.id || context.url),
+                    },
+                }));
+            }
             if (imagePreparation.failures.length) {
                 const failedLabels = imagePreparation.failures.map(context => context.label || context.id || context.url).join(', ');
                 prompt = `${prompt}\n\nIMPORTANT: ces images n ont pas pu etre transmises et ne doivent jamais etre presentees comme examinees: ${failedLabels}.`;
@@ -304,6 +322,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
     protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<{
         variables: AIVariableResolutionRequest[];
+        transmitted: GeoAppChatImageContext[];
         failures: GeoAppChatImageContext[];
     }> {
         // Traitement en parallele : les images sont independantes, inutile de serialiser
@@ -314,6 +333,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         })));
         return {
             variables: prepared.map(item => item.variable).filter((variable): variable is AIVariableResolutionRequest => variable !== undefined),
+            transmitted: prepared.filter(item => item.variable !== undefined).map(item => item.context),
             failures: prepared.filter(item => item.variable === undefined).map(item => item.context),
         };
     }

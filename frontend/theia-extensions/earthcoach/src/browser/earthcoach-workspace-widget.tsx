@@ -7,7 +7,10 @@ import { inject, injectable, postConstruct } from '@theia/core/shared/inversify'
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import {
     buildGeoAppOpenChatRequestDetail,
+    decodeGeoAppChatImage,
     dispatchGeoAppOpenChatRequest,
+    GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT,
+    GeoAppChatImagesTransmittedDetail,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
 import { selectEarthCoachDescription } from './earthcoach-description-selector';
@@ -221,6 +224,38 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 }
             }
         ));
+        // Le bridge chat peut encore perdre une image a l'envoi (reencodage
+        // canvas): on corrige alors l'instantane et la liste des indisponibles.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT],
+            detail => this.onImagesTransmitted(detail)
+        ));
+    }
+
+    protected onImagesTransmitted(detail: unknown): void {
+        const info = detail as GeoAppChatImagesTransmittedDetail | undefined;
+        if (!info?.requestId || !info.failedIds?.length) {
+            return;
+        }
+        const corrected = this.resultCapture.markImagesUntransmitted(
+            info.requestId,
+            info.failedIds,
+            'Échec de transmission au modèle (décodage ou réencodage).'
+        );
+        if (!corrected) {
+            return;
+        }
+        const known = new Set(this.unavailable.map(item => String(item.id)));
+        const additions = info.failedIds
+            .filter(id => !known.has(String(id)))
+            .map(id => ({
+                id: String(id),
+                label: this.context?.images.find(image => image.id === String(id))?.label,
+                reason: 'Échec de transmission au modèle (décodage ou réencodage).',
+            }));
+        this.unavailable = [...this.unavailable, ...additions];
+        this.messages.warn(`${additions.length} image(s) ont échoué à la transmission finale : elles ont été retirées de l’instantané envoyé à EarthCoach.`);
+        this.update();
     }
 
     protected override onAfterShow(msg: Message): void {
@@ -638,7 +673,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         return prepareEarthCoachImagesForTransmission(
             images,
             url => fetch(url, { credentials: url.startsWith(window.location.origin) ? 'include' : 'omit' }),
-            imageIdValue => this.workspaceService.storeImageForChat(imageIdValue)
+            imageIdValue => this.workspaceService.storeImageForChat(imageIdValue),
+            decodeGeoAppChatImage
         );
     }
 

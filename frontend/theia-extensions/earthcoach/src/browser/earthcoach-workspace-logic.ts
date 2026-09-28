@@ -6,7 +6,11 @@ export interface EarthCoachPreparedImages {
     failures: Array<{ id: string; label?: string; reason: string }>;
 }
 
-async function assertFetchableImage(url: string, fetchImage: (url: string) => Promise<Response>): Promise<void> {
+async function assertFetchableImage(
+    url: string,
+    fetchImage: (url: string) => Promise<Response>,
+    decodeImage?: (blob: Blob) => Promise<void>
+): Promise<void> {
     const response = await fetchImage(url);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -15,16 +19,23 @@ async function assertFetchableImage(url: string, fetchImage: (url: string) => Pr
     if (!blob.type.startsWith('image/')) {
         throw new Error('contenu non image');
     }
+    // Le bridge chat decode puis reencode chaque image avant envoi: verifier le
+    // decodage ici evite de declarer transmissible une image qui echouera a
+    // l'etape suivante (HEIC, fichier tronque...).
+    if (decodeImage) {
+        await decodeImage(blob);
+    }
 }
 
 export async function prepareEarthCoachImagesForTransmission(
     images: GeoImage[],
     fetchImage: (url: string) => Promise<Response>,
-    storeImage: (imageId: number) => Promise<string>
+    storeImage: (imageId: number) => Promise<string>,
+    decodeImage?: (blob: Blob) => Promise<void>
 ): Promise<EarthCoachPreparedImages> {
     const checked = await Promise.all(images.map(async image => {
         try {
-            await assertFetchableImage(image.fileUri, fetchImage);
+            await assertFetchableImage(image.fileUri, fetchImage, decodeImage);
             return { image };
         } catch (directError) {
             const imageId = Number(image.id);
@@ -33,7 +44,7 @@ export async function prepareEarthCoachImagesForTransmission(
             }
             try {
                 const localUrl = await storeImage(imageId);
-                await assertFetchableImage(localUrl, fetchImage);
+                await assertFetchableImage(localUrl, fetchImage, decodeImage);
                 return { image: { ...image, fileUri: localUrl } };
             } catch (fallbackError) {
                 return {
