@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
@@ -53,12 +55,48 @@ def _load_geocache(geocache_id: int) -> Geocache | None:
     return Geocache.query.get(geocache_id)
 
 
+def _question_key(value: str) -> str:
+    """Cle de comparaison des questions, identique a celle du blueprint
+    logging_tasks: casse, accents et espaces ne font pas une question differente."""
+    normalized = (
+        unicodedata.normalize('NFKD', value)
+        .encode('ascii', 'ignore')
+        .decode('ascii')
+        .strip()
+        .lower()
+    )
+    return re.sub(r'\s+', ' ', normalized)
+
+
 def _validate_proposals(value: object) -> list[dict]:
     """Une proposition non objet (null, string) passerait sinon en base et
     casserait l'affichage du dossier terrain."""
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         raise ValueError('proposals must be a list of objects')
+    # `missing` arrive parfois en liste depuis le modele: on la replie en texte
+    # plutot que de stocker une forme que ni l'UI ni le controle d'apply ne lisent.
+    for item in value:
+        missing = item.get('missing')
+        if isinstance(missing, list):
+            item['missing'] = '\n'.join(str(entry) for entry in missing if str(entry).strip()) or None
     return value
+
+
+def _snapshot_task_question(snapshot: object, task_id: int) -> str | None:
+    """Retrouve le texte de la question tel qu'il etait quand le resultat a ete
+    genere. Les taches du dossier portent des ids 'logging-task-N'."""
+    if not isinstance(snapshot, dict):
+        return None
+    tasks = snapshot.get('loggingTasks') or snapshot.get('logging_tasks') or []
+    if not isinstance(tasks, list):
+        return None
+    for item in tasks:
+        if not isinstance(item, dict):
+            continue
+        match = re.search(r'(\d+)$', str(item.get('id') or ''))
+        if match and int(match.group(1)) == task_id:
+            return _optional_text(item.get('question'))
+    return None
 
 
 def _effective_proposals(result: EarthCoachResult) -> list:
@@ -434,7 +472,12 @@ def update_result(result_id: int):
         # Le PATCH est le canal des corrections humaines : il ecrit dans
         # `edited_proposals` et laisse la version IA d'origine intacte.
         try:
-            result.edited_proposals = _validate_proposals(data.get('proposals') or [])
+            edited = _validate_proposals(data.get('proposals') or [])
+            for item in edited:
+                status = item.get('status')
+                if status is not None and str(status).strip().lower() not in _PROPOSAL_STATES:
+                    raise ValueError('proposal status must be ready, partial or missing')
+            result.edited_proposals = edited
         except ValueError as error:
             return jsonify({'error': str(error)}), 400
     if 'markdown' in data:
@@ -481,6 +524,12 @@ def apply_result(result_id: int):
             task = GeocacheLoggingTask.query.filter_by(id=task_id, geocache_id=result.geocache_id).first()
             if not task:
                 raise ValueError('task_id does not belong to this geocache')
+            # La question a ete re-ecrite depuis la generation du resultat: la
+            # proposition ne repond plus au texte actuel, on refuse le report
+            # plutot que d'appliquer une reponse perimee.
+            snapshot_question = _snapshot_task_question(result.context_snapshot, task_id)
+            if snapshot_question is not None and _question_key(snapshot_question) != _question_key(task.question):
+                raise ValueError('the question changed since this result was generated; re-run the resolution')
             task.answer = answer
             task.status = 'answered'
             applied.append(task.to_dict())

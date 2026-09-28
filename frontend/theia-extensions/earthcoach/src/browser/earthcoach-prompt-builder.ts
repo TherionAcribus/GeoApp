@@ -519,6 +519,7 @@ function buildLoggingTasksBlock(
         const flags = [
             `task_id=${task.id.replace(/^logging-task-/, '')}`,
             LOGGING_TASK_STATUS_LABELS[task.status],
+            task.requiresPhoto ? 'photo exigee pour le log' : undefined,
             task.observationId ? `observation liee=${task.observationId}` : undefined,
         ].filter(Boolean).join('; ');
         lines.push(`- Q${task.position} [${flags}]: ${truncateText(task.question.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
@@ -545,6 +546,7 @@ function buildResolverTemplateInstruction(loggingTasks: LoggingTask[]): string[]
         '- Confiance: elevee / moyenne / faible, selon la qualite des preuves disponibles.',
         '- A completer: ce qu il reste a mesurer ou observer sur place si une donnee manque.',
         'Ne fusionne jamais plusieurs questions. Ne fabrique aucune mesure ou observation manquante: laisse explicitement "a completer".',
+        'Une question marquee "photo exigee pour le log" ne peut etre prete que si une image utilisateur probante figure dans le dossier; sinon signale la photo a prendre dans "A completer".',
     ];
     if (loggingTasks.length) {
         lines.push(`Traite toutes les ${loggingTasks.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`);

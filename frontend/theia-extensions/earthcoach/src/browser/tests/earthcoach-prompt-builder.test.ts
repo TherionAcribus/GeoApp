@@ -662,7 +662,7 @@ function testPromptIncludesLoggingTasks(): void {
     assert.match(prompt, /Questions du proprietaire \(logging tasks\)/);
     assert.match(prompt, /Q1 \[task_id=1; a traiter\]: Quelle est la couleur dominante/);
     assert.match(prompt, /A observer: Observer la roche en place/);
-    assert.match(prompt, /Q2 \[task_id=2; repondu; observation liee=observation-3\]/);
+    assert.match(prompt, /Q2 \[task_id=2; repondu; photo exigee pour le log; observation liee=observation-3\]/);
     assert.doesNotMatch(prompt, /photo requise/);
     assert.match(prompt, /Reponse brouillon: Environ 4 metres./);
 }
@@ -1211,6 +1211,29 @@ function testPromptRequiresExplicitLoggingTaskExtractionWhenMissing(): void {
 
     assert.doesNotMatch(promptWithTasks, /Aucune question n est encore enregistree dans GeoApp/);
     assert.match(promptWithTasks, /Q1 \[task_id=1; a traiter\]: Quelle est la couleur dominante/);
+}
+
+function testPromptMarksTasksRequiringPhoto(): void {
+    // requires_photo existait dans les donnees mais n'etait jamais transcrit
+    // dans le prompt: le modele ne pouvait pas savoir qu'une photo est exigee.
+    const tasks: LoggingTask[] = [{
+        id: 'logging-task-1',
+        geocacheId: '1',
+        position: 1,
+        question: 'Decrivez l affleurement.',
+        status: 'todo',
+        requiresPhoto: true,
+    }];
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        loggingTasks: tasks,
+        observations: [],
+        images: [],
+    });
+    assert.match(prompt, /photo exigee pour le log/);
+    assert.match(prompt, /image utilisateur probante/);
 }
 
 function testMultilingualDescriptionSelection(): void {
@@ -1792,6 +1815,7 @@ async function run(): Promise<void> {
     testMultilingualDescriptionHandlesNestedDivs();
     testMultilingualDescriptionFallsBackToFullContent();
     testExtractActionReadsFullListingInCompact();
+    testPromptMarksTasksRequiringPhoto();
     testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
     testEarthCoachResultFallbackBlock();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();

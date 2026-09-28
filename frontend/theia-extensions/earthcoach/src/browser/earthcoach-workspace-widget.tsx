@@ -118,6 +118,12 @@ function isImageFile(file: File): boolean {
     return /\.(avif|bmp|gif|hei[cf]|jpe?g|png|svg|tiff?|webp)$/i.test(file.name);
 }
 
+const CONFIDENCE_LABELS: Record<string, string> = {
+    high: 'haute',
+    medium: 'moyenne',
+    low: 'basse',
+};
+
 function statusLabel(state: EarthCoachSaveState): string {
     switch (state) {
         case 'dirty': return 'Modifications…';
@@ -473,6 +479,20 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
 
     protected imageFor(imageIdValue?: number): GeoImage | undefined {
         return this.context?.images.find(image => imageId(image) === imageIdValue);
+    }
+
+    /** Libelle lisible d'une preuve citee dans une proposition (image ou observation). */
+    protected describeEvidence(id: string): string {
+        const image = this.context?.images.find(item => item.id === id || String(imageId(item)) === id);
+        if (image) {
+            return image.label || `image ${id}`;
+        }
+        const observation = this.context?.observations.find(item => item.id === id || item.id === `observation-${id}`);
+        if (observation) {
+            const excerpt = observation.note.replace(/\s+/g, ' ').trim();
+            return excerpt.length > 50 ? `${excerpt.slice(0, 50)}…` : excerpt;
+        }
+        return id;
     }
 
     protected filteredImages(): GeoImage[] {
@@ -1201,6 +1221,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                         {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
                             <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
                     </div>
+                    {(proposal.confidence || Boolean(proposal.evidence_ids?.length)) && <div className='ecw-muted ecw-evidence'>
+                        {proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : ''}
+                        {proposal.evidence_ids?.length ? `${proposal.confidence ? ' · ' : ''}Fondée sur : ${proposal.evidence_ids.map(id => this.describeEvidence(id)).join(', ')}` : ''}
+                    </div>}
                     <label>État<select className='theia-select' value={proposal.status} onChange={event => this.updateProposal(result.id, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
                         <option value='ready'>Prête</option><option value='partial'>Partielle</option><option value='missing'>Manquante</option>
                     </select></label>

@@ -378,6 +378,78 @@ def test_apply_rejects_non_empty_non_string_missing(client, seeded):
     assert applied.status_code == 400
 
 
+def test_apply_rejects_result_when_question_changed_since_capture(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-stale',
+            'action': 'resolve',
+            'context_snapshot': {
+                'loggingTasks': [{
+                    'id': f"logging-task-{seeded['task_id']}",
+                    'question': 'Ancienne formulation de la question ?',
+                }],
+            },
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Ancienne formulation de la question ?',
+                'status': 'ready',
+                'answer': 'Réponse au texte ancien.',
+            }],
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+
+    # Le texte actuel de la question ("Que voyez-vous ?") differe de celui vu
+    # par le modele: la proposition est perimee, le report doit etre refuse.
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 400
+    assert 'changed since' in applied.get_json()['error']
+
+    # Meme question qu'a la generation (aux espaces/casse pres): report ok.
+    update = client.put(
+        f'/api/logging-tasks/{seeded["task_id"]}',
+        json={'question': '  ancienne FORMULATION   de la question ? '},
+    )
+    assert update.status_code == 200
+    applied = client.post(f"/api/earthcoach-results/{result['id']}/apply", json={'proposal_indexes': [0]})
+    assert applied.status_code == 200
+
+
+def test_result_patch_rejects_invalid_status(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-bad-status', 'action': 'resolve', 'proposals': [{'question': 'Q'}]},
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+    update = client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'proposals': [{'question': 'Q', 'status': 'done'}]},
+    )
+    assert update.status_code == 400
+
+
+def test_result_capture_normalizes_missing_list(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-missing-normalized',
+            'action': 'resolve',
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'partial',
+                'missing': ['mesurer la hauteur', 'prendre une photo'],
+            }],
+        },
+    )
+    assert create.status_code == 201
+    proposal = create.get_json()['result']['proposals'][0]
+    assert proposal['missing'] == 'mesurer la hauteur\nprendre une photo'
+
+
 def test_aggregated_context_contains_workspace(client, seeded):
     response = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-context")
 
