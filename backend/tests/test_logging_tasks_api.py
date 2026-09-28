@@ -210,6 +210,56 @@ def test_replace_logging_tasks_preserves_work_on_unchanged_questions(client, see
     # le status explicite, lui, prime.
 
 
+def test_replace_logging_tasks_returns_previous_set_for_undo(client, seed_data):
+    # Le remplacement renvoie la liste precedente complete (reponses,
+    # observations liees, statuts): le client peut restaurer a l'identique.
+    client.post(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={
+            'question': 'Couleur de la roche ?',
+            'answer': 'Gris clair.',
+            'status': 'answered',
+            'observation_id': seed_data['observation_id'],
+        },
+    )
+
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': [{'question': 'Question reformulee par le modele ?'}]},
+    )
+    assert response.status_code == 200
+    payload = json.loads(response.data)
+    replaced = payload['replaced_tasks']
+    assert len(replaced) == 1
+    assert replaced[0]['question'] == 'Couleur de la roche ?'
+    assert replaced[0]['answer'] == 'Gris clair.'
+    assert replaced[0]['observation_id'] == seed_data['observation_id']
+
+    # Annulation: rejouer la sauvegarde recree les questions avec leur
+    # travail (les ids sont recrees, le contenu est restaure).
+    restore = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': [
+            {
+                'question': replaced[0]['question'],
+                'answer': replaced[0]['answer'],
+                'status': replaced[0]['status'],
+                'observation_id': replaced[0]['observation_id'],
+                'requires_photo': replaced[0]['requires_photo'],
+                'position': replaced[0]['position'],
+                'source': replaced[0]['source'],
+            },
+        ], 'source': 'restored'},
+    )
+    assert restore.status_code == 200
+    restored = json.loads(restore.data)['logging_tasks'][0]
+    assert restored['question'] == 'Couleur de la roche ?'
+    assert restored['answer'] == 'Gris clair.'
+    assert restored['status'] == 'answered'
+    assert restored['observation_id'] == seed_data['observation_id']
+    assert restored['source'] == 'manual'
+
+
 def test_replace_logging_tasks_requires_list(client, seed_data):
     response = client.put(
         f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",

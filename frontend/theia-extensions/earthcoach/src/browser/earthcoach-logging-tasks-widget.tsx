@@ -8,6 +8,7 @@ import { EarthCoachContext, EarthCoachContextService } from './earthcoach-contex
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
 import {
     dispatchEarthCoachDataUpdated,
+    EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT,
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
     EarthCoachRefreshScheduler,
@@ -20,6 +21,7 @@ import {
     createLoggingTaskDraft,
     createLoggingTaskDraftFromDto,
     getLoggingTaskStatusLabel,
+    loggingTaskRestoreInput,
     LoggingTaskDraft,
     LoggingTaskDto,
     LOGGING_TASK_STATUS_OPTIONS,
@@ -270,6 +272,10 @@ interface LoggingTasksViewProps {
     loadError?: string;
     isSaving: boolean;
     deletingTaskId?: number;
+    /** Nombre de questions remplacees par la derniere extraction (banniere undo). */
+    replacedCount?: number;
+    onUndoReplace: () => void | Promise<void>;
+    onDismissUndo: () => void;
     onRefresh: () => void | Promise<void>;
     onToggleCreateForm: () => void;
     onExtract: () => void | Promise<void>;
@@ -321,6 +327,35 @@ function LoggingTasksView(props: LoggingTasksViewProps): React.ReactElement {
                 Suivez ici chaque question imposee par le proprietaire. EarthCoach reutilise ces questions dans le
                 mode terrain compact et dans le mode resolver pour structurer la resolution.
             </div>
+
+            {props.replacedCount ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        border: '1px solid var(--theia-inputValidation-warningBorder)',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        background: 'var(--theia-inputValidation-warningBackground)',
+                    }}
+                >
+                    <span>
+                        Extraction appliquée : {props.replacedCount} question(s) remplacée(s).
+                        Les réponses et observations des questions retrouvées ont été conservées.
+                    </span>
+                    <span style={{ display: 'flex', gap: 8 }}>
+                        <button className='theia-button secondary' type='button' onClick={() => { void props.onUndoReplace(); }}>
+                            Annuler le remplacement
+                        </button>
+                        <button className='theia-button secondary' type='button' onClick={props.onDismissUndo}>
+                            Ignorer
+                        </button>
+                    </span>
+                </div>
+            ) : undefined}
 
             {props.showCreateForm ? (
                 <LoggingTaskForm
@@ -419,6 +454,8 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     protected loadError: string | undefined;
     protected isSaving = false;
     protected deletingTaskId: number | undefined;
+    /** Sauvegarde du dernier remplacement en masse, pour « Annuler ». */
+    protected replacedBackup: LoggingTaskDto[] | undefined;
     protected loadRequestToken = 0;
     protected contextRequestToken = 0;
 
@@ -469,6 +506,21 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 }
             }
         ));
+        // Le remplacement en masse (tool d'extraction) transporte la liste
+        // precedente: on la garde pour proposer l'annulation.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT],
+            detail => {
+                if (!isUpdateForGeocache(detail, this.context?.geocacheData.id)) {
+                    return;
+                }
+                const previous = (detail as { previous?: unknown }).previous;
+                this.replacedBackup = Array.isArray(previous) && previous.length
+                    ? previous as LoggingTaskDto[]
+                    : undefined;
+                this.update();
+            }
+        ));
         // La liste deroulante "observation liee" est construite a partir du
         // contexte fige a l'ouverture: sans ce signal, une observation creee
         // entre-temps reste invisible ici.
@@ -500,6 +552,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         }
         this.context = context;
         this.tasks = [];
+        this.replacedBackup = undefined;
         this.loadError = undefined;
         this.showCreateForm = false;
         this.observationOptions = buildObservationOptions(context.observations);
@@ -631,6 +684,8 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             await this.loggingTaskService.createLoggingTask(geocacheId, payload);
             this.createDraft = createLoggingTaskDraft();
             this.showCreateForm = false;
+            // Restaurer l'avant-extraction ecraserait cette nouvelle saisie.
+            this.replacedBackup = undefined;
             await this.loadTasks();
             this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question ajoutee');
@@ -671,6 +726,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         try {
             await this.loggingTaskService.updateLoggingTask(taskId, payload);
             this.cancelEdit();
+            this.replacedBackup = undefined;
             await this.loadTasks();
             this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question mise a jour');
@@ -718,6 +774,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             if (this.editingTaskId === task.id) {
                 this.cancelEdit();
             }
+            this.replacedBackup = undefined;
             await this.loadTasks();
             this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question supprimee');
@@ -730,6 +787,51 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 this.update();
             }
         }
+    }
+
+    /**
+     * Restaure la liste d'avant extraction. La liste actuelle devient a son
+     * tour la sauvegarde : on peut ainsi annuler puis refaire l'extraction.
+     */
+    protected async undoReplace(): Promise<void> {
+        const geocacheId = this.context?.geocacheData.id;
+        const backup = this.replacedBackup;
+        if (!geocacheId || !backup?.length || this.isSaving) {
+            return;
+        }
+        const dialog = new ConfirmDialog({
+            title: 'Annuler le remplacement',
+            msg: `Restaurer les ${backup.length} question(s) d'avant l'extraction ? Les nouveaux identifiants de questions changeront.`,
+            ok: 'Restaurer',
+            cancel: Dialog.CANCEL,
+        });
+        if (!(await dialog.open())) {
+            return;
+        }
+        this.isSaving = true;
+        this.update();
+        try {
+            const response = await this.loggingTaskService.replaceLoggingTasks(
+                geocacheId,
+                backup.map(loggingTaskRestoreInput),
+                'restored'
+            );
+            this.replacedBackup = response.replaced_tasks?.length ? response.replaced_tasks : undefined;
+            await this.loadTasks();
+            this.notifyLoggingTasksUpdated(geocacheId);
+            this.messages.info('Liste de questions restaurée.');
+        } catch (error) {
+            console.error('[EarthCoach] Unable to restore logging tasks', error);
+            this.messages.error(getErrorMessage(error, 'Impossible de restaurer les questions'));
+        } finally {
+            this.isSaving = false;
+            this.update();
+        }
+    }
+
+    protected dismissUndo(): void {
+        this.replacedBackup = undefined;
+        this.update();
     }
 
     protected render(): React.ReactNode {
@@ -746,6 +848,9 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 loadError={this.loadError}
                 isSaving={this.isSaving}
                 deletingTaskId={this.deletingTaskId}
+                replacedCount={this.replacedBackup?.length}
+                onUndoReplace={() => this.undoReplace()}
+                onDismissUndo={() => this.dismissUndo()}
                 onRefresh={() => this.loadTasks()}
                 onToggleCreateForm={() => this.toggleCreateForm()}
                 onExtract={() => this.extractViaChat()}

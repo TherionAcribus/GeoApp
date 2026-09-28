@@ -16,6 +16,13 @@ export const EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT = 'earthcoach-logging-tasks-
 /** Observations structurees creees, modifiees ou supprimees. */
 export const EARTHCOACH_OBSERVATIONS_UPDATED_EVENT = 'earthcoach-observations-updated';
 
+/**
+ * Remplacement en masse des questions (extraction IA): emis en plus de
+ * `earthcoach-logging-tasks-updated`, avec la liste precedente dans
+ * `detail.previous` pour permettre une annulation.
+ */
+export const EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT = 'earthcoach-logging-tasks-replaced';
+
 /** Deja emis par les widgets images de GeoApp (extension zones): on s'y raccroche. */
 export const GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT = 'geoapp-geocache-images-updated';
 
@@ -70,12 +77,13 @@ export function isUpdateForGeocache(
 export function dispatchEarthCoachDataUpdated(
     eventName: string,
     geocacheId: number | undefined,
-    origin?: string
+    origin?: string,
+    extra?: Record<string, unknown>
 ): void {
     if (typeof window === 'undefined' || !geocacheId) {
         return;
     }
-    window.dispatchEvent(new CustomEvent(eventName, { detail: { geocacheId, origin } }));
+    window.dispatchEvent(new CustomEvent(eventName, { detail: { ...extra, geocacheId, origin } }));
 }
 
 /**

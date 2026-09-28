@@ -94,13 +94,16 @@ def _next_position(geocache_id: int) -> int:
     return (highest or 0) + 1
 
 
-def _serialize_list(geocache: Geocache, tasks: list[GeocacheLoggingTask]):
-    return jsonify({
+def _serialize_list(geocache: Geocache, tasks: list[GeocacheLoggingTask], extra: dict | None = None):
+    payload = {
         'geocache_id': geocache.id,
         'gc_code': geocache.gc_code,
         'name': geocache.name,
         'logging_tasks': [task.to_dict() for task in tasks],
-    })
+    }
+    if extra:
+        payload.update(extra)
+    return jsonify(payload)
 
 
 @bp.get('/api/geocaches/<int:geocache_id>/logging-tasks')
@@ -183,10 +186,13 @@ def replace_logging_tasks(geocache_id: int):
         if not isinstance(raw_tasks, list):
             return jsonify({'error': 'tasks must be a list'}), 400
 
-        existing_by_question = {
-            _question_key(task.question): task
-            for task in GeocacheLoggingTask.query.filter_by(geocache_id=geocache_id).all()
-        }
+        previous_tasks = (
+            GeocacheLoggingTask.query
+            .filter_by(geocache_id=geocache_id)
+            .order_by(GeocacheLoggingTask.position.asc(), GeocacheLoggingTask.id.asc())
+            .all()
+        )
+        existing_by_question = {_question_key(task.question): task for task in previous_tasks}
 
         default_source = _optional_text(data.get('source')) or 'extracted'
         new_tasks: list[GeocacheLoggingTask] = []
@@ -233,7 +239,13 @@ def replace_logging_tasks(geocache_id: int):
             .order_by(GeocacheLoggingTask.position.asc(), GeocacheLoggingTask.id.asc())
             .all()
         )
-        return _serialize_list(geocache, tasks)
+        # La liste precedente est renvoyee pour permettre une annulation de
+        # l'extraction cote client (reponses et observations liees incluses).
+        return _serialize_list(
+            geocache,
+            tasks,
+            {'replaced_tasks': [task.to_dict() for task in previous_tasks]},
+        )
     except ValueError as error:
         db.session.rollback()
         return jsonify({'error': str(error)}), 400

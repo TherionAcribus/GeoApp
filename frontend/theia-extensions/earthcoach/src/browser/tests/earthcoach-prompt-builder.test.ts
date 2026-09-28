@@ -6,6 +6,7 @@ import {
     formatEarthCoachFieldChecklistMarkdown,
 } from '../earthcoach-field-checklist';
 import {
+    EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT,
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
     EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
     EarthCoachRefreshScheduler,
@@ -78,6 +79,7 @@ import {
     createLoggingTaskDraftFromDto,
     formatLoggingTaskSeedLabel,
     diffLoggingTaskReplacement,
+    loggingTaskRestoreInput,
     normalizeExtractionTasks,
 } from '../earthcoach-logging-tasks';
 import {
@@ -862,6 +864,31 @@ function testLoggingTaskReplacementDiff(): void {
     assert.equal(safe.unchanged, 1);
     assert.deepEqual(safe.removed, []);
     assert.deepEqual(safe.added, ['Épaisseur ?']);
+
+    // La restauration rejoue tous les champs de travail, provenance comprise.
+    assert.deepEqual(
+        loggingTaskRestoreInput({
+            id: 5,
+            position: 2,
+            question: '  Hauteur ?  ',
+            guidance: 'Mesurer',
+            answer: '12 cm',
+            status: 'answered',
+            requires_photo: true,
+            observation_id: 9,
+            source: 'manual',
+        }),
+        {
+            question: 'Hauteur ?',
+            guidance: 'Mesurer',
+            answer: '12 cm',
+            status: 'answered',
+            requires_photo: true,
+            observation_id: 9,
+            position: 2,
+            source: 'manual',
+        }
+    );
 }
 
 function testExtractActionInstruction(): void {
@@ -1641,6 +1668,7 @@ function testDataUpdatedEventNames(): void {
     // Les noms d'evenements sont un contrat inter-widgets (et, pour les images,
     // avec l'extension zones): un renommage silencieux casserait la fraicheur.
     assert.equal(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, 'earthcoach-logging-tasks-updated');
+    assert.equal(EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT, 'earthcoach-logging-tasks-replaced');
     assert.equal(EARTHCOACH_OBSERVATIONS_UPDATED_EVENT, 'earthcoach-observations-updated');
     assert.equal(GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT, 'geoapp-geocache-images-updated');
     // Emis par GeocacheNotesService (zones): le dossier se rafraichit quand

@@ -18,6 +18,8 @@ export interface LoggingTasksApiResponse {
     gc_code?: string;
     name?: string;
     logging_tasks: LoggingTaskDto[];
+    /** Remplacement en masse: liste precedente, pour annulation cote client. */
+    replaced_tasks?: LoggingTaskDto[];
 }
 
 export interface LoggingTaskInput {
@@ -28,6 +30,8 @@ export interface LoggingTaskInput {
     requires_photo?: boolean;
     observation_id?: number | null;
     position?: number | null;
+    /** Provenance conservee lors d'une restauration (manual/extracted). */
+    source?: string | null;
 }
 
 export interface LoggingTaskDraft {
@@ -173,6 +177,25 @@ export interface LoggingTaskReplacementDiff {
  * enregistrerait, avec la meme correspondance normalisee que le backend :
  * une question retrouvee conserve son travail, les autres le perdent.
  */
+/**
+ * Convertit une tache sauvegardee avant remplacement en entree de
+ * restauration: question, consigne, reponse, statut, exigence photo,
+ * observation liee et position sont rejoues tels quels par le PUT
+ * (les ids sont recrees cote backend).
+ */
+export function loggingTaskRestoreInput(task: LoggingTaskDto): LoggingTaskInput {
+    return {
+        question: (task.question || '').trim(),
+        guidance: task.guidance ?? null,
+        answer: task.answer ?? null,
+        status: normalizeLoggingTaskStatus(task.status),
+        requires_photo: Boolean(task.requires_photo),
+        observation_id: task.observation_id ?? null,
+        position: task.position ?? null,
+        source: task.source ?? null,
+    };
+}
+
 export function diffLoggingTaskReplacement(
     existing: LoggingTaskDto[],
     incoming: LoggingTaskInput[]

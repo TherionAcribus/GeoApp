@@ -7,6 +7,7 @@ import {
 } from '@theia/ai-core';
 import {
     dispatchEarthCoachDataUpdated,
+    EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT,
     EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
 } from './earthcoach-events';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
@@ -153,6 +154,14 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                         }
                     }
                     const response = await this.loggingTaskService.replaceLoggingTasks(geocacheId, tasks);
+                    // La liste precedente voyage dans l'evenement dedie: le
+                    // widget questions peut proposer « Annuler l'extraction ».
+                    dispatchEarthCoachDataUpdated(
+                        EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT,
+                        geocacheId,
+                        undefined,
+                        { previous: response.replaced_tasks || [] }
+                    );
                     this.notifyUpdated(geocacheId);
                     return ok({
                         geocache_id: geocacheId,
