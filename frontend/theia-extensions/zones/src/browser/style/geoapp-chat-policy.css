@@ -1051,7 +1051,22 @@
     max-width: 360px;
 }
 
-.geoapp-chat-policy-model-assignment select {
+.geoapp-chat-policy-history {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0;
+    color: var(--theia-ui-font-color2);
+    font-size: 11px;
+}
+
+.geoapp-chat-policy-history button {
+    flex-shrink: 0;
+}
+
+.geoapp-chat-policy-model-assignment select,
+.geoapp-chat-policy-model-assignment input {
     min-width: 0;
     max-width: 280px;
     height: 26px;

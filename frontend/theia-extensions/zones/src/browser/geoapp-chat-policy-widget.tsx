@@ -237,7 +237,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     @postConstruct()
     protected init(): void {
         this.toDispose.push(this.preferenceService.onPreferenceChanged(event => {
-            if (event.preferenceName?.startsWith('geoApp.chat.')) {
+            if (event.preferenceName?.startsWith('geoApp.chat.') || event.preferenceName?.startsWith('geoApp.ai.executionHistory.')) {
                 this.update();
             }
         }));
@@ -506,6 +506,31 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <p className='geoapp-chat-policy-muted'>Service de résolution des modèles indisponible.</p>
                 )}
                 {this.agentModelsLoading && <p className='geoapp-chat-policy-muted'>Résolution des modèles en cours...</p>}
+                {this.aiExecutionService && (
+                    <div className='geoapp-chat-policy-history'>
+                        <span title='Conserve uniquement des métadonnées : tâche, sujet, modèle, statut, durée, tokens et erreur assainie. Jamais les prompts ni les réponses.'>
+                            Historique : {this.aiExecutionService.getRecentExecutions().length} exécution(s)
+                            {' · '}
+                            {this.aiExecutionService.isExecutionHistoryPersistenceEnabled()
+                                ? `persisté localement (${this.aiExecutionService.getExecutionHistoryLimit()} max)`
+                                : 'mémoire seulement'}
+                        </span>
+                        {this.aiExecutionService.getExecutionHistoryPersistenceIssue() && (
+                            <span className='geoapp-chat-policy-warn'>
+                                {this.aiExecutionService.getExecutionHistoryPersistenceIssue()}
+                            </span>
+                        )}
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            disabled={this.aiExecutionService.getRecentExecutions().length === 0}
+                            title='Effacer les métadonnées d’exécution conservées localement'
+                            onClick={() => { void this.clearAiExecutionHistory(); }}
+                        >
+                            Effacer
+                        </button>
+                    </div>
+                )}
                 <table className='geoapp-chat-policy-agent-table'>
                     <thead>
                         <tr>
@@ -777,6 +802,20 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             this.messages.error(error instanceof Error ? error.message : String(error));
         } finally {
             this.modelAssignmentUpdating.delete(task.id);
+            this.update();
+        }
+    }
+
+    protected async clearAiExecutionHistory(): Promise<void> {
+        if (!this.aiExecutionService) {
+            return;
+        }
+        try {
+            await this.aiExecutionService.clearExecutionHistory();
+            this.messages.info('Historique des exécutions IA effacé.');
+        } catch (error) {
+            this.messages.error(`Impossible d’effacer l’historique IA : ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
             this.update();
         }
     }

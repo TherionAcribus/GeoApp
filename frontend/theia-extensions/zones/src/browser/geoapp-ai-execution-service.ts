@@ -1,6 +1,7 @@
 import { CancellationError, CancellationToken, Emitter, isCancelled } from '@theia/core';
 import { Event as TheiaEvent } from '@theia/core/lib/common/event';
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, optional, postConstruct } from '@theia/core/shared/inversify';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     LanguageModel,
     LanguageModelRegistry,
@@ -19,6 +20,7 @@ import {
     GeoAppAiOperationContext,
     GeoAppAiOperationOptions,
     GeoAppAiOperationRecorder,
+    GeoAppAiModelCapability,
     GeoAppAiModelResolution,
     GeoAppAiTaskDescriptor,
     GeoAppAiTokenUsage,
@@ -107,6 +109,26 @@ export function isGeoAppAiRetryableError(error: unknown): boolean {
         || /timeout|timed out|network|fetch failed|connection reset/i.test(message);
 }
 
+export const GEOAPP_AI_EXECUTION_HISTORY_STORAGE_KEY = 'geoapp.ai.executionHistory.v1';
+export const GEOAPP_AI_EXECUTION_HISTORY_ENABLED_PREF = 'geoApp.ai.executionHistory.enabled';
+export const GEOAPP_AI_EXECUTION_HISTORY_MAX_PREF = 'geoApp.ai.executionHistory.maxEntries';
+const GEOAPP_AI_EXECUTION_HISTORY_DEFAULT_MAX = 200;
+const GEOAPP_AI_EXECUTION_HISTORY_MIN = 10;
+const GEOAPP_AI_EXECUTION_HISTORY_MAX = 1000;
+
+export interface GeoAppAiExecutionHistoryPayload {
+    version: 1;
+    records: readonly GeoAppAiExecutionRecord[];
+}
+
+export interface GeoAppAiExecutionHistoryStore {
+    load(): Promise<unknown>;
+    save(payload: GeoAppAiExecutionHistoryPayload): Promise<void>;
+    clear(): Promise<void>;
+}
+
+export const GeoAppAiExecutionHistoryStore = Symbol('GeoAppAiExecutionHistoryStore');
+
 interface InternalTaskExecution {
     operationId: string;
     subjectId?: string;
@@ -138,6 +160,57 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
 
     @inject(LanguageModelService)
     protected readonly languageModelService!: LanguageModelService;
+
+    @inject(GeoAppAiExecutionHistoryStore) @optional()
+    protected readonly executionHistoryStore?: GeoAppAiExecutionHistoryStore;
+
+    @inject(PreferenceService) @optional()
+    protected readonly preferenceService?: PreferenceService;
+
+    protected persistedHistoryLoaded = false;
+    protected persistenceSubscription: { dispose(): unknown } | undefined;
+    protected executionHistoryPersistenceIssue: string | undefined;
+
+    @postConstruct()
+    protected initializePersistence(): void {
+        if (!this.executionHistoryStore || !this.preferenceService) {
+            return;
+        }
+        this.persistenceSubscription = this.preferenceService.onPreferenceChanged(event => {
+            if (event.preferenceName === GEOAPP_AI_EXECUTION_HISTORY_ENABLED_PREF) {
+                if (this.isExecutionHistoryPersistenceEnabled()) {
+                    this.persistedHistoryLoaded = false;
+                    void this.restorePersistedHistory();
+                } else {
+                    this.persistedHistoryLoaded = true;
+                    void this.executionHistoryStore?.clear()
+                        .catch(error => console.debug('[GeoAppAiExecution] historique persistant non supprimé', error));
+                }
+            } else if (event.preferenceName === GEOAPP_AI_EXECUTION_HISTORY_MAX_PREF) {
+                this.executionHistory.splice(this.executionHistoryLimit());
+                void this.persistHistory();
+            }
+        });
+        void this.restorePersistedHistory();
+    }
+
+    isExecutionHistoryPersistenceEnabled(): boolean {
+        return Boolean(this.executionHistoryStore)
+            && this.preferenceService?.get<boolean>(GEOAPP_AI_EXECUTION_HISTORY_ENABLED_PREF, false) === true;
+    }
+
+    getExecutionHistoryLimit(): number {
+        return this.executionHistoryLimit();
+    }
+
+    getExecutionHistoryPersistenceIssue(): string | undefined {
+        return this.executionHistoryPersistenceIssue;
+    }
+
+    async clearExecutionHistory(): Promise<void> {
+        this.executionHistory.length = 0;
+        await this.executionHistoryStore?.clear();
+    }
 
     getRunningExecutions(): readonly GeoAppAiExecutionRecord[] {
         return [...this.activeExecutions.values()];
@@ -258,7 +331,8 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 errorMessage: error === undefined ? undefined : this.errorMessage(error),
             });
             this.executionHistory.unshift(finished);
-            this.executionHistory.splice(200);
+            this.executionHistory.splice(this.executionHistoryLimit());
+            void this.persistHistory();
             this.onDidFinishEmitter.fire(finished);
             return finished;
         };
@@ -410,7 +484,8 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 errorMessage: error === undefined ? undefined : this.errorMessage(error),
             });
             this.executionHistory.unshift(finished);
-            this.executionHistory.splice(200);
+            this.executionHistory.splice(this.executionHistoryLimit());
+            void this.persistHistory();
             this.onDidFinishEmitter.fire(finished);
             return finished;
         };
@@ -595,6 +670,224 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         return Object.values(merged).some(value => value !== undefined) ? merged : undefined;
     }
 
+    protected executionHistoryLimit(): number {
+        const configured = Number(this.preferenceService?.get<number>(
+            GEOAPP_AI_EXECUTION_HISTORY_MAX_PREF,
+            GEOAPP_AI_EXECUTION_HISTORY_DEFAULT_MAX
+        ));
+        if (!Number.isFinite(configured)) {
+            return GEOAPP_AI_EXECUTION_HISTORY_DEFAULT_MAX;
+        }
+        return Math.min(
+            GEOAPP_AI_EXECUTION_HISTORY_MAX,
+            Math.max(GEOAPP_AI_EXECUTION_HISTORY_MIN, Math.floor(configured))
+        );
+    }
+
+    protected async restorePersistedHistory(): Promise<void> {
+        if (!this.executionHistoryStore || !this.isExecutionHistoryPersistenceEnabled() || this.persistedHistoryLoaded) {
+            return;
+        }
+        this.persistedHistoryLoaded = true;
+        try {
+            const stored = await this.executionHistoryStore.load();
+            const storedRecord = this.asRecord(stored);
+            const rawRecords = Array.isArray(stored)
+                ? stored
+                : storedRecord && storedRecord.version !== undefined && storedRecord.version !== 1
+                    ? []
+                    : Array.isArray(storedRecord?.records)
+                        ? storedRecord.records
+                        : [];
+            const persisted = rawRecords
+                .map(value => this.normalizePersistedExecution(value))
+                .filter((value): value is GeoAppAiExecutionRecord => Boolean(value));
+            const knownIds = new Set(this.executionHistory.map(record => record.id));
+            this.executionHistory.push(...persisted.filter(record => !knownIds.has(record.id)));
+            this.executionHistory.sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+            this.executionHistory.splice(this.executionHistoryLimit());
+            for (const record of this.executionHistory) {
+                const sequence = /-(\d+)$/.exec(record.id);
+                if (sequence) {
+                    this.nextId = Math.max(this.nextId, Number(sequence[1]));
+                }
+            }
+            this.executionHistoryPersistenceIssue = undefined;
+        } catch (error) {
+            this.executionHistoryPersistenceIssue = `lecture impossible : ${this.errorMessage(error)}`;
+            console.debug('[GeoAppAiExecution] historique persistant illisible', error);
+        }
+    }
+
+    protected async persistHistory(): Promise<void> {
+        if (!this.executionHistoryStore || !this.isExecutionHistoryPersistenceEnabled()) {
+            return;
+        }
+        try {
+            const records = this.executionHistory
+                .slice(0, this.executionHistoryLimit())
+                .map(record => this.toPersistedExecution(record));
+            if (!records.length) {
+                await this.executionHistoryStore.clear();
+                return;
+            }
+            await this.executionHistoryStore.save({ version: 1, records });
+            this.executionHistoryPersistenceIssue = undefined;
+        } catch (error) {
+            this.executionHistoryPersistenceIssue = `écriture impossible : ${this.errorMessage(error)}`;
+            console.debug('[GeoAppAiExecution] historique persistant non écrit', error);
+        }
+    }
+
+    protected toPersistedExecution(record: GeoAppAiExecutionRecord): GeoAppAiExecutionRecord {
+        const resolution = record.resolution;
+        return this.freezeExecution({
+            id: record.id,
+            operationId: record.operationId,
+            subjectId: record.subjectId,
+            requestId: record.requestId,
+            sessionId: record.sessionId,
+            taskId: record.taskId,
+            taskLabel: record.taskLabel,
+            attempt: record.attempt,
+            resolution: this.freezeResolution({
+                taskId: resolution.taskId,
+                taskLabel: resolution.taskLabel,
+                kind: resolution.kind,
+                executionPath: resolution.executionPath,
+                agentId: resolution.agentId,
+                purpose: resolution.purpose,
+                requestedIdentifier: resolution.requestedIdentifier,
+                resolvedModelId: resolution.resolvedModelId,
+                displayModel: resolution.displayModel,
+                provider: resolution.provider,
+                vendor: resolution.vendor,
+                transport: resolution.transport,
+                backingModel: resolution.backingModel,
+                backingPreference: resolution.backingPreference,
+                source: resolution.source,
+                sourceLabel: this.sanitizeMetadataString(resolution.sourceLabel),
+                locality: resolution.locality,
+                status: resolution.status,
+                diagnostics: resolution.diagnostics
+                    .map(diagnostic => this.sanitizeMetadataString(diagnostic))
+                    .filter((diagnostic): diagnostic is string => Boolean(diagnostic)),
+                requiresLocalModel: resolution.requiresLocalModel,
+                requiredCapabilities: resolution.requiredCapabilities && [...resolution.requiredCapabilities],
+                optionalCapabilities: resolution.optionalCapabilities && [...resolution.optionalCapabilities],
+                capabilityChecks: resolution.capabilityChecks?.map(check => ({ ...check })),
+            }),
+            status: record.status,
+            startedAt: record.startedAt,
+            completedAt: record.completedAt,
+            durationMs: record.durationMs,
+            reportedModel: this.sanitizeMetadataString(record.reportedModel),
+            reportedProvider: this.sanitizeMetadataString(record.reportedProvider),
+            tokenUsage: record.tokenUsage && { ...record.tokenUsage },
+            errorName: this.sanitizeMetadataString(record.errorName),
+            errorCode: record.errorCode,
+            errorMessage: this.sanitizeMetadataString(record.errorMessage),
+        });
+    }
+
+    protected normalizePersistedExecution(value: unknown): GeoAppAiExecutionRecord | undefined {
+        const record = this.asRecord(value);
+        const resolution = this.asRecord(record?.resolution);
+        const status = record?.status;
+        if (!record
+            || !resolution
+            || typeof record.id !== 'string'
+            || typeof record.operationId !== 'string'
+            || typeof record.requestId !== 'string'
+            || typeof record.sessionId !== 'string'
+            || typeof record.taskId !== 'string'
+            || typeof record.taskLabel !== 'string'
+            || typeof record.startedAt !== 'string'
+            || (status !== 'succeeded' && status !== 'failed' && status !== 'cancelled')) {
+            return undefined;
+        }
+        return this.freezeExecution({
+            id: record.id,
+            operationId: record.operationId,
+            subjectId: this.stringValue(record.subjectId),
+            requestId: record.requestId,
+            sessionId: record.sessionId,
+            taskId: record.taskId,
+            taskLabel: record.taskLabel,
+            attempt: this.numberValue(record.attempt) ?? 0,
+            resolution: this.freezeResolution({
+                taskId: this.stringValue(resolution.taskId) || record.taskId,
+                taskLabel: this.stringValue(resolution.taskLabel) || record.taskLabel,
+                kind: resolution.kind === 'chat' || resolution.kind === 'internal' || resolution.kind === 'backend'
+                    ? resolution.kind
+                    : 'internal',
+                executionPath: resolution.executionPath === 'backend-plugin' ? 'backend-plugin' : 'theia-language-model',
+                agentId: this.stringValue(resolution.agentId),
+                purpose: this.stringValue(resolution.purpose),
+                requestedIdentifier: this.stringValue(resolution.requestedIdentifier),
+                resolvedModelId: this.stringValue(resolution.resolvedModelId),
+                displayModel: this.stringValue(resolution.displayModel),
+                provider: this.stringValue(resolution.provider),
+                vendor: this.stringValue(resolution.vendor),
+                transport: resolution.transport === 'chat-completions' || resolution.transport === 'responses-api'
+                    ? resolution.transport
+                    : resolution.transport === 'theia-managed'
+                        ? 'theia-managed'
+                        : 'unknown',
+                backingModel: this.stringValue(resolution.backingModel),
+                backingPreference: this.stringValue(resolution.backingPreference),
+                source: ['operation', 'session', 'agent', 'task-preference', 'default', 'unresolved'].includes(String(resolution.source))
+                    ? resolution.source as GeoAppAiModelResolution['source']
+                    : 'unresolved',
+                sourceLabel: this.sanitizeMetadataString(resolution.sourceLabel) || 'historique persisté',
+                locality: resolution.locality === 'local' || resolution.locality === 'remote' ? resolution.locality : 'unknown',
+                status: ['ready', 'unavailable', 'incompatible', 'unsupported', 'unconfigured'].includes(String(resolution.status))
+                    ? resolution.status as GeoAppAiModelResolution['status']
+                    : 'unavailable',
+                diagnostics: Array.isArray(resolution.diagnostics)
+                    ? resolution.diagnostics
+                        .filter((diagnostic): diagnostic is string => typeof diagnostic === 'string')
+                        .map(diagnostic => this.errorMessage(diagnostic))
+                    : [],
+                requiresLocalModel: resolution.requiresLocalModel === true,
+                requiredCapabilities: Array.isArray(resolution.requiredCapabilities)
+                    ? resolution.requiredCapabilities.filter((capability): capability is GeoAppAiModelCapability =>
+                        ['vision', 'structured-output', 'tools', 'web'].includes(String(capability)))
+                    : undefined,
+                optionalCapabilities: Array.isArray(resolution.optionalCapabilities)
+                    ? resolution.optionalCapabilities.filter((capability): capability is GeoAppAiModelCapability =>
+                        ['vision', 'structured-output', 'tools', 'web'].includes(String(capability)))
+                    : undefined,
+                capabilityChecks: Array.isArray(resolution.capabilityChecks)
+                    ? resolution.capabilityChecks
+                        .map(check => this.asRecord(check))
+                        .filter((check): check is Record<string, unknown> => Boolean(check))
+                        .map(check => ({
+                            capability: ['vision', 'structured-output', 'tools', 'web'].includes(String(check.capability))
+                                ? check.capability as GeoAppAiModelCapability
+                                : 'tools',
+                            required: check.required === true,
+                            status: check.status === 'supported' || check.status === 'unsupported' ? check.status : 'unknown',
+                            source: check.source === 'model' || check.source === 'preference' || check.source === 'provider'
+                                ? check.source
+                                : 'unverified',
+                            detail: this.sanitizeMetadataString(check.detail),
+                        }))
+                    : undefined,
+            }),
+            status,
+            startedAt: record.startedAt,
+            completedAt: this.stringValue(record.completedAt),
+            durationMs: this.numberValue(record.durationMs),
+            reportedModel: this.sanitizeMetadataString(record.reportedModel),
+            reportedProvider: this.sanitizeMetadataString(record.reportedProvider),
+            tokenUsage: this.normalizeTokenUsage(record.tokenUsage),
+            errorName: this.sanitizeMetadataString(record.errorName),
+            errorCode: this.stringValue(record.errorCode),
+            errorMessage: this.sanitizeMetadataString(record.errorMessage),
+        });
+    }
+
     protected toTokenUsage(usage: UsageResponsePart): GeoAppAiTokenUsage {
         const tokenUsage: GeoAppAiTokenUsage = {
             inputTokens: usage.input_tokens,
@@ -613,6 +906,11 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         return value !== null && typeof value === 'object' && !Array.isArray(value)
             ? value as Record<string, unknown>
             : undefined;
+    }
+
+    protected sanitizeMetadataString(value: unknown): string | undefined {
+        const text = this.stringValue(value);
+        return text ? this.errorMessage(text) : undefined;
     }
 
     protected stringValue(value: unknown): string | undefined {
@@ -680,7 +978,8 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             errorMessage: this.errorMessage(error),
         });
         this.executionHistory.unshift(record);
-        this.executionHistory.splice(200);
+        this.executionHistory.splice(this.executionHistoryLimit());
+        void this.persistHistory();
         this.onDidFinishEmitter.fire(record);
     }
 

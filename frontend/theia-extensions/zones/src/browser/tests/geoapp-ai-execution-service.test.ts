@@ -32,6 +32,8 @@ class FakeLanguageModelRegistry {
 }
 
 class FakePreferenceService {
+    private readonly listeners = new Set<(event: { preferenceName: string }) => void>();
+
     constructor(private readonly values: Record<string, unknown> = {}) {}
 
     get<T>(key: string, fallback: T): T {
@@ -41,8 +43,38 @@ class FakePreferenceService {
         return key === 'ai-features.ollama.ollamaHost' ? 'http://localhost:11434' as T : fallback;
     }
 
-    onPreferenceChanged(): { dispose(): void } {
-        return { dispose: () => undefined };
+    async set<T>(key: string, value: T): Promise<void> {
+        this.values[key] = value;
+        for (const listener of this.listeners) {
+            listener({ preferenceName: key });
+        }
+    }
+
+    onPreferenceChanged(listener: (event: { preferenceName: string }) => void): { dispose(): void } {
+        this.listeners.add(listener);
+        return { dispose: () => this.listeners.delete(listener) };
+    }
+}
+
+class FakeStorageService {
+    readonly data = new Map<string, unknown>();
+    loads = 0;
+    saves = 0;
+    clears = 0;
+
+    async load(): Promise<unknown> {
+        this.loads++;
+        return this.data.get('geoapp.ai.executionHistory.v1');
+    }
+
+    async save(payload: unknown): Promise<void> {
+        this.saves++;
+        this.data.set('geoapp.ai.executionHistory.v1', payload);
+    }
+
+    async clear(): Promise<void> {
+        this.clears++;
+        this.data.delete('geoapp.ai.executionHistory.v1');
     }
 }
 
@@ -62,17 +94,21 @@ function createServices(options: {
     response?: unknown;
     assignedIdentifiers?: Record<string, string>;
     preferences?: Record<string, unknown>;
+    storage?: FakeStorageService;
 }): {
     executionService: GeoAppAiExecutionService;
     registry: FakeLanguageModelRegistry;
     llm: FakeLanguageModelService;
+    preferenceService: FakePreferenceService;
+    storage: FakeStorageService | undefined;
 } {
     const registry = new FakeLanguageModelRegistry(options.models ?? {
         'default/universal': { id: 'ollama/llama3.1', name: 'Llama', vendor: 'Ollama' },
     });
     const llm = new FakeLanguageModelService(options.response);
+    const preferenceService = new FakePreferenceService(options.preferences);
     const resolutionService = new GeoAppAiModelResolutionService();
-    (resolutionService as any).preferenceService = new FakePreferenceService(options.preferences);
+    (resolutionService as any).preferenceService = preferenceService;
     (resolutionService as any).languageModelRegistry = registry;
     if (options.assignedIdentifiers) {
         (resolutionService as any).aiSettingsService = {
@@ -88,7 +124,11 @@ function createServices(options: {
     (executionService as any).modelResolutionService = resolutionService;
     (executionService as any).languageModelRegistry = registry;
     (executionService as any).languageModelService = llm;
-    return { executionService, registry, llm };
+    (executionService as any).preferenceService = preferenceService;
+    if (options.storage) {
+        (executionService as any).executionHistoryStore = options.storage;
+    }
+    return { executionService, registry, llm, preferenceService, storage: options.storage };
 }
 
 function cancelledToken(cancelled = true): CancellationToken & { cancel(): void } {
@@ -470,6 +510,247 @@ async function testProviderFailureIsRecordedAndSanitized(): Promise<void> {
     assert.ok(!record?.errorMessage?.includes('abcdef123456789'));
 }
 
+async function testPersistentHistoryRestoresMetadataOnlyAndClearsOnDisable(): Promise<void> {
+    const storage = new FakeStorageService();
+    storage.data.set('geoapp.ai.executionHistory.v1', {
+        version: 1,
+        records: [
+            'malformed-entry',
+            {
+                id: 'restored-1',
+                taskId: 'translate-description',
+                taskLabel: 'Traduction de description',
+                subjectId: 'geocache-42',
+                status: 'succeeded',
+                startedAt: '2026-01-01T00:00:00.000Z',
+                completedAt: '2026-01-01T00:00:00.160Z',
+                durationMs: 160,
+                attempt: 1,
+                requestId: 'restore-request',
+                operationId: 'restore-operation',
+                sessionId: 'restore-session',
+                resolution: {
+                    taskId: 'translate-description',
+                    source: 'default',
+                    sourceLabel: 'default',
+                    requestedIdentifier: 'default/universal',
+                    resolvedModelId: 'ollama/llama3.1',
+                    backingModel: 'llama3.1',
+                    displayModel: 'default/universal → ollama/llama3.1',
+                    provider: 'ollama',
+                    locality: 'local',
+                    executionPath: 'theia-language-model',
+                    transport: 'theia-managed',
+                    status: 'ready',
+                    diagnostics: [],
+                },
+                reportedProvider: 'ollama',
+                reportedModel: 'llama3.1',
+                tokenUsage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+            },
+        ],
+    });
+
+    const { executionService, preferenceService } = createServices({
+        storage,
+        preferences: {
+            'geoApp.ai.executionHistory.enabled': true,
+            'geoApp.ai.executionHistory.maxEntries': 10,
+        },
+    });
+    (executionService as any).initializePersistence();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const restored = executionService.getLatestExecution('translate-description', 'geocache-42');
+    assert.equal(restored?.id, 'restored-1');
+    assert.equal(restored?.reportedModel, 'llama3.1');
+    assert.deepEqual(restored?.tokenUsage, { inputTokens: 3, outputTokens: 2, totalTokens: 5 });
+    assert.equal(executionService.getRecentExecutions().length, 1);
+
+    await preferenceService.set('geoApp.ai.executionHistory.enabled', false);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(executionService.getRecentExecutions().length, 1);
+    assert.equal(storage.data.has('geoapp.ai.executionHistory.v1'), false);
+}
+
+async function testPersistentHistoryStoresFinalMetadataAndEnforcesLimit(): Promise<void> {
+    const storage = new FakeStorageService();
+    const { executionService } = createServices({
+        storage,
+        preferences: {
+            'geoApp.ai.executionHistory.enabled': true,
+            'geoApp.ai.executionHistory.maxEntries': 10,
+        },
+        response: { text: 'secret-response-body' },
+    });
+    (executionService as any).initializePersistence();
+
+    for (let index = 0; index < 12; index++) {
+        await executionService.sendTaskRequest('translate-description', {
+            messages: [{ actor: 'user', type: 'text', text: `secret-prompt-${index}` }],
+        }, {
+            operationId: `translation-${index}`,
+            subjectId: 'geocache-secret',
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+    }
+
+    const stored = storage.data.get('geoapp.ai.executionHistory.v1') as { version: number; records: Array<Record<string, unknown>> };
+    assert.equal(executionService.getRecentExecutions('translate-description').length, 10);
+    assert.equal(stored.version, 1);
+    assert.equal(stored.records.length, 10);
+    assert.ok(stored.records.every(record => record.subjectId === 'geocache-secret'));
+    assert.ok(stored.records.every(record => record.status === 'succeeded'));
+    assert.ok(stored.records.every(record => record.operationId !== undefined));
+
+    const serialized = JSON.stringify(stored);
+    assert.ok(!serialized.includes('secret-prompt'));
+    assert.ok(!serialized.includes('secret-response-body'));
+    assert.ok(!serialized.includes('messages'));
+}
+
+async function testPersistentHistoryDoesNotWriteWhenDisabled(): Promise<void> {
+    const storage = new FakeStorageService();
+    const { executionService } = createServices({ storage });
+    (executionService as any).initializePersistence();
+
+    await executionService.sendTaskRequest('translate-description', {
+        messages: [{ actor: 'user', type: 'text', text: 'memory only' }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(executionService.getRecentExecutions('translate-description').length, 1);
+    assert.equal(storage.loads, 0);
+    assert.equal(storage.saves, 0);
+    assert.equal(storage.clears, 0);
+    assert.equal(storage.data.has('geoapp.ai.executionHistory.v1'), false);
+}
+
+async function testPersistentHistoryStoresFailedCancelledAndResolutionFailure(): Promise<void> {
+    const storage = new FakeStorageService();
+    const { executionService } = createServices({
+        storage,
+        models: {},
+        preferences: { 'geoApp.ai.executionHistory.enabled': true },
+    });
+    (executionService as any).initializePersistence();
+
+    await assert.rejects(
+        () => executionService.sendTaskRequest('logs-analysis', {
+            messages: [{ actor: 'user', type: 'text', text: 'analyse' }],
+        }),
+        /n’est pas exécutable/
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let stored = storage.data.get('geoapp.ai.executionHistory.v1') as { records: Array<Record<string, unknown>> };
+    assert.equal(stored.records[0].status, 'failed');
+    assert.equal(stored.records[0].errorCode, 'resolution-unavailable');
+
+    const readyServices = createServices({
+        storage,
+        preferences: { 'geoApp.ai.executionHistory.enabled': true },
+    });
+    const readyService = readyServices.executionService;
+    (readyService as any).initializePersistence();
+
+    await assert.rejects(
+        () => readyService.sendTaskRequest('translate-description', {
+            messages: [{ actor: 'user', type: 'text', text: 'annulé' }],
+        }, { cancellationToken: cancelledToken() }),
+        CancellationError
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    stored = storage.data.get('geoapp.ai.executionHistory.v1') as { records: Array<Record<string, unknown>> };
+    assert.equal(stored.records[0].status, 'cancelled');
+    assert.equal(stored.records[0].errorCode, 'canceled');
+}
+
+async function testPersistentHistoryStoresSanitizedError(): Promise<void> {
+    class FailingLlm {
+        async sendRequest(): Promise<never> {
+            throw new Error('Provider failed Bearer sk-secret-value-123456789 api_key=abcdef123456789');
+        }
+    }
+
+    const storage = new FakeStorageService();
+    const { executionService } = createServices({
+        storage,
+        preferences: { 'geoApp.ai.executionHistory.enabled': true },
+    });
+    (executionService as any).languageModelService = new FailingLlm();
+    (executionService as any).initializePersistence();
+
+    await assert.rejects(
+        () => executionService.sendTaskRequest('translate-description', {
+            messages: [{ actor: 'user', type: 'text', text: 'secret-prompt' }],
+        }),
+        /Provider failed/
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const stored = storage.data.get('geoapp.ai.executionHistory.v1') as { records: Array<Record<string, unknown>> };
+    const serialized = JSON.stringify(stored);
+    assert.equal(stored.records[0].status, 'failed');
+    assert.ok(serialized.includes('[redacted]'));
+    assert.ok(!serialized.includes('sk-secret-value-123456789'));
+    assert.ok(!serialized.includes('abcdef123456789'));
+    assert.ok(!serialized.includes('secret-prompt'));
+}
+
+async function testPersistentHistoryRejectsUnknownVersion(): Promise<void> {
+    const storage = new FakeStorageService();
+    storage.data.set('geoapp.ai.executionHistory.v1', {
+        version: 99,
+        records: [{ id: 'future-record' }],
+    });
+    const { executionService } = createServices({
+        storage,
+        preferences: { 'geoApp.ai.executionHistory.enabled': true },
+    });
+    (executionService as any).initializePersistence();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(executionService.getRecentExecutions().length, 0);
+}
+
+async function testStorageFailuresDoNotBreakExecution(): Promise<void> {
+    class FailingStorage extends FakeStorageService {
+        async load(): Promise<unknown> {
+            throw new Error('read failed');
+        }
+
+        async save(): Promise<void> {
+            throw new Error('write failed');
+        }
+    }
+
+    const { executionService } = createServices({
+        storage: new FailingStorage(),
+        preferences: { 'geoApp.ai.executionHistory.enabled': true },
+    });
+    (executionService as any).initializePersistence();
+
+    const result = await executionService.sendTaskRequest('translate-description', {
+        messages: [{ actor: 'user', type: 'text', text: 'still works' }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(result.execution.status, 'succeeded');
+    assert.equal(executionService.getRecentExecutions('translate-description').length, 1);
+    assert.equal(executionService.getExecutionHistoryPersistenceIssue(), 'écriture impossible : write failed');
+}
+
 async function run(): Promise<void> {
     await testSuccessfulExecutionKeepsResolutionSnapshot();
     await testSharedOperationKeepsModelSnapshotAndAttempts();
@@ -486,6 +767,13 @@ async function run(): Promise<void> {
     await testExecutionsCanBeScopedBySubject();
     await testBackendOperationKeepsSubjectInContextAndRecord();
     await testProviderFailureIsRecordedAndSanitized();
+    await testPersistentHistoryRestoresMetadataOnlyAndClearsOnDisable();
+    await testPersistentHistoryStoresFinalMetadataAndEnforcesLimit();
+    await testPersistentHistoryDoesNotWriteWhenDisabled();
+    await testPersistentHistoryStoresFailedCancelledAndResolutionFailure();
+    await testPersistentHistoryStoresSanitizedError();
+    await testPersistentHistoryRejectsUnknownVersion();
+    await testStorageFailuresDoNotBreakExecution();
     console.log('geoapp-ai-execution-service tests passed');
 }
 

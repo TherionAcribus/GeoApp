@@ -654,6 +654,56 @@
         "capabilities"
       ]
     },
+    "geoApp.ai.executionHistory.enabled": {
+      "type": "boolean",
+      "default": false,
+      "title": "IA - historique persistant des exécutions",
+      "description": "Conserve localement les métadonnées des exécutions IA après redémarrage : tâche, sujet, modèle, provider, statut, durée, tokens et erreur assainie. Les prompts, réponses et secrets ne sont jamais enregistrés. La désactivation efface l'historique persisté.",
+      "x-ui": {
+        "section": "Journal",
+        "label": "Conserver l'historique après redémarrage",
+        "advanced": true,
+        "order": 20,
+        "keywords": [
+          "historique",
+          "execution",
+          "modele",
+          "diagnostic"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ai",
+        "diagnostic",
+        "history"
+      ]
+    },
+    "geoApp.ai.executionHistory.maxEntries": {
+      "type": "number",
+      "default": 200,
+      "minimum": 10,
+      "maximum": 1000,
+      "title": "IA - taille de l'historique des exécutions",
+      "description": "Nombre maximal d'exécutions conservées en mémoire et, si l'option est activée, dans le stockage local.",
+      "x-ui": {
+        "section": "Journal",
+        "label": "Nombre maximal d'exécutions",
+        "advanced": true,
+        "order": 21
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ai",
+        "diagnostic",
+        "history"
+      ]
+    },
     "geoApp.chat.defaultProfile": {
       "type": "string",
       "enum": [
