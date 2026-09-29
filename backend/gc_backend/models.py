@@ -312,3 +312,105 @@ class OutingPlan(db.Model):
         if include_markdown:
             data['markdown'] = self.markdown or ''
         return data
+
+
+class Trackable(db.Model):
+    """
+    Un trackable (Travel Bug, geocoin…) connu de GeoApp.
+
+    Deux usages : le cache local de mon inventaire (``in_my_inventory``), rafraîchi
+    depuis Geocaching.com à la demande, et la mémoire de ce que j'ai fait du TB au
+    dernier log de cache (``last_cache_log_action``), qui sert de valeur par défaut
+    au log suivant, comme chez c:geo.
+
+    ``tracking_code`` est le code secret gravé sur le TB : il permet de le loguer.
+    Il ne quitte jamais le backend (``to_dict`` ne l'expose pas).
+
+    ``brand`` vaut 'gc' : la colonne existe pour accueillir GeoKrety sans migration.
+    """
+    __tablename__ = 'trackable'
+
+    id = db.Column(db.Integer, primary_key=True)
+    reference_code = db.Column(db.String(20), nullable=False, unique=True, index=True)
+    brand = db.Column(db.String(20), nullable=False, default='gc')
+
+    name = db.Column(db.String(255))
+    icon_url = db.Column(db.String(500))
+    tracking_code = db.Column(db.String(30))
+    type_id = db.Column(db.Integer)
+    type_name = db.Column(db.String(255))
+
+    owner_username = db.Column(db.String(150))
+    owner_reference_code = db.Column(db.String(30))
+    holder_username = db.Column(db.String(150))
+    current_geocache_code = db.Column(db.String(20), index=True)
+    current_geocache_name = db.Column(db.String(255))
+
+    goal_html = db.Column(db.Text)
+    released_at = db.Column(db.String(40))
+    origin = db.Column(db.String(255))
+    distance_km = db.Column(db.Float)
+
+    is_missing = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    is_locked = db.Column(db.Boolean, default=False)
+    allowed_to_be_collected = db.Column(db.Boolean, default=False)
+
+    in_my_inventory = db.Column(db.Boolean, default=False, index=True)
+    # 'visit', 'drop' ou 'none' : action choisie au dernier log de cache.
+    last_cache_log_action = db.Column(db.String(10))
+    last_cache_log_action_at = db.Column(db.DateTime)
+
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            'reference_code': self.reference_code,
+            'brand': self.brand or 'gc',
+            'name': self.name,
+            'icon_url': self.icon_url,
+            'has_tracking_code': bool(self.tracking_code),
+            'type_id': self.type_id,
+            'type_name': self.type_name,
+            'owner_username': self.owner_username,
+            'owner_reference_code': self.owner_reference_code,
+            'holder_username': self.holder_username,
+            'current_geocache_code': self.current_geocache_code,
+            'current_geocache_name': self.current_geocache_name,
+            'goal_html': self.goal_html,
+            'released_at': self.released_at,
+            'origin': self.origin,
+            'distance_km': self.distance_km,
+            'is_missing': bool(self.is_missing),
+            'is_active': self.is_active is not False,
+            'is_locked': bool(self.is_locked),
+            'allowed_to_be_collected': bool(self.allowed_to_be_collected),
+            'in_my_inventory': bool(self.in_my_inventory),
+            'last_cache_log_action': self.last_cache_log_action,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class GeocacheTrackable(db.Model):
+    """
+    Présence d'un trackable dans une cache, telle que Geocaching.com la déclare.
+
+    Clé : les codes (GC, TB) plutôt que des clés étrangères, parce que la cache
+    n'est pas forcément importée dans GeoApp. Les lignes d'une cache sont
+    remplacées à chaque relevé de son inventaire.
+    """
+    __tablename__ = 'geocache_trackable'
+
+    id = db.Column(db.Integer, primary_key=True)
+    gc_code = db.Column(db.String(20), nullable=False, index=True)
+    trackable_code = db.Column(db.String(20), nullable=False, index=True)
+    seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('gc_code', 'trackable_code', name='unique_trackable_per_geocache'),
+    )
