@@ -8,7 +8,6 @@ import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-s
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
 import {
     GeoPreferenceDefinition,
-    GeoPreferenceGuide,
     GeoPreferenceKey,
     GEO_PREFERENCE_CATEGORIES,
 } from './geo-preferences-schema';
@@ -22,7 +21,22 @@ export interface GeoPreferencesOpenOptions {
 
 type GeoPreferenceTargetFilter = 'all' | 'frontend' | 'backend';
 type GeoPreferenceValueFilter = 'all' | 'modified';
-type GeoPreferenceComplexityFilter = 'all' | 'simple' | 'advanced';
+
+/** Défilement différé, exécuté après le rendu effectif du DOM (voir PendingRevealEffect). */
+interface PendingReveal {
+    kind: 'preference' | 'category';
+    id: string;
+    /** Incrémenté à chaque demande : re-déclenche l'effet même pour la même cible. */
+    token: number;
+}
+
+/** Groupe de la barre latérale : un guide `x-guides` et les catégories qu'il cite. */
+interface GeoPreferenceSidebarGroup {
+    id: string;
+    label: string;
+    description?: string;
+    sections: GeoPreferenceSection[];
+}
 
 interface GeoPreferenceSection {
     category: string;
@@ -533,6 +547,52 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
     );
 });
 
+/**
+ * Exécute un défilement différé une fois le DOM réellement rendu : `update()` passe par la
+ * file de messages Lumino puis React, donc un `setTimeout(0)` peut partir avant que le nœud
+ * cible existe (catégorie repliée, filtre levé à l'instant). `useLayoutEffect` garantit
+ * l'exécution après le commit ; si le nœud n'est pas encore là, on réessaie quelques frames.
+ */
+const PendingRevealEffect: React.FC<{
+    reveal: PendingReveal | undefined;
+    findElement: (reveal: PendingReveal) => HTMLElement | null;
+    onDone: () => void;
+}> = ({ reveal, findElement, onDone }) => {
+    const token = reveal?.token;
+    React.useLayoutEffect(() => {
+        if (!reveal) {
+            return;
+        }
+        let cancelled = false;
+        let raf: number | undefined;
+        let attempts = 0;
+        const attempt = (): void => {
+            if (cancelled) {
+                return;
+            }
+            const element = findElement(reveal);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: reveal.kind === 'preference' ? 'center' : 'start' });
+                onDone();
+                return;
+            }
+            if (++attempts >= 12) {
+                onDone();
+                return;
+            }
+            raf = window.requestAnimationFrame(attempt);
+        };
+        attempt();
+        return () => {
+            cancelled = true;
+            if (raf !== undefined) {
+                window.cancelAnimationFrame(raf);
+            }
+        };
+    }, [token]);
+    return null;
+};
+
 @injectable()
 export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget {
 
@@ -551,15 +611,16 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     protected searchQuery = '';
     protected targetFilter: GeoPreferenceTargetFilter = 'all';
     protected valueFilter: GeoPreferenceValueFilter = 'all';
-    protected complexityFilter: GeoPreferenceComplexityFilter = 'all';
-    protected selectedGuideId = 'all';
+    /** Réglages avancés affichés par défaut (décision produit) ; décoché = masqués hors recherche. */
+    protected showAdvanced = true;
+    /** Défilement différé en attente, consommé par PendingRevealEffect après le rendu. */
+    private pendingReveal?: PendingReveal;
+    private revealToken = 0;
 
     /** Version incrémentée à chaque changement de valeur : sert à invalider les caches dérivés. */
     private snapshotVersion = 0;
     /** Cache des textes de recherche normalisés par clé (invalidé à chaque changement de valeur). */
     private readonly haystackCache = new Map<string, string>();
-    /** Cache mémoïsé des compteurs de guides, clé = signature filtres + version. */
-    private guideCountsCache?: { signature: string; counts: Map<string, number> };
     /**
      * Options de `widget: 'select-from'`, par cle source. Recalculees seulement quand la valeur
      * de la preference source change : un tableau neuf a chaque rendu casserait le `React.memo`
@@ -691,38 +752,37 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
 
     storeState(): object {
         return {
-            searchQuery: this.searchQuery,
+            // searchQuery volontairement non persistée : une recherche d'une session
+            // précédente masquerait la cible des liens profonds à la réouverture.
             targetFilter: this.targetFilter,
             valueFilter: this.valueFilter,
-            complexityFilter: this.complexityFilter,
-            selectedGuideId: this.selectedGuideId,
+            showAdvanced: this.showAdvanced,
             expandedCategories: Array.from(this.expandedCategories)
         };
     }
 
     restoreState(state: object): void {
         const restored = state as Partial<{
+            /** Anciens champs tolérés mais ignorés : searchQuery, selectedGuideId. */
             searchQuery: string;
             targetFilter: GeoPreferenceTargetFilter;
             valueFilter: GeoPreferenceValueFilter;
-            complexityFilter: GeoPreferenceComplexityFilter;
+            /** Ancien axe simple/avancé, converti en showAdvanced si ce champ manque. */
+            complexityFilter: 'all' | 'simple' | 'advanced';
             selectedGuideId: string;
+            showAdvanced: boolean;
             expandedCategories: string[];
         }>;
-        if (typeof restored.searchQuery === 'string') {
-            this.searchQuery = restored.searchQuery;
-        }
         if (restored.targetFilter) {
             this.targetFilter = restored.targetFilter;
         }
         if (restored.valueFilter) {
             this.valueFilter = restored.valueFilter;
         }
-        if (restored.complexityFilter) {
-            this.complexityFilter = restored.complexityFilter;
-        }
-        if (typeof restored.selectedGuideId === 'string') {
-            this.selectedGuideId = restored.selectedGuideId;
+        if (typeof restored.showAdvanced === 'boolean') {
+            this.showAdvanced = restored.showAdvanced;
+        } else if (restored.complexityFilter) {
+            this.showAdvanced = restored.complexityFilter !== 'simple';
         }
         if (Array.isArray(restored.expandedCategories)) {
             this.expandedCategories = new Set(restored.expandedCategories);
@@ -739,8 +799,14 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             this.update();
             return;
         }
-        if (!this.store.definitionsByCategory.has(category)) {
+        const entries = this.store.definitionsByCategory.get(category);
+        if (!entries) {
             return;
+        }
+        // Si les filtres masquent toute la catégorie ciblée, les lever : un lien profond
+        // qui n'affiche rien est pire que des filtres oubliés.
+        if (!entries.some(({ key, definition }) => this.shouldShowPreference(key, definition))) {
+            this.resetFilters();
         }
         this.focusCategory(category);
     }
@@ -749,21 +815,52 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         if (!key) {
             return;
         }
-        const definition = this.store.schema.properties?.[key] as GeoPreferenceDefinition | undefined;
+        const definition = this.store.getDefinition(key);
         if (!definition) {
             return;
+        }
+        // Lever uniquement les filtres qui masqueraient la cible.
+        if (!this.matchesSearchQuery(key as GeoPreferenceKey, definition)) {
+            this.searchQuery = '';
+        }
+        if (!this.showAdvanced && this.isAdvancedPreference(definition)) {
+            this.showAdvanced = true;
+        }
+        if (this.valueFilter === 'modified' && !this.isModified(key, definition)) {
+            this.valueFilter = 'all';
+        }
+        const targets = definition['x-targets'] ?? ['frontend'];
+        if (this.targetFilter !== 'all' && !targets.includes(this.targetFilter)) {
+            this.targetFilter = 'all';
         }
         const category = definition['x-category'] || 'generic';
         this.expandedCategories.add(category);
         this.highlightedCategory = category;
         this.highlightedPreferenceKey = key;
         this.scheduleHighlightClear();
+        this.requestReveal({ kind: 'preference', id: key });
         this.update();
-        window.setTimeout(() => {
-            const preference = Array.from(this.node.querySelectorAll<HTMLElement>('[data-geo-preference-key]'))
-                .find(element => element.dataset.geoPreferenceKey === key);
-            preference?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 0);
+    }
+
+    /** Arme un défilement différé : PendingRevealEffect l'exécute après le rendu réel. */
+    private requestReveal(reveal: Omit<PendingReveal, 'token'>): void {
+        this.pendingReveal = { ...reveal, token: ++this.revealToken };
+    }
+
+    private findRevealElement(reveal: PendingReveal): HTMLElement | null {
+        const selector = reveal.kind === 'preference'
+            ? `[data-geo-preference-key="${CSS.escape(reveal.id)}"]`
+            : `[data-geo-preference-category="${CSS.escape(reveal.id)}"]`;
+        return this.node.querySelector<HTMLElement>(selector);
+    }
+
+    /** Efface recherche et filtres ; utilisé par l'état vide et avant un reveal masqué. */
+    private resetFilters(): void {
+        this.searchQuery = '';
+        this.valueFilter = 'all';
+        this.targetFilter = 'all';
+        this.showAdvanced = true;
+        this.update();
     }
 
     /** Le surlignage d'une préférence ciblée s'estompe automatiquement après quelques secondes. */
@@ -804,21 +901,18 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         this.initializeExpandedCategories(sections.map(section => section.category));
 
         const visibleSections = sections.filter(section => section.filteredEntries.length > 0);
-        const backendUrl = String(this.snapshot['geoApp.backend.apiBaseUrl'] ?? 'http://localhost:8000');
         const totalCount = sections.reduce((sum, section) => sum + section.entries.length, 0);
         const visibleCount = visibleSections.reduce((sum, section) => sum + section.filteredEntries.length, 0);
-        const guideCounts = this.buildGuideCounts();
         const modifiedCount = this.store.definitions
             .filter(({ key, definition }) => this.isModified(key, definition))
             .length;
+        // Réglages avancés réellement masqués (une recherche les réaffiche quand ils matchent).
+        const hiddenAdvancedCount = !this.showAdvanced && !this.searchQuery.trim()
+            ? this.store.definitions.filter(({ definition }) => this.isAdvancedPreference(definition)).length
+            : 0;
 
         return <div className='geo-preferences-root'>
             <div className='geo-preferences-toolbar'>
-                <div className='geo-preferences-status'>
-                    <span>API Flask : {backendUrl}</span>
-                    <span>{visibleCount} / {totalCount} préférences affichées</span>
-                    <span>{modifiedCount} modifiées</span>
-                </div>
                 <div className='geo-preferences-search-row'>
                     <input
                         type='search'
@@ -838,100 +932,108 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                     )}
                 </div>
                 <div className='geo-preferences-filter-row'>
-                    {this.renderFilterButton('Toutes', this.valueFilter === 'all' && this.targetFilter === 'all', () => {
-                        this.valueFilter = 'all';
-                        this.targetFilter = 'all';
-                        this.complexityFilter = 'all';
-                        this.selectedGuideId = 'all';
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Modifiées', this.valueFilter === 'modified', () => {
-                        this.valueFilter = this.valueFilter === 'modified' ? 'all' : 'modified';
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Theia', this.targetFilter === 'frontend', () => {
-                        this.targetFilter = this.targetFilter === 'frontend' ? 'all' : 'frontend';
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Flask', this.targetFilter === 'backend', () => {
-                        this.targetFilter = this.targetFilter === 'backend' ? 'all' : 'backend';
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Simples', this.complexityFilter === 'simple', () => {
-                        this.complexityFilter = this.complexityFilter === 'simple' ? 'all' : 'simple';
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Avancées', this.complexityFilter === 'advanced', () => {
-                        this.complexityFilter = this.complexityFilter === 'advanced' ? 'all' : 'advanced';
-                        this.update();
-                    })}
-                </div>
-                <div className='geo-preferences-guide-row'>
-                    {this.renderGuideButton('Tous les usages', undefined, this.selectedGuideId === 'all', () => {
-                        this.selectedGuideId = 'all';
-                        this.update();
-                    })}
-                    {this.store.guides.map(guide => this.renderGuideButton(
-                        guide.label,
-                        guideCounts.get(guide.id) ?? 0,
-                        this.selectedGuideId === guide.id,
-                        () => {
-                            this.selectedGuideId = this.selectedGuideId === guide.id ? 'all' : guide.id;
-                            this.highlightedPreferenceKey = undefined;
+                    <button
+                        className={`theia-button secondary geo-preferences-filter-button${this.valueFilter === 'modified' ? ' active' : ''}`}
+                        type='button'
+                        aria-pressed={this.valueFilter === 'modified'}
+                        onClick={() => {
+                            this.valueFilter = this.valueFilter === 'modified' ? 'all' : 'modified';
                             this.update();
-                        },
-                        guide.description
-                    ))}
+                        }}
+                    >
+                        Modifiées ({modifiedCount})
+                    </button>
+                    <label className='geo-preferences-advanced-toggle'>
+                        <input
+                            type='checkbox'
+                            checked={this.showAdvanced}
+                            onChange={event => {
+                                this.showAdvanced = event.currentTarget.checked;
+                                this.update();
+                            }}
+                        />
+                        <span>Afficher les réglages avancés</span>
+                    </label>
+                    {hiddenAdvancedCount > 0 && (
+                        <span className='geo-preferences-advanced-count'>
+                            {hiddenAdvancedCount} réglages avancés masqués
+                        </span>
+                    )}
                 </div>
             </div>
 
             <div className='geo-preferences-layout'>
                 <aside className='geo-preferences-sidebar'>
-                    {sections.map(section => this.renderSidebarEntry(section))}
+                    {this.buildSidebarGroups(sections).map(group => this.renderSidebarGroup(group))}
+                    <div className='geo-preferences-sidebar-footer'>
+                        {visibleCount} / {totalCount} préférences affichées
+                    </div>
                 </aside>
                 <div className='geo-preferences-content'>
-                    {visibleSections.length === 0 && (
-                        <div className='geo-preferences-empty'>
-                            Aucune préférence ne correspond aux filtres actifs.
-                        </div>
-                    )}
+                    {visibleSections.length === 0 && this.renderEmptyState()}
                     {visibleSections.map(section => this.renderSection(section))}
                 </div>
             </div>
+            <PendingRevealEffect
+                reveal={this.pendingReveal}
+                findElement={reveal => this.findRevealElement(reveal)}
+                onDone={() => { this.pendingReveal = undefined; }}
+            />
         </div>;
     }
 
-    private renderFilterButton(label: string, active: boolean, onClick: () => void): React.ReactNode {
+    private renderEmptyState(): React.ReactNode {
+        const query = this.searchQuery.trim();
         return (
-            <button
-                className={`theia-button secondary geo-preferences-filter-button${active ? ' active' : ''}`}
-                type='button'
-                aria-pressed={active}
-                onClick={onClick}
-            >
-                {label}
-            </button>
+            <div className='geo-preferences-empty'>
+                {query
+                    ? <p>Aucune préférence ne correspond à « {query} » ni aux filtres actifs.</p>
+                    : <p>Aucune préférence ne correspond aux filtres actifs.</p>}
+                <button
+                    className='theia-button secondary'
+                    type='button'
+                    onClick={() => this.resetFilters()}
+                >
+                    Réinitialiser les filtres
+                </button>
+            </div>
         );
     }
 
-    private renderGuideButton(
-        label: string,
-        count: number | undefined,
-        active: boolean,
-        onClick: () => void,
-        title?: string
-    ): React.ReactNode {
+    /**
+     * Regroupe les catégories sous les guides de `x-guides` : chaque catégorie appartient
+     * au premier guide qui la cite, les non citées terminent dans « Autres ».
+     */
+    private buildSidebarGroups(sections: GeoPreferenceSection[]): GeoPreferenceSidebarGroup[] {
+        const groups: GeoPreferenceSidebarGroup[] = this.store.guides.map(guide => ({
+            id: guide.id,
+            label: guide.label,
+            description: guide.description,
+            sections: []
+        }));
+        const other: GeoPreferenceSidebarGroup = { id: 'other', label: 'Autres', sections: [] };
+        for (const section of sections) {
+            const groupIndex = this.store.guides.findIndex(guide => guide.categories?.includes(section.category));
+            (groupIndex >= 0 ? groups[groupIndex] : other).sections.push(section);
+        }
+        return [...groups, other].filter(group => group.sections.length > 0);
+    }
+
+    private renderSidebarGroup(group: GeoPreferenceSidebarGroup): React.ReactNode {
+        // Un en-tête de guide défile jusqu'à sa première catégorie visible.
+        const firstVisible = group.sections.find(section => section.filteredEntries.length > 0) ?? group.sections[0];
         return (
-            <button
-                className={`theia-button secondary geo-preferences-guide-button${active ? ' active' : ''}`}
-                type='button'
-                aria-pressed={active}
-                onClick={onClick}
-                title={title ?? label}
-            >
-                <span>{label}</span>
-                {count !== undefined && <span>{count}</span>}
-            </button>
+            <div key={group.id} className='geo-preferences-sidebar-group'>
+                <button
+                    type='button'
+                    className='geo-preferences-sidebar-guide'
+                    title={group.description ?? group.label}
+                    onClick={() => this.focusCategory(firstVisible.category)}
+                >
+                    {group.label}
+                </button>
+                {group.sections.map(section => this.renderSidebarEntry(section))}
+            </div>
         );
     }
 
@@ -1279,11 +1381,8 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         this.highlightedPreferenceKey = undefined;
         // Reflète immédiatement la sélection dans la sidebar, même sans événement de scroll.
         this.spyCategory = category;
+        this.requestReveal({ kind: 'category', id: category });
         this.update();
-        window.setTimeout(() => {
-            const section = this.node.querySelector<HTMLElement>(`[data-geo-preference-category="${category}"]`);
-            section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 0);
     }
 
     private buildSections(): GeoPreferenceSection[] {
@@ -1301,22 +1400,6 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                     subsections: this.buildSubsections(filteredEntries)
                 };
             });
-    }
-
-    private buildGuideCounts(): Map<string, number> {
-        const signature = `${this.snapshotVersion}|${this.valueFilter}|${this.targetFilter}|${this.complexityFilter}`;
-        if (this.guideCountsCache?.signature === signature) {
-            return this.guideCountsCache.counts;
-        }
-        const counts = new Map<string, number>();
-        for (const guide of this.store.guides) {
-            const count = this.store.definitions.filter(({ key, definition }) =>
-                this.matchesGuide(key, definition, guide) && this.matchesBaseFilters(key, definition)
-            ).length;
-            counts.set(guide.id, count);
-        }
-        this.guideCountsCache = { signature, counts };
-        return counts;
     }
 
     private buildSubsections(
@@ -1347,16 +1430,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     }
 
     private shouldShowPreference(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): boolean {
-        if (!this.matchesBaseFilters(key, definition)) {
-            return false;
-        }
-
-        const guide = this.getSelectedGuide();
-        if (guide && !this.matchesGuide(key, definition, guide)) {
-            return false;
-        }
-
-        return this.matchesSearchQuery(key, definition);
+        return this.matchesBaseFilters(key, definition) && this.matchesSearchQuery(key, definition);
     }
 
     private matchesBaseFilters(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): boolean {
@@ -1364,11 +1438,9 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             return false;
         }
 
-        const advanced = this.isAdvancedPreference(definition);
-        if (this.complexityFilter === 'simple' && advanced) {
-            return false;
-        }
-        if (this.complexityFilter === 'advanced' && !advanced) {
+        // Les réglages avancés ne sont masqués que si la case est décochée et qu'aucune
+        // recherche n'est active : une recherche montre toujours ses correspondances.
+        if (!this.showAdvanced && this.isAdvancedPreference(definition) && !this.searchQuery.trim()) {
             return false;
         }
 
@@ -1415,28 +1487,6 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             .join(' '));
         this.haystackCache.set(key, haystack);
         return haystack;
-    }
-
-    private getSelectedGuide(): GeoPreferenceGuide | undefined {
-        if (this.selectedGuideId === 'all') {
-            return undefined;
-        }
-        return this.store.guides.find(guide => guide.id === this.selectedGuideId);
-    }
-
-    private matchesGuide(key: GeoPreferenceKey, definition: GeoPreferenceDefinition, guide: GeoPreferenceGuide): boolean {
-        const keyText = String(key);
-        const category = definition['x-category'] || 'generic';
-        const section = definition['x-ui']?.section ?? 'Général';
-        const tags = definition['x-tags'] ?? [];
-
-        return Boolean(
-            guide.categories?.includes(category)
-            || guide.sections?.includes(section)
-            || guide.keyPrefixes?.some(prefix => keyText.startsWith(prefix))
-            || guide.keyIncludes?.some(fragment => keyText.includes(fragment))
-            || guide.tags?.some(tag => tags.includes(tag))
-        );
     }
 
     private isModified(key: GeoPreferenceKey | string, definition: GeoPreferenceDefinition): boolean {

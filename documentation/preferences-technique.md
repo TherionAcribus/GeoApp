@@ -120,14 +120,16 @@ Les valeurs frontend sont stockées dans les préférences utilisateur Theia, ty
 
 Fonctionnalités :
 
-- recherche plein texte sur clé, titre, description, catégorie, section, tags, keywords, enum et valeur ;
-- filtres rapides : `Modifiées`, `Theia`, `Flask`, `Simples`, `Avancées` ;
-- navigation par catégories ;
+- recherche plein texte sur clé, titre, description, catégorie, section, tags, keywords, enum et valeur (non persistée entre sessions) ;
+- deux contrôles de filtre : bascule `Modifiées (N)` et case « Afficher les réglages avancés » (cochée par défaut ; décochée, elle masque les `x-ui.advanced` hors recherche — une recherche réaffiche toujours ses correspondances) ;
+- barre latérale unique : les catégories sont regroupées sous les guides de `x-guides` (chaque catégorie appartient au premier guide qui la cite ; les non citées vont dans « Autres »), un en-tête de guide défile jusqu'à sa première catégorie visible ;
 - sous-sections issues de `x-ui.section` ;
-- guides par usage lus depuis `x-guides` du schéma (`@Aide et Chat IA`, `Formula Solver`, `Carte et coordonnées`, `Checkers`, `Interface et onglets`, `Plugins et MetaSolver`, `Images et OCR`, `Notes et GPX`, `Amis`, `Système`) ;
-- ouverture directe d'une catégorie, d'une clé ou d'une recherche ;
+- ouverture directe d'une catégorie, d'une clé ou d'une recherche : `revealPreference`/`revealCategory` lèvent les filtres qui masqueraient la cible (recherche incompatible effacée, avancées réaffichées, « Modifiées » désactivé si la cible ne l'est pas) et le défilement est différé jusqu'au rendu réel du DOM (`PendingRevealEffect`) ;
+- état vide : rappel de la requête active et bouton « Réinitialiser les filtres » ;
 - édition directe selon le type : checkbox, select, input numérique, input texte, textarea JSON, liste de cases pour `array` + `items.enum` ;
 - bouton de réinitialisation : retire la clé du scope utilisateur (retour au `default`, qui suit les évolutions du schéma).
+
+État persisté (`storeState`) : `targetFilter` (réservé au futur mode développeur), `valueFilter`, `showAdvanced`, `expandedCategories`. Les anciens états contenant `searchQuery`, `complexityFilter` ou `selectedGuideId` sont tolérés à la restauration (`complexityFilter` est converti en `showAdvanced`).
 
 Commande Theia :
 
