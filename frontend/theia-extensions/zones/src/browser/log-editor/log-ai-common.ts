@@ -9,10 +9,8 @@
  * garde le sien, qui est toute la différence entre les deux.
  */
 
-import { LanguageModel, LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
-
-/** Agent ID pour la sélection du modèle IA. */
-export type AgentId = string;
+import { LanguageModelResponse, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { GeoAppAiExecutionService, GeoAppAiExecutionUnavailableError } from '../geoapp-ai-execution-service';
 
 /** Erreur levée quand aucun modèle IA n'est configuré. */
 export class NoLanguageModelError extends Error {
@@ -66,32 +64,27 @@ export function findLostPatterns(source: string, rewritten: string, patternNames
  * vide si le modèle n'a rien renvoyé d'exploitable.
  */
 export async function requestCleanedText(
-    languageModelRegistry: LanguageModelRegistry,
-    languageModelService: LanguageModelService,
-    agentId: AgentId,
+    aiExecutionService: GeoAppAiExecutionService,
+    taskId: string,
     prompt: string,
     requestKind: string
 ): Promise<string> {
-    const languageModel = await languageModelRegistry.selectLanguageModel({
-        agent: agentId,
-        purpose: 'chat',
-        identifier: 'default/universal'
-    });
-
-    if (!languageModel) {
-        throw new NoLanguageModelError();
+    let response: LanguageModelResponse;
+    try {
+        response = (await aiExecutionService.sendTaskRequest(taskId, {
+            messages: [
+                { actor: 'user', type: 'text', text: prompt },
+            ],
+        }, {
+            operationId: `${requestKind}-${Date.now()}`,
+        })).response;
+    } catch (error) {
+        if (error instanceof GeoAppAiExecutionUnavailableError
+            && (error.resolution.status === 'unconfigured' || error.resolution.status === 'unavailable')) {
+            throw new NoLanguageModelError();
+        }
+        throw error;
     }
-
-    const request: UserRequest = {
-        messages: [
-            { actor: 'user', type: 'text', text: prompt },
-        ],
-        agentId,
-        requestId: `${requestKind}-${Date.now()}`,
-        sessionId: `${requestKind}-session-${Date.now()}`,
-    };
-
-    const response = await languageModelService.sendRequest(languageModel as LanguageModel, request);
     let rawText = '';
 
     if (isLanguageModelParsedResponse(response)) {

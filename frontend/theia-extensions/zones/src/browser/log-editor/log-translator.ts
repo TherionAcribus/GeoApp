@@ -12,8 +12,8 @@
  *   HTML ne sont nécessaires, un log tient sous les 4000 caractères de Geocaching.com.
  */
 
-import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
-import { AgentId, findLostPatterns, requestCleanedText } from './log-ai-common';
+import { GeoAppAiExecutionService } from '../geoapp-ai-execution-service';
+import { findLostPatterns, requestCleanedText } from './log-ai-common';
 import {
     LexiconDeviation,
     LexiconEntry,
@@ -110,9 +110,7 @@ export interface LogTranslationResult {
  * si aucun modèle n'est assigné à l'agent.
  */
 export async function translateLogWithAi(
-    languageModelRegistry: LanguageModelRegistry,
-    languageModelService: LanguageModelService,
-    agentId: AgentId,
+    aiExecutionService: GeoAppAiExecutionService,
     text: string,
     targetLanguage: string,
     patternNames: Set<string>,
@@ -133,9 +131,8 @@ export async function translateLogWithAi(
     );
 
     const translated = await requestCleanedText(
-        languageModelRegistry,
-        languageModelService,
-        agentId,
+        aiExecutionService,
+        'log-translate',
         `${prompt}\n\nTEXTE :\n${source}`,
         'geoapp-log-translator'
     );

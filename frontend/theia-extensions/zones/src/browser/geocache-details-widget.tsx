@@ -4,7 +4,8 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { ApplicationShell, ConfirmDialog, StatefulWidget } from '@theia/core/lib/browser';
 import { CommandService, CancellationTokenSource } from '@theia/core';
-import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
+import { LanguageModelRegistry } from '@theia/ai-core';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GridPuzzleWorkbenchContribution } from '@mysterai/theia-plugins/lib/browser/grid-puzzle-workbench-contribution';
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
@@ -191,7 +192,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(CommandService) protected readonly commandService: CommandService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
-        @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
+        @inject(GeoAppAiExecutionService) protected readonly aiExecutionService: GeoAppAiExecutionService,
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
@@ -1809,7 +1810,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onAnalyzeImages: this.openSelectedImagesChat,
                     messages: this.messages,
                     languageModelRegistry: this.languageModelRegistry,
-                    languageModelService: this.languageModelService,
+                    aiExecutionService: this.aiExecutionService,
                 } : undefined}
                 waypointsEditorProps={{
                     waypoints: d?.waypoints,

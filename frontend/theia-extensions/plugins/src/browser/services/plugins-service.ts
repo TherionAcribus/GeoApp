@@ -5,7 +5,7 @@
  * pour la gestion des plugins.
  */
 
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, optional } from '@theia/core/shared/inversify';
 import axios, { AxiosInstance } from 'axios';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
 import {
@@ -32,6 +32,7 @@ import {
     ResolutionWorkflowStepRunResponse
 } from '../../common/plugin-protocol';
 import { GeoAppAiScorerModelResolver } from './ai-scorer-model-resolver';
+import { GeoAppAiOperationRecorder } from '../../common/ai-model-contract';
 
 @injectable()
 export class PluginsServiceImpl implements IPluginsService {
@@ -42,6 +43,7 @@ export class PluginsServiceImpl implements IPluginsService {
     constructor(
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
         @inject(GeoAppAiScorerModelResolver) private readonly aiScorerModelResolver: GeoAppAiScorerModelResolver,
+        @inject(GeoAppAiOperationRecorder) @optional() private readonly aiOperationRecorder?: GeoAppAiOperationRecorder,
     ) {
         const initialUrl = String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
         this.baseUrl = this.normalizeBaseUrl(initialUrl);
@@ -124,9 +126,14 @@ export class PluginsServiceImpl implements IPluginsService {
     async executePlugin(name: string, inputs: PluginInputs, signal?: AbortSignal): Promise<PluginResult> {
         try {
             const timeout = this.getPluginExecutionTimeout(name, inputs);
-            const response = await this.client.post(`/api/plugins/${name}/execute`, {
+            const execute = () => this.client.post(`/api/plugins/${name}/execute`, {
                 inputs
             }, { signal, timeout });
+            const response = name === 'vision_ocr' && this.aiOperationRecorder
+                ? (await this.aiOperationRecorder.runOperation('ocr-backend-plugin', execute, {
+                    cancellationSignal: signal,
+                })).response
+                : await execute();
             
             return response.data;
             
@@ -323,10 +330,31 @@ export class PluginsServiceImpl implements IPluginsService {
         payload.api_key = resolvedModel.api_key;
 
         try {
-            const response = await this.client.post('/api/plugins/ai-score', payload, {
+            const execute = () => this.client.post('/api/plugins/ai-score', payload, {
                 timeout: ((request.timeout_sec || 90) + 10) * 1000,
                 signal: request.signal,
             });
+            const response = this.aiOperationRecorder
+                ? (await this.aiOperationRecorder.runOperation('ai-scorer', execute, {
+                    cancellationSignal: request.signal,
+                    backendExecution: {
+                        provider: resolvedModel.provider,
+                        baseUrl: resolvedModel.base_url,
+                        model: resolvedModel.model,
+                        requestedIdentifier: resolvedModel.assignedIdentifier || resolvedModel.theiaModelId,
+                        resolvedModelId: resolvedModel.theiaModelId || resolvedModel.model,
+                        displayModel: resolvedModel.theiaModelId && resolvedModel.model
+                            ? `${resolvedModel.theiaModelId} → ${resolvedModel.provider}/${resolvedModel.model}`
+                            : `${resolvedModel.provider}/${resolvedModel.model || 'auto-détection'}`,
+                        source: resolvedModel.source === 'request'
+                            ? 'operation'
+                            : resolvedModel.source === 'agent'
+                                ? 'agent'
+                                : 'task-preference',
+                        sourceLabel: resolvedModel.sourceLabel,
+                    },
+                })).response
+                : await execute();
             return response.data;
         } catch (error) {
             console.error('[PluginsService] Erreur AI scorer:', error);

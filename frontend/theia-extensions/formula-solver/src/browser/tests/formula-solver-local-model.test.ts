@@ -1,6 +1,8 @@
 import * as assert from 'assert/strict';
 
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
+import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
+import { GeoAppAiModelResolutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-model-resolution-service';
 import {
     GeoAppFormulaSolverFastAgentId,
     GeoAppFormulaSolverLocalAgentId,
@@ -14,6 +16,14 @@ class FakeLanguageModelRegistry {
     async selectLanguageModel(request: { agent: string; purpose: string; identifier: string }): Promise<typeof this.model> {
         this.selections.push(request);
         return this.model;
+    }
+
+    async getLanguageModel(id: string): Promise<typeof this.model> {
+        return this.model?.id === id ? this.model : undefined;
+    }
+
+    onChange(): { dispose(): void } {
+        return { dispose: () => undefined };
     }
 }
 
@@ -37,6 +47,10 @@ class FakePreferenceService {
             ? this.values[key] as T
             : defaultValue;
     }
+
+    onPreferenceChanged(): { dispose(): void } {
+        return { dispose: () => undefined };
+    }
 }
 
 function makeService(
@@ -50,9 +64,14 @@ function makeService(
     const service = new FormulaSolverLLMService();
     const registry = new FakeLanguageModelRegistry(model);
     const llm = new FakeLanguageModelService();
-    (service as any).languageModelRegistry = registry;
-    (service as any).languageModelService = llm;
-    (service as any).preferenceService = new FakePreferenceService(preferences);
+    const resolutionService = new GeoAppAiModelResolutionService();
+    (resolutionService as any).preferenceService = new FakePreferenceService(preferences);
+    (resolutionService as any).languageModelRegistry = registry;
+    const executionService = new GeoAppAiExecutionService();
+    (executionService as any).modelResolutionService = resolutionService;
+    (executionService as any).languageModelRegistry = registry;
+    (executionService as any).languageModelService = llm;
+    (service as any).aiExecutionService = executionService;
     return { service, registry, llm };
 }
 

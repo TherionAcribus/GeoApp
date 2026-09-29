@@ -19,8 +19,8 @@
  * texte est du Markdown qui tient sous les 4000 caractères de Geocaching.com.
  */
 
-import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
-import { AgentId, findLostPatterns, requestCleanedText } from './log-ai-common';
+import { GeoAppAiExecutionService } from '../geoapp-ai-execution-service';
+import { findLostPatterns, requestCleanedText } from './log-ai-common';
 import { LexiconEntry, buildLexiconPreservationBlock, findLexiconMentions } from '../geocaching-lexicon';
 
 /** Ce que l'IA a le droit de faire au texte. */
@@ -133,9 +133,7 @@ export interface LogImprovementResult {
  * lève `NoLanguageModelError` si aucun modèle n'est assigné à l'agent.
  */
 export async function improveLogWithAi(
-    languageModelRegistry: LanguageModelRegistry,
-    languageModelService: LanguageModelService,
-    agentId: AgentId,
+    aiExecutionService: GeoAppAiExecutionService,
     text: string,
     mode: LogImprovementMode,
     patternNames: Set<string>,
@@ -150,9 +148,8 @@ export async function improveLogWithAi(
     const prompt = buildLogImprovementPrompt(mode, patternNames, lexiconBlock);
 
     const improved = await requestCleanedText(
-        languageModelRegistry,
-        languageModelService,
-        agentId,
+        aiExecutionService,
+        'log-improve',
         `${prompt}\n\nTEXTE :\n${source}`,
         'geoapp-log-improver'
     );

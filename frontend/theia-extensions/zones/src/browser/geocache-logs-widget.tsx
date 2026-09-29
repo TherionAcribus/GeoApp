@@ -10,8 +10,8 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { StatefulWidget } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
-import { GeoAppLogsAnalyzerAgentId } from './geoapp-logs-analyzer-agent';
+import { getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 import { EmptyState, LoadingState } from './state-views';
 import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
@@ -467,8 +467,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
         @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(GeocacheLogsAnalysisService) protected readonly analysisService: GeocacheLogsAnalysisService,
         @inject(GeocacheLogImagesService) protected readonly logImagesService: GeocacheLogImagesService,
-        @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
-        @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
+        @inject(GeoAppAiExecutionService) protected readonly aiExecutionService: GeoAppAiExecutionService
     ) {
         super();
         this.id = GeocacheLogsWidget.ID;
@@ -1121,16 +1120,9 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const languageModel = await this.languageModelRegistry.selectLanguageModel({
-                agent: GeoAppLogsAnalyzerAgentId,
-                purpose: 'chat',
-                identifier: 'default/universal'
+            const execution = await this.aiExecutionService.beginTaskExecution('logs-analysis', {
+                operationId: `geoapp-logs-analysis-${geocacheId}-${Date.now()}`,
             });
-
-            if (!languageModel) {
-                this.messages.error("Aucun modèle IA n'est configuré pour l'analyse (vérifie la configuration IA de Theia)");
-                return;
-            }
 
             const [selection, geocacheDetails] = await Promise.all([
                 this.analysisService.collectLogsToAnalyze(geocacheId),
@@ -1153,16 +1145,13 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                 totalAvailable: selection.totalAvailable
             });
 
-            const request: UserRequest = {
+            const response = (await execution.sendRequest({
                 messages: [
                     { actor: 'user', type: 'text', text: prompt },
                 ],
-                agentId: GeoAppLogsAnalyzerAgentId,
-                requestId: `geoapp-logs-analyzer-${Date.now()}`,
-                sessionId: `geoapp-logs-analyzer-session-${Date.now()}`,
-            };
-
-            const response = await this.languageModelService.sendRequest(languageModel, request);
+            }, {
+                requestId: `geoapp-logs-analyzer-${geocacheId}-${Date.now()}`,
+            })).response;
             let analysisText = '';
 
             if (isLanguageModelParsedResponse(response)) {
@@ -1189,7 +1178,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
 
             await this.storeAnalysis(geocacheId, {
                 content: analysisText,
-                model_id: (languageModel as any).name || languageModel.id,
+                model_id: execution.resolution.displayModel || execution.resolution.resolvedModelId,
                 analyzed_count: analyzedCount,
                 stored_count: selection.storedCount,
                 total_available: selection.totalAvailable

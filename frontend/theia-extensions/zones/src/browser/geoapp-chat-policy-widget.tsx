@@ -51,7 +51,8 @@ import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateServic
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
-import { GeoAppAiModelResolution } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
+import { GeoAppAiExecutionRecord, GeoAppAiModelResolution } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -193,6 +194,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     @inject(GeoAppAiModelResolutionService) @optional()
     protected readonly aiModelResolutionService: GeoAppAiModelResolutionService | undefined;
 
+    @inject(GeoAppAiExecutionService) @optional()
+    protected readonly aiExecutionService: GeoAppAiExecutionService | undefined;
+
     @inject(PromptService) @optional()
     protected readonly promptService: PromptService | undefined;
 
@@ -234,6 +238,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 this.agentModelsLoaded = false;
                 this.update();
             }));
+        }
+        if (this.aiExecutionService) {
+            this.toDispose.push(this.aiExecutionService.onDidStartExecution(() => this.update()));
+            this.toDispose.push(this.aiExecutionService.onDidFinishExecution(() => this.update()));
         }
         this.update();
     }
@@ -492,11 +500,13 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             <th>Choix configuré</th>
                             <th>Modèle effectif</th>
                             <th>Exécution</th>
+                            <th>Dernière exécution</th>
                         </tr>
                     </thead>
                     <tbody>
                         {tasks.map(task => {
                             const resolution = this.agentModels.get(task.id);
+                            const lastExecution = this.aiExecutionService?.getLatestExecution(task.id);
                             const statusClass = resolution && resolution.status !== 'ready'
                                 ? 'geoapp-chat-policy-warn'
                                 : 'geoapp-chat-policy-muted';
@@ -529,6 +539,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                                             {resolution ? `${this.formatModelLocality(resolution)} · ${this.formatModelStatus(resolution)}` : '—'}
                                         </div>
                                     </td>
+                                    <td>{this.formatLastExecution(lastExecution)}</td>
                                 </tr>
                             );
                         })}
@@ -593,6 +604,31 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             case 'unsupported': return 'non pris en charge';
             default: return 'indisponible';
         }
+    }
+
+    protected formatLastExecution(execution: GeoAppAiExecutionRecord | undefined): React.ReactNode {
+        if (!execution) {
+            return <span className='geoapp-chat-policy-muted'>—</span>;
+        }
+        const status = execution.status === 'running' ? 'en cours'
+            : execution.status === 'succeeded' ? 'succès'
+                : execution.status === 'cancelled' ? 'annulé'
+                    : 'échec';
+        const time = new Date(execution.startedAt).toLocaleTimeString();
+        const duration = execution.durationMs === undefined ? '' : ` · ${Math.round(execution.durationMs)} ms`;
+        return (
+            <div>
+                <span className={execution.status === 'failed' ? 'geoapp-chat-policy-warn' : 'geoapp-chat-policy-muted'}>
+                    {status} · {time}{duration}
+                </span>
+                {execution.resolution.displayModel && (
+                    <div className='geoapp-chat-policy-muted'>{execution.resolution.displayModel}</div>
+                )}
+                {execution.errorMessage && (
+                    <div className='geoapp-chat-policy-warn'>{execution.errorMessage}</div>
+                )}
+            </div>
+        );
     }
 
     protected renderPromptPackEditor(): React.ReactNode {

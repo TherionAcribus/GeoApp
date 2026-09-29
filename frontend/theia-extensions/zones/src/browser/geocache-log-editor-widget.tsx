@@ -4,9 +4,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { ConfirmDialog, Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
-import { GeoAppLogImproverAgentId } from './geoapp-log-improver-agent';
-import { GeoAppLogTranslatorAgentId } from './geoapp-log-translator-agent';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { BatchAiBar } from './log-editor/batch-ai-bar';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
@@ -343,8 +341,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
-        @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
-        @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
+        @inject(GeoAppAiExecutionService) protected readonly aiExecutionService: GeoAppAiExecutionService,
         @inject(StorageService) protected readonly storageService: StorageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
@@ -2322,9 +2319,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         ) ?? DEFAULT_TRANSLATION_NOTICE;
 
         const result = await translateLogWithAiPure(
-            this.languageModelRegistry,
-            this.languageModelService,
-            GeoAppLogTranslatorAgentId,
+            this.aiExecutionService,
             sourceText,
             this.logLanguage,
             this.getPatternsIndex().names,
@@ -2358,9 +2353,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     /** Cœur de la correction. Ne dépend d’aucune langue : le mode courant suffit. */
     protected async runImprovement(sourceText: string): Promise<string | undefined> {
         const result = await improveLogWithAiPure(
-            this.languageModelRegistry,
-            this.languageModelService,
-            GeoAppLogImproverAgentId,
+            this.aiExecutionService,
             sourceText,
             this.improvementMode,
             this.getPatternsIndex().names,

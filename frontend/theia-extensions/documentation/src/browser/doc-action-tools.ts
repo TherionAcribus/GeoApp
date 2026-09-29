@@ -43,6 +43,7 @@ import {
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
 import { GeoAppAiModelResolutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-model-resolution-service';
+import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 import {
     checkGeoAppLocalModel,
     GeoAppLocalModelPreferences,
@@ -266,6 +267,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     @inject(GeoAppAiModelResolutionService) @optional()
     protected readonly aiModelResolutionService: GeoAppAiModelResolutionService | undefined;
+
+    @inject(GeoAppAiExecutionService) @optional()
+    protected readonly aiExecutionService: GeoAppAiExecutionService | undefined;
 
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
@@ -2977,6 +2981,16 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         const taskResolutions = await this.aiModelResolutionService?.resolveForAgent(agent.id) ?? [];
         if (taskResolutions.length) {
             description.task_resolutions = taskResolutions;
+            const taskIds = new Set(taskResolutions.map(resolution => resolution.taskId));
+            const recentExecutions = [
+                ...this.aiExecutionService?.getRunningExecutions() ?? [],
+                ...this.aiExecutionService?.getRecentExecutions() ?? [],
+            ]
+                .filter(execution => taskIds.has(execution.taskId))
+                .slice(0, 5);
+            if (recentExecutions.length) {
+                description.recent_executions = recentExecutions;
+            }
         }
         if (agent.id === 'geoapp-ocr') {
             const pluginProvider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'

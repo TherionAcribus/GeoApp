@@ -1,24 +1,13 @@
-import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, isLanguageModelParsedResponse, getTextOfResponse } from '@theia/ai-core';
+import { getJsonOfResponse, isLanguageModelParsedResponse, getTextOfResponse } from '@theia/ai-core';
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import {
-    checkGeoAppLocalModel,
-    GeoAppLocalModelPreferences,
-    GEOAPP_LOCAL_MODEL_IDS_PREF,
-} from 'theia-ide-zones-ext/lib/browser/geoapp-local-model-guard';
+import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 import { Formula } from '../common/types';
-import { FormulaSolverAiProfile, FormulaSolverAgentIdsByProfile } from './geoapp-formula-solver-agents';
+import { FormulaSolverAiProfile, FormulaSolverTaskIdsByProfile } from './geoapp-formula-solver-agents';
 
 @injectable()
 export class FormulaSolverLLMService {
-    @inject(LanguageModelRegistry)
-    protected readonly languageModelRegistry!: LanguageModelRegistry;
-
-    @inject(LanguageModelService)
-    protected readonly languageModelService!: LanguageModelService;
-
-    @inject(PreferenceService)
-    protected readonly preferenceService!: PreferenceService;
+    @inject(GeoAppAiExecutionService)
+    protected readonly aiExecutionService!: GeoAppAiExecutionService;
 
     /**
      * Effectue un appel direct à un LLM pour résoudre une tâche spécifique
@@ -28,39 +17,29 @@ export class FormulaSolverLLMService {
             console.log(`[FORMULA-SOLVER-LLM] 🤖 DÉBUT APPEL LLM pour: ${task}`);
             console.log(`[FORMULA-SOLVER-LLM] 📝 PROMPT ENVOYÉ:`, prompt.substring(0, 500) + (prompt.length > 500 ? '...' : ''));
 
-            const agentId = FormulaSolverAgentIdsByProfile[profile] ?? FormulaSolverAgentIdsByProfile.fast;
-
-            // Sélectionner un modèle de langage
-            console.log(`[FORMULA-SOLVER-LLM] 🔍 Recherche modèle de langage...`);
-            const languageModel = await this.languageModelRegistry.selectLanguageModel({
-                agent: agentId,
-                purpose: 'formula-solving',
-                identifier: 'default/universal'
-            });
-
-            if (!languageModel) {
-                console.error(`[FORMULA-SOLVER-LLM] ❌ AUCUN MODÈLE DISPONIBLE !`);
-                console.error(`[FORMULA-SOLVER-LLM] 💡 Vérifiez la configuration IA dans les paramètres Theia`);
+            const taskId = FormulaSolverTaskIdsByProfile[profile] ?? FormulaSolverTaskIdsByProfile.fast;
+            console.log(`[FORMULA-SOLVER-LLM] 🔍 Résolution du modèle pour la tâche ${taskId}...`);
+            let execution;
+            try {
+                execution = await this.aiExecutionService.beginTaskExecution(taskId, {
+                    operationId: `formula-${task}-${Date.now()}`,
+                });
+            } catch (error) {
                 if (profile === 'local') {
-                    throw new Error(`Le profil local de Formula Solver exige un modèle local prêt pour l'agent « ${agentId} ». Aucun repli cloud n'a été appliqué.`);
+                    throw new Error(`Le profil local de Formula Solver ne peut pas utiliser ce modèle : ${error instanceof Error ? error.message : String(error)} Aucun repli cloud n'a été appliqué.`);
                 }
-                throw new Error('Aucun modèle de langage disponible pour la résolution de formules');
-            }
-
-            if (profile === 'local') {
-                const localCheck = checkGeoAppLocalModel(languageModel, this.getLocalModelPreferences());
-                if (localCheck.status !== 'local') {
-                    throw new Error(`Le profil local de Formula Solver ne peut pas utiliser l'agent « ${agentId} » : ${localCheck.reason}. Aucun repli cloud n'a été appliqué.`);
-                }
+                throw error;
             }
 
             console.log(`[FORMULA-SOLVER-LLM] ✅ Modèle trouvé:`, {
-                id: languageModel.id,
-                name: languageModel.name
+                id: execution.resolution.resolvedModelId,
+                name: execution.resolution.displayModel,
+                source: execution.resolution.sourceLabel
             });
 
-            // Créer la requête pour le LLM
-            const request: UserRequest = {
+            console.log(`[FORMULA-SOLVER-LLM] 📤 Envoi requête au LLM...`);
+
+            const response = (await execution.sendRequest({
                 messages: [
                     {
                         actor: 'user',
@@ -68,15 +47,7 @@ export class FormulaSolverLLMService {
                         text: prompt
                     }
                 ],
-                agentId,
-                requestId: `formula-${Date.now()}`,
-                sessionId: `session-${Date.now()}`
-            };
-
-            console.log(`[FORMULA-SOLVER-LLM] 📤 Envoi requête au LLM...`);
-
-            // Envoyer la requête
-            const response = await this.languageModelService.sendRequest(languageModel, request);
+            })).response;
 
             console.log(`[FORMULA-SOLVER-LLM] 📥 RÉPONSE BRUTE REÇUE du LLM:`, response);
             console.log(`[FORMULA-SOLVER-LLM] ✅ Réponse LLM reçue pour: ${task}`);
@@ -117,16 +88,6 @@ export class FormulaSolverLLMService {
             console.error(`[FORMULA-SOLVER-LLM] ❌ Erreur LLM pour ${task}:`, error);
             throw error;
         }
-    }
-
-    protected getLocalModelPreferences(): GeoAppLocalModelPreferences {
-        return {
-            ollamaHost: this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434'),
-            lmstudioBaseUrl: this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234'),
-            openAiCustomModels: this.preferenceService.get('ai-features.openAiCustom.customOpenAiModels', []),
-            vercelCustomModels: this.preferenceService.get('ai-features.vercelAi.customModels', []),
-            localModelIds: this.preferenceService.get(GEOAPP_LOCAL_MODEL_IDS_PREF, []),
-        };
     }
 
     private stripThinkingBlocks(text: string): string {

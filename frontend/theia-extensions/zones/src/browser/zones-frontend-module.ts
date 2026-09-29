@@ -57,6 +57,8 @@ import { GeoAppChatSkillSeeder } from './geoapp-chat-skill-seeder';
 import { GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
+import { GeoAppAiOperationRecorder } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { GeocachingFriendsWidget } from './geocaching-friends-widget';
@@ -327,6 +329,8 @@ export default new ContainerModule(bind => {
     bind(GeoAppChatPolicyService).toSelf().inSingletonScope();
     bind(GeoAppChatConfigurationService).toSelf().inSingletonScope();
     bind(GeoAppAiModelResolutionService).toSelf().inSingletonScope();
+    bind(GeoAppAiExecutionService).toSelf().inSingletonScope();
+    bind(GeoAppAiOperationRecorder).toService(GeoAppAiExecutionService);
 
     bind(OutingPlanWidget).toSelf().inSingletonScope();
     bind(WidgetFactory).toDynamicValue(ctx => ({

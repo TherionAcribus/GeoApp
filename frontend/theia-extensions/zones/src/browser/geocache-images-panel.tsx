@@ -3,9 +3,10 @@
  */
 
 import * as React from 'react';
-import { MessageService } from '@theia/core';
+import { CancellationTokenSource, MessageService, isCancelled } from '@theia/core';
 import { ConfirmDialog, ConfirmSaveDialog } from '@theia/core/lib/browser';
-import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { LanguageModelRegistry, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { SectionCollapseToggle } from './geocache-section-collapse';
@@ -58,7 +59,7 @@ export interface GeocacheImagesPanelProps {
     geocacheId: number;
     messages: MessageService;
     languageModelRegistry: LanguageModelRegistry;
-    languageModelService: LanguageModelService;
+    aiExecutionService: GeoAppAiExecutionService;
     storageDefaultMode?: 'never' | 'prompt' | 'always';
     onConfirmStoreAll?: (options: { geocacheId: number; pendingCount: number }) => Promise<boolean>;
     thumbnailSize?: GalleryThumbnailSize;
@@ -233,7 +234,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     geocacheId,
     messages,
     languageModelRegistry,
-    languageModelService,
+    aiExecutionService,
     storageDefaultMode = 'prompt',
     onConfirmStoreAll,
     thumbnailSize = 'small',
@@ -1366,6 +1367,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         }
 
         const abortController = createOcrAbortController(imageId);
+        const llmCancellation = new CancellationTokenSource();
+        abortController.signal.addEventListener('abort', () => llmCancellation.cancel(), { once: true });
         setOcrInProgress(imageId, true);
         try {
             let imageUrlForFetch = resolveImageUrl(img.url);
@@ -1406,29 +1409,19 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             const mimeType = blob.type || (imageRes.headers.get('content-type') || '').split(';')[0].trim() || 'image/png';
             const base64data = await blobToBase64(blob);
 
-            const languageModel = await languageModelRegistry.selectLanguageModel({
-                agent: 'geoapp-ocr',
-                purpose: 'vision-ocr',
-                identifier: 'default/universal'
+            const execution = await aiExecutionService.beginTaskExecution('ocr-theia', {
+                operationId: `geoapp-ocr-${imageId}-${Date.now()}`,
             });
-
-            if (!languageModel) {
-                messages.error('Aucun modèle IA n\'est configuré pour l\'OCR (vérifie la configuration IA de Theia)');
-                return;
-            }
-
             const prompt = 'Transcris précisément le texte visible sur cette image sans interprétation ni correction orthographique. Respecte les retours à la ligne.';
-            const request: UserRequest = {
+            const response = (await execution.sendRequest({
                 messages: [
                     { actor: 'user', type: 'image', image: { base64data, mimeType } },
                     { actor: 'user', type: 'text', text: prompt },
                 ],
-                agentId: 'geoapp-ocr',
-                requestId: `geoapp-ocr-${Date.now()}`,
-                sessionId: `geoapp-ocr-session-${Date.now()}`,
-            };
-
-            const response = await languageModelService.sendRequest(languageModel, request);
+            }, {
+                requestId: `geoapp-ocr-${imageId}-${Date.now()}`,
+                cancellationToken: llmCancellation.token,
+            })).response;
             let text = '';
             if (isLanguageModelParsedResponse(response)) {
                 text = JSON.stringify(response.parsed);
@@ -1458,15 +1451,16 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             if (updated) {
                 setDraftOcr(updated.ocr_text ?? text);
                 clearDirtyField('ocr');
-                messages.info(`OCR terminé via ${languageModel.id}`);
+                messages.info(`OCR terminé via ${execution.resolution.displayModel || execution.resolution.resolvedModelId}`);
             }
         } catch (e) {
-            if ((e as Error).name === 'AbortError') {
+            if ((e as Error).name === 'AbortError' || isCancelled(e)) {
                 return;
             }
             console.error('[GeocacheImagesPanel] theia ocr error', e);
             messages.error(`OCR Theia: erreur (${String(e)})`);
         } finally {
+            llmCancellation.dispose();
             setOcrInProgress(imageId, false);
         }
     };

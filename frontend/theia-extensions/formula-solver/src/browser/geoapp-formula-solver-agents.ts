@@ -22,6 +22,13 @@ export const FormulaSolverAgentIdsByProfile: Record<FormulaSolverAiProfile, stri
     web: GeoAppFormulaSolverWebAgentId,
 };
 
+export const FormulaSolverTaskIdsByProfile: Record<FormulaSolverAiProfile, string> = {
+    local: 'formula-local',
+    fast: 'formula-fast',
+    strong: 'formula-strong',
+    web: 'formula-web',
+};
+
 const languageModelRequirements: LanguageModelRequirement[] = [
     {
         purpose: 'formula-solving',
