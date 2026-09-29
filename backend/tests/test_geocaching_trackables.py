@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+import requests
 
 from gc_backend import create_app
 from gc_backend.database import db
@@ -386,6 +387,52 @@ def test_lookup_unknown_code():
     session = FakeSession({DETAILS: FakeResponse(text=NOT_FOUND_PAGE)})
     with pytest.raises(TrackableNotFoundError):
         GeocachingTrackablesClient(session).lookup('ZZZZZZ')
+
+
+def test_lookup_unknown_tracking_code_hides_the_code():
+    """Un code de suivi inconnu ne doit pas être répété dans le message d'erreur."""
+    session = FakeSession({DETAILS: FakeResponse(text=NOT_FOUND_PAGE)})
+    with pytest.raises(TrackableNotFoundError) as excinfo:
+        GeocachingTrackablesClient(session).lookup('ZZTRACK')
+    assert 'ZZTRACK' not in str(excinfo.value)
+
+
+def test_lookup_unknown_public_code_names_the_code():
+    """Un code public, lui, n'est pas un secret : il peut figurer dans l'erreur."""
+    session = FakeSession({DETAILS: FakeResponse(text=NOT_FOUND_PAGE)})
+    with pytest.raises(TrackableNotFoundError, match='TB1234'):
+        GeocachingTrackablesClient(session).lookup('TB1234')
+
+
+def test_network_error_redacts_the_tracking_code():
+    """Une exception `requests` cite l'URL appelée : `tracker=<secret>` est masqué."""
+
+    class TimeoutSession:
+        def get(self, url, params=None, **kwargs):
+            qs = '&'.join(f'{k}={v}' for k, v in (params or {}).items())
+            raise requests.ConnectTimeout(
+                f"HTTPSConnectionPool(host='www.geocaching.com'): "
+                f'Max retries exceeded with url: {url}?{qs}'
+            )
+
+    client = GeocachingTrackablesClient(TimeoutSession())
+    with pytest.raises(TrackableError) as excinfo:
+        client.lookup('AF12CD')
+
+    message = str(excinfo.value)
+    assert 'AF12CD' not in message
+    assert 'tracker=' not in message
+    assert 'ConnectTimeout' in message
+
+
+def test_network_error_keeps_details_without_query_string():
+    class FailingSession:
+        def get(self, url, params=None, **kwargs):
+            raise requests.ConnectionError('Failed to establish a new connection: refused')
+
+    client = GeocachingTrackablesClient(FailingSession())
+    with pytest.raises(TrackableError, match='refused'):
+        client.fetch_my_inventory()
 
 
 def test_fetch_log_page_info_and_details():

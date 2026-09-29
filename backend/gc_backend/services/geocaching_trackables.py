@@ -291,7 +291,10 @@ class GeocachingTrackablesClient:
         page = self._get_details_page(code)
         reference_code = self._search(r'CoordInfoCode">(TB[0-9A-Z]+)<', page)
         if not reference_code:
-            raise TrackableNotFoundError(f'Aucun trackable ne correspond au code « {code} ».')
+            # Le code saisi peut être un code de suivi : il ne sort pas dans l'erreur.
+            if is_public_code(code):
+                raise TrackableNotFoundError(f'Trackable {code} introuvable sur Geocaching.com.')
+            raise TrackableNotFoundError('Aucun trackable ne correspond à ce code.')
 
         summary = self.fetch_trackable(reference_code)
         if reference_code != code:
@@ -320,7 +323,12 @@ class GeocachingTrackablesClient:
         try:
             response = self.session.get(url, params=params, headers=headers, timeout=60)
         except requests.RequestException as exc:
-            raise TrackableError(f'Erreur réseau vers geocaching.com : {exc}') from exc
+            # Une exception `requests` cite l'URL appelée, query string comprise ;
+            # pour `details.aspx?tracker=` elle contiendrait le code de suivi.
+            raise TrackableError(
+                f'Erreur réseau vers geocaching.com pour {what} '
+                f'({type(exc).__name__} : {_sanitize_request_error(exc)})'
+            ) from exc
 
         if response.status_code in (401, 403):
             raise NotAuthenticatedError(
@@ -548,6 +556,17 @@ class GeocachingTrackablesClient:
 
 
 # ----------------------------------------------------------------- Utilitaires
+
+def _sanitize_request_error(exc: requests.RequestException) -> str:
+    """
+    Détail technique d'une exception `requests`, sans ses query strings : le texte
+    cite l'URL appelée, et ``details.aspx?tracker=<code de suivi>`` y laisserait
+    le code de suivi. Le nom du type d'exception (`ConnectTimeout`…) reste dans le
+    message d'erreur pour le diagnostic.
+    """
+    detail = re.sub(r"\?[^\s'\")]*", '?…', str(exc)).strip()
+    return detail or 'sans détail'
+
 
 def _as_str(value: Any) -> Optional[str]:
     if value is None:

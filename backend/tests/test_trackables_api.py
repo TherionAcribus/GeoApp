@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
+import requests
+from flask import request
 
 from gc_backend import create_app
 from gc_backend.blueprints import logs as logs_bp
@@ -14,6 +17,7 @@ from gc_backend.models import Trackable, Zone
 from gc_backend.services import trackable_store
 from gc_backend.services.geocaching_friends import NotAuthenticatedError
 from gc_backend.services.geocaching_trackables import (
+    GeocachingTrackablesClient,
     TrackableError,
     TrackableLogPageInfo,
     TrackableNotFoundError,
@@ -214,21 +218,123 @@ def test_geocache_inventory(app, fake_network):
     assert client.get('/api/trackables/geocache/NOPE').status_code == 400
 
 
-def test_lookup_keeps_tracking_code_server_side(app, fake_network):
+def test_lookup_post_keeps_tracking_code_server_side(app, fake_network):
     fake_network(lookup=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE', tracking_code='AB12CD'))
     client = app.test_client()
 
-    body = client.get('/api/trackables/lookup?code=ab12cd').get_json()
+    seen_urls = []
+    app.before_request(lambda: seen_urls.append(request.url))
+    response = client.post('/api/trackables/lookup', json={'code': 'ab12cd'})
+    body = response.get_json()
 
+    assert response.status_code == 200
     assert body['trackable']['reference_code'] == 'TBBAQ0Z'
     assert body['tracking_code_matched'] is True
-    assert 'AB12CD' not in json.dumps(body)
+    # Le code de suivi n'est ni dans l'URL, ni dans la réponse.
+    assert 'AB12CD' not in seen_urls[0]
+    assert 'AB12CD' not in response.get_data(as_text=True)
     assert trackable_store.get_tracking_code('TBBAQ0Z') == 'AB12CD'
+
+
+def test_lookup_post_by_public_code(app, fake_network):
+    fake_network(lookup=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE'))
+    client = app.test_client()
+
+    body = client.post('/api/trackables/lookup', json={'code': 'TBBAQ0Z'}).get_json()
+
+    assert body['success'] is True
+    assert body['tracking_code_matched'] is False
+
+
+def test_lookup_post_requires_a_code(app, fake_network):
+    client = app.test_client()
+
+    assert client.post('/api/trackables/lookup', json={}).status_code == 400
+    assert client.post('/api/trackables/lookup', json={'code': '  '}).status_code == 400
+    response = client.post('/api/trackables/lookup', data='nope', content_type='text/plain')
+    assert response.status_code == 400
+
+
+def test_lookup_get_rejects_a_possible_tracking_code(app, fake_network):
+    """GET déprécié : un code qui n'est pas public peut être un code de suivi."""
+    fake = fake_network(lookup=TrackableSummary(reference_code='TBBAQ0Z'))
+    client = app.test_client()
+
+    response = client.get('/api/trackables/lookup?code=AB12CD')
+
+    assert response.status_code == 400
+    assert response.get_json()['error'] == 'use_post_lookup'
+    # Ni répété dans la réponse, ni envoyé au site.
+    assert 'AB12CD' not in response.get_data(as_text=True)
+    assert fake.calls == []
+
+
+def test_lookup_get_public_code_is_deprecated_but_works(app, fake_network):
+    fake_network(lookup=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE'))
+    client = app.test_client()
+
+    response = client.get('/api/trackables/lookup?code=tbbaq0z')
+
+    assert response.status_code == 200
+    assert response.headers.get('Deprecation') == 'true'
+    assert response.get_json()['trackable']['reference_code'] == 'TBBAQ0Z'
 
 
 def test_lookup_unknown_code_is_404(app, fake_network):
     fake_network(lookup=TrackableNotFoundError('inconnu'))
-    assert app.test_client().get('/api/trackables/lookup?code=ZZZZZZ').status_code == 404
+    response = app.test_client().post('/api/trackables/lookup', json={'code': 'ZZZZZZ'})
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize('mode', ['timeout', 'http_404', 'http_429', 'not_json'])
+def test_lookup_failures_never_leak_the_tracking_code(app, monkeypatch, caplog, mode):
+    """
+    Timeout, 404, 429 ou réponse inattendue : le code de suivi saisi n'apparaît
+    ni dans la réponse de la route ni dans les logs applicatifs.
+    """
+    secret = 'AF12CD'
+
+    class _Response:
+        def __init__(self, status_code, text='', payload=None):
+            self.status_code = status_code
+            self.text = text
+            self._payload = payload
+
+        def json(self):
+            if self._payload is None:
+                raise ValueError('not json')
+            return self._payload
+
+    class _Session:
+        def get(self, url, params=None, **kwargs):
+            if mode == 'timeout':
+                # Comme `requests`, l'exception cite l'URL complète, query comprise.
+                qs = '&'.join(f'{k}={v}' for k, v in (params or {}).items())
+                raise requests.ConnectTimeout(
+                    f"HTTPSConnectionPool(host='www.geocaching.com'): "
+                    f'Max retries exceeded with url: {url}?{qs}'
+                )
+            if mode == 'http_404':
+                return _Response(404, text='not found')
+            if mode == 'http_429':
+                return _Response(429, text='too many requests')
+            if 'details.aspx' in url:
+                return _Response(200, text='<span class="CoordInfoCode">TBBAQ0Z</span>')
+            return _Response(200, text='<html>Oops</html>')  # JSON attendu, HTML reçu
+
+    monkeypatch.setattr(
+        trackables_bp, 'GeocachingTrackablesClient',
+        lambda *a, **k: GeocachingTrackablesClient(_Session()),
+    )
+    client = app.test_client()
+
+    with caplog.at_level(logging.WARNING):
+        response = client.post('/api/trackables/lookup', json={'code': secret})
+
+    assert response.status_code in (404, 502)
+    assert response.get_json()['success'] is False
+    assert secret not in response.get_data(as_text=True)
+    assert secret not in caplog.text
 
 
 def test_trackable_details_and_log_info(app, fake_network):

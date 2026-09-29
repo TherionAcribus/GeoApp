@@ -4,7 +4,9 @@ Routes :
 - ``GET  /api/trackables/inventory``        mon inventaire (base locale, ``?refresh=1`` pour relire le site,
   ``?max_age=<s>`` pour le relire seulement si le dernier relevé est plus vieux)
 - ``GET  /api/trackables/geocache/<gc>``    TBs déclarés dans une cache (idem)
-- ``GET  /api/trackables/lookup?code=``     retrouver un TB par code public ou code de suivi
+- ``POST /api/trackables/lookup``           retrouver un TB par code public ou code de suivi
+  (corps ``{"code": "…"}`` ; jamais dans une URL)
+- ``GET  /api/trackables/lookup?code=``     idem, déprécié, codes publics ``TB…`` seulement
 - ``GET  /api/trackables/<tb>``             fiche détaillée (JSON + page HTML du site)
 - ``GET  /api/trackables/<tb>/log-info``    types de log autorisés et cache courante
 - ``POST /api/trackables/<tb>/logs``        loguer un TB seul (découvert, retiré, note…)
@@ -152,17 +154,11 @@ def get_geocache_inventory(gc_code: str):
 
 # ------------------------------------------------------------------- Un TB
 
-@bp.get('/lookup')
-@_network_errors
-def lookup_trackable():
+def _lookup(code: str):
     """
     Retrouve un TB. Si le code saisi était son code de suivi, il est gardé en base pour
     le loguer ensuite ; la réponse dit seulement ``tracking_code_matched``.
     """
-    code = normalize_code(request.args.get('code'))
-    if not code:
-        return _error('invalid_code', 'Paramètre « code » requis.', 400)
-
     summary = GeocachingTrackablesClient().lookup(code)
     row, _ = trackable_store.upsert_trackable(summary)
     db.session.commit()
@@ -171,6 +167,42 @@ def lookup_trackable():
         'trackable': row.to_dict(),
         'tracking_code_matched': bool(summary.tracking_code),
     })
+
+
+@bp.post('/lookup')
+@_network_errors
+def lookup_trackable():
+    """Recherche par ``{"code": "…"}`` dans le corps. Le corps n'est jamais journalisé."""
+    data = request.get_json(silent=True)
+    code = normalize_code(data.get('code')) if isinstance(data, dict) else ''
+    if not code:
+        return _error('invalid_code', 'Champ « code » requis dans le corps JSON.', 400)
+    return _lookup(code)
+
+
+@bp.get('/lookup')
+@_network_errors
+def lookup_trackable_get():
+    """
+    .. deprecated:: le code passe dans l'URL. Encore accepté pour les codes publics
+    ``TB…`` ; tout autre code (possible code de suivi) est refusé : utiliser le POST.
+    """
+    code = normalize_code(request.args.get('code'))
+    if not code:
+        return _error('invalid_code', 'Paramètre « code » requis.', 400)
+    if not is_public_code(code):
+        # On ne répète pas le code dans le message : ce peut être un code de suivi.
+        logger.info('GET /api/trackables/lookup refusé pour un code non public : passer par le POST.')
+        return _error(
+            'use_post_lookup',
+            'Ce code ne peut pas être recherché en GET : envoyez-le dans le corps de '
+            'POST /api/trackables/lookup (un code de suivi ne doit pas figurer dans une URL).',
+            400,
+        )
+
+    response = _lookup(code)
+    response.headers['Deprecation'] = 'true'
+    return response
 
 
 @bp.get('/<tb_code>')

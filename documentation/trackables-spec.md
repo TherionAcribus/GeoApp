@@ -96,7 +96,8 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
 - **Routes** dans `backend/gc_backend/blueprints/trackables.py`, préfixe `/api/trackables` :
   - `GET /inventory?refresh=` : cache DB, puis rafraîchissement GC ;
   - `GET /geocache/<gc>` ;
-  - `GET /lookup?code=` ;
+  - `POST /lookup` (`{"code": "…"}` dans le corps ; le `GET /lookup?code=` déprécié
+    n'accepte plus que les codes publics `TB…`) ;
   - `GET /<tb>` pour la fiche ;
   - `GET /<tb>/log-info`.
 - **Tests** : la forme du payload (mise à jour de l'assert de `test_geocaching_submit_logs.py:98`) et une route monkeypatchée.

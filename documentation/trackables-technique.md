@@ -164,7 +164,8 @@ Toutes les erreurs ont le format des routes amis,
 |---|---|---|
 | `GET /inventory[?refresh=1 | ?max_age=<s>]` | Mon inventaire depuis la base ; le site est lu au premier appel, sur `refresh`, ou si le relevé a plus de `max_age` secondes. Le bilan `sync` compte `added` (TBs entrés, y compris repris après un dépôt) et `removed`. Un relevé `max_age` raté sert la copie locale avec `sync_error` | 401 `not_authenticated`, 502 `fetch_failed` (sur `refresh` seulement) |
 | `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
-| `GET /lookup?code=` | Code public ou code de suivi ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 404 `not_found` |
+| `POST /lookup` | Corps `{"code": "…"}` : code public ou code de suivi, qui ne passe donc jamais dans une URL ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 400 `invalid_code`, 404 `not_found` |
+| `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
 | `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
 | `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `invalid_date`, `missing_tracking_code`, `missing_geocache` ; 502 `submit_failed`, `submit_rejected` |
@@ -240,8 +241,11 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
 
 - **Code de suivi secret.** Il permet de loguer le TB. Il est stocké en base locale
   uniquement. `Trackable.to_dict()` et `TrackableSummary.to_dict()` ne l'exposent
-  pas (le premier donne `has_tracking_code`). Il n'apparaît pas dans les messages
-  d'erreur. Il ne doit jamais entrer dans un contexte envoyé à l'IA.
+  pas (le premier donne `has_tracking_code`). Il n'apparaît ni dans les messages
+  d'erreur, ni dans une URL : la recherche se fait en `POST /api/trackables/lookup`,
+  et `_sanitize_request_error` retire les query strings des exceptions `requests`
+  (qui citent l'URL appelée, `tracker=` compris). Il ne doit jamais entrer dans un
+  contexte envoyé à l'IA.
 - **Inventaire volumineux.** Le compte de référence a 70 TBs en main : la
   pagination et un affichage filtrable ne sont pas du luxe.
 - **Motifs HTML.** La fiche `details.aspx` est une vieille page ASP.NET. Ses
