@@ -21,7 +21,9 @@ Il doit permettre :
 - `shared/preferences/geo-preferences-schema.json` : source officielle du catalogue.
 - `frontend/theia-extensions/preferences/src/browser/geo-preferences-schema.ts` : typage TypeScript et import du schéma partagé.
 - `frontend/theia-extensions/preferences/src/browser/geo-preference-store.ts` : lecture/écriture Theia, snapshot et regroupement par catégorie.
-- `frontend/theia-extensions/preferences/src/browser/geo-preferences-widget.tsx` : page visuelle des préférences GeoApp.
+- `frontend/theia-extensions/preferences/src/browser/geo-preferences-widget.tsx` : page visuelle (état, handlers, mise en page).
+- `frontend/theia-extensions/preferences/src/browser/geo-preference-item.tsx` : `PreferenceItem` mémoïsé, éditeurs dédiés (`SensitiveInput`, `StringListEditor`), helpers de rendu. Les brouillons texte/nombre sont un état local de l'item : une frappe ne re-rend que la ligne concernée.
+- `frontend/theia-extensions/preferences/src/browser/geo-preference-filters.ts` : fonctions pures de filtrage, recherche, tri et regroupement (testables sans DOM, couvertes par `src/browser/tests/`).
 - `frontend/theia-extensions/preferences/src/browser/services/preference-sync-service.ts` : synchronisation frontend vers backend.
 - `frontend/theia-extensions/preferences/src/browser/services/preferences-api-client.ts` : client HTTP `/api/preferences`.
 - `backend/gc_backend/blueprints/preferences.py` : API REST Flask.
@@ -136,6 +138,10 @@ Fonctionnalités :
 - bouton de réinitialisation : retire la clé du scope utilisateur (retour au `default`, qui suit les évolutions du schéma).
 
 État persisté (`storeState`) : `targetFilter`, `valueFilter`, `showAdvanced`, `devMode`, `expandedCategories`. Les anciens états contenant `searchQuery`, `complexityFilter` ou `selectedGuideId` sont tolérés à la restauration (`complexityFilter` est converti en `showAdvanced`).
+
+Performance : `buildSections` et `isModified` sont mémoïsés par `snapshotVersion` (+ filtres et requête) ; les haystacks de recherche sont cachés par clé ; les options `select-from`/`lexicon` par signature de la source.
+
+Tests : `yarn --cwd frontend/theia-extensions/preferences test:geoapp` exécute les tests ts-node de `src/browser/tests/` (fonctions pures de filtrage/reveal, file d'attente et réconciliation du service de synchro).
 
 Commande Theia :
 

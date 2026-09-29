@@ -27,6 +27,7 @@
     "build": "tsc && yarn run copy:assets",
     "copy:assets": "node -e \"const fs=require('fs-extra'); const path=require('path'); fs.copySync('src/browser/style', 'lib/browser/style'); const schemaSource=path.resolve('../../../shared/preferences/geo-preferences-schema.json'); const schemaTarget=path.resolve('lib/browser/geo-preferences-schema.json'); fs.copySync(schemaSource, schemaTarget); const schemaModulePath=path.resolve('lib/browser/geo-preferences-schema.js'); const schemaModule=fs.readFileSync(schemaModulePath, 'utf8').replace('../../../../../shared/preferences/geo-preferences-schema.json', './geo-preferences-schema.json'); fs.writeFileSync(schemaModulePath, schemaModule);\"",
     "watch": "tsc -w",
+    "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geo-preference-filters.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/preference-sync-service.test.ts",
     "update:theia": "ts-node ../../scripts/update-theia-version.ts",
     "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },
