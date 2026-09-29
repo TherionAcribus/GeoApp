@@ -64,13 +64,17 @@ Exemple minimal :
 
 ### Métadonnées GeoApp
 
-- `x-category` : catégorie principale affichée dans la navigation (`ai`, `chat`, `map`, `checkers`, `plugins`, etc.).
+- `x-category` : catégorie principale affichée dans la navigation (`ai`, `chat`, `formulaSolver`, `map`, `checkers`, `plugins`, etc.). Doit être déclarée dans `x-categories` à la racine du schéma (`{ id, label, order }`), source unique des libellés et de l'ordre des catégories.
 - `x-targets` : indique où la préférence est appliquée.
   - `frontend` : stockée et lue par Theia.
-  - `backend` : synchronisée vers Flask et disponible via `get_value_or_default`.
+  - `backend` : synchronisée vers Flask et disponible via `get_value_or_default`. À réserver aux clés réellement lues côté Python (sinon envois inutiles et badge « Flask » trompeur).
 - `x-tags` : tags fonctionnels utilisés par la recherche, les guides et `@Aide`.
-- `x-sensitive` : masque et protège les valeurs sensibles dans les outils `@Aide`.
+- `x-sensitive` : masque et protège les valeurs sensibles (champ mot de passe dans l'UI, valeur masquée par l'API et les logs backend, accès refusé à `@Aide`). Exige `x-ui.advanced: true`.
 - `x-backendKey` : métadonnée de correspondance backend. La persistance actuelle reste faite sous la clé complète `geoApp.*`.
+
+### Guides par usage
+
+La racine du schéma porte aussi `x-guides` : tableau `{ id, label, description, categories?, sections?, keyPrefixes?, keyIncludes?, tags?, suggestedQueries? }`, source unique partagée entre la page Préférences et les outils `@Aide`. Theia tolère ces clés racine (comme `x-generated`) ; `load_preference_schema` côté Flask les ignore.
 
 ### Métadonnées UI
 
@@ -79,8 +83,8 @@ Chaque préférence doit avoir un bloc `x-ui`.
 - `section` : sous-section affichée dans la page.
 - `label` : libellé court côté utilisateur.
 - `shortDescription` : description courte optionnelle affichée à la place de `description`.
-- `order` : ordre dans la sous-section.
-- `advanced` : préférence technique/risquée/rare, masquée par le filtre `Simples`.
+- `order` : ordre dans la sous-section ; l'ordre des sous-sections suit le plus petit `order` de leurs entrées.
+- `advanced` : préférence technique/risquée/rare, masquée par le filtre `Simples`. Déclaratif : il n'existe plus d'heuristique, une clé sans `advanced` est toujours « simple ».
 - `enumLabels` : libellés humains pour des valeurs d'enum.
 - `keywords` : mots-clés supplémentaires pour la recherche et `@Aide`.
 
@@ -100,9 +104,12 @@ Il fournit :
 
 - `schema` : le schéma chargé ;
 - `definitions` : liste ordonnée des préférences ;
+- `getDefinition(key)` : définition d'une clé, adossée à une `Map` ;
 - `definitionsByCategory` : regroupement par `x-category` ;
+- `categories` / `guides` : `x-categories` et `x-guides` de la racine du schéma ;
 - `getSnapshot()` : valeur effective de chaque préférence, avec fallback sur `default` ;
 - `setValue(key, value, scope)` : écriture via `PreferenceService` ;
+- `reset(key, scope)` : retire la clé du scope (retour au `default` du schéma, propage un `DELETE` au backend si la clé est synchronisée) ;
 - `onDidChange` : événement quand une clé `geoApp.*` change.
 
 Les valeurs frontend sont stockées dans les préférences utilisateur Theia, typiquement `.theia/settings.json`.
@@ -117,18 +124,10 @@ Fonctionnalités :
 - filtres rapides : `Modifiées`, `Theia`, `Flask`, `Simples`, `Avancées` ;
 - navigation par catégories ;
 - sous-sections issues de `x-ui.section` ;
-- guides par usage :
-  - `@Aide et Chat IA`
-  - `Carte et coordonnées`
-  - `Checkers`
-  - `Interface et onglets`
-  - `Plugins et MetaSolver`
-  - `Images et OCR`
-  - `Notes et GPX`
-  - `Système`
+- guides par usage lus depuis `x-guides` du schéma (`@Aide et Chat IA`, `Formula Solver`, `Carte et coordonnées`, `Checkers`, `Interface et onglets`, `Plugins et MetaSolver`, `Images et OCR`, `Notes et GPX`, `Amis`, `Système`) ;
 - ouverture directe d'une catégorie, d'une clé ou d'une recherche ;
 - édition directe selon le type : checkbox, select, input numérique, input texte, textarea JSON, liste de cases pour `array` + `items.enum` ;
-- bouton de réinitialisation vers `default`.
+- bouton de réinitialisation : retire la clé du scope utilisateur (retour au `default`, qui suit les évolutions du schéma).
 
 Commande Theia :
 

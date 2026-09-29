@@ -52,3 +52,35 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
 
 export const GEO_PREFERENCE_KEYS = Object.keys(schemaJson.properties) as GeoPreferenceKey[];
 
+/**
+ * Catégories déclarées à la racine du schéma (`x-categories`) : source unique des
+ * libellés et de l'ordre d'affichage des catégories dans la page Préférences.
+ */
+export interface GeoPreferenceCategory {
+    id: string;
+    label: string;
+    order?: number;
+}
+
+/**
+ * Guides « par usage » déclarés à la racine du schéma (`x-guides`) : source unique
+ * partagée entre la page Préférences et les outils `@Aide`.
+ */
+export interface GeoPreferenceGuide {
+    id: string;
+    label: string;
+    description?: string;
+    categories?: string[];
+    sections?: string[];
+    keyPrefixes?: string[];
+    keyIncludes?: string[];
+    tags?: string[];
+    suggestedQueries?: string[];
+}
+
+export const GEO_PREFERENCE_CATEGORIES: GeoPreferenceCategory[] =
+    (schemaJson as unknown as { 'x-categories'?: GeoPreferenceCategory[] })['x-categories'] ?? [];
+
+export const GEO_PREFERENCE_GUIDES: GeoPreferenceGuide[] =
+    (schemaJson as unknown as { 'x-guides'?: GeoPreferenceGuide[] })['x-guides'] ?? [];
+

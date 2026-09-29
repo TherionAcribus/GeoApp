@@ -66,64 +66,12 @@ export const AIDE_TOOL_PREFIX = 'aide_';
 const ok = (data: unknown): string => JSON.stringify({ success: true, data });
 const err = (message: string): string => JSON.stringify({ success: false, error: message });
 
-const PREFERENCE_GUIDES = [
-    {
-        id: 'aide',
-        label: '@Aide et Chat IA',
-        description: 'Modèles, comportements, skills, tools et sauvegarde des coordonnées trouvées.',
-        categories: ['ai', 'chat'],
-        suggested_queries: ['profil chat', 'policy tools', 'coordonnées trouvées', 'OpenRouter', 'Codex'],
-    },
-    {
-        id: 'map',
-        label: 'Carte et coordonnées',
-        description: 'Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.',
-        categories: ['map', 'ai'],
-        suggested_queries: ['fond de carte', 'coordonnées', 'waypoint automatique', 'overlay Formula Solver'],
-    },
-    {
-        id: 'checkers',
-        label: 'Checkers',
-        description: 'Automatisation, Playwright, GeoCheck, Certitude, Geocaching.com et ouverture des liens.',
-        categories: ['checkers', 'auth'],
-        suggested_queries: ['GeoCheck', 'Playwright', 'garder page ouverte', 'connexion Geocaching'],
-    },
-    {
-        id: 'tabs-ui',
-        label: 'Interface et onglets',
-        description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
-        categories: ['ui', 'alphabets', 'logs'],
-        suggested_queries: ['onglets', 'description géocache', 'colonnes tableau', 'liens externes'],
-    },
-    {
-        id: 'plugins',
-        label: 'Plugins et MetaSolver',
-        description: 'Chargement des plugins, limites d’exécution et pipelines MetaSolver.',
-        categories: ['plugins'],
-        suggested_queries: ['lazy plugins', 'timeout plugin', 'metasolver', 'pipeline'],
-    },
-    {
-        id: 'images-ocr',
-        label: 'Images et OCR',
-        description: 'Galerie d’images, stockage local, moteurs OCR et fournisseurs vision.',
-        categories: ['images', 'ocr'],
-        suggested_queries: ['OCR', 'galerie images', 'LM Studio', 'vision OpenRouter'],
-    },
-    {
-        id: 'notes-gpx',
-        label: 'Notes et GPX',
-        description: 'Synchronisation des notes personnelles, export GPX et logs Geocaching.com.',
-        categories: ['notes'],
-        suggested_queries: ['notes personnelles', 'export GPX', 'logs Geocaching'],
-    },
-    {
-        id: 'system',
-        label: 'Système',
-        description: 'Backend, archive, mises à jour, recherche et réglages de fonctionnement.',
-        categories: ['backend', 'archive', 'updates', 'search', 'earthcoach'],
-        suggested_queries: ['backend', 'archive automatique', 'mises à jour', 'EarthCoach'],
-    },
-];
+/**
+ * Les guides « par usage » des préférences vivent dans le schéma partagé
+ * (`x-guides`) et sont servis via `GeoPreferenceStore.guides` : la page
+ * Préférences et `@Aide` lisent la même source, qui ne peut plus dériver.
+ */
+
 
 function buildParams(
     props: Record<string, { type: string; description: string; required?: boolean; enum?: string[]; items?: unknown }>
@@ -392,7 +340,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 parameters: buildParams({}),
                 handler: async () => {
                     try {
-                        return ok(PREFERENCE_GUIDES);
+                        return ok(this.preferenceStore.guides);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

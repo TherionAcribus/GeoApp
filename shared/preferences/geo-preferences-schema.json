@@ -19,12 +19,12 @@
           "assistant",
           "aide",
           "ia globale"
-        ]
+        ],
+        "advanced": false
       },
       "x-category": "ai",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "global",
@@ -47,10 +47,9 @@
           "solver"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "formula-solver"
@@ -74,8 +73,7 @@
       },
       "x-category": "ai",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "openrouter",
@@ -153,8 +151,7 @@
       },
       "x-category": "ai",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "openrouter",
@@ -205,8 +202,7 @@
       },
       "x-category": "ai",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "openrouter",
@@ -375,7 +371,7 @@
           "compatibilite"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -408,7 +404,7 @@
           "ocr"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -441,7 +437,7 @@
           "waypoints"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -474,7 +470,7 @@
           "bulk"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -504,7 +500,7 @@
           "web": "Web"
         }
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -534,7 +530,7 @@
           "web": "Web"
         }
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -564,7 +560,7 @@
           "web": "Web"
         }
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -1398,10 +1394,9 @@
           "reponses"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "formula-solver",
@@ -1425,10 +1420,9 @@
           "limite"
         ]
       },
-      "x-category": "ai",
+      "x-category": "formulaSolver",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "formula-solver"
@@ -1449,7 +1443,7 @@
           "overlay"
         ]
       },
-      "x-category": "map",
+      "x-category": "formulaSolver",
       "x-targets": [
         "frontend"
       ],
@@ -1475,8 +1469,7 @@
       },
       "x-category": "ai",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "map"
@@ -1511,8 +1504,7 @@
       },
       "x-category": "ui",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.ui.tabs.restoreBehavior": {
@@ -1538,8 +1530,7 @@
       },
       "x-category": "ui",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.ui.tabs.maxOpen": {
@@ -1557,8 +1548,7 @@
       },
       "x-category": "ui",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.geocaches.table.visibleColumns": {
@@ -1979,8 +1969,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "map"
@@ -2000,8 +1989,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.map.geocacheIconScale": {
@@ -2074,8 +2062,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.map.showNearbyGeocaches": {
@@ -2095,8 +2082,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.map.clusteringMode": {
@@ -2177,8 +2163,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.map.clipboardWatcher": {
@@ -2199,8 +2184,7 @@
       },
       "x-category": "map",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.map.geocoding.provider": {
@@ -2256,7 +2240,8 @@
           "token",
           "recherche",
           "adresse"
-        ]
+        ],
+        "advanced": true
       },
       "x-category": "map",
       "x-targets": [
@@ -2312,8 +2297,7 @@
       },
       "x-category": "updates",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.updates.channel": {
@@ -2336,8 +2320,7 @@
       },
       "x-category": "updates",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.backend.apiBaseUrl": {
@@ -2854,8 +2837,7 @@
       },
       "x-category": "images",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "storage"
@@ -3069,7 +3051,11 @@
     },
     "geoApp.aiScorer.provider": {
       "type": "string",
-      "enum": ["auto", "lmstudio", "openrouter"],
+      "enum": [
+        "auto",
+        "lmstudio",
+        "openrouter"
+      ],
       "default": "auto",
       "title": "AI Scorer - Fournisseur LLM",
       "description": "Fournisseur LLM utilise par l'AI Scorer (analyse des resultats de plugins). 'auto' = meme fournisseur que le plugin OCR.",
@@ -3084,8 +3070,14 @@
         }
       },
       "x-category": "ocr",
-      "x-targets": ["frontend", "backend"],
-      "x-tags": ["ai", "scorer"]
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "ai",
+        "scorer"
+      ]
     },
     "geoApp.aiScorer.openRouter.model": {
       "type": "string",
@@ -3099,8 +3091,14 @@
         "order": 155
       },
       "x-category": "ocr",
-      "x-targets": ["frontend", "backend"],
-      "x-tags": ["openrouter", "scorer"]
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "scorer"
+      ]
     },
     "geoApp.aiScorer.lmstudio.model": {
       "type": "string",
@@ -3114,10 +3112,16 @@
         "order": 160
       },
       "x-category": "ocr",
-      "x-targets": ["frontend", "backend"],
-      "x-tags": ["lmstudio", "scorer"]
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "lmstudio",
+        "scorer"
+      ]
     },
-        "geoApp.search.autoRefreshDelay": {
+    "geoApp.search.autoRefreshDelay": {
       "type": "integer",
       "minimum": 5,
       "maximum": 120,
@@ -3136,8 +3140,7 @@
       },
       "x-category": "search",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.plugins.lazyMode": {
@@ -3199,7 +3202,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "backend"
+        "frontend"
       ],
       "x-backendKey": "plugins.executor.max_parallel"
     },
@@ -3280,8 +3283,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.common.decode": {
@@ -3297,8 +3299,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.common.detect": {
@@ -3314,8 +3315,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.alpha_only.decode": {
@@ -3331,8 +3331,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.alpha_only.detect": {
@@ -3348,8 +3347,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.numeric_only.decode": {
@@ -3365,8 +3363,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.numeric_only.detect": {
@@ -3382,8 +3379,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.symbols_only.decode": {
@@ -3399,8 +3395,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.metasolver.profiles.symbols_only.detect": {
@@ -3416,8 +3411,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ]
     },
     "geoApp.tasks.autoStartBackground": {
@@ -3676,8 +3670,7 @@
       },
       "x-category": "alphabets",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "ui",
@@ -3706,8 +3699,7 @@
       },
       "x-category": "alphabets",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "ui",
@@ -3736,8 +3728,7 @@
       },
       "x-category": "alphabets",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "ui",
@@ -3844,8 +3835,7 @@
       },
       "x-category": "notes",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "notes",
@@ -4146,8 +4136,7 @@
       },
       "x-category": "checkers",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "geocheck",
@@ -4202,8 +4191,7 @@
       },
       "x-category": "auth",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "geocaching",
@@ -4240,8 +4228,7 @@
       },
       "x-category": "auth",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "geocaching",
@@ -4265,8 +4252,7 @@
       },
       "x-category": "auth",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "geocaching",
@@ -4291,8 +4277,7 @@
       },
       "x-category": "auth",
       "x-targets": [
-        "frontend",
-        "backend"
+        "frontend"
       ],
       "x-tags": [
         "geocaching",
@@ -4361,7 +4346,7 @@
       "title": "EarthCoach - Verbosite des reponses",
       "description": "Controle la longueur des premiers comptes rendus EarthCoach. Compact privilegie un resume rapide du listing; detaille autorise davantage d'explications geologiques.",
       "x-ui": {
-        "section": "Reponse",
+        "section": "Réponse",
         "label": "Verbosite",
         "order": 5,
         "enumLabels": {
@@ -4576,5 +4561,401 @@
         "logs"
       ]
     }
-  }
+  },
+  "x-categories": [
+    {
+      "id": "ai",
+      "label": "Intelligence artificielle",
+      "order": 10
+    },
+    {
+      "id": "chat",
+      "label": "Chat IA GeoApp",
+      "order": 20
+    },
+    {
+      "id": "formulaSolver",
+      "label": "Formula Solver",
+      "order": 30
+    },
+    {
+      "id": "earthcoach",
+      "label": "EarthCoach",
+      "order": 40
+    },
+    {
+      "id": "map",
+      "label": "Carte",
+      "order": 50
+    },
+    {
+      "id": "checkers",
+      "label": "Checkers",
+      "order": 60
+    },
+    {
+      "id": "auth",
+      "label": "Authentification",
+      "order": 70
+    },
+    {
+      "id": "plugins",
+      "label": "Plugins et MetaSolver",
+      "order": 80
+    },
+    {
+      "id": "ui",
+      "label": "Interface et onglets",
+      "order": 90
+    },
+    {
+      "id": "notes",
+      "label": "Notes et GPX",
+      "order": 100
+    },
+    {
+      "id": "ocr",
+      "label": "OCR",
+      "order": 110
+    },
+    {
+      "id": "images",
+      "label": "Images",
+      "order": 120
+    },
+    {
+      "id": "alphabets",
+      "label": "Alphabets",
+      "order": 130
+    },
+    {
+      "id": "archive",
+      "label": "Archive",
+      "order": 140
+    },
+    {
+      "id": "backend",
+      "label": "Backend",
+      "order": 150
+    },
+    {
+      "id": "updates",
+      "label": "Mises à jour",
+      "order": 160
+    },
+    {
+      "id": "search",
+      "label": "Recherche",
+      "order": 170
+    },
+    {
+      "id": "logs",
+      "label": "Logs",
+      "order": 180
+    },
+    {
+      "id": "friends",
+      "label": "Amis",
+      "order": 190
+    },
+    {
+      "id": "generic",
+      "label": "Général",
+      "order": 200
+    }
+  ],
+  "x-guides": [
+    {
+      "id": "aide",
+      "label": "@Aide et Chat IA",
+      "description": "Modèles, comportements, skills, tools et sauvegarde des coordonnées trouvées.",
+      "categories": [
+        "ai",
+        "chat"
+      ],
+      "sections": [
+        "Activation",
+        "Profils",
+        "Profils par workflow",
+        "Comportement",
+        "Policy tools et skills",
+        "Coordonnées trouvées",
+        "OpenRouter",
+        "OpenAI Codex"
+      ],
+      "keyPrefixes": [
+        "geoApp.ai.",
+        "geoApp.chat."
+      ],
+      "tags": [
+        "chat",
+        "geoapp",
+        "prompt",
+        "skills",
+        "tools",
+        "policy"
+      ],
+      "suggestedQueries": [
+        "profil chat",
+        "policy tools",
+        "coordonnées trouvées",
+        "OpenRouter",
+        "Codex"
+      ]
+    },
+    {
+      "id": "formula-solver",
+      "label": "Formula Solver",
+      "description": "Détection et résolution des formules, profils IA dédiés et overlay carte.",
+      "categories": [
+        "formulaSolver"
+      ],
+      "keyPrefixes": [
+        "geoApp.formulaSolver."
+      ],
+      "suggestedQueries": [
+        "formula solver",
+        "détection formule",
+        "overlay carte",
+        "profil formula solver"
+      ]
+    },
+    {
+      "id": "map",
+      "label": "Carte et coordonnées",
+      "description": "Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.",
+      "categories": [
+        "map"
+      ],
+      "sections": [
+        "Carte",
+        "Affichage",
+        "Fournisseurs",
+        "Coordonnées trouvées",
+        "Formula Solver",
+        "Amis"
+      ],
+      "keyPrefixes": [
+        "geoApp.map."
+      ],
+      "keyIncludes": [
+        "formulaSolver.preview.mapOverlayEnabled",
+        "ai.mapHints"
+      ],
+      "tags": [
+        "map"
+      ],
+      "suggestedQueries": [
+        "fond de carte",
+        "coordonnées",
+        "waypoint automatique",
+        "overlay Formula Solver"
+      ]
+    },
+    {
+      "id": "checkers",
+      "label": "Checkers",
+      "description": "Automatisation, Playwright, GeoCheck, Certitude, Geocaching.com et ouverture des liens.",
+      "categories": [
+        "checkers",
+        "auth"
+      ],
+      "sections": [
+        "Général",
+        "Playwright",
+        "Sécurité",
+        "Navigation",
+        "Geocaching.com"
+      ],
+      "keyPrefixes": [
+        "geoApp.checkers.",
+        "geoApp.auth.geocaching."
+      ],
+      "tags": [
+        "checkers",
+        "geocheck",
+        "authentication"
+      ],
+      "suggestedQueries": [
+        "GeoCheck",
+        "Playwright",
+        "garder page ouverte",
+        "connexion Geocaching"
+      ]
+    },
+    {
+      "id": "tabs-ui",
+      "label": "Interface et onglets",
+      "description": "Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.",
+      "categories": [
+        "ui",
+        "alphabets",
+        "logs"
+      ],
+      "sections": [
+        "Général",
+        "Onglets",
+        "Tableaux",
+        "Navigation",
+        "Fiche géocache",
+        "Affichage"
+      ],
+      "keyPrefixes": [
+        "geoApp.ui.",
+        "geoApp.geocache.",
+        "geoApp.geocaches.table.",
+        "geoApp.logs.",
+        "geoApp.alphabets."
+      ],
+      "tags": [
+        "ui",
+        "navigation",
+        "table"
+      ],
+      "suggestedQueries": [
+        "onglets",
+        "description géocache",
+        "colonnes tableau",
+        "liens externes"
+      ]
+    },
+    {
+      "id": "plugins",
+      "label": "Plugins et MetaSolver",
+      "description": "Chargement des plugins, limites d’exécution et pipelines MetaSolver.",
+      "categories": [
+        "plugins"
+      ],
+      "sections": [
+        "Général",
+        "Exécution",
+        "MetaSolver"
+      ],
+      "keyPrefixes": [
+        "geoApp.plugins.",
+        "geoApp.metasolver."
+      ],
+      "tags": [
+        "metasolver"
+      ],
+      "suggestedQueries": [
+        "lazy plugins",
+        "timeout plugin",
+        "metasolver",
+        "pipeline"
+      ]
+    },
+    {
+      "id": "images-ocr",
+      "label": "Images et OCR",
+      "description": "Galerie d’images, stockage local, moteurs OCR et fournisseurs vision.",
+      "categories": [
+        "images",
+        "ocr"
+      ],
+      "sections": [
+        "Galerie",
+        "Stockage",
+        "Général",
+        "Fournisseurs",
+        "LM Studio",
+        "OpenRouter"
+      ],
+      "keyPrefixes": [
+        "geoApp.images.",
+        "geoApp.ocr."
+      ],
+      "tags": [
+        "vision",
+        "openrouter",
+        "storage"
+      ],
+      "suggestedQueries": [
+        "OCR",
+        "galerie images",
+        "LM Studio",
+        "vision OpenRouter"
+      ]
+    },
+    {
+      "id": "notes-gpx",
+      "label": "Notes et GPX",
+      "description": "Synchronisation des notes personnelles, export GPX et logs Geocaching.com.",
+      "categories": [
+        "notes"
+      ],
+      "sections": [
+        "Geocaching.com",
+        "GPX"
+      ],
+      "keyPrefixes": [
+        "geoApp.notes.",
+        "geoApp.gpxExport."
+      ],
+      "tags": [
+        "notes",
+        "gpx",
+        "export"
+      ],
+      "suggestedQueries": [
+        "notes personnelles",
+        "export GPX",
+        "logs Geocaching"
+      ]
+    },
+    {
+      "id": "friends",
+      "label": "Amis",
+      "description": "Mise à jour automatique, carte des amis, notifications et zone « Amis ».",
+      "categories": [
+        "friends"
+      ],
+      "keyPrefixes": [
+        "geoApp.friends."
+      ],
+      "suggestedQueries": [
+        "amis",
+        "carte des amis",
+        "notifications amis"
+      ]
+    },
+    {
+      "id": "system",
+      "label": "Système",
+      "description": "Backend, archive, mises à jour, recherche et réglages de fonctionnement.",
+      "categories": [
+        "backend",
+        "archive",
+        "updates",
+        "search",
+        "earthcoach",
+        "generic"
+      ],
+      "sections": [
+        "Système",
+        "Général",
+        "Références"
+      ],
+      "keyPrefixes": [
+        "geoApp.backend.",
+        "geoApp.tasks.",
+        "geoApp.archive.",
+        "geoApp.updates.",
+        "geoApp.search.",
+        "geoApp.earthCoach."
+      ],
+      "tags": [
+        "network",
+        "safety",
+        "data-preservation",
+        "earthcoach"
+      ],
+      "suggestedQueries": [
+        "backend",
+        "archive automatique",
+        "mises à jour",
+        "EarthCoach"
+      ]
+    }
+  ]
 }

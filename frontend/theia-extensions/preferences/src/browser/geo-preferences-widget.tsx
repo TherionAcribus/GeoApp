@@ -6,7 +6,12 @@ import { StatefulWidget, Message } from '@theia/core/lib/browser';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
-import { GeoPreferenceDefinition, GeoPreferenceKey } from './geo-preferences-schema';
+import {
+    GeoPreferenceDefinition,
+    GeoPreferenceGuide,
+    GeoPreferenceKey,
+    GEO_PREFERENCE_CATEGORIES,
+} from './geo-preferences-schema';
 import { GeoLexiconEditor, LexiconEntry } from './geo-lexicon-editor';
 
 export interface GeoPreferencesOpenOptions {
@@ -19,17 +24,6 @@ type GeoPreferenceTargetFilter = 'all' | 'frontend' | 'backend';
 type GeoPreferenceValueFilter = 'all' | 'modified';
 type GeoPreferenceComplexityFilter = 'all' | 'simple' | 'advanced';
 
-interface GeoPreferenceGuide {
-    id: string;
-    label: string;
-    description: string;
-    categories?: string[];
-    sections?: string[];
-    keyPrefixes?: string[];
-    keyIncludes?: string[];
-    tags?: string[];
-}
-
 interface GeoPreferenceSection {
     category: string;
     label: string;
@@ -41,136 +35,14 @@ interface GeoPreferenceSection {
 interface GeoPreferenceSubsection {
     id: string;
     label: string;
+    /** Plus petit `x-ui.order` des entrées : détermine l'ordre des sous-sections. */
+    minOrder: number;
     entries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-    ai: 'Intelligence artificielle',
-    chat: 'Chat IA GeoApp',
-    formulaSolver: 'Formula Solver',
-    earthcoach: 'EarthCoach',
-    ui: 'Interface et onglets',
-    alphabets: 'Alphabets',
-    map: 'Carte',
-    updates: 'Mises à jour',
-    search: 'Recherche',
-    checkers: 'Checkers',
-    auth: 'Authentification',
-    plugins: 'Plugins et MetaSolver',
-    backend: 'Backend',
-    ocr: 'OCR',
-    images: 'Images',
-    notes: 'Notes et GPX',
-    logs: 'Logs',
-    friends: 'Amis',
-    archive: 'Archive',
-    generic: 'Général'
-};
-
-const CATEGORY_ORDER = [
-    'ai',
-    'chat',
-    'earthcoach',
-    'map',
-    'checkers',
-    'auth',
-    'plugins',
-    'ui',
-    'notes',
-    'ocr',
-    'images',
-    'alphabets',
-    'archive',
-    'backend',
-    'updates',
-    'search',
-    'logs',
-    'friends',
-    'generic'
-];
-
-const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
-    {
-        id: 'aide',
-        label: '@Aide et Chat IA',
-        description: 'Modèles, comportements, skills, tools et sauvegarde des coordonnées trouvées.',
-        categories: ['ai', 'chat'],
-        sections: ['Activation', 'Profils', 'Profils par workflow', 'Comportement', 'Policy tools et skills', 'Coordonnées trouvées', 'OpenRouter', 'OpenAI Codex'],
-        keyPrefixes: ['geoApp.ai.', 'geoApp.chat.'],
-        tags: ['chat', 'geoapp', 'prompt', 'skills', 'tools', 'policy']
-    },
-    {
-        id: 'map',
-        label: 'Carte et coordonnées',
-        description: 'Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.',
-        categories: ['map'],
-        sections: ['Carte', 'Affichage', 'Fournisseurs', 'Coordonnées trouvées', 'Formula Solver', 'Amis'],
-        keyPrefixes: ['geoApp.map.'],
-        keyIncludes: ['formulaSolver.preview.mapOverlayEnabled', 'ai.mapHints'],
-        tags: ['map']
-    },
-    {
-        id: 'checkers',
-        label: 'Checkers',
-        description: 'Automatisation, Playwright, GeoCheck, Certitude, Geocaching.com et ouverture des liens.',
-        categories: ['checkers', 'auth'],
-        sections: ['Général', 'Playwright', 'Sécurité', 'Navigation', 'Geocaching.com'],
-        keyPrefixes: ['geoApp.checkers.', 'geoApp.auth.geocaching.'],
-        tags: ['checkers', 'geocheck', 'authentication']
-    },
-    {
-        id: 'tabs-ui',
-        label: 'Interface et onglets',
-        description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
-        categories: ['ui', 'alphabets', 'logs'],
-        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage'],
-        keyPrefixes: ['geoApp.ui.', 'geoApp.geocache.', 'geoApp.geocaches.table.', 'geoApp.logs.', 'geoApp.alphabets.'],
-        tags: ['ui', 'navigation', 'table']
-    },
-    {
-        id: 'plugins',
-        label: 'Plugins et MetaSolver',
-        description: 'Chargement des plugins, limites d’exécution et pipelines MetaSolver.',
-        categories: ['plugins'],
-        sections: ['Général', 'Exécution', 'MetaSolver'],
-        keyPrefixes: ['geoApp.plugins.', 'geoApp.metasolver.'],
-        tags: ['metasolver']
-    },
-    {
-        id: 'images-ocr',
-        label: 'Images et OCR',
-        description: 'Galerie d’images, stockage local, moteurs OCR et fournisseurs vision.',
-        categories: ['images', 'ocr'],
-        sections: ['Galerie', 'Stockage', 'Général', 'Fournisseurs', 'LM Studio', 'OpenRouter'],
-        keyPrefixes: ['geoApp.images.', 'geoApp.ocr.'],
-        tags: ['vision', 'openrouter', 'storage']
-    },
-    {
-        id: 'notes-gpx',
-        label: 'Notes et GPX',
-        description: 'Synchronisation des notes personnelles, export GPX et logs Geocaching.com.',
-        categories: ['notes'],
-        sections: ['Geocaching.com', 'GPX'],
-        keyPrefixes: ['geoApp.notes.', 'geoApp.gpxExport.'],
-        tags: ['notes', 'gpx', 'export']
-    },
-    {
-        id: 'friends',
-        label: 'Amis',
-        description: 'Mise à jour automatique, carte des amis, notifications et zone « Amis ».',
-        categories: ['friends'],
-        keyPrefixes: ['geoApp.friends.']
-    },
-    {
-        id: 'system',
-        label: 'Système',
-        description: 'Backend, archive, mises à jour, recherche et réglages de fonctionnement.',
-        categories: ['backend', 'archive', 'updates', 'search', 'earthcoach'],
-        sections: ['Système', 'Général', 'Références'],
-        keyPrefixes: ['geoApp.backend.', 'geoApp.tasks.', 'geoApp.archive.', 'geoApp.updates.', 'geoApp.search.', 'geoApp.earthCoach.'],
-        tags: ['network', 'safety', 'data-preservation', 'earthcoach']
-    }
-];
+// Libellés et ordre des catégories lus dans le schéma partagé (`x-categories`).
+const CATEGORY_LABELS = new Map(GEO_PREFERENCE_CATEGORIES.map(category => [category.id, category.label]));
+const CATEGORY_ORDERS = new Map(GEO_PREFERENCE_CATEGORIES.map((category, index) => [category.id, category.order ?? index]));
 
 const ENUM_VALUE_LABELS: Record<string, string> = {
     true: 'Activé',
@@ -242,7 +114,7 @@ function preferenceLabel(key: string): string {
 }
 
 function categoryLabel(category: string): string {
-    return CATEGORY_LABELS[category] ?? category;
+    return CATEGORY_LABELS.get(category) ?? category;
 }
 
 function enumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition): string {
@@ -999,7 +871,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                         this.selectedGuideId = 'all';
                         this.update();
                     })}
-                    {PREFERENCE_GUIDES.map(guide => this.renderGuideButton(
+                    {this.store.guides.map(guide => this.renderGuideButton(
                         guide.label,
                         guideCounts.get(guide.id) ?? 0,
                         this.selectedGuideId === guide.id,
@@ -1249,7 +1121,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                 frozenJson={this.jsonEditingSnapshot.get(key)}
                 modified={this.isModified(key, definition)}
                 highlighted={this.highlightedPreferenceKey === key}
-                advanced={this.isAdvancedPreference(key, definition)}
+                advanced={this.isAdvancedPreference(definition)}
                 handlers={this.itemHandlers}
             />
         );
@@ -1426,7 +1298,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                     label: categoryLabel(category),
                     entries,
                     filteredEntries,
-                    subsections: this.buildSubsections(category, filteredEntries)
+                    subsections: this.buildSubsections(filteredEntries)
                 };
             });
     }
@@ -1437,7 +1309,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             return this.guideCountsCache.counts;
         }
         const counts = new Map<string, number>();
-        for (const guide of PREFERENCE_GUIDES) {
+        for (const guide of this.store.guides) {
             const count = this.store.definitions.filter(({ key, definition }) =>
                 this.matchesGuide(key, definition, guide) && this.matchesBaseFilters(key, definition)
             ).length;
@@ -1448,19 +1320,22 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     }
 
     private buildSubsections(
-        category: string,
         entries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>
     ): GeoPreferenceSubsection[] {
         const map = new Map<string, GeoPreferenceSubsection>();
         for (const entry of entries) {
-            const label = this.toPreferenceSectionLabel(category, entry.key, entry.definition);
+            const label = this.toPreferenceSectionLabel(entry.definition);
             const id = this.toSubsectionId(label);
+            const order = entry.definition['x-ui']?.order ?? Number.MAX_SAFE_INTEGER;
             if (!map.has(id)) {
-                map.set(id, { id, label, entries: [] });
+                map.set(id, { id, label, minOrder: order, entries: [] });
             }
-            map.get(id)?.entries.push(entry);
+            const subsection = map.get(id)!;
+            subsection.minOrder = Math.min(subsection.minOrder, order);
+            subsection.entries.push(entry);
         }
-        return Array.from(map.values()).sort((left, right) => this.compareSubsections(left.label, right.label));
+        return Array.from(map.values()).sort((left, right) =>
+            left.minOrder - right.minOrder || left.label.localeCompare(right.label));
     }
 
     private initializeExpandedCategories(categories: string[]): void {
@@ -1489,7 +1364,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             return false;
         }
 
-        const advanced = this.isAdvancedPreference(key, definition);
+        const advanced = this.isAdvancedPreference(definition);
         if (this.complexityFilter === 'simple' && advanced) {
             return false;
         }
@@ -1546,13 +1421,13 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         if (this.selectedGuideId === 'all') {
             return undefined;
         }
-        return PREFERENCE_GUIDES.find(guide => guide.id === this.selectedGuideId);
+        return this.store.guides.find(guide => guide.id === this.selectedGuideId);
     }
 
     private matchesGuide(key: GeoPreferenceKey, definition: GeoPreferenceDefinition, guide: GeoPreferenceGuide): boolean {
         const keyText = String(key);
         const category = definition['x-category'] || 'generic';
-        const section = definition['x-ui']?.section ?? this.toPreferenceSectionLabel(category, key, definition);
+        const section = definition['x-ui']?.section ?? 'Général';
         const tags = definition['x-tags'] ?? [];
 
         return Boolean(
@@ -1617,11 +1492,10 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     }
 
     private compareCategories(a: string, b: string): number {
-        const aIndex = CATEGORY_ORDER.indexOf(a);
-        const bIndex = CATEGORY_ORDER.indexOf(b);
-        if (aIndex !== -1 || bIndex !== -1) {
-            return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex)
-                - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
+        const aOrder = CATEGORY_ORDERS.get(a);
+        const bOrder = CATEGORY_ORDERS.get(b);
+        if (aOrder !== undefined || bOrder !== undefined) {
+            return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
         }
         return a.localeCompare(b);
     }
@@ -1640,152 +1514,17 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         return String(leftKey).localeCompare(String(rightKey));
     }
 
-    private compareSubsections(left: string, right: string): number {
-        const order = [
-            'Général',
-            'Activation',
-            'Profils',
-            'Profils par workflow',
-            'Comportement',
-            'Policy tools et skills',
-            'Coordonnées trouvées',
-            'Carte',
-            'Affichage',
-            'Onglets',
-            'Tableaux',
-            'Navigation',
-            'Fiche géocache',
-            'Exécution',
-            'MetaSolver',
-            'Fournisseurs',
-            'OpenRouter',
-            'OpenAI Codex',
-            'LM Studio',
-            'Playwright',
-            'Sécurité',
-            'Références',
-            'Stockage',
-            'Galerie',
-            'GPX',
-            'Geocaching.com',
-            'Système'
-        ];
-        const leftIndex = order.indexOf(left);
-        const rightIndex = order.indexOf(right);
-        if (leftIndex !== -1 || rightIndex !== -1) {
-            return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex)
-                - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
-        }
-        return left.localeCompare(right);
-    }
-
-    private toPreferenceSectionLabel(category: string, key: string, definition: GeoPreferenceDefinition): string {
-        if (definition['x-ui']?.section) {
-            return definition['x-ui'].section;
-        }
-        if (key.includes('.openRouter.')) {
-            return 'OpenRouter';
-        }
-        if (key.includes('.codex.')) {
-            return 'OpenAI Codex';
-        }
-        if (key.includes('.lmstudio.')) {
-            return 'LM Studio';
-        }
-        if (key.includes('.workflowProfile.')) {
-            return 'Profils par workflow';
-        }
-        if (key.includes('.behaviorProfile.')) {
-            return 'Comportement';
-        }
-        if (key.includes('.promptPack') || key.includes('.skillPack') || key.includes('.toolPolicy.') || key.includes('.skillPolicy.')) {
-            return 'Policy tools et skills';
-        }
-        if (key.includes('.foundCoordinates.')) {
-            return 'Coordonnées trouvées';
-        }
-        if (key.includes('.formulaSolver.')) {
-            return 'Formula Solver';
-        }
-        if (key.includes('.tabs.')) {
-            return 'Onglets';
-        }
-        if (key.includes('.geocaches.table.')) {
-            return 'Tableaux';
-        }
-        if (key.includes('.geocache.externalLinks.') || key.includes('.linkOpenMode')) {
-            return 'Navigation';
-        }
-        if (key.includes('.geocache.')) {
-            return 'Fiche géocache';
-        }
-        if (key.includes('.executor.')) {
-            return 'Exécution';
-        }
-        if (key.includes('.metasolver.')) {
-            return 'MetaSolver';
-        }
-        if (key.includes('.playwright.') || key.includes('profileDir')) {
-            return 'Playwright';
-        }
-        if (key.includes('allowedDomains')) {
-            return 'Sécurité';
-        }
-        if (key.includes('.gpxExport.')) {
-            return 'GPX';
-        }
-        if (key.includes('.geocaching.')) {
-            return 'Geocaching.com';
-        }
-        if (key.includes('.references.')) {
-            return 'Références';
-        }
-        if (key.includes('.gallery.')) {
-            return 'Galerie';
-        }
-        if (key.includes('.storage.')) {
-            return 'Stockage';
-        }
-        if (category === 'backend') {
-            return 'Système';
-        }
-        if (category === 'map') {
-            return 'Carte';
-        }
-        if (category === 'checkers') {
-            return 'Général';
-        }
-        return 'Général';
+    /** Toutes les clés du schéma déclarent `x-ui.section` : simple repli sur « Général ». */
+    private toPreferenceSectionLabel(definition: GeoPreferenceDefinition): string {
+        return definition['x-ui']?.section ?? 'Général';
     }
 
     private toSubsectionId(label: string): string {
         return this.normalizeSearchText(label).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general';
     }
 
-    private isAdvancedPreference(key: GeoPreferenceKey | string, definition: GeoPreferenceDefinition): boolean {
-        if (definition['x-ui']?.advanced !== undefined) {
-            return Boolean(definition['x-ui'].advanced);
-        }
-        const keyText = String(key);
-        const tags = definition['x-tags'] ?? [];
-        if (definition.type === 'object' || definition['x-sensitive'] || tags.includes('secret') || tags.includes('safety')) {
-            return true;
-        }
-        return [
-            '.openRouter.',
-            '.codex.',
-            '.lmstudio.',
-            '.executor.',
-            '.tasks.',
-            '.metasolver.profiles.',
-            '.toolPolicy.',
-            '.skillPolicy.',
-            'allowedDomains',
-            'profileDir',
-            'apiBaseUrl',
-            'archive.autoSync',
-            'autoDiscoverOnStart'
-        ].some(fragment => keyText.includes(fragment));
+    private isAdvancedPreference(definition: GeoPreferenceDefinition): boolean {
+        return Boolean(definition['x-ui']?.advanced);
     }
 
 }

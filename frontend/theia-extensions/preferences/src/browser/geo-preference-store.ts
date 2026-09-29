@@ -3,7 +3,16 @@ import { Emitter, Event } from '@theia/core/lib/common/event';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 
-import { geoPreferenceSchema, GeoPreferenceDefinition, GeoPreferenceKey, GEO_PREFERENCE_KEYS } from './geo-preferences-schema';
+import {
+    geoPreferenceSchema,
+    GeoPreferenceCategory,
+    GeoPreferenceDefinition,
+    GeoPreferenceGuide,
+    GeoPreferenceKey,
+    GEO_PREFERENCE_CATEGORIES,
+    GEO_PREFERENCE_GUIDES,
+    GEO_PREFERENCE_KEYS,
+} from './geo-preferences-schema';
 
 export interface GeoPreferenceChange {
     key: string;
@@ -41,6 +50,16 @@ export class GeoPreferenceStore {
             }));
         }
         return this.cachedDefinitions;
+    }
+
+    /** Catégories déclarées par `x-categories` à la racine du schéma. */
+    get categories(): GeoPreferenceCategory[] {
+        return GEO_PREFERENCE_CATEGORIES;
+    }
+
+    /** Guides « par usage » déclarés par `x-guides` à la racine du schéma. */
+    get guides(): GeoPreferenceGuide[] {
+        return GEO_PREFERENCE_GUIDES;
     }
 
     getDefinition(key: string): GeoPreferenceDefinition | undefined {

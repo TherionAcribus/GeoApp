@@ -2,6 +2,8 @@
 
 Ce document décrit la stratégie de gestion des préférences GeoApp commune à l'interface Theia et au backend Flask.
 
+> La référence technique à jour est `documentation/preferences-technique.md` ; pour ajouter une préférence, voir `documentation/preferences-ajout-rapide.md`.
+
 ## Schéma partagé
 
 - Le catalogue officiel est défini dans `shared/preferences/geo-preferences-schema.json`.

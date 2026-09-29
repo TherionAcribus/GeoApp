@@ -23,7 +23,7 @@ Ne pas créer une préférence uniquement dans un composant React, un service Th
 7. Mettre `x-sensitive: true` pour une clé API, un token ou un secret.
 8. Lire la préférence dans le module concerné avec le bon service.
 9. Si la préférence est backend, vérifier que son type est supporté par `backend/gc_backend/utils/preferences.py`.
-10. Lancer les validations.
+10. Lancer les validations — dont `backend/tests/test_preferences_schema.py`, qui vérifie la cohérence du schéma (champs requis, défauts valides, `enumLabels`, catégories/guides, `optionsFrom`, clés sensibles avancées).
 
 ## Modèle conseillé
 
@@ -254,8 +254,10 @@ Pour une clé API :
 Effets :
 
 - l'UI utilise un champ masqué ;
+- la valeur n'est jamais renvoyée par l'API (`GET /api/preferences` la masque) ni écrite dans les logs backend ;
 - `@Aide` masque la valeur ;
-- `@Aide` refuse de lire ou modifier cette clé.
+- `@Aide` refuse de lire ou modifier cette clé ;
+- `x-ui.advanced: true` est exigé (vérifié par `test_preferences_schema.py`).
 
 ## Ajouter une nouvelle catégorie
 
@@ -264,24 +266,19 @@ Effets :
 Si c'est vraiment nécessaire :
 
 1. Ajouter `x-category` dans le schéma.
-2. Ajouter le libellé dans `CATEGORY_LABELS` de `geo-preferences-widget.tsx`.
-3. Ajouter l'ordre dans `CATEGORY_ORDER`.
-4. Vérifier si un guide par usage doit inclure cette catégorie.
-5. Documenter la catégorie dans `docs/PREFERENCES.md` ou une doc fonctionnelle.
+2. Déclarer la catégorie dans `x-categories` à la racine du schéma (`{ id, label, order }`) — c'est la source unique des libellés et de l'ordre d'affichage.
+3. Vérifier si un guide par usage doit inclure cette catégorie — le test `test_preferences_schema.py` exige que chaque catégorie soit couverte par au moins un guide.
+4. Documenter la catégorie dans `docs/PREFERENCES.md` ou une doc fonctionnelle.
 
 ## Ajouter au bon guide par usage
 
-Les guides sont déclarés dans :
+Les guides sont déclarés une seule fois, dans `x-guides` à la racine de :
 
 ```text
-frontend/theia-extensions/preferences/src/browser/geo-preferences-widget.tsx
+shared/preferences/geo-preferences-schema.json
 ```
 
-Et exposés à `@Aide` dans :
-
-```text
-frontend/theia-extensions/documentation/src/browser/doc-action-tools.ts
-```
+La page Préférences et `@Aide` (`aide_list_preference_guides`) lisent tous deux cette source via `GeoPreferenceStore.guides` : plus de copie à maintenir.
 
 Si la nouvelle préférence correspond à un usage déjà existant, vérifier qu'elle matchera par :
 
@@ -301,6 +298,7 @@ Exemple : une préférence `geoApp.ocr.*` ira naturellement dans le guide `Image
 Get-Content -Raw shared/preferences/geo-preferences-schema.json | ConvertFrom-Json | Out-Null
 yarn --cwd frontend/theia-extensions/preferences build
 yarn --cwd frontend/theia-extensions/documentation build
+pytest backend/tests/test_preferences_schema.py
 ```
 
 Si la préférence touche le backend :
