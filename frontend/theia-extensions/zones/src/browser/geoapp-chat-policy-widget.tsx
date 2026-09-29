@@ -50,7 +50,11 @@ import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills'
 import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
-import { GeoAppAiModelChoice, GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
+import {
+    GeoAppAiModelChoice,
+    GeoAppAiModelResolutionService,
+    GeoAppVisionBackendProvider
+} from './geoapp-ai-model-resolution-service';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import {
     GeoAppAiCapabilityCheck,
@@ -193,6 +197,8 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected agentModelsLoaded = false;
     protected agentModelsGeneration = 0;
     protected modelChoices: GeoAppAiModelChoice[] = [];
+    protected backendModelChoices = new Map<string, GeoAppAiModelChoice[]>();
+    protected backendModelDrafts = new Map<string, { provider: GeoAppVisionBackendProvider; model: string }>();
     protected modelAssignmentUpdating = new Set<string>();
     protected activeTab: GeoAppChatPolicyTab = 'general';
 
@@ -566,6 +572,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     }
 
     protected renderModelAssignment(task: GeoAppAiTaskDescriptor, resolution: GeoAppAiModelResolution | undefined): React.ReactNode {
+        if (task.id === 'ocr-backend-plugin') {
+            return this.renderVisionBackendAssignment(task, resolution);
+        }
         if (!task.agentId || !task.purpose) {
             return resolution?.requestedIdentifier || resolution?.backingPreference || '—';
         }
@@ -602,6 +611,138 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 )}
             </div>
         );
+    }
+
+    protected renderVisionBackendAssignment(task: GeoAppAiTaskDescriptor, resolution: GeoAppAiModelResolution | undefined): React.ReactNode {
+        if (!this.aiModelResolutionService) {
+            return resolution?.requestedIdentifier || '—';
+        }
+        const currentProvider = resolution?.provider === 'openrouter' ? 'openrouter' : 'lmstudio';
+        const draft = this.backendModelDrafts.get(task.id) || {
+            provider: currentProvider,
+            model: resolution?.backingModel || '',
+        };
+        const choices = this.backendModelChoices.get(`${task.id}:${draft.provider}`) || [];
+        const updating = this.modelAssignmentUpdating.has(task.id);
+        const datalistId = `${this.id}-${task.id}-backend-models`;
+        return <div className='geoapp-chat-policy-model-assignment'>
+            <select
+                className='theia-select geoapp-chat-policy-model-select'
+                value={draft.provider}
+                disabled={updating}
+                aria-label={`Fournisseur backend pour ${task.label}`}
+                title='Fournisseur utilisé par le plugin backend vision_ocr'
+                onChange={event => {
+                    const provider = event.target.value as GeoAppVisionBackendProvider;
+                    this.backendModelDrafts.set(task.id, {
+                        provider,
+                        model: provider === currentProvider ? (resolution?.backingModel || '') : '',
+                    });
+                    void this.loadVisionBackendChoices(task.id, provider);
+                    this.update();
+                }}
+            >
+                <option value='lmstudio'>LM Studio</option>
+                <option value='openrouter'>OpenRouter</option>
+            </select>
+            <input
+                className='theia-input geoapp-chat-policy-model-select'
+                list={datalistId}
+                value={draft.model}
+                disabled={updating}
+                aria-label={`Modèle backend pour ${task.label}`}
+                title='Identifiant du modèle vision envoyé au plugin backend'
+                placeholder='Identifiant du modèle vision'
+                onChange={event => {
+                    this.backendModelDrafts.set(task.id, {...draft, model: event.target.value});
+                    this.update();
+                }}
+            />
+            <datalist id={datalistId}>
+                {choices.map(choice => <option
+                    key={choice.id}
+                    value={choice.id}
+                    label={choice.detail ? `${choice.id} · ${choice.detail}` : choice.id}
+                />)}
+            </datalist>
+            <button
+                type='button'
+                className='theia-button secondary geoapp-chat-policy-model-reset'
+                disabled={updating || !draft.model.trim() || (draft.provider === currentProvider && draft.model.trim() === (resolution?.backingModel || ''))}
+                aria-label={`Appliquer le modèle backend pour ${task.label}`}
+                title='Valider puis appliquer ce fournisseur et ce modèle'
+                onClick={() => void this.assignVisionBackendModel(task, draft)}
+            >Appliquer</button>
+            <button
+                type='button'
+                className='theia-button secondary geoapp-chat-policy-model-reset'
+                disabled={updating}
+                aria-label={`Réinitialiser le modèle backend pour ${task.label}`}
+                title='Revenir au modèle par défaut du fournisseur sélectionné'
+                onClick={() => void this.resetVisionBackendModel(task, draft.provider)}
+            >Défaut</button>
+        </div>;
+    }
+
+    protected async loadVisionBackendChoices(taskId: string, provider: GeoAppVisionBackendProvider): Promise<void> {
+        if (!this.aiModelResolutionService) {
+            return;
+        }
+        const choices = await this.aiModelResolutionService.getBackendTaskModelChoices(taskId, provider);
+        this.backendModelChoices.set(`${taskId}:${provider}`, choices);
+        this.update();
+    }
+
+    protected async assignVisionBackendModel(
+        task: GeoAppAiTaskDescriptor,
+        draft: { provider: GeoAppVisionBackendProvider; model: string }
+    ): Promise<void> {
+        if (!this.aiModelResolutionService) {
+            return;
+        }
+        this.modelAssignmentUpdating.add(task.id);
+        this.update();
+        try {
+            const next = await this.aiModelResolutionService.setTaskBackendConfiguration(
+                task.id,
+                draft.provider,
+                draft.model
+            );
+            this.backendModelDrafts.set(task.id, {
+                provider: next.provider === 'openrouter' ? 'openrouter' : 'lmstudio',
+                model: next.backingModel || '',
+            });
+            this.messages.info(`Modèle de ${task.label} : ${next.backingModel || 'non configuré'}`);
+        } catch (error) {
+            this.messages.error(`Affectation impossible pour ${task.label} : ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            this.modelAssignmentUpdating.delete(task.id);
+            this.update();
+        }
+    }
+
+    protected async resetVisionBackendModel(
+        task: GeoAppAiTaskDescriptor,
+        provider: GeoAppVisionBackendProvider
+    ): Promise<void> {
+        if (!this.aiModelResolutionService) {
+            return;
+        }
+        this.modelAssignmentUpdating.add(task.id);
+        this.update();
+        try {
+            const next = await this.aiModelResolutionService.resetTaskBackendModel(task.id, provider);
+            this.backendModelDrafts.set(task.id, {
+                provider: next.provider === 'openrouter' ? 'openrouter' : 'lmstudio',
+                model: next.backingModel || '',
+            });
+            this.messages.info(`Modèle de ${task.label} revenu au réglage par défaut.`);
+        } catch (error) {
+            this.messages.error(`Réinitialisation impossible pour ${task.label} : ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            this.modelAssignmentUpdating.delete(task.id);
+            this.update();
+        }
     }
 
     protected async assignTaskModel(task: GeoAppAiTaskDescriptor, identifier: string): Promise<void> {
@@ -654,15 +795,19 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         const generation = ++this.agentModelsGeneration;
         this.agentModelsLoading = true;
         try {
-            const [resolved, choices] = await Promise.all([
+            const [resolved, choices, visionBackendChoices] = await Promise.all([
                 this.aiModelResolutionService.resolveAll(),
                 this.aiModelResolutionService.getModelChoices(),
+                this.aiModelResolutionService.getBackendTaskModelChoices('ocr-backend-plugin'),
             ]);
             if (generation !== this.agentModelsGeneration) {
                 return;
             }
             this.agentModels = new Map(resolved.map(resolution => [resolution.taskId, resolution]));
             this.modelChoices = choices;
+            const visionResolution = this.agentModels.get('ocr-backend-plugin');
+            const visionProvider = visionResolution?.provider === 'openrouter' ? 'openrouter' : 'lmstudio';
+            this.backendModelChoices.set(`ocr-backend-plugin:${visionProvider}`, visionBackendChoices);
             this.agentModelsLoaded = true;
         } catch (error) {
             console.error('[GeoAppChatPolicyWidget] model resolution error', error);

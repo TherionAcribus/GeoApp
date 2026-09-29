@@ -14,6 +14,7 @@ interface ResolutionServices {
     } | undefined>;
     aliases?: Record<string, string[]>;
     assignedIdentifiers?: Record<string, string>;
+    visionModels?: Array<Record<string, unknown>>;
     scorer?: {
         provider: string;
         base_url: string;
@@ -27,11 +28,15 @@ interface ResolutionServices {
 
 function createService(services: ResolutionServices): GeoAppAiModelResolutionService {
     const service = new GeoAppAiModelResolutionService();
+    const preferences: Record<string, unknown> = { ...(services.preferences ?? {}) };
+    const preferenceUpdates: Array<{ key: string; value: unknown }> = [];
     (service as any).preferenceService = {
         get: <T>(key: string, fallback: T): T =>
-            services.preferences && key in services.preferences
-                ? services.preferences[key] as T
-                : fallback,
+            key in preferences ? preferences[key] as T : fallback,
+        set: async (key: string, value: unknown) => {
+            preferences[key] = value;
+            preferenceUpdates.push({ key, value });
+        },
         onPreferenceChanged: () => ({ dispose: () => undefined }),
     };
     (service as any).languageModelRegistry = {
@@ -72,6 +77,11 @@ function createService(services: ResolutionServices): GeoAppAiModelResolutionSer
         onDidChange: () => ({ dispose: () => undefined }),
     };
     (service as any).__agentUpdates = updates;
+    (service as any).__preferenceUpdates = preferenceUpdates;
+    if (services.visionModels) {
+        (service as any).fetchJson = async (url: string) =>
+            url.endsWith('/models') ? { data: services.visionModels } : undefined;
+    }
     if (services.scorer) {
         (service as any).aiScorerModelResolver = {
             resolveForRequest: async () => services.scorer,
@@ -179,6 +189,77 @@ async function testVisionBackendRejectsDeclaredNonVisionModel(): Promise<void> {
     assert.equal(resolved.capabilityChecks?.[0].capability, 'vision');
     assert.equal(resolved.capabilityChecks?.[0].status, 'unsupported');
     assert.match(resolved.diagnostics.join('\n'), /Capacité requise vision non supportée/);
+}
+
+async function testVisionBackendConfigurationPersistsProviderAndModel(): Promise<void> {
+    const service = createService({
+        preferences: {
+            'geoApp.ai.modelCapabilities': {
+                'vendor/new-vision': { vision: true },
+            },
+        },
+    });
+
+    const resolved = await service.setTaskBackendConfiguration('ocr-backend-plugin', 'openrouter', ' vendor/new-vision ');
+    const updates = (service as any).__preferenceUpdates as Array<{ key: string; value: unknown }>;
+
+    assert.equal(resolved.provider, 'openrouter');
+    assert.equal(resolved.backingModel, 'vendor/new-vision');
+    assert.equal(resolved.status, 'ready');
+    assert.deepEqual(updates.map(update => update.key), [
+        'geoApp.ocr.visionProvider',
+        'geoApp.ocr.openRouter.model',
+    ]);
+}
+
+async function testVisionBackendConfigurationRejectsTextOnlyBeforePersisting(): Promise<void> {
+    const service = createService({
+        preferences: {
+            'geoApp.ai.modelCapabilities': {
+                'text-only': { vision: false },
+            },
+        },
+    });
+
+    await assert.rejects(
+        service.setTaskBackendConfiguration('ocr-backend-plugin', 'lmstudio', 'text-only'),
+        /vision non supportée/
+    );
+    assert.equal(((service as any).__preferenceUpdates as unknown[]).length, 0);
+}
+
+async function testVisionBackendModelChoicesPreferVerifiedVisionModels(): Promise<void> {
+    const service = createService({
+        preferences: {
+            'geoApp.ocr.visionProvider': 'lmstudio',
+            'geoApp.ocr.lmstudio.baseUrl': 'http://127.0.0.1:1234',
+        },
+        visionModels: [
+            { id: 'text-model', type: 'llm' },
+            { id: 'vision-model', type: 'vlm' },
+            { id: 'unknown-model' },
+        ],
+    });
+
+    const choices = await service.getBackendTaskModelChoices('ocr-backend-plugin');
+    assert.equal(choices[0].id, 'vision-model');
+    assert.equal(choices[0].ready, true);
+    assert.equal(choices.find(choice => choice.id === 'text-model')?.detail, 'vision non supportée');
+    assert.equal(choices.find(choice => choice.id === 'unknown-model')?.detail, 'vision non vérifiée');
+}
+
+async function testVisionBackendResetPersistsSelectedProviderDefault(): Promise<void> {
+    const service = createService({});
+
+    const resolved = await service.resetTaskBackendModel('ocr-backend-plugin', 'openrouter');
+    const updates = (service as any).__preferenceUpdates as Array<{ key: string; value: unknown }>;
+
+    assert.equal(resolved.provider, 'openrouter');
+    assert.equal(resolved.backingModel, 'openai/gpt-4o-mini');
+    assert.deepEqual(updates, [
+        { key: 'geoApp.ocr.visionProvider', value: 'openrouter' },
+        { key: 'geoApp.ocr.openRouter.model', value: 'openai/gpt-4o-mini' },
+    ]);
 }
 
 async function testTheiaVisionTaskRejectsDeclaredNonVisionModel(): Promise<void> {
@@ -325,6 +406,10 @@ async function main(): Promise<void> {
     await testStrictLocalRejectsCloudModel();
     await testVisionBackendUsesTaskPreferences();
     await testVisionBackendRejectsDeclaredNonVisionModel();
+    await testVisionBackendConfigurationPersistsProviderAndModel();
+    await testVisionBackendConfigurationRejectsTextOnlyBeforePersisting();
+    await testVisionBackendModelChoicesPreferVerifiedVisionModels();
+    await testVisionBackendResetPersistsSelectedProviderDefault();
     await testTheiaVisionTaskRejectsDeclaredNonVisionModel();
     await testOptionalStructuredOutputIsAdvisoryOnly();
     await testTaskModelAssignmentAcceptsReadyAliasAndPersistsPurpose();

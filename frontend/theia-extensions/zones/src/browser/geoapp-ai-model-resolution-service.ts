@@ -1,5 +1,6 @@
 import { inject, injectable, optional, postConstruct } from '@theia/core/shared/inversify';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { Emitter, Event as TheiaEvent } from '@theia/core/lib/common/event';
 import {
     AgentService,
@@ -71,7 +72,10 @@ export interface GeoAppAiModelChoice {
     vendor?: string;
     ready?: boolean;
     targetModelIds?: string[];
+    detail?: string;
 }
+
+export type GeoAppVisionBackendProvider = 'lmstudio' | 'openrouter';
 
 const OPENROUTER_SLOT_PREFS: Record<string, string> = {
     'openrouter/fast': 'geoApp.ai.openRouter.model.fast',
@@ -205,6 +209,120 @@ export class GeoAppAiModelResolutionService {
         this.assertTaskAssignable(task);
         await this.updateAgentModelRequirement(task, undefined);
         return this.resolveTask(task);
+    }
+
+    getBackendTaskProviders(taskId: string): readonly GeoAppVisionBackendProvider[] {
+        this.assertVisionBackendTask(this.getTaskOrThrow(taskId));
+        return ['lmstudio', 'openrouter'];
+    }
+
+    async getBackendTaskModelChoices(
+        taskId: string,
+        providerInput?: GeoAppVisionBackendProvider
+    ): Promise<GeoAppAiModelChoice[]> {
+        const task = this.getTaskOrThrow(taskId);
+        this.assertVisionBackendTask(task);
+        const provider = providerInput || this.getVisionBackendProvider();
+        const baseUrl = this.getVisionBackendBaseUrl(provider);
+        const payload = await this.fetchJson(`${this.normalizeModelsEndpoint(baseUrl)}/models`).catch(() => undefined);
+        const entries = this.asRecord(payload)?.data;
+        if (!Array.isArray(entries)) {
+            return [];
+        }
+        return entries
+            .map(entry => this.asRecord(entry))
+            .filter((entry): entry is Record<string, unknown> => Boolean(entry?.id))
+            .map(entry => {
+                const id = String(entry.id);
+                const providerCapabilities = this.readOpenAiCompatibleCapabilities(payload, id);
+                const preferenceCapabilities = this.getCapabilityOverrides([id]);
+                const vision = preferenceCapabilities.vision ?? providerCapabilities?.vision;
+                return {
+                    id,
+                    label: id,
+                    kind: 'model' as const,
+                    vendor: provider,
+                    ready: vision === true,
+                    detail: vision === true
+                        ? 'vision vérifiée'
+                        : vision === false
+                            ? 'vision non supportée'
+                            : 'vision non vérifiée',
+                };
+            })
+            .sort((left, right) => Number(right.ready ?? false) - Number(left.ready ?? false) || left.id.localeCompare(right.id));
+    }
+
+    async setTaskBackendConfiguration(
+        taskId: string,
+        provider: GeoAppVisionBackendProvider,
+        model: string
+    ): Promise<GeoAppAiModelResolution> {
+        const task = this.getTaskOrThrow(taskId);
+        this.assertVisionBackendTask(task);
+        this.assertVisionBackendProvider(provider);
+        const normalizedModel = model.trim();
+        if (!normalizedModel) {
+            throw new Error('Indiquez le modèle backend à utiliser.');
+        }
+        const evaluation = await this.evaluateTaskCapabilities(task, {
+            identifiers: [normalizedModel],
+            provider,
+            baseUrl: this.getVisionBackendBaseUrl(provider),
+        });
+        if (evaluation.status === 'unsupported') {
+            throw new Error(evaluation.diagnostics.join(' ') || 'Le modèle ne satisfait pas les capacités requises.');
+        }
+        await Promise.all([
+            this.preferenceService.set('geoApp.ocr.visionProvider', provider, PreferenceScope.User),
+            this.preferenceService.set(this.getVisionBackendModelPreference(provider), normalizedModel, PreferenceScope.User),
+        ]);
+        this.capabilityProbeCache.clear();
+        this.onDidChangeEmitter.fire();
+        return this.resolveTask(task);
+    }
+
+    async resetTaskBackendModel(taskId: string, provider?: GeoAppVisionBackendProvider): Promise<GeoAppAiModelResolution> {
+        const task = this.getTaskOrThrow(taskId);
+        this.assertVisionBackendTask(task);
+        const effectiveProvider = provider || this.getVisionBackendProvider();
+        this.assertVisionBackendProvider(effectiveProvider);
+        const defaultModel = effectiveProvider === 'openrouter' ? 'openai/gpt-4o-mini' : '';
+        await Promise.all([
+            this.preferenceService.set('geoApp.ocr.visionProvider', effectiveProvider, PreferenceScope.User),
+            this.preferenceService.set(this.getVisionBackendModelPreference(effectiveProvider), defaultModel, PreferenceScope.User),
+        ]);
+        this.capabilityProbeCache.clear();
+        this.onDidChangeEmitter.fire();
+        return this.resolveTask(task);
+    }
+
+    protected assertVisionBackendTask(task: GeoAppAiTaskDescriptor): void {
+        if (task.id !== 'ocr-backend-plugin') {
+            throw new Error(`La tâche « ${task.label} » n’est pas une tâche backend configurable par préférences GeoApp.`);
+        }
+    }
+
+    protected assertVisionBackendProvider(provider: string): asserts provider is GeoAppVisionBackendProvider {
+        if (provider !== 'lmstudio' && provider !== 'openrouter') {
+            throw new Error(`Fournisseur vision backend inconnu : ${provider}.`);
+        }
+    }
+
+    protected getVisionBackendProvider(): GeoAppVisionBackendProvider {
+        return this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
+            ? 'openrouter'
+            : 'lmstudio';
+    }
+
+    protected getVisionBackendModelPreference(provider: GeoAppVisionBackendProvider): string {
+        return provider === 'openrouter' ? 'geoApp.ocr.openRouter.model' : 'geoApp.ocr.lmstudio.model';
+    }
+
+    protected getVisionBackendBaseUrl(provider: GeoAppVisionBackendProvider): string {
+        return provider === 'openrouter'
+            ? this.preferenceService.get<string>('geoApp.ai.openRouter.baseUrl', 'https://openrouter.ai/api/v1')
+            : this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234');
     }
 
     protected getTaskOrThrow(taskId: string): GeoAppAiTaskDescriptor {
