@@ -118,7 +118,7 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
   1. la dernière action mémorisée pour ce TB (champ `last_action_id` du backend) ;
   2. sinon la préférence `geoApp.logs.trackableAutoVisit` (défaut : faux).
 - **État et soumission** :
-  - L'état entre dans `LogDraft` et `LogHistoryEntry` ([log-editor/types.ts](../frontend/theia-extensions/zones/src/browser/log-editor/types.ts)), pour que les brouillons survivent à un crash en plein lot.
+  - L'état entre dans `LogDraft` et `LogHistoryEntry` ([log-editor/types.ts](../frontend/theia-extensions/zones/src/browser/log-editor/types.ts)), pour que les brouillons survivent à un crash en plein lot. Le brouillon v2 ne porte que les écarts au défaut (overrides) ; l'historique journalise ce qui a réellement été envoyé par cache et le sort de chaque dépôt, sans jamais contenir de code de suivi.
   - `buildLogSubmissionPayload` ([submission-orchestrator.ts:97](../frontend/theia-extensions/zones/src/browser/log-editor/submission-orchestrator.ts#L97)) et `SubmitLogPayload` ([log-submit-service.ts:17](../frontend/theia-extensions/zones/src/browser/log-editor/log-submit-service.ts#L17)) reçoivent les `trackables` de la cache courante.
 - **Contrôles et confirmation** :
   - Avertissement au-delà de 100 visites.

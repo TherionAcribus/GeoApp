@@ -138,6 +138,7 @@ import {
     TrackableBatchContext,
     TrackableDropResult,
     TrackableDropTracker,
+    TrackableHistoryRecord,
     TrackablePayloadEntry,
     TrackableSelection,
     buildTrackableBatchPlan,
@@ -147,9 +148,9 @@ import {
     describeInventorySync,
     describeTrackablesForGeocache,
     dropTargetCandidates,
-    hasTrackableChoices,
     resolveDropTarget,
     summarizeTrackableSelection,
+    trackableSelectionOverrides,
     trackablesForGeocache,
     validateTrackableSelection,
     withDefaultActions,
@@ -577,7 +578,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheSubmitStatus = result.perCacheSubmitStatus;
         this.perCacheSubmitReference = result.perCacheSubmitReference;
         if (result.trackables) {
-            this.trackableSelection = result.trackables;
+            // Overrides par-dessus la sélection courante (défauts déjà appliqués si
+            // l'inventaire est chargé — sinon ils le seront au chargement) : jamais
+            // de remplacement, sinon les défauts du moment seraient perdus.
+            this.trackableSelection = {
+                actions: { ...this.trackableSelection.actions, ...result.trackables.actions },
+                dropTargets: { ...this.trackableSelection.dropTargets, ...result.trackables.dropTargets },
+            };
         }
         if (result.trackableDropResults) {
             // Dépôts déjà partis dans le lot interrompu : la sélection restaurée
@@ -633,6 +640,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheLogType = nextTypes;
         this.perCacheFavorite = nextFavorites;
 
+        // Les choix TB repartent eux aussi aux défauts courants — les statuts de
+        // logs déjà envoyés (`perCacheSubmitStatus`) ne sont pas touchés.
+        this.trackableSelection = {
+            actions: withDefaultActions(this.trackableInventory, {}, this.isTrackableAutoVisit()),
+            dropTargets: {},
+        };
+        this.trackableDropResults = {};
+
         this.restoredDraftAt = undefined;
         void this.deleteDraft();
         this.update();
@@ -650,7 +665,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         super.onCloseRequest(msg);
     }
 
-    protected async saveCurrentStateToHistory(): Promise<void> {
+    protected async saveCurrentStateToHistory(trackables?: TrackableHistoryRecord): Promise<void> {
         const entry = buildHistoryEntry(
             () => this.generateId(),
             this.logDate,
@@ -660,7 +675,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.logType,
             this.perCacheLogType,
             this.perCacheFavorite,
-            this.logLanguage
+            this.logLanguage,
+            trackables,
+            this.perCacheSubmitStatus
         );
 
         const maxItems = this.getLogHistoryMaxItems();
@@ -2168,17 +2185,21 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     /**
-     * Choix de TB à garder dans le brouillon. Tant que l'inventaire n'est pas chargé
-     * (backend lent ou injoignable), on garde ceux restaurés plutôt que de les perdre
-     * à la première sauvegarde.
+     * Choix de TB à garder dans le brouillon : **overrides seulement** — les actions
+     * qui diffèrent du défaut courant, plus les cibles de dépôt explicites. À la
+     * restauration les défauts sont recalculés puis les overrides appliqués : une
+     * préférence ou une « dernière action » changée entre-temps n'est pas figée.
+     * Tant que l'inventaire n'est pas chargé (backend lent ou injoignable), on garde
+     * ceux restaurés plutôt que de les perdre à la première sauvegarde.
      */
     protected getTrackableSelectionForDraft(): TrackableSelection | undefined {
         if (this.trackableInventory.length === 0) {
             return Object.keys(this.trackableSelection.actions).length > 0 ? this.trackableSelection : undefined;
         }
-        return hasTrackableChoices(this.trackableInventory, this.trackableSelection, this.isTrackableAutoVisit())
-            ? this.trackableSelection
-            : undefined;
+        const overrides = trackableSelectionOverrides(
+            this.trackableInventory, this.trackableSelection, this.isTrackableAutoVisit()
+        );
+        return Object.keys(overrides.actions).length > 0 ? overrides : undefined;
     }
 
     protected getTrackableSummaryLines(toSubmit: GeocacheListItem[]): { text: string; highlight: boolean }[] {
@@ -2406,6 +2427,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         );
         const dropTracker = new TrackableDropTracker(trackablePlan);
         let trackablesSent = false;
+        /** Journal : entrées TB parties dans un log qui existe (ou peut exister) côté site. */
+        const sentTrackableEntries: Record<number, TrackablePayloadEntry[]> = {};
 
         try {
             for (const gc of this.geocaches) {
@@ -2473,6 +2496,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     if (trackableEntries.some(entry => entry.action !== 'none')) {
                         trackablesSent = true;
                     }
+                    sentTrackableEntries[gc.id] = trackableEntries;
                     await this.settleTrackableDrops(dropTracker, gc, toSubmit, 'submitted-ok');
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
                     this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: result.logReferenceCode };
@@ -2519,6 +2543,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         ? 'note'
                         : 'Found it';
                     this.messages.warn(`${gc.gc_code} - déjà loguée (${logTypeLabel}, ignorée)`);
+                    // Le log existe côté site : les entrées TB envoyées ont pu y figurer.
+                    sentTrackableEntries[gc.id] = trackableEntries;
                     // Le log existant a pu être le nôtre (essai coupé) : tranché par l'inventaire distant.
                     await this.settleTrackableDrops(dropTracker, gc, toSubmit, 'alreadyLogged');
                 } else {
@@ -2526,6 +2552,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
                     this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: result.error ?? 'Erreur réseau/backend' };
                     this.messages.warn(`${gc.gc_code} - échec${result.error ? ` (${result.error})` : ''}`);
+                    if (result.ambiguous) {
+                        // Le log a pu être créé malgré l'absence de réponse : journal à l'incertain.
+                        sentTrackableEntries[gc.id] = trackableEntries;
+                    }
                     await this.settleTrackableDrops(dropTracker, gc, toSubmit, result.ambiguous ? 'ambiguous' : 'failed');
                 }
 
@@ -2549,7 +2579,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 void this.loadTrackableInventory();
             }
             if (ok > 0) {
-                await this.saveCurrentStateToHistory();
+                // Journal TB : ce qui est réellement parti, et le sort de chaque dépôt.
+                const dropOutcomes: Record<string, 'confirmed' | 'failed' | 'uncertain'> = {};
+                for (const drop of dropOutcome.confirmed) {
+                    dropOutcomes[drop.code] = 'confirmed';
+                }
+                for (const drop of dropOutcome.failed) {
+                    dropOutcomes[drop.code] = 'failed';
+                }
+                for (const drop of dropOutcome.uncertain) {
+                    dropOutcomes[drop.code] = 'uncertain';
+                }
+                await this.saveCurrentStateToHistory({ sent: sentTrackableEntries, dropOutcomes });
             }
 
             if (this.getGeocachesToSubmit().length === 0) {

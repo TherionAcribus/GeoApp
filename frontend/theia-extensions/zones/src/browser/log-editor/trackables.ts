@@ -145,6 +145,35 @@ export function hasTrackableChoices(
     });
 }
 
+/**
+ * Choix réellement exprimés par l'utilisateur, pour le brouillon : seules les actions
+ * qui diffèrent du défaut courant, plus les cibles de dépôt explicitement choisies.
+ *
+ * Sérialiser la table complète figerait les défauts du moment : à la restauration,
+ * ils écraseraient une préférence ou une « dernière action » qui aurait changé entre-
+ * temps. Le brouillon ne garde donc que les écarts ; les défauts sont recalculés.
+ */
+export function trackableSelectionOverrides(
+    inventory: InventoryTrackable[],
+    selection: TrackableSelection,
+    autoVisit: boolean
+): TrackableSelection {
+    const actions: Record<string, TrackableAction> = {};
+    const dropTargets: Record<string, number> = {};
+    for (const tb of inventory) {
+        const code = tb.reference_code;
+        const action = selection.actions[code];
+        if (action !== undefined && action !== defaultTrackableAction(tb, autoVisit)) {
+            actions[code] = action;
+            const target = selection.dropTargets[code];
+            if (action === 'drop' && target !== undefined) {
+                dropTargets[code] = target;
+            }
+        }
+    }
+    return { actions, dropTargets };
+}
+
 /** Contexte du lot : géocaches dans l'ordre d'envoi, et ce qui décide si elles partent. */
 export interface TrackableBatchContext {
     geocaches: GeocacheListItem[];
@@ -552,6 +581,20 @@ export function buildTrackableDropOutcomeLines(outcome: {
 
 /** Dépôts confirmés ou incertains persistés dans le brouillon : jamais rejoués. */
 export type TrackableDropResult = 'confirmed' | 'uncertain';
+
+/**
+ * Sort d'un dépôt dans le journal d'historique : les trois issues sont notées —
+ * le journal sert à savoir où chaque dépôt a *réellement* réussi.
+ */
+export type TrackableDropOutcome = 'confirmed' | 'failed' | 'uncertain';
+
+/** Journal TB d'un envoi, vers `LogHistoryEntry.trackables`. */
+export interface TrackableHistoryRecord {
+    /** Entrées TB réellement parties dans le log de chaque géocache (id → entrées). */
+    sent: Record<number, TrackablePayloadEntry[]>;
+    /** Sort final de chaque dépôt tenté dans le lot. */
+    dropOutcomes: Record<string, TrackableDropOutcome>;
+}
 
 export function isTrackableDropResult(value: unknown): value is TrackableDropResult {
     return value === 'confirmed' || value === 'uncertain';

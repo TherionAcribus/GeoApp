@@ -25,6 +25,7 @@ import {
     sanitizeTrackableDropResults,
     sanitizeTrackableSelection,
     summarizeTrackableSelection,
+    trackableSelectionOverrides,
     trackablesForGeocache,
     validateTrackableSelection,
     withDefaultActions,
@@ -276,6 +277,44 @@ function testSanitizeRestoredSelection(): void {
     assert.deepEqual(sanitizeTrackableSelection(null), { actions: {}, dropTargets: {} });
 }
 
+// -------------------------------------------- Brouillon : overrides (P1-06)
+
+function testOverridesOnlyStoreDeviations(): void {
+    // Table complète en mémoire, mais un seul choix exprimé : TBDROP en « Déposé ».
+    const full = withDefaultActions(INVENTORY, { TBDROP: 'drop' }, false);
+    const sel = selection(full, { TBDROP: 3 });
+    const overrides = trackableSelectionOverrides(INVENTORY, sel, false);
+    // TBVISIT (visit = défaut last_action) et TBIDLE (none = défaut) ne sont pas sérialisés.
+    assert.deepEqual(overrides.actions, { TBDROP: 'drop' });
+    assert.deepEqual(overrides.dropTargets, { TBDROP: 3 });
+    // Un « drop » sans cible explicite reste un override sans cible (défaut : dernière trouvée).
+    assert.deepEqual(
+        trackableSelectionOverrides(INVENTORY, selection({ TBDROP: 'drop' }), false).dropTargets,
+        {}
+    );
+    // Une cible posée sur une action qui n'est pas « drop » n'est pas gardée.
+    assert.deepEqual(
+        trackableSelectionOverrides(INVENTORY, selection({ TBIDLE: 'visit' }, { TBIDLE: 1 }), false).dropTargets,
+        {}
+    );
+}
+
+function testOverridesReapplyOverFreshDefaults(): void {
+    // Le brouillon ne porte que l'écart ; entre-temps la préférence « visite auto »
+    // est passée à vrai : les TBs sans override prennent le nouveau défaut.
+    const overrides = trackableSelectionOverrides(
+        INVENTORY, selection(withDefaultActions(INVENTORY, { TBIDLE: 'visit' }, false)), false
+    );
+    assert.deepEqual(overrides.actions, { TBIDLE: 'visit' });
+
+    // Restauration : défauts recalculés avec autoVisit=true, puis overrides.
+    const freshDefaults = withDefaultActions(INVENTORY, {}, true);
+    const restored = { ...freshDefaults, ...overrides.actions };
+    assert.equal(restored.TBDROP, 'visit');   // nouveau défaut appliqué (pas figé à 'none')
+    assert.equal(restored.TBVISIT, 'visit');
+    assert.equal(restored.TBIDLE, 'visit');   // override conservé
+}
+
 function testInventorySyncMessage(): void {
     assert.equal(
         describeInventorySync({ fetched: 70, added: 1, removed: 0 }),
@@ -311,5 +350,7 @@ testFailedDropStaysInHandOnLaterPayloads();
 testUncertainDropIsNotSilentlyResolved();
 testDropOutcomeLinesDistinguishStates();
 testDropResultsNeutralizeARestoredDrop();
+testOverridesOnlyStoreDeviations();
+testOverridesReapplyOverFreshDefaults();
 
 console.log('trackables-submission tests passed');

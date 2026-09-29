@@ -10,12 +10,13 @@ import { StorageService } from '@theia/core/lib/browser';
 import { sanitizeLogTypeForGeocache, todayIsoDate } from './helpers';
 import {
     TrackableDropResult,
+    TrackableHistoryRecord,
     TrackableSelection,
     applyDropResultsToSelection,
     sanitizeTrackableDropResults,
     sanitizeTrackableSelection,
 } from './trackables';
-import { GeocacheListItem, LogDraft, LogHistoryEntry, LogTypeValue, SubmissionStatus, isLogTypeValue, isSubmissionStatus } from './types';
+import { GeocacheListItem, LOG_DRAFT_VERSION, LogDraft, LogHistoryEntry, LogTypeValue, SubmissionStatus, isLogTypeValue, isSubmissionStatus } from './types';
 
 /** Génère un identifiant unique (fallback quand un entry n'en a pas). */
 export type GenerateId = () => string;
@@ -203,7 +204,9 @@ export function buildHistoryEntry(
     logType: LogTypeValue,
     perCacheLogType: Record<number, LogTypeValue>,
     perCacheFavorite: Record<number, boolean>,
-    logLanguage = ''
+    logLanguage = '',
+    trackables?: TrackableHistoryRecord,
+    perCacheSubmitStatus?: Record<number, SubmissionStatus>
 ): LogHistoryEntry {
     return {
         id: generateId(),
@@ -216,6 +219,17 @@ export function buildHistoryEntry(
         logType,
         perCacheLogType: { ...perCacheLogType },
         perCacheFavorite: { ...perCacheFavorite },
+        perCacheSubmitStatus: perCacheSubmitStatus && Object.keys(perCacheSubmitStatus).length > 0
+            ? { ...perCacheSubmitStatus }
+            : undefined,
+        trackables: trackables && (Object.keys(trackables.sent).length > 0 || Object.keys(trackables.dropOutcomes).length > 0)
+            ? {
+                sent: Object.fromEntries(
+                    Object.entries(trackables.sent).map(([id, entries]) => [id, entries.map(e => ({ ...e }))])
+                ),
+                dropOutcomes: { ...trackables.dropOutcomes },
+            }
+            : undefined,
     };
 }
 
@@ -236,6 +250,7 @@ export function buildDraftFromState(
     trackableDropResults?: Record<string, TrackableDropResult>
 ): LogDraft {
     return {
+        version: LOG_DRAFT_VERSION,
         savedAt: new Date().toISOString(),
         geocacheIds: geocaches.map(gc => gc.id),
         logDate,
@@ -360,6 +375,10 @@ export function computeDraftApplication(
     // Un dépôt confirmé ou incertain dans le lot interrompu n'est jamais rejoué :
     // l'action restaurée repasse en « none » (l'utilisateur la reverra et tranchera).
     const dropResults = sanitizeTrackableDropResults(draft.trackables?.dropResults);
+    // v1 (`version` absent) : `actions` était la table complète, défauts gelés compris ;
+    // v2 : les overrides seulement. Dans les deux cas on les applique comme des
+    // overrides sur les défauts courants — un défaut gelé en v1 peut survivre,
+    // jamais un choix exprimé n'est perdu.
     const restoredSelection = draft.trackables ? sanitizeTrackableSelection(draft.trackables) : undefined;
     const dropApplied = restoredSelection
         ? applyDropResultsToSelection(restoredSelection, dropResults)

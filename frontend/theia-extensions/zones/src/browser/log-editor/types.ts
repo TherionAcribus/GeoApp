@@ -104,6 +104,19 @@ export interface LogHistoryEntry {
     logType: LogTypeValue;
     perCacheLogType: Record<number, LogTypeValue>;
     perCacheFavorite: Record<number, boolean>;
+    /** Issue de l'envoi par géocache (`ok`/`failed`/`skipped`). Absent des entrées anciennes. */
+    perCacheSubmitStatus?: Record<number, SubmissionStatus>;
+    /**
+     * Journal TB de l'envoi : entrées réellement parties par géocache et sort
+     * final de chaque dépôt (`confirmed`/`failed`/`uncertain`). Informatif
+     * seulement — jamais réappliqué comme choix à la navigation dans
+     * l'historique. Codes publics TB… uniquement, jamais de codes de suivi.
+     * Absent des entrées antérieures aux trackables.
+     */
+    trackables?: {
+        sent: Record<number, { code: string; action: string }[]>;
+        dropOutcomes: Record<string, string>;
+    };
 }
 
 /**
@@ -113,7 +126,19 @@ export interface LogHistoryEntry {
  * d'onglet ou à un plantage. Les photos sélectionnées (`File`) ne sont pas sérialisables
  * et ne sont donc pas restaurées.
  */
+/**
+ * Forme du brouillon. La v2 ne sérialise dans `trackables.actions` que les
+ * *écarts* au défaut courant (plus les cibles de dépôt explicites), pour qu'une
+ * préférence ou une « dernière action » modifiée entre-temps s'applique aux TBs
+ * sans choix exprimé. Les brouillons v1 portaient la table complète ; à la
+ * restauration leurs actions sont relues comme des overrides — c'est le choix
+ * conservateur (un défaut gelé peut survivre, jamais un choix perdu).
+ */
+export const LOG_DRAFT_VERSION = 2;
+
 export interface LogDraft {
+    /** Version de la forme sérialisée (`LOG_DRAFT_VERSION`). Absent = v1. */
+    version?: number;
     savedAt: string;
     /** Ordre d'affichage/d'envoi au moment de la sauvegarde (il pilote `@cache_count`). */
     geocacheIds: number[];
@@ -131,9 +156,10 @@ export interface LogDraft {
     perCacheSubmitReference: Record<number, string | undefined>;
     /**
      * Actions sur les TBs de mon inventaire (`{actions, dropTargets}`, cf. `trackables.ts`).
-     * `dropResults` retient les dépôts déjà partis dans un lot interrompu
-     * (`confirmed`/`uncertain`) : une reprise ne doit jamais les rejouer.
-     * Absent des brouillons antérieurs aux trackables.
+     * En v2, `actions` ne contient que les écarts au défaut (overrides) ; en v1,
+     * la table complète. `dropResults` retient les dépôts déjà partis dans un
+     * lot interrompu (`confirmed`/`uncertain`) : une reprise ne doit jamais les
+     * rejouer. Absent des brouillons antérieurs aux trackables.
      */
     trackables?: {
         actions: Record<string, string>;

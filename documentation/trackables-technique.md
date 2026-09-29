@@ -289,9 +289,23 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
   mémorisée au dernier log (`visit` ou `none`), sinon la préférence
   `geoApp.logs.trackableAutoVisit` (défaut : faux). Un « Déposé » mémorisé n'est
   jamais repris : un TB de nouveau en main a été repris depuis.
-- **Brouillon** : les choix de TB entrent dans `LogDraft.trackables`, seulement s'ils
-  s'écartent des défauts. Tant que l'inventaire n'est pas chargé, les choix restaurés
-  sont conservés tels quels plutôt que perdus à la première sauvegarde.
+- **Brouillon (v2)** : `LogDraft.version = 2`. `trackables.actions` ne sérialise
+  que les **overrides** — les actions qui s'écartent du défaut courant
+  (`trackableSelectionOverrides`), plus les cibles de dépôt explicites et les
+  `dropResults` des dépôts déjà partis (§ 6.2). À la restauration, les défauts
+  courants sont appliqués puis les overrides par-dessus : une préférence ou une
+  « dernière action » changée entre-temps s'applique aux TBs sans choix exprimé.
+  Les brouillons v1 (table complète, pas de `version`) sont relus comme des
+  overrides — un défaut gelé peut survivre, jamais un choix perdu. Tant que
+  l'inventaire n'est pas chargé, les overrides restaurés sont conservés tels
+  quels plutôt que perdus à la première sauvegarde.
+- **« Repartir de zéro »** : réinitialise `trackableSelection` aux défauts
+  courants et efface les `dropResults`, sans toucher aux statuts des logs déjà
+  envoyés.
+- **Historique** : `LogHistoryEntry.trackables` journalise les entrées TB
+  réellement parties par géocache (succès, « déjà loguée » ou résultat ambigu)
+  et le sort final de chaque dépôt (`confirmed`/`failed`/`uncertain`). Pur
+  constat — jamais réappliqué à la navigation ; codes publics TB… seulement.
 - **Chargement de l'inventaire** : il se fait après la restauration du brouillon, sans
   bloquer la rédaction, avec `max_age=900`. Un relevé de plus de 15 minutes est donc
   relu sur le site à l'ouverture de l'éditeur. En cas d'échec, la liste locale
@@ -328,7 +342,9 @@ sur les réponses réelles :
 (dans `npm run test:geoapp`) :
 - défauts ;
 - répartition sur un lot (visites, dépôt, DNF, notes, caches déjà envoyées) ;
-- validation, payload, récapitulatif, filtre, restauration de brouillon.
+- validation, payload, récapitulatif, filtre, restauration de brouillon ;
+- plan figé et suivi des dépôts (confirmé / échoué / incertain), overrides du
+  brouillon v2 (écarts seuls, réappliqués sur les défauts courants).
 
 `backend/tests/test_geocaching_submit_logs.py` (section Trackables) :
 - format du champ `trackables`, et conservation par le repli REST ;
