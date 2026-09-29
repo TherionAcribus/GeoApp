@@ -1334,22 +1334,90 @@
     overflow-y: auto;
 }
 
+/* Une ligne sur deux teintée, survol surligné : l'œil suit la ligne d'un bout à l'autre. */
 .geoapp-log-trackables__row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 2px 4px;
+    padding: 3px 6px;
     border-left: 3px solid transparent;
     border-radius: 2px;
 }
 
-.geoapp-log-trackables__row--visit {
-    border-left-color: var(--theia-charts-blue, #3794ff);
+.geoapp-log-trackables__row:nth-child(even) {
+    background: var(--theia-list-inactiveSelectionBackground);
 }
 
-.geoapp-log-trackables__row--drop {
+.geoapp-log-trackables__row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Un TB qui bouge se repère de loin : bordure et fond teintés de la couleur de l'action. */
+.geoapp-log-trackables__row--visit,
+.geoapp-log-trackables__row--visit:nth-child(even) {
+    border-left-color: var(--theia-charts-blue, #3794ff);
+    background: color-mix(in srgb, var(--theia-charts-blue, #3794ff) 12%, transparent);
+}
+
+.geoapp-log-trackables__row--drop,
+.geoapp-log-trackables__row--drop:nth-child(even) {
     border-left-color: var(--theia-charts-green, #89d185);
-    background: var(--theia-list-inactiveSelectionBackground);
+    background: color-mix(in srgb, var(--theia-charts-green, #89d185) 16%, transparent);
+}
+
+.geoapp-log-trackables__row--visit:hover,
+.geoapp-log-trackables__row--drop:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Boutons d'action groupés, en tête de ligne. */
+.geoapp-log-trackables__actions {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--theia-dropdown-border, var(--theia-panel-border));
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.geoapp-log-trackables__action-btn {
+    min-width: 52px;
+    padding: 1px 8px;
+    border: none;
+    border-left: 1px solid var(--theia-dropdown-border, var(--theia-panel-border));
+    background: var(--theia-dropdown-background, transparent);
+    color: var(--theia-foreground);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.geoapp-log-trackables__action-btn:first-child {
+    border-left: none;
+}
+
+.geoapp-log-trackables__action-btn:hover:not(:disabled) {
+    background: var(--theia-toolbar-hoverBackground, var(--theia-list-hoverBackground));
+}
+
+.geoapp-log-trackables__action-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.geoapp-log-trackables__action-btn.is-active {
+    font-weight: 600;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+}
+
+.geoapp-log-trackables__action-btn--visit.is-active {
+    background: var(--theia-charts-blue, #3794ff);
+    color: #fff;
+}
+
+.geoapp-log-trackables__action-btn--drop.is-active {
+    background: var(--theia-charts-green, #89d185);
+    color: #1e1e1e;
 }
 
 .geoapp-log-trackables__icon {
@@ -1358,11 +1426,12 @@
     flex: none;
 }
 
+/* Pas d'étirement : ce qui suit le nom (cible de dépôt) doit rester à côté de lui. */
 .geoapp-log-trackables__label {
     display: flex;
     align-items: baseline;
     gap: 6px;
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
 }
 
@@ -1376,10 +1445,6 @@
     flex: none;
     opacity: 0.7;
     font-family: var(--theia-code-font-family);
-}
-
-.geoapp-log-trackables__action {
-    flex: none;
 }
 
 .geoapp-log-trackables__target {

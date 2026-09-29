@@ -184,9 +184,16 @@ Sous le tableau des géocaches, une section repliable :
   - un filtre (code, nom, type ; sans accents ni casse), affiché à partir de 9 TBs ;
   - « Tout mettre à » (Ne rien faire / Visité), appliqué aux TBs affichés quand le
     filtre est actif.
-- **Une ligne par TB** : icône, nom, code (lien vers la fiche du site), action (Ne
-  rien faire / Visité / Déposé). En « Déposé », un second sélecteur choisit la
-  géocache du lot si plusieurs sont possibles.
+- **Une ligne par TB**, dans cet ordre :
+  - trois boutons Rien / Visité / Déposé, **en tête de ligne**, collés au nom ;
+  - l'icône, le nom et le code (lien vers la fiche du site) ;
+  - en « Déposé », le choix de la géocache du lot, placé juste après le code.
+
+  L'action était d'abord un menu déroulant rejeté à droite : sur un éditeur large, on
+  ne voyait plus à quel TB il appartenait.
+- **Lisibilité** : une ligne sur deux est teintée et le survol surligne la ligne. Une
+  ligne en « Visité » ou « Déposé » est colorée (fond et bordure) de la couleur de
+  son action.
 - **Blocs par cache** : en mode « texte différent par cache », chaque bloc rappelle
   en lecture seule ce que son log fait des TBs (« 🐞 3 TB visités · TB1234 déposé »).
 - **Confirmation** : le récapitulatif avant envoi liste les visites et chaque dépôt.

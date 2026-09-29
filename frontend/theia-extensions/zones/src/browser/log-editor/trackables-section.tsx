@@ -43,6 +43,16 @@ export interface TrackablesSectionProps {
     onRefresh: () => void;
 }
 
+/** Ordre des boutons d'action d'une ligne. */
+const TRACKABLE_ACTION_ORDER: readonly TrackableAction[] = ['none', 'visit', 'drop'];
+
+/** Libellés courts des boutons : la ligne doit rester lisible sur un panneau étroit. */
+const TRACKABLE_ACTION_SHORT_LABELS: Record<TrackableAction, string> = {
+    none: 'Rien',
+    visit: 'Visité',
+    drop: 'Déposé',
+};
+
 /** Au-delà, le filtre apparaît : 70 TBs en main n'est pas rare. */
 const FILTER_THRESHOLD = 8;
 
@@ -155,8 +165,35 @@ const TrackableRow: React.FC<{
     onDropTargetChange: (geocacheId: number) => void;
 }> = ({ trackable, action, dropTarget, dropCandidates, disabled, onActionChange, onDropTargetChange }) => {
     const canDrop = dropCandidates.length > 0;
+    const label = trackable.name || trackable.reference_code;
     return (
         <div className={`geoapp-log-trackables__row geoapp-log-trackables__row--${action}`} role='listitem'>
+            {/*
+              L'action est en tête de ligne, collée au nom : un menu déroulant rejeté à droite
+              d'une ligne large ne se rattachait plus à son TB à l'œil.
+            */}
+            <div className='geoapp-log-trackables__actions' role='radiogroup' aria-label={`Action pour ${label}`}>
+                {TRACKABLE_ACTION_ORDER.map(value => {
+                    const unavailable = value === 'drop' && !canDrop && action !== 'drop';
+                    return (
+                        <button
+                            key={value}
+                            type='button'
+                            role='radio'
+                            aria-checked={action === value}
+                            className={`geoapp-log-trackables__action-btn geoapp-log-trackables__action-btn--${value}`
+                                + (action === value ? ' is-active' : '')}
+                            disabled={disabled || unavailable}
+                            title={unavailable
+                                ? 'Aucune géocache du lot en « Found it » pour recevoir ce trackable'
+                                : `${TRACKABLE_ACTION_LABELS[value]} : ${label} (${trackable.reference_code})`}
+                            onClick={() => onActionChange(value)}
+                        >
+                            {TRACKABLE_ACTION_SHORT_LABELS[value]}
+                        </button>
+                    );
+                })}
+            </div>
             {trackable.icon_url
                 ? <img className='geoapp-log-trackables__icon' src={trackable.icon_url} alt='' />
                 : <span className='geoapp-log-trackables__icon' />}
@@ -174,18 +211,6 @@ const TrackableRow: React.FC<{
                     {trackable.reference_code}
                 </a>
             </div>
-            <select
-                className='theia-select geoapp-log-trackables__action'
-                value={action}
-                disabled={disabled}
-                onChange={e => onActionChange(e.currentTarget.value as TrackableAction)}
-            >
-                <option value='none'>{TRACKABLE_ACTION_LABELS.none}</option>
-                <option value='visit'>{TRACKABLE_ACTION_LABELS.visit}</option>
-                <option value='drop' disabled={!canDrop && action !== 'drop'}>
-                    {TRACKABLE_ACTION_LABELS.drop}{canDrop ? '' : ' (aucune cache trouvée)'}
-                </option>
-            </select>
             {action === 'drop' && dropCandidates.length > 1 && (
                 <select
                     className='theia-select geoapp-log-trackables__target'
