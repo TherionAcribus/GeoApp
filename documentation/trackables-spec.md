@@ -112,6 +112,7 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
 - **En lot multi-caches** :
   - « Visité » s'applique à chaque cache du lot. C'est le comportement GC normal, un TB peut visiter plusieurs caches.
   - « Déposé » demande de choisir **une** cache cible : sélecteur par TB parmi les caches du lot, par défaut la dernière. Un TB déposé est retiré des choix pour les caches suivantes.
+  - Cible figée : un dépôt n'est jamais reciblé automatiquement. Si sa cache échoue, est sautée ou donne un résultat incertain (« déjà loguée », coupure réseau), l'utilisateur choisit de continuer sans le dépôt ou d'arrêter le lot ; l'inventaire distant est relu pour trancher, et le bilan final distingue déposé / non déposé / à vérifier. Les dépôts `confirmed`/`uncertain` entrent dans le brouillon pour qu'une reprise ne les rejoue pas.
   - La vue par cache (`per-cache-block.tsx`) affiche un résumé en lecture seule : « 3 TB visités, TB1234 déposé ».
 - **Valeurs par défaut**, dans l'ordre :
   1. la dernière action mémorisée pour ce TB (champ `last_action_id` du backend) ;

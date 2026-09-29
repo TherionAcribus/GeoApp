@@ -19,6 +19,7 @@ import {
     formatVisitedIso,
     submitOneLog,
     uploadOneLogImage as uploadOneLogImagePure,
+    type SubmitLogResult,
 } from './log-editor/log-submit-service';
 import { MemoizedFragment } from './log-editor/memoized-fragment';
 import { VirtualizedList } from './virtualized-list';
@@ -130,12 +131,17 @@ import { PerCacheBlock } from './log-editor/per-cache-block';
 import { TrackablesSection } from './log-editor/trackables-section';
 import {
     InventoryTrackable,
+    PlannedDrop,
     TRACKABLE_AUTO_VISIT_PREF,
     TRACKABLE_INVENTORY_MAX_AGE_SECONDS,
     TrackableAction,
     TrackableBatchContext,
+    TrackableDropResult,
+    TrackableDropTracker,
     TrackablePayloadEntry,
     TrackableSelection,
+    buildTrackableBatchPlan,
+    buildTrackableDropOutcomeLines,
     buildTrackableSummaryLines,
     canCarryTrackables,
     describeInventorySync,
@@ -365,6 +371,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected trackableInventory: InventoryTrackable[] = [];
     /** Ce que ce lot fait de chaque TB ; remplacé (jamais muté) pour que la mémoïsation des blocs le voie. */
     protected trackableSelection: TrackableSelection = { actions: {}, dropTargets: {} };
+    /**
+     * Résultats des dépôts déjà partis dans le lot (confirmé/incertain), conservés
+     * dans le brouillon : une reprise après plantage ne doit jamais les rejouer.
+     */
+    protected trackableDropResults: Record<string, TrackableDropResult> = {};
     protected isTrackablesOpen = false;
     protected isLoadingTrackables = false;
     protected trackablesError: string | undefined;
@@ -428,7 +439,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * de brouillon : ça ferait réapparaître un bandeau de restauration pour rien.
      */
     protected hasDraftWorthSaving(): boolean {
-        if (this.getTrackableSelectionForDraft() !== undefined) {
+        if (this.getTrackableSelectionForDraft() !== undefined
+            || Object.keys(this.trackableDropResults).length > 0) {
             return true;
         }
         return hasDraftWorthSavingPure(
@@ -443,6 +455,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected buildDraft(): LogDraft {
+        // Les résultats de dépôt doivent survivre même sans choix TB en sélection :
+        // sinon une reprise après plantage pourrait renvoyer un dépôt déjà parti.
+        const trackablesForDraft = this.getTrackableSelectionForDraft()
+            ?? (Object.keys(this.trackableDropResults).length > 0 ? { actions: {}, dropTargets: {} } : undefined);
         return buildDraftFromState(
             this.geocaches,
             this.logDate,
@@ -455,7 +471,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.perCacheSubmitStatus,
             this.perCacheSubmitReference,
             this.logLanguage,
-            this.getTrackableSelectionForDraft()
+            trackablesForDraft,
+            this.trackableDropResults
         );
     }
 
@@ -561,6 +578,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheSubmitReference = result.perCacheSubmitReference;
         if (result.trackables) {
             this.trackableSelection = result.trackables;
+        }
+        if (result.trackableDropResults) {
+            // Dépôts déjà partis dans le lot interrompu : la sélection restaurée
+            // les a déjà neutralisés (« none »), on garde la trace pour la suite.
+            this.trackableDropResults = { ...result.trackableDropResults };
+        }
+        if (result.trackableDropsCleared) {
+            this.trackablesNotice = `Dépôt(s) déjà envoyé(s) ou à vérifier sur Geocaching.com — repassé(s) en « Ne rien faire » : ${result.trackableDropsCleared.join(', ')}.`;
         }
 
         if (result.reorderedGeocacheIds) {
@@ -1284,6 +1309,124 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return 'send-all';
         }
         return 'skip';
+    }
+
+    /**
+     * Tranche le sort des dépôts prévus sur cette géocache après l'issue de son log.
+     *
+     * - `submitted-ok` : le log est passé, le dépôt est confirmé ;
+     * - `skipped` / `failed` : rien n'est parti ou refus certain — le TB reste en main ;
+     * - `alreadyLogged` / `ambiguous` : le log distant a pu inclure le dépôt (essai
+     *   coupé, timeout) — on tranche sur l'inventaire relu sur le site plutôt que
+     *   de supposer. Sans relecture possible, le dépôt reste « uncertain ».
+     *
+     * Si des dépôts restent non confirmés et que des caches porteuses suivent,
+     * l'utilisateur choisit de continuer le lot sans ce dépôt ou de tout arrêter :
+     * un dépôt n'est jamais reciblé ni renvoyé automatiquement.
+     */
+    protected async settleTrackableDrops(
+        tracker: TrackableDropTracker,
+        gc: GeocacheListItem,
+        toSubmit: GeocacheListItem[],
+        outcome: 'submitted-ok' | 'skipped' | 'alreadyLogged' | 'ambiguous' | 'failed'
+    ): Promise<void> {
+        const drops = tracker.dropsFor(gc.id);
+        if (drops.length === 0) {
+            return;
+        }
+
+        if (outcome === 'submitted-ok') {
+            for (const drop of drops) {
+                tracker.markConfirmed(drop.code);
+                this.trackableDropResults[drop.code] = 'confirmed';
+            }
+        } else if (outcome === 'skipped' || outcome === 'failed') {
+            for (const drop of drops) {
+                tracker.markFailed(drop.code);
+            }
+        } else {
+            for (const drop of drops) {
+                tracker.markUncertain(drop.code);
+            }
+            const remoteCodes = await this.fetchRemoteInventoryCodes();
+            for (const drop of drops) {
+                if (remoteCodes === undefined) {
+                    // Relecture impossible : l'incertitude persiste dans le bilan et le brouillon.
+                    this.trackableDropResults[drop.code] = 'uncertain';
+                } else if (remoteCodes.has(drop.code)) {
+                    // Encore en inventaire distant : le dépôt n'a pas eu lieu.
+                    tracker.markFailed(drop.code);
+                } else {
+                    tracker.markConfirmed(drop.code);
+                    this.trackableDropResults[drop.code] = 'confirmed';
+                }
+            }
+        }
+
+        const pending = drops.filter(drop => tracker.stateOf(drop.code) !== 'confirmed');
+        if (pending.length > 0 && this.hasDependentCachesAhead(tracker, gc, toSubmit)) {
+            const answer = await this.askDropFailureDecision(pending);
+            if (answer === 'stop') {
+                this.stopRequested = true;
+            }
+        }
+
+        if (Object.keys(this.trackableDropResults).length > 0) {
+            // Le résultat d'un dépôt entre dans le brouillon tout de suite : un crash
+            // en plein lot ne doit pas le faire rejouer à la reprise.
+            this.flushPendingDraftSave();
+            void this.persistDraft();
+        }
+    }
+
+    /**
+     * Des caches du lot qui portent des TBs restent-elles après celle-ci ? Leur payload
+     * affirme l'état « en main » des TBs : elles dépendent du sort des dépôts passés.
+     */
+    protected hasDependentCachesAhead(
+        tracker: TrackableDropTracker,
+        gc: GeocacheListItem,
+        toSubmit: GeocacheListItem[]
+    ): boolean {
+        const position = tracker.plan.positions.get(gc.id) ?? -1;
+        return toSubmit.some(later =>
+            (tracker.plan.positions.get(later.id) ?? -1) > position
+            && !this.isGeocacheSubmittedOk(later.id)
+            && !this.isGeocacheSkipped(later.id)
+            && canCarryTrackables(this.getLogTypeForGeocacheId(later.id)));
+    }
+
+    /** « Déjà loguée » ou timeout : le dépôt a pu partir avec — continue-t-on sans lui ? */
+    protected async askDropFailureDecision(drops: PlannedDrop[]): Promise<'continue' | 'stop'> {
+        const codes = drops.map(drop => `${drop.code} (dépôt prévu dans ${drop.targetGcCode})`).join(', ');
+        const answer = await this.messages.warn(
+            `${codes} : le dépôt n'est pas confirmé — le TB est peut-être encore en main. ` +
+            'Continuer le lot sans ce dépôt, ou arrêter pour vérifier ?',
+            'Continuer sans déposer',
+            'Arrêter le lot'
+        );
+        return answer === 'Continuer sans déposer' ? 'continue' : 'stop';
+    }
+
+    /** Codes des TBs de l'inventaire relu sur Geocaching.com (undefined si injoignable). */
+    protected async fetchRemoteInventoryCodes(): Promise<Set<string> | undefined> {
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/trackables/inventory?refresh=1`, {
+                credentials: 'include',
+            });
+            const body = await res.json().catch(() => undefined);
+            if (!res.ok || !body?.success || !Array.isArray(body.trackables)) {
+                return undefined;
+            }
+            return new Set<string>(
+                (body.trackables as { reference_code?: unknown }[])
+                    .map(tb => tb?.reference_code)
+                    .filter((code): code is string => typeof code === 'string')
+            );
+        } catch (e) {
+            console.warn('[GeocacheLogEditorWidget] relecture inventaire distant impossible', e);
+            return undefined;
+        }
     }
 
     protected getRemainingFavoritePoints(): number {
@@ -2109,6 +2252,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             ...this.trackableSelection,
             actions: { ...this.trackableSelection.actions, [code]: action },
         };
+        // Un « Déposé » choisi à nouveau efface le résultat d'un envoi précédent :
+        // l'utilisateur redemande explicitement le dépôt après vérification.
+        if (action === 'drop' && code in this.trackableDropResults) {
+            const next = { ...this.trackableDropResults };
+            delete next[code];
+            this.trackableDropResults = next;
+        }
         this.update();
     }
 
@@ -2118,6 +2268,15 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             actions[code] = action;
         }
         this.trackableSelection = { ...this.trackableSelection, actions };
+        // Même règle que setTrackableAction : un « Déposé » collectif redemande
+        // explicitement le dépôt — le résultat précédent est effacé.
+        if (action === 'drop') {
+            const next = { ...this.trackableDropResults };
+            for (const code of codes) {
+                delete next[code];
+            }
+            this.trackableDropResults = next;
+        }
         this.update();
     }
 
@@ -2240,9 +2399,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         let closeAfterSubmit = false;
         // Plan des TBs figé avant la boucle : une fois une géocache envoyée, elle sort du lot
         // restant, et un dépôt prévu chez elle se reporterait sinon sur la géocache suivante.
-        const trackablePlan = new Map<number, TrackablePayloadEntry[]>(
-            toSubmit.map(gc => [gc.id, this.getTrackablesForGeocache(gc.id)])
+        // Le tracker suit ensuite ce qui a *réellement* été confirmé — un dépôt dont la
+        // cible échoue ne disparaît plus silencieusement des logs suivants.
+        const trackablePlan = buildTrackableBatchPlan(
+            toSubmit, this.trackableInventory, this.trackableSelection, this.getTrackableBatchContext()
         );
+        const dropTracker = new TrackableDropTracker(trackablePlan);
         let trackablesSent = false;
 
         try {
@@ -2285,26 +2447,33 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             [gc.id]: `${upload.failed} photo(s) non envoyée(s) : log non soumis`,
                         };
                         this.messages.warn(`${gc.gc_code} - log non envoyé (${upload.failed} photo(s) en échec)`);
+                        // Cible sautée : les dépôts prévus ici n'ont pas eu lieu.
+                        await this.settleTrackableDrops(dropTracker, gc, toSubmit, 'skipped');
                         this.update();
                         continue;
                     }
                 }
+                // Entrées ajustées au réel : un dépôt non confirmé sur une cible déjà
+                // passée remet le TB « en main » (none) au lieu de le faire disparaître.
+                const trackableEntries = dropTracker.effectiveEntries(gc.id);
                 const payload = buildLogSubmissionPayload(
                     this.getResolvedTextForGeocacheId(gc.id),
                     this.logDate,
                     logTypeForGc,
                     this.perCacheFavorite[gc.id] === true,
                     upload.guids,
-                    trackablePlan.get(gc.id) ?? []
+                    trackableEntries
                 );
 
+                dropTracker.markSubmitted(gc.id);
                 const result = await submitOneLog(this.backendBaseUrl, gc.id, payload);
                 if (result.ok) {
                     ok += 1;
                     submittedCodes.push(gc.gc_code);
-                    if ((trackablePlan.get(gc.id) ?? []).some(entry => entry.action !== 'none')) {
+                    if (trackableEntries.some(entry => entry.action !== 'none')) {
                         trackablesSent = true;
                     }
+                    await this.settleTrackableDrops(dropTracker, gc, toSubmit, 'submitted-ok');
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
                     this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: result.logReferenceCode };
                     this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
@@ -2350,17 +2519,31 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         ? 'note'
                         : 'Found it';
                     this.messages.warn(`${gc.gc_code} - déjà loguée (${logTypeLabel}, ignorée)`);
+                    // Le log existant a pu être le nôtre (essai coupé) : tranché par l'inventaire distant.
+                    await this.settleTrackableDrops(dropTracker, gc, toSubmit, 'alreadyLogged');
                 } else {
                     failed += 1;
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
                     this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: result.error ?? 'Erreur réseau/backend' };
                     this.messages.warn(`${gc.gc_code} - échec${result.error ? ` (${result.error})` : ''}`);
+                    await this.settleTrackableDrops(dropTracker, gc, toSubmit, result.ambiguous ? 'ambiguous' : 'failed');
                 }
 
                 this.update();
             }
 
             this.lastSubmitSummary = { ok, failed };
+            // Bilan des dépôts : déposé / échoué / à vérifier — jamais confondu avec un succès.
+            const dropOutcome = dropTracker.outcome();
+            const dropLines = buildTrackableDropOutcomeLines(dropOutcome);
+            if (dropLines.length > 0) {
+                const text = dropLines.map(line => line.text).join('\n');
+                if (dropOutcome.failed.length > 0 || dropOutcome.uncertain.length > 0) {
+                    this.messages.warn(text);
+                } else {
+                    this.messages.info(text);
+                }
+            }
             if (trackablesSent) {
                 // Les TBs déposés ont quitté l'inventaire (le backend l'a noté) : on relit sa copie.
                 void this.loadTrackableInventory();

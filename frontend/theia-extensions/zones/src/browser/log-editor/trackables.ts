@@ -354,3 +354,241 @@ export function sanitizeTrackableSelection(raw: unknown): TrackableSelection {
 export function trackableUrl(code: string): string {
     return `https://www.geocaching.com/track/details.aspx?tracker=${encodeURIComponent(code)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Plan de lot figé et suivi des dépôts (P1-04)
+// ---------------------------------------------------------------------------
+
+/**
+ * État d'un dépôt au fil du lot.
+ *
+ * - `planned`   : prévu, sa cache cible pas encore envoyée ;
+ * - `submitted` : le log de la cible part ou est parti, résultat pas encore tranché ;
+ * - `confirmed` : le log de la cible est passé (ou l'inventaire distant confirme) ;
+ * - `failed`    : la cible a échoué ou a été sautée — le TB est encore en main ;
+ * - `uncertain` : résultat distant inconnu (timeout, « déjà loguée » d'un essai
+ *   coupé…) — à vérifier sur le site, jamais renvoyé à l'aveugle.
+ */
+export type TrackableDropState = 'planned' | 'submitted' | 'confirmed' | 'failed' | 'uncertain';
+
+/** Un dépôt prévu, figé à la confirmation du lot : jamais reciblé ensuite. */
+export interface PlannedDrop {
+    code: string;
+    name?: string | null;
+    /** Id GeoApp de la géocache cible (position figée, pas recalculée). */
+    targetGeocacheId: number;
+    targetGcCode: string;
+}
+
+/**
+ * Plan TB d'un lot, immuable : instantané des entrées par géocache, des dépôts
+ * prévus et de l'ordre d'envoi. Calculé une fois, juste avant la boucle — après
+ * confirmation de l'utilisateur, rien ne le recalcule.
+ */
+export interface TrackableBatchPlan {
+    /** Entrées TB figées par géocache (payload prévu si tout réussit). */
+    readonly entries: ReadonlyMap<number, readonly TrackablePayloadEntry[]>;
+    /** Position d'envoi de chaque géocache du lot. */
+    readonly positions: ReadonlyMap<number, number>;
+    /** Dépôts prévus (cibles figées). */
+    readonly drops: readonly PlannedDrop[];
+}
+
+/** Fige le plan TB du lot : payloads par géocache et cibles de dépôt résolues. */
+export function buildTrackableBatchPlan(
+    toSubmit: GeocacheListItem[],
+    inventory: InventoryTrackable[],
+    selection: TrackableSelection,
+    ctx: TrackableBatchContext
+): TrackableBatchPlan {
+    const entries = new Map<number, TrackablePayloadEntry[]>(
+        toSubmit.map(gc => [gc.id, trackablesForGeocache(gc.id, inventory, selection, ctx)])
+    );
+    const positions = new Map<number, number>(toSubmit.map((gc, index) => [gc.id, index]));
+    const drops: PlannedDrop[] = [];
+    for (const tb of inventory) {
+        if (selection.actions[tb.reference_code] !== 'drop') {
+            continue;
+        }
+        const target = resolveDropTarget(tb.reference_code, selection, ctx);
+        if (target === undefined) {
+            continue; // bloqué par la validation avant envoi
+        }
+        const gc = ctx.geocaches.find(item => item.id === target);
+        drops.push({ code: tb.reference_code, name: tb.name, targetGeocacheId: target, targetGcCode: gc?.gc_code ?? '' });
+    }
+    drops.sort((a, b) => (positions.get(a.targetGeocacheId) ?? 0) - (positions.get(b.targetGeocacheId) ?? 0));
+    return { entries, positions, drops };
+}
+
+/**
+ * Suivi des dépôts pendant la boucle d'envoi.
+ *
+ * Le plan est figé ; le tracker accumule ce qui s'est réellement passé. Tant
+ * qu'un dépôt n'est pas `confirmed`, le TB reste « en main » pour les caches
+ * suivantes : il y apparaît en « none » (non envoyé au site, mais mémorisé
+ * localement) au lieu de disparaître comme si le dépôt avait réussi.
+ */
+export class TrackableDropTracker {
+    private readonly states = new Map<string, TrackableDropState>();
+    private readonly dropsByTarget = new Map<number, PlannedDrop[]>();
+
+    constructor(readonly plan: TrackableBatchPlan) {
+        for (const drop of plan.drops) {
+            this.states.set(drop.code, 'planned');
+            const list = this.dropsByTarget.get(drop.targetGeocacheId) ?? [];
+            list.push(drop);
+            this.dropsByTarget.set(drop.targetGeocacheId, list);
+        }
+    }
+
+    /** Dépôts prévus sur cette géocache. */
+    dropsFor(geocacheId: number): readonly PlannedDrop[] {
+        return this.dropsByTarget.get(geocacheId) ?? [];
+    }
+
+    stateOf(code: string): TrackableDropState | undefined {
+        return this.states.get(code);
+    }
+
+    /** Marque les dépôts de cette cible « partis » juste avant l'envoi du log. */
+    markSubmitted(geocacheId: number): void {
+        for (const drop of this.dropsFor(geocacheId)) {
+            this.states.set(drop.code, 'submitted');
+        }
+    }
+
+    markConfirmed(code: string): void {
+        this.states.set(code, 'confirmed');
+    }
+
+    markFailed(code: string): void {
+        this.states.set(code, 'failed');
+    }
+
+    markUncertain(code: string): void {
+        this.states.set(code, 'uncertain');
+    }
+
+    /**
+     * Dépôts non résolus dont la cible est passée : « failed » ou « uncertain »,
+     * jamais « confirmed ». Ce sont eux qui font qu'une cache suivante porte le
+     * TB alors que le plan le donnait déjà déposé.
+     */
+    unresolvedDropsBefore(geocacheId: number): PlannedDrop[] {
+        const position = this.plan.positions.get(geocacheId);
+        if (position === undefined) {
+            return [];
+        }
+        return this.plan.drops.filter(drop => {
+            const state = this.states.get(drop.code);
+            const targetPosition = this.plan.positions.get(drop.targetGeocacheId);
+            return targetPosition !== undefined && targetPosition < position
+                && state !== 'confirmed';
+        });
+    }
+
+    /**
+     * Entrées TB à envoyer avec le log de cette géocache, compte tenu du réel.
+     *
+     * Le plan donnait un TB déposé absent des caches d'après sa cible ; si le
+     * dépôt n'est pas confirmé, il est encore en main et revient en « none ».
+     * Le dépôt lui-même n'est jamais rejoué sur une autre cache.
+     */
+    effectiveEntries(geocacheId: number): TrackablePayloadEntry[] {
+        const base = [...(this.plan.entries.get(geocacheId) ?? [])];
+        for (const drop of this.unresolvedDropsBefore(geocacheId)) {
+            if (!base.some(entry => entry.code === drop.code)) {
+                base.push({ code: drop.code, action: 'none' });
+            }
+        }
+        return base;
+    }
+
+    /** Bilan de fin de lot : déposés, échoués, à vérifier. */
+    outcome(): { confirmed: PlannedDrop[]; failed: PlannedDrop[]; uncertain: PlannedDrop[] } {
+        const confirmed: PlannedDrop[] = [];
+        const failed: PlannedDrop[] = [];
+        const uncertain: PlannedDrop[] = [];
+        for (const drop of this.plan.drops) {
+            const state = this.states.get(drop.code);
+            if (state === 'confirmed') {
+                confirmed.push(drop);
+            } else if (state === 'uncertain') {
+                uncertain.push(drop);
+            } else {
+                // planned/submitted sans confirmation = non fait (lot interrompu, cible sautée…)
+                failed.push(drop);
+            }
+        }
+        return { confirmed, failed, uncertain };
+    }
+}
+
+/** Lignes du bilan TB de fin de lot : distingue déposé / échoué / à vérifier. */
+export function buildTrackableDropOutcomeLines(outcome: {
+    confirmed: readonly PlannedDrop[];
+    failed: readonly PlannedDrop[];
+    uncertain: readonly PlannedDrop[];
+}): { text: string; highlight: boolean }[] {
+    const lines: { text: string; highlight: boolean }[] = [];
+    for (const drop of outcome.confirmed) {
+        lines.push({ text: `📦 ${drop.code} déposé dans ${drop.targetGcCode}`, highlight: false });
+    }
+    for (const drop of outcome.failed) {
+        lines.push({
+            text: `📦 ${drop.code} : dépôt dans ${drop.targetGcCode} non fait — le TB est encore en main`,
+            highlight: true,
+        });
+    }
+    for (const drop of outcome.uncertain) {
+        lines.push({
+            text: `📦 ${drop.code} : dépôt dans ${drop.targetGcCode} incertain — à vérifier sur Geocaching.com`,
+            highlight: true,
+        });
+    }
+    return lines;
+}
+
+/** Dépôts confirmés ou incertains persistés dans le brouillon : jamais rejoués. */
+export type TrackableDropResult = 'confirmed' | 'uncertain';
+
+export function isTrackableDropResult(value: unknown): value is TrackableDropResult {
+    return value === 'confirmed' || value === 'uncertain';
+}
+
+/**
+ * Applique les résultats de dépôt d'une session interrompue à une sélection
+ * restaurée : un TB dont le dépôt a été confirmé ou laissé incertain repasse en
+ * « none » et perd sa cible — jamais de re-dépôt automatique. L'utilisateur peut
+ * toujours rechoisir « Déposé » manuellement après vérification.
+ */
+export function applyDropResultsToSelection(
+    selection: TrackableSelection,
+    dropResults: Record<string, TrackableDropResult>
+): { selection: TrackableSelection; cleared: string[] } {
+    const actions = { ...selection.actions };
+    const dropTargets = { ...selection.dropTargets };
+    const cleared: string[] = [];
+    for (const [code, result] of Object.entries(dropResults)) {
+        if (isTrackableDropResult(result) && actions[code] === 'drop') {
+            actions[code] = 'none';
+            delete dropTargets[code];
+            cleared.push(code);
+        }
+    }
+    return { selection: { actions, dropTargets }, cleared };
+}
+
+/** Sanitize les résultats de dépôt restaurés depuis un brouillon. */
+export function sanitizeTrackableDropResults(raw: unknown): Record<string, TrackableDropResult> {
+    const results: Record<string, TrackableDropResult> = {};
+    if (raw && typeof raw === 'object') {
+        for (const [code, value] of Object.entries(raw as Record<string, unknown>)) {
+            if (isTrackableDropResult(value)) {
+                results[code] = value;
+            }
+        }
+    }
+    return results;
+}

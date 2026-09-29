@@ -32,7 +32,7 @@ from ..services.geocaching_logs import (
     GeocachingLogsClient,
     GeocachingLogsError,
 )
-from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient
+from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient, LogSubmitNetworkError
 from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
 from ..services import trackable_store
 
@@ -700,19 +700,30 @@ def submit_geocache_log(geocache_id: int):
             used_favorite_point = favorite
 
         client = GeocachingSubmitLogsClient()
-        result = client.submit_geocache_log(
-            gc_code,
-            log_type_id=resolved_log_type_id,
-            log_text=text,
-            visited_date=visited_date,
-            images=safe_images,
-            used_favorite_point=used_favorite_point,
-            trackables=[
-                (code, CACHE_LOG_TRACKABLE_ACTIONS[action])
-                for code, action in trackable_actions.items()
-                if action in CACHE_LOG_TRACKABLE_ACTIONS
-            ],
-        )
+        try:
+            result = client.submit_geocache_log(
+                gc_code,
+                log_type_id=resolved_log_type_id,
+                log_text=text,
+                visited_date=visited_date,
+                images=safe_images,
+                used_favorite_point=used_favorite_point,
+                trackables=[
+                    (code, CACHE_LOG_TRACKABLE_ACTIONS[action])
+                    for code, action in trackable_actions.items()
+                    if action in CACHE_LOG_TRACKABLE_ACTIONS
+                ],
+            )
+        except LogSubmitNetworkError as e:
+            # Coupure réseau : l'appelant (frontend) doit savoir si la réponse a pu
+            # être perdue après création du log — « unknown » ne se rejoue pas
+            # aveuglément, contrairement à une coupure avant réponse.
+            error_code = ('UNKNOWN_REMOTE_OUTCOME' if e.outcome == 'unknown_remote_outcome'
+                          else 'NETWORK_FAILED_BEFORE_RESPONSE')
+            return jsonify({
+                'error': 'Log submission interrupted by a network error',
+                'error_code': error_code,
+            }), 502
         if not result:
             return jsonify({'error': 'Failed to submit log to Geocaching.com'}), 502
 

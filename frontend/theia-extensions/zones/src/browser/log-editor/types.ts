@@ -131,9 +131,15 @@ export interface LogDraft {
     perCacheSubmitReference: Record<number, string | undefined>;
     /**
      * Actions sur les TBs de mon inventaire (`{actions, dropTargets}`, cf. `trackables.ts`).
+     * `dropResults` retient les dépôts déjà partis dans un lot interrompu
+     * (`confirmed`/`uncertain`) : une reprise ne doit jamais les rejouer.
      * Absent des brouillons antérieurs aux trackables.
      */
-    trackables?: { actions: Record<string, string>; dropTargets: Record<string, number> };
+    trackables?: {
+        actions: Record<string, string>;
+        dropTargets: Record<string, number>;
+        dropResults?: Record<string, 'confirmed' | 'uncertain'>;
+    };
 }
 
 export interface LogTextPattern {

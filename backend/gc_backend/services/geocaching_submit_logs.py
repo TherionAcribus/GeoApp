@@ -330,6 +330,11 @@ class GeocachingSubmitLogsClient:
         `trackables` : actions sur les TBs de mon inventaire, en couples
         (code public TBxxx, id du type de log trackable : 75 visité, 14 déposé).
         « Ne rien faire » ne s'envoie pas : le TB est simplement absent de la liste.
+
+        Lève ``LogSubmitNetworkError`` si la réponse distante n'a pas été reçue :
+        un timeout en lecture peut arriver après la création du log (et de ses
+        dépôts de TBs) côté site — l'appelant doit distinguer ce cas d'un échec
+        certain au lieu de renvoyer à l'aveugle.
         """
         gc_code = gc_code.strip().upper()
         if not gc_code:
@@ -495,16 +500,15 @@ class GeocachingSubmitLogsClient:
     ) -> dict[str, Any] | None:
         payload = {'0': {'referenceCode': gc_code, 'body': log_body}}
 
-        try:
-            response = self._post_json(
-                TRPC_CREATE_GEOCACHE_LOG_URL,
-                params={'batch': '1'},
-                payload=payload,
-                headers=headers,
-                gc_code=gc_code,
-            )
-        except LogSubmitNetworkError:
-            return None
+        # LogSubmitNetworkError remonte : un timeout en lecture peut suivre la
+        # création du log côté site, l'appelant le classe (jamais de re-POST ici).
+        response = self._post_json(
+            TRPC_CREATE_GEOCACHE_LOG_URL,
+            params={'batch': '1'},
+            payload=payload,
+            headers=headers,
+            gc_code=gc_code,
+        )
 
         return self._interpret_trpc_log_response(gc_code, *response)
 
@@ -557,16 +561,13 @@ class GeocachingSubmitLogsClient:
     ) -> dict[str, Any] | None:
         payload = {key: value for key, value in log_body.items() if key != 'geocacheReferenceCode'}
 
-        try:
-            response = self._post_json(
-                LEGACY_CREATE_GEOCACHE_LOG_URL.format(gc_code=gc_code),
-                params=None,
-                payload=payload,
-                headers=headers,
-                gc_code=gc_code,
-            )
-        except LogSubmitNetworkError:
-            return None
+        response = self._post_json(
+            LEGACY_CREATE_GEOCACHE_LOG_URL.format(gc_code=gc_code),
+            params=None,
+            payload=payload,
+            headers=headers,
+            gc_code=gc_code,
+        )
 
         status, data, body_preview = response
         if not isinstance(data, dict):

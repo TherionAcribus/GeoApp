@@ -10,7 +10,11 @@ import { buildLogSubmissionPayload } from '../log-editor/submission-orchestrator
 import {
     InventoryTrackable,
     TrackableBatchContext,
+    TrackableDropTracker,
     TrackableSelection,
+    applyDropResultsToSelection,
+    buildTrackableBatchPlan,
+    buildTrackableDropOutcomeLines,
     buildTrackableSummaryLines,
     defaultTrackableAction,
     describeInventorySync,
@@ -18,6 +22,7 @@ import {
     filterTrackables,
     hasTrackableChoices,
     resolveDropTarget,
+    sanitizeTrackableDropResults,
     sanitizeTrackableSelection,
     summarizeTrackableSelection,
     trackablesForGeocache,
@@ -162,6 +167,107 @@ function testFilterIgnoresCaseAndAccents(): void {
     assert.equal(filterTrackables(INVENTORY, '  ').length, 3);
 }
 
+// -------------------------------------------- Plan figé et suivi des dépôts
+
+/** Lot GC1 (trouvée, cible du dépôt) puis GC3 (trouvée) — la cible est figée. */
+function dropPlan() {
+    const ctx = batch();
+    const sel = selection({ TBVISIT: 'visit', TBDROP: 'drop', TBIDLE: 'none' }, { TBDROP: 1 });
+    const toSubmit = [gc(1, 'GC1'), gc(3, 'GC3')];
+    return { plan: buildTrackableBatchPlan(toSubmit, INVENTORY, sel, ctx), toSubmit };
+}
+
+function testPlanFreezesEntriesAndDropTargets(): void {
+    const { plan } = dropPlan();
+    // La cible choisie est figée : GC1, pas recalculée ensuite.
+    assert.deepEqual(plan.drops.map(d => [d.code, d.targetGeocacheId]), [['TBDROP', 1]]);
+    // Payloads identiques à ce que donnait la fonction d'avant le plan.
+    assert.deepEqual(plan.entries.get(3), [
+        { code: 'TBVISIT', action: 'visit' },
+        { code: 'TBIDLE', action: 'none' },
+    ]);
+}
+
+function testConfirmedDropDisappearsFromLaterPayloads(): void {
+    const { plan } = dropPlan();
+    const tracker = new TrackableDropTracker(plan);
+
+    tracker.markSubmitted(1);
+    tracker.markConfirmed('TBDROP');
+
+    // Le dépôt confirmé retire le TB des logs suivants, comme prévu au plan.
+    assert.deepEqual(tracker.effectiveEntries(3), [
+        { code: 'TBVISIT', action: 'visit' },
+        { code: 'TBIDLE', action: 'none' },
+    ]);
+    assert.equal(tracker.unresolvedDropsBefore(3).length, 0);
+    assert.deepEqual(tracker.outcome().confirmed.map(d => d.code), ['TBDROP']);
+}
+
+function testFailedDropStaysInHandOnLaterPayloads(): void {
+    const { plan } = dropPlan();
+    const tracker = new TrackableDropTracker(plan);
+
+    // GC1 échoue : le dépôt n'est PAS traité comme réussi.
+    tracker.markSubmitted(1);
+    tracker.markFailed('TBDROP');
+
+    // GC3 dépendait du dépôt : le TB y revient en « none » (encore en main),
+    // au lieu de disparaître comme le plan l'aurait cru.
+    assert.deepEqual(tracker.effectiveEntries(3).find(e => e.code === 'TBDROP'), { code: 'TBDROP', action: 'none' });
+    // Et le dépôt n'est jamais rejoué sur une autre cache.
+    assert.equal(tracker.effectiveEntries(3).some(e => e.action === 'drop'), false);
+    assert.deepEqual(tracker.unresolvedDropsBefore(3).map(d => d.code), ['TBDROP']);
+
+    const outcome = tracker.outcome();
+    assert.deepEqual(outcome.failed.map(d => d.code), ['TBDROP']);
+    assert.equal(outcome.confirmed.length, 0);
+}
+
+function testUncertainDropIsNotSilentlyResolved(): void {
+    const { plan } = dropPlan();
+    const tracker = new TrackableDropTracker(plan);
+
+    tracker.markSubmitted(1);
+    tracker.markUncertain('TBDROP');
+
+    // Incertain ≠ confirmé : encore « en main » dans le payload, signalé à la fin.
+    assert.deepEqual(tracker.effectiveEntries(3).find(e => e.code === 'TBDROP'), { code: 'TBDROP', action: 'none' });
+    const outcome = tracker.outcome();
+    assert.deepEqual(outcome.uncertain.map(d => d.code), ['TBDROP']);
+}
+
+function testDropOutcomeLinesDistinguishStates(): void {
+    const lines = buildTrackableDropOutcomeLines({
+        confirmed: [{ code: 'TBOK', targetGeocacheId: 1, targetGcCode: 'GC1' }],
+        failed: [{ code: 'TBKO', targetGeocacheId: 1, targetGcCode: 'GC1' }],
+        uncertain: [{ code: 'TBQ', targetGeocacheId: 2, targetGcCode: 'GC2' }],
+    });
+    assert.equal(lines.length, 3);
+    assert.match(lines[0].text, /TBOK déposé/);
+    assert.match(lines[1].text, /TBKO.*encore en main/);
+    assert.match(lines[2].text, /TBQ.*incertain.*Geocaching\.com/);
+    assert.deepEqual(lines.map(l => l.highlight), [false, true, true]);
+}
+
+function testDropResultsNeutralizeARestoredDrop(): void {
+    const sel = selection({ TBDROP: 'drop' }, { TBDROP: 3 });
+    // Un dépôt « confirmed » ou « uncertain » dans le lot interrompu n'est jamais rejoué.
+    const confirmed = applyDropResultsToSelection(sel, { TBDROP: 'confirmed' });
+    assert.equal(confirmed.selection.actions.TBDROP, 'none');
+    assert.equal(confirmed.selection.dropTargets.TBDROP, undefined);
+    assert.deepEqual(confirmed.cleared, ['TBDROP']);
+
+    // Un TB sans résultat enregistré garde son choix « Déposé ».
+    const untouched = applyDropResultsToSelection(sel, { TBVISIT: 'confirmed' });
+    assert.equal(untouched.selection.actions.TBDROP, 'drop');
+    assert.equal(untouched.cleared.length, 0);
+
+    assert.deepEqual(sanitizeTrackableDropResults({ TBA: 'confirmed', TBB: 'uncertain', TBC: 'failed', TDD: 1 }),
+        { TBA: 'confirmed', TBB: 'uncertain' });
+    assert.deepEqual(sanitizeTrackableDropResults(null), {});
+}
+
 function testSanitizeRestoredSelection(): void {
     assert.deepEqual(
         sanitizeTrackableSelection({ actions: { TBA: 'visit', TBB: 'grab' }, dropTargets: { TBA: 3, TBB: 'x' } }),
@@ -199,5 +305,11 @@ testSummaryLinesAndWarning();
 testPerCacheDescription();
 testFilterIgnoresCaseAndAccents();
 testSanitizeRestoredSelection();
+testPlanFreezesEntriesAndDropTargets();
+testConfirmedDropDisappearsFromLaterPayloads();
+testFailedDropStaysInHandOnLaterPayloads();
+testUncertainDropIsNotSilentlyResolved();
+testDropOutcomeLinesDistinguishStates();
+testDropResultsNeutralizeARestoredDrop();
 
 console.log('trackables-submission tests passed');

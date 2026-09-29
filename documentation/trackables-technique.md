@@ -137,6 +137,11 @@ parallèle existe (`add_trackable_tables`).
   remplit le champ `trackables` du corps tRPC au format de c:geo,
   `[{"trackableCode": "TB…", "trackableLogTypeId": 75}]`. « Ne rien faire » n'est
   pas envoyé. Le repli sur l'ancien endpoint REST garde le champ.
+- **Coupure réseau** : comme pour le log de TB (§ 5.2), `LogSubmitNetworkError`
+  remonte jusqu'à la route, qui répond 502 `NETWORK_FAILED_BEFORE_RESPONSE` ou
+  `UNKNOWN_REMOTE_OUTCOME` — le frontend marque le résultat `ambiguous` et ne
+  rejoue pas l'envoi à l'aveugle (les dépôts embarqués sont tranchés par
+  relecture de l'inventaire, § 6.2).
 - **Après succès** : `trackable_store.apply_cache_log_trackable_actions` mémorise
   l'action de chaque TB, `none` compris, pour le défaut du log suivant. Un TB
   déposé sort de mon inventaire et est placé dans la cache ; un TB n'est que dans
@@ -249,8 +254,30 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
   backend ne transmet pas « none » au site, mais le mémorise comme défaut du log
   suivant.
 - **Plan figé** : le plan TB du lot est calculé une fois avant la boucle d'envoi
-  (`trackablePlan`). Sans ça, une géocache envoyée sortirait du lot restant, et un
-  dépôt prévu chez elle se reporterait sur la suivante.
+  (`buildTrackableBatchPlan` → `TrackableBatchPlan` immuable : payloads par
+  géocache, ordre d'envoi, cibles de dépôt). Sans ça, une géocache envoyée
+  sortirait du lot restant, et un dépôt prévu chez elle se reporterait sur la
+  suivante. Une cible figée n'est **jamais** reciblée automatiquement.
+- **Suivi des dépôts** : `TrackableDropTracker` étiquette chaque dépôt
+  `planned / submitted / confirmed / failed / uncertain`. Un dépôt non confirmé
+  dont la cible est passée garde le TB « en main » dans les payloads suivants
+  (`none`, non envoyé au site) au lieu de le faire disparaître.
+- **Cible échouée ou sautée** : si des caches porteuses de TBs restent après
+  elle, l'utilisateur choisit explicitement « Continuer sans déposer » ou
+  « Arrêter le lot » — le lot ne présume jamais du dépôt.
+- **Résultat ambigu de la cible** (« déjà loguée », double timeout réseau, ou
+  502 `UNKNOWN_REMOTE_OUTCOME` du backend — `LogSubmitNetworkError` propagée
+  par `submit_geocache_log`) : l'inventaire distant est relu
+  (`GET /inventory?refresh=1`). Le TB absent est un dépôt confirmé ; encore
+  présent, un dépôt échoué ; relecture impossible, « uncertain ».
+- **Bilan de fin de lot** : `buildTrackableDropOutcomeLines` distingue
+  « déposé », « dépôt non fait » et « dépôt incertain — à vérifier sur
+  Geocaching.com ».
+- **Brouillon** : `LogDraft.trackables.dropResults` conserve les dépôts
+  `confirmed`/`uncertain` d'un lot interrompu. À la restauration, leurs actions
+  repassent en « none » (un dépôt n'est jamais rejoué automatiquement) et un
+  avertissement nomme les TBs à vérifier ; rechoisir « Déposé » à la main reste
+  possible — ça efface le résultat enregistré.
 - **Validation avant envoi** : un TB en « Déposé » sans géocache trouvée pour le
   recevoir bloque l'envoi, et la section s'ouvre.
 - **Avertissement** : au-delà de 100 visites par log (seuil de c:geo), le

@@ -473,11 +473,24 @@ def test_connection_error_is_a_failure_before_response():
     assert session.post_calls == 1
 
 
-def test_geocache_log_network_failure_stays_a_simple_failure():
-    """Le log de cache garde son contrat `None` : un doublon « Found it » est de
-    toute façon refusé côté site, pas besoin de distinguer les coupures."""
+def test_geocache_log_network_failure_is_ambiguous_too():
+    """Un timeout sur le log de cache est tout aussi ambigu (le log peut porter
+    des dépôts de TBs) : l'exception remonte à la route, sans second POST."""
     session = _FailingSession(requests.ReadTimeout('read timed out'))
     client = GeocachingSubmitLogsClient(session=session)
 
-    assert submit(client) is None
+    with pytest.raises(LogSubmitNetworkError) as excinfo:
+        submit(client)
+
+    assert excinfo.value.outcome == 'unknown_remote_outcome'
     assert session.post_calls == 1
+
+
+def test_geocache_log_connection_failure_is_before_response():
+    session = _FailingSession(requests.ConnectionError('connection refused'))
+    client = GeocachingSubmitLogsClient(session=session)
+
+    with pytest.raises(LogSubmitNetworkError) as excinfo:
+        submit(client)
+
+    assert excinfo.value.outcome == 'network_failed_before_response'

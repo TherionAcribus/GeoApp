@@ -72,7 +72,10 @@ def cache_log_client(app, monkeypatch):
     class _RecordingSubmitClient:
         def submit_geocache_log(self, gc_code, **kwargs):
             sent.update(kwargs)
-            return {'logReferenceCode': 'GL7TB'}
+            result = sent.get('result', {'logReferenceCode': 'GL7TB'})
+            if isinstance(result, Exception):
+                raise result
+            return result
 
     monkeypatch.setattr(logs_bp, 'GeocachingSubmitLogsClient', lambda *a, **k: _RecordingSubmitClient())
     monkeypatch.setattr(logs_bp, 'get_auth_service', lambda: _FakeAuthService())
@@ -650,6 +653,30 @@ def test_connection_failure_needs_no_reconciliation(app, trackable_log_client, f
     assert response.status_code == 502
     assert response.get_json()['error'] == 'network_failed_before_response'
     assert 'fetch_details' not in [name for name, _ in fake.calls]
+
+
+# ---------------------------------- Log de cache : coupure réseau classifiée
+
+def test_cache_log_unknown_remote_outcome_is_flagged(app, cache_log_client):
+    """Timeout côté site après envoi : la réponse dit que le log a pu être créé."""
+    trackable_store.save_my_inventory([_mine('TBAAA1')])
+    cache_log_client.sent['result'] = LogSubmitNetworkError('read timeout', outcome='unknown_remote_outcome')
+
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [{'code': 'TBAAA1', 'action': 'visit'}])
+
+    assert response.status_code == 502
+    body = response.get_json()
+    assert body['error_code'] == 'UNKNOWN_REMOTE_OUTCOME'
+
+
+def test_cache_log_connection_failure_is_before_response(app, cache_log_client):
+    trackable_store.save_my_inventory([_mine('TBAAA1')])
+    cache_log_client.sent['result'] = LogSubmitNetworkError('conn refused', outcome='network_failed_before_response')
+
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [{'code': 'TBAAA1', 'action': 'visit'}])
+
+    assert response.status_code == 502
+    assert response.get_json()['error_code'] == 'NETWORK_FAILED_BEFORE_RESPONSE'
 
 
 # ---------------------------------------------------------- Clé d'opération

@@ -35,6 +35,12 @@ export interface SubmitLogResult {
     foundDate?: string;
     /** Type de log que GC a déjà accepté, quand déjàLogged est vrai pour une note/DNF. */
     alreadyLoggedLogType?: LogTypeValue;
+    /**
+     * Vrai si le résultat distant est inconnu : timeouts réseau en vol ou
+     * `UNKNOWN_REMOTE_OUTCOME` du backend — le log a pu être créé côté site.
+     * Un tel résultat ne doit jamais être renvoyé à l'aveugle.
+     */
+    ambiguous?: boolean;
     /** Message d'erreur exploitable (en cas d'échec). */
     error?: string;
 }
@@ -242,6 +248,15 @@ async function submitOneLogWithTimeout(
             };
         }
 
+        // Le backend a perdu la réponse de Geocaching.com après l'envoi : le log a
+        // pu être créé. Ni l'appelant ni le retry automatique ne doivent le rejouer.
+        if (errorCode === 'UNKNOWN_REMOTE_OUTCOME') {
+            return {
+                retriable: false,
+                result: { ok: false, ambiguous: true, error: 'Résultat distant incertain : le log a peut-être été créé.' },
+            };
+        }
+
         const detail = body?.error ? `: ${body.error}` : '';
         return { retriable: false, result: { ok: false, error: `Envoi refusé par le backend${detail}` } };
     } catch (e) {
@@ -282,8 +297,9 @@ export async function submitOneLog(
         return retry.result;
     }
 
-    // Deux échecs réseau consécutifs : on abandonne.
-    return { ok: false, error: 'Erreur réseau (2 tentatives échouées)' };
+    // Deux échecs réseau consécutifs : on abandonne — et l'un des deux essais a pu
+    // aboutir côté site sans que sa réponse revienne, le résultat est donc ambigu.
+    return { ok: false, ambiguous: true, error: 'Erreur réseau (2 tentatives échouées)' };
 }
 
 /** Libellé affichable d'un type de log (ré-exporté depuis helpers pour compat). */

@@ -8,7 +8,13 @@
 
 import { StorageService } from '@theia/core/lib/browser';
 import { sanitizeLogTypeForGeocache, todayIsoDate } from './helpers';
-import { TrackableSelection, sanitizeTrackableSelection } from './trackables';
+import {
+    TrackableDropResult,
+    TrackableSelection,
+    applyDropResultsToSelection,
+    sanitizeTrackableDropResults,
+    sanitizeTrackableSelection,
+} from './trackables';
 import { GeocacheListItem, LogDraft, LogHistoryEntry, LogTypeValue, SubmissionStatus, isLogTypeValue, isSubmissionStatus } from './types';
 
 /** Génère un identifiant unique (fallback quand un entry n'en a pas). */
@@ -226,7 +232,8 @@ export function buildDraftFromState(
     perCacheSubmitStatus: Record<number, SubmissionStatus>,
     perCacheSubmitReference: Record<number, string | undefined>,
     logLanguage = '',
-    trackables?: TrackableSelection
+    trackables?: TrackableSelection,
+    trackableDropResults?: Record<string, TrackableDropResult>
 ): LogDraft {
     return {
         savedAt: new Date().toISOString(),
@@ -242,7 +249,13 @@ export function buildDraftFromState(
         perCacheSubmitStatus: { ...perCacheSubmitStatus },
         perCacheSubmitReference: { ...perCacheSubmitReference },
         trackables: trackables
-            ? { actions: { ...trackables.actions }, dropTargets: { ...trackables.dropTargets } }
+            ? {
+                actions: { ...trackables.actions },
+                dropTargets: { ...trackables.dropTargets },
+                ...(trackableDropResults && Object.keys(trackableDropResults).length > 0
+                    ? { dropResults: { ...trackableDropResults } }
+                    : {}),
+            }
             : undefined,
     };
 }
@@ -291,6 +304,13 @@ export interface DraftApplicationResult {
     reorderedGeocacheIds?: number[];
     /** Actions TB du brouillon, si le brouillon en porte. */
     trackables?: TrackableSelection;
+    /**
+     * Résultats de dépôt d'un lot interrompu (`confirmed`/`uncertain`), déjà
+     * appliqués à `trackables` : les TBs concernés sont repassés en « none ».
+     * `trackableDropsCleared` liste les codes neutralisés, pour l'avertissement.
+     */
+    trackableDropResults?: Record<string, TrackableDropResult>;
+    trackableDropsCleared?: string[];
 }
 
 /** Calcule l'état résultant de l'application d'un brouillon (sans muter le widget). */
@@ -337,6 +357,14 @@ export function computeDraftApplication(
         ? restoredIds
         : undefined;
 
+    // Un dépôt confirmé ou incertain dans le lot interrompu n'est jamais rejoué :
+    // l'action restaurée repasse en « none » (l'utilisateur la reverra et tranchera).
+    const dropResults = sanitizeTrackableDropResults(draft.trackables?.dropResults);
+    const restoredSelection = draft.trackables ? sanitizeTrackableSelection(draft.trackables) : undefined;
+    const dropApplied = restoredSelection
+        ? applyDropResultsToSelection(restoredSelection, dropResults)
+        : { selection: undefined, cleared: [] };
+
     return {
         logDate,
         logLanguage,
@@ -349,7 +377,9 @@ export function computeDraftApplication(
         perCacheSubmitStatus,
         perCacheSubmitReference,
         reorderedGeocacheIds,
-        trackables: draft.trackables ? sanitizeTrackableSelection(draft.trackables) : undefined,
+        trackables: dropApplied.selection,
+        trackableDropResults: Object.keys(dropResults).length > 0 ? dropResults : undefined,
+        trackableDropsCleared: dropApplied.cleared.length > 0 ? dropApplied.cleared : undefined,
     };
 }
 
