@@ -126,6 +126,12 @@ class TrackableSummary:
     holder_username: str | None = None
     current_geocache_code: str | None = None
     current_geocache_name: str | None = None
+    # Tri-état de la localisation : `location_known` distingue « la source ne dit
+    # rien » (False : la fusion ne touche pas à la localisation connue) de « la
+    # source affirme » (True : `current_geocache_code = None` veut alors dire
+    # « plus dans une cache »). Vrai quand le JSON porte la clé `currentGeocache`,
+    # ou quand le type de relevé affirme la position (inventaire d'une cache).
+    location_known: bool = False
     goal_html: str | None = None
     released_at: str | None = None
     origin: str | None = None
@@ -373,6 +379,9 @@ class GeocachingTrackablesClient:
 
         owner = raw.get('owner') if isinstance(raw.get('owner'), dict) else {}
         holder = raw.get('holder') if isinstance(raw.get('holder'), dict) else {}
+        # La clé `currentGeocache` seule est informative : présente à `null`, elle
+        # affirme « plus dans une cache » ; absente, la source ne sait pas.
+        location_known = 'currentGeocache' in raw
         current = raw.get('currentGeocache') if isinstance(raw.get('currentGeocache'), dict) else {}
         released = raw.get('locationReleased') if isinstance(raw.get('locationReleased'), dict) else {}
 
@@ -402,6 +411,7 @@ class GeocachingTrackablesClient:
             holder_username=_as_str(holder.get('userName')),
             current_geocache_code=_as_str(current.get('referenceCode')),
             current_geocache_name=_as_str(current.get('name')),
+            location_known=location_known,
             goal_html=_as_str(raw.get('currentGoal')),
             released_at=date_released,
             origin=origin or None,

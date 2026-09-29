@@ -411,7 +411,8 @@ def test_trackable_details_and_log_info(app, fake_network):
     from gc_backend.services.geocaching_trackables import TrackableDetails
 
     fake_network(
-        trackable=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE', current_geocache_code='GC1E51'),
+        trackable=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE',
+                                   current_geocache_code='GC1E51', location_known=True),
         details=TrackableDetails(reference_code='TBBAQ0Z', goal_html='<p>Voyager</p>'),
         log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4, 48, 13, 19],
                                       current_geocache_code='GC1E51'),

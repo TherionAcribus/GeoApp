@@ -8,7 +8,11 @@ Règles de fusion :
 - un relevé ne vide jamais un champ connu avec une valeur absente : l'inventaire
   d'une cache ne donne ni propriétaire ni code de suivi, et ne doit pas effacer
   ce que mon inventaire en avait appris ;
-- le code de suivi n'est remplacé que par un autre code non vide.
+- le code de suivi n'est remplacé que par un autre code non vide ;
+- la localisation suit un tri-état (`TrackableSummary.location_known`) : une source
+  qui ne dit rien la laisse intacte, une source affirmative peut la vider
+  (p. ex. fiche complète avec `currentGeocache: null`, ou relevé d'une cache où
+  le TB a disparu).
 """
 from __future__ import annotations
 
@@ -77,9 +81,11 @@ def upsert_trackable(summary: TrackableSummary) -> tuple[Trackable, bool]:
         setattr(row, name, bool(getattr(summary, name)))
     if summary.tracking_code:
         row.tracking_code = normalize_code(summary.tracking_code)
-    if summary.current_geocache_code:
-        row.current_geocache_code = normalize_code(summary.current_geocache_code)
-        row.current_geocache_name = summary.current_geocache_name
+    if summary.location_known:
+        # La source affirme la localisation : une valeur vide veut dire « plus
+        # dans une cache », pas « champ inconnu ».
+        row.current_geocache_code = normalize_code(summary.current_geocache_code) or None
+        row.current_geocache_name = summary.current_geocache_name if row.current_geocache_code else None
     return row, created
 
 
@@ -135,20 +141,36 @@ def inventory_last_sync_at() -> Optional[str]:
 
 
 def save_cache_inventory(gc_code: str, items: Iterable[TrackableSummary]) -> list[Trackable]:
-    """Remplace les TBs connus dans une cache par le relevé. Retourne les lignes, dans l'ordre."""
+    """
+    Remplace les TBs connus dans une cache par le relevé. Retourne les lignes, dans l'ordre.
+
+    Le relevé fait foi pour la localisation : un TB qui n'y figure plus perd la
+    cache comme localisation courante, même sans relation `GeocacheTrackable`
+    restante (p. ex. position apprise par une fiche complète).
+    """
     gc_code = normalize_code(gc_code)
     now = datetime.now(timezone.utc)
     GeocacheTrackable.query.filter_by(gc_code=gc_code).delete()
 
     rows: list[Trackable] = []
+    seen: set[str] = set()
     for summary in items:
+        # Le relevé affirme la localisation : le TB est dans cette cache.
         summary.current_geocache_code = summary.current_geocache_code or gc_code
+        summary.location_known = True
         row, _ = upsert_trackable(summary)
         row.in_my_inventory = False
-        if row.reference_code in {r.reference_code for r in rows}:
+        if row.reference_code in seen:
             continue
+        seen.add(row.reference_code)
         db.session.add(GeocacheTrackable(gc_code=gc_code, trackable_code=row.reference_code, seen_at=now))
         rows.append(row)
+
+    for row in Trackable.query.filter_by(current_geocache_code=gc_code).all():
+        if row.reference_code not in seen:
+            row.current_geocache_code = None
+            row.current_geocache_name = None
+
     AppConfig.set_value(_cache_sync_key(gc_code), now.isoformat())
     db.session.commit()
     return rows

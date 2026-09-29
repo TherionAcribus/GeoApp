@@ -552,3 +552,72 @@ def test_discovered_trackable_stays_where_it_is(app):
 
     assert row.in_my_inventory is False
     assert [t.reference_code for t in trackable_store.list_cache_inventory('GC1E51')] == ['TBBAQ0Z']
+
+
+# ------------------------------------------------- Cohérence des localisations
+
+def test_cache_inventory_clears_the_location_of_departed_trackables(app):
+    """[TBA, TBB] -> [TBB] : TBA n'est plus situé dans cette cache."""
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA1')), _summary(_cache_item('TBAAA2'))])
+
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA2'))])
+
+    gone = Trackable.query.filter_by(reference_code='TBAAA1').one()
+    assert gone.current_geocache_code is None
+    assert gone.current_geocache_name is None
+    assert [t.reference_code for t in trackable_store.list_cache_inventory('GC1E51')] == ['TBAAA2']
+
+
+def test_cache_inventory_clears_a_location_learned_elsewhere(app):
+    """La fiche situait le TB dans la cache ; le relevé de cette cache fait foi."""
+    moved = dict(TRACKABLE_JSON, referenceCode='TBAAA1',
+                 currentGeocache={'referenceCode': 'GC1E51', 'name': 'Prague Panorama'})
+    trackable_store.upsert_trackable(_summary(moved))
+    db.session.commit()
+    assert Trackable.query.filter_by(reference_code='TBAAA1').one().current_geocache_code == 'GC1E51'
+
+    # Le relevé de GC1E51 ne contient pas le TB : il n'y est plus.
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA2'))])
+
+    assert Trackable.query.filter_by(reference_code='TBAAA1').one().current_geocache_code is None
+
+
+def test_full_fetch_clears_location_when_trackable_left_the_cache(app):
+    """Fiche complète avec `currentGeocache: null` : le TB est reparti en main/chez quelqu'un."""
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA1'))])
+
+    in_hand = dict(TRACKABLE_JSON, referenceCode='TBAAA1', currentGeocache=None)
+    trackable_store.upsert_trackable(_summary(in_hand))
+    db.session.commit()
+
+    row = Trackable.query.filter_by(reference_code='TBAAA1').one()
+    assert row.current_geocache_code is None
+    assert row.current_geocache_name is None
+
+
+def test_full_fetch_moves_trackable_between_caches(app):
+    trackable_store.save_cache_inventory('GCAAA', [_summary(_cache_item('TBAAA1'))])
+
+    moved = dict(TRACKABLE_JSON, referenceCode='TBAAA1',
+                 currentGeocache={'referenceCode': 'GCBBB', 'name': 'Nouvelle cache'})
+    trackable_store.upsert_trackable(_summary(moved))
+    db.session.commit()
+
+    row = Trackable.query.filter_by(reference_code='TBAAA1').one()
+    assert row.current_geocache_code == 'GCBBB'
+    assert row.current_geocache_name == 'Nouvelle cache'
+
+
+def test_partial_summary_keeps_known_fields_and_location(app):
+    """Une source qui ne dit rien (pas de clé `currentGeocache`) ne détruit rien."""
+    trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA1', tracking='SECRET'))])
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA1'))])
+
+    # Résumé pauvre : ni `currentGeocache`, ni propriétaire, ni code de suivi.
+    trackable_store.upsert_trackable(TrackableSummary(reference_code='TBAAA1'))
+    db.session.commit()
+
+    row = Trackable.query.filter_by(reference_code='TBAAA1').one()
+    assert row.current_geocache_code == 'GC1E51'
+    assert row.owner_username == 'AngeEtDemon'
+    assert row.tracking_code == 'SECRET'

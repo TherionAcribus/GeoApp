@@ -104,6 +104,11 @@ parallèle existe (`add_trackable_tables`).
   n'efface ni le propriétaire ni le code de suivi appris par mon inventaire ;
 - `save_my_inventory` sort de l'inventaire les TBs qui n'y sont plus, et efface la
   cache courante des TBs en main ;
+- la localisation suit un tri-état (`TrackableSummary.location_known`) : une source
+  qui omet le champ `currentGeocache` ne touche pas à la localisation connue, une
+  source qui l'affirme peut la remplacer *ou la vider* (`currentGeocache: null` =
+  « plus dans une cache ») ; `save_cache_inventory` affirme les TBs vus et vide la
+  localisation de ceux qui ont disparu du relevé de cette cache ;
 - la date du dernier relevé est gardée dans `AppConfig`
   (`trackables.inventory.last_sync_at`).
 
