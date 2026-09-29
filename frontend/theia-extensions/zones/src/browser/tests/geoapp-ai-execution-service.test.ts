@@ -1,6 +1,6 @@
 import * as assert from 'assert/strict';
 import { CancellationError, CancellationToken } from '@theia/core';
-import { GeoAppAiExecutionService, GeoAppAiOutputError } from '../geoapp-ai-execution-service';
+import { GeoAppAiExecutionService, GeoAppAiExecutionUnavailableError, GeoAppAiOutputError } from '../geoapp-ai-execution-service';
 import { GeoAppAiModelResolutionService } from '../geoapp-ai-model-resolution-service';
 
 interface FakeModel {
@@ -568,6 +568,14 @@ async function testPersistentHistoryRestoresMetadataOnlyAndClearsOnDisable(): Pr
     assert.deepEqual(restored?.tokenUsage, { inputTokens: 3, outputTokens: 2, totalTokens: 5 });
     assert.equal(executionService.getRecentExecutions().length, 1);
 
+    const metrics = executionService.getExecutionMetrics();
+    assert.equal(metrics.total.executions, 1);
+    assert.equal(metrics.total.succeeded, 1);
+    assert.equal(metrics.total.durationMs, 160);
+    assert.equal(metrics.total.tokenUsage?.totalTokens, 5);
+    assert.equal(metrics.byTask[0].key, 'translate-description');
+    assert.equal(metrics.byProvider[0].key, 'ollama');
+
     await preferenceService.set('geoApp.ai.executionHistory.enabled', false);
     await Promise.resolve();
     await Promise.resolve();
@@ -706,6 +714,62 @@ async function testPersistentHistoryStoresSanitizedError(): Promise<void> {
     assert.ok(!serialized.includes('secret-prompt'));
 }
 
+async function testExecutionMetricsAggregateByTaskAndProvider(): Promise<void> {
+    const { executionService } = createServices({
+        preferences: {
+            'geoApp.ai.modelCapabilities': {
+                'text-only': { vision: false },
+            },
+        },
+        response: {
+            text: 'ok',
+            usage: { input_tokens: 2, output_tokens: 3 },
+        },
+    });
+
+    await executionService.sendTaskRequest('translate-description', {
+        messages: [{ actor: 'user', type: 'text', text: 'one' }],
+    });
+    await executionService.sendTaskRequest('translate-description', {
+        messages: [{ actor: 'user', type: 'text', text: 'two' }],
+    });
+    await assert.rejects(
+        () => executionService.sendTaskRequest('translate-description', {
+            messages: [{ actor: 'user', type: 'text', text: 'cancelled' }],
+        }, { cancellationToken: cancelledToken() }),
+        CancellationError
+    );
+    await assert.rejects(
+        () => executionService.runOperation('ocr-backend-plugin', async () => ({ status: 'unused' }), {
+            backendExecution: {
+                provider: 'lmstudio',
+                baseUrl: 'http://localhost:1234',
+                model: 'text-only',
+            },
+        }),
+        GeoAppAiExecutionUnavailableError
+    );
+
+    const metrics = executionService.getExecutionMetrics();
+    assert.equal(metrics.total.executions, 4);
+    assert.equal(metrics.total.succeeded, 2);
+    assert.equal(metrics.total.cancelled, 1);
+    assert.equal(metrics.total.failed, 1);
+    assert.equal(metrics.total.successRate, 0.5);
+    assert.equal(metrics.total.tokenUsage?.inputTokens, 4);
+    assert.equal(metrics.total.tokenUsage?.outputTokens, 6);
+
+    const translate = metrics.byTask.find(bucket => bucket.key === 'translate-description');
+    const ocr = metrics.byTask.find(bucket => bucket.key === 'ocr-backend-plugin');
+    assert.equal(translate?.executions, 3);
+    assert.equal(ocr?.failed, 1);
+
+    const ollama = metrics.byProvider.find(bucket => bucket.key === 'ollama');
+    const lmstudio = metrics.byProvider.find(bucket => bucket.key === 'lmstudio');
+    assert.equal(ollama?.executions, 3);
+    assert.equal(lmstudio?.failed, 1);
+}
+
 async function testPersistentHistoryRejectsUnknownVersion(): Promise<void> {
     const storage = new FakeStorageService();
     storage.data.set('geoapp.ai.executionHistory.v1', {
@@ -772,6 +836,7 @@ async function run(): Promise<void> {
     await testPersistentHistoryDoesNotWriteWhenDisabled();
     await testPersistentHistoryStoresFailedCancelledAndResolutionFailure();
     await testPersistentHistoryStoresSanitizedError();
+    await testExecutionMetricsAggregateByTaskAndProvider();
     await testPersistentHistoryRejectsUnknownVersion();
     await testStorageFailuresDoNotBreakExecution();
     console.log('geoapp-ai-execution-service tests passed');

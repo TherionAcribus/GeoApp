@@ -1065,6 +1065,36 @@
     flex-shrink: 0;
 }
 
+.geoapp-chat-policy-metrics {
+    margin: 0 0 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--theia-editorWidget-border);
+    color: var(--theia-ui-font-color2);
+    font-size: 11px;
+}
+
+.geoapp-chat-policy-metrics-summary,
+.geoapp-chat-policy-metrics-groups {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+}
+
+.geoapp-chat-policy-metrics-groups {
+    margin-top: 6px;
+}
+
+.geoapp-chat-policy-metrics-groups > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    min-width: 220px;
+}
+
+.geoapp-chat-policy-metrics strong {
+    color: var(--theia-ui-font-color1);
+}
+
 .geoapp-chat-policy-model-assignment select,
 .geoapp-chat-policy-model-assignment input {
     min-width: 0;

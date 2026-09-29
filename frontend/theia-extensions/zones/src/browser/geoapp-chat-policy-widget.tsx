@@ -55,7 +55,7 @@ import {
     GeoAppAiModelResolutionService,
     GeoAppVisionBackendProvider
 } from './geoapp-ai-model-resolution-service';
-import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
+import { GeoAppAiExecutionMetricBucket, GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import {
     GeoAppAiCapabilityCheck,
     GeoAppAiExecutionRecord,
@@ -531,6 +531,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         </button>
                     </div>
                 )}
+                {this.renderAiExecutionMetrics()}
                 <table className='geoapp-chat-policy-agent-table'>
                     <thead>
                         <tr>
@@ -893,6 +894,70 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 ? 'non supportée'
                 : 'non vérifiée';
         return `${check.required ? 'Requis' : 'Option'} · ${label} : ${status}`;
+    }
+
+    protected renderAiExecutionMetrics(): React.ReactNode {
+        const metrics = this.aiExecutionService?.getExecutionMetrics();
+        if (!metrics || metrics.total.executions === 0) {
+            return undefined;
+        }
+        const topTasks = metrics.byTask.slice(0, 4);
+        const topProviders = metrics.byProvider.slice(0, 4);
+        return (
+            <div className='geoapp-chat-policy-metrics'>
+                <div className='geoapp-chat-policy-metrics-summary'>
+                    <strong>Journal consolidé</strong>
+                    <span>{this.formatExecutionMetric(metrics.total)}</span>
+                    {metrics.running > 0 && <span>{metrics.running} en cours</span>}
+                </div>
+                <div className='geoapp-chat-policy-metrics-groups'>
+                    <div>
+                        <strong>Tâches</strong>
+                        {topTasks.map(metric => (
+                            <span key={metric.key} title={this.formatExecutionMetricTitle(metric)}>
+                                {metric.label} · {this.formatExecutionMetric(metric)}
+                            </span>
+                        ))}
+                    </div>
+                    <div>
+                        <strong>Providers</strong>
+                        {topProviders.map(metric => (
+                            <span key={metric.key} title={this.formatExecutionMetricTitle(metric)}>
+                                {metric.label} · {this.formatExecutionMetric(metric)}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    protected formatExecutionMetric(metric: GeoAppAiExecutionMetricBucket): string {
+        const parts = [
+            `${metric.executions} exécution(s)`,
+            `${Math.round(metric.successRate * 100)} % réussies`,
+        ];
+        if (metric.failed) {
+            parts.push(`${metric.failed} échec(s)`);
+        }
+        if (metric.cancelled) {
+            parts.push(`${metric.cancelled} annulée(s)`);
+        }
+        if (metric.durationMs !== undefined) {
+            parts.push(`${Math.round(metric.durationMs)} ms moy.`);
+        }
+        if (metric.tokenUsage?.totalTokens !== undefined) {
+            parts.push(`${metric.tokenUsage.totalTokens} tokens`);
+        }
+        return parts.join(' · ');
+    }
+
+    protected formatExecutionMetricTitle(metric: GeoAppAiExecutionMetricBucket): string {
+        const tokens = metric.tokenUsage ? this.formatTokenUsage(metric.tokenUsage) : 'inconnus';
+        const duration = metric.durationMs === undefined
+            ? 'inconnue'
+            : `${Math.round(metric.totalDurationMs)} ms au total · ${Math.round(metric.durationMs)} ms en moyenne`;
+        return `${metric.succeeded} réussie(s), ${metric.failed} échec(s), ${metric.cancelled} annulée(s)\nDurée : ${duration}\nTokens : ${tokens}`;
     }
 
     protected formatLastExecution(execution: GeoAppAiExecutionRecord | undefined): React.ReactNode {

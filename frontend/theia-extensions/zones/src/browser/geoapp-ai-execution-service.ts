@@ -17,6 +17,7 @@ import {
 import {
     GeoAppAiExecutionRecord,
     GeoAppAiExecutionResult,
+    GeoAppAiExecutionStatus,
     GeoAppAiOperationContext,
     GeoAppAiOperationOptions,
     GeoAppAiOperationRecorder,
@@ -129,6 +130,43 @@ export interface GeoAppAiExecutionHistoryStore {
 
 export const GeoAppAiExecutionHistoryStore = Symbol('GeoAppAiExecutionHistoryStore');
 
+export interface GeoAppAiExecutionMetricBucket {
+    readonly key: string;
+    readonly label: string;
+    readonly executions: number;
+    readonly succeeded: number;
+    readonly failed: number;
+    readonly cancelled: number;
+    readonly successRate: number;
+    readonly durationMs?: number;
+    readonly totalDurationMs: number;
+    readonly tokenUsage?: GeoAppAiTokenUsage;
+    readonly lastExecutionAt?: string;
+    readonly lastStatus?: GeoAppAiExecutionStatus;
+}
+
+export interface GeoAppAiExecutionMetrics {
+    readonly total: GeoAppAiExecutionMetricBucket;
+    readonly running: number;
+    readonly byTask: readonly GeoAppAiExecutionMetricBucket[];
+    readonly byProvider: readonly GeoAppAiExecutionMetricBucket[];
+}
+
+interface MutableGeoAppAiExecutionMetricBucket {
+    key: string;
+    label: string;
+    executions: number;
+    succeeded: number;
+    failed: number;
+    cancelled: number;
+    durationMs?: number;
+    totalDurationMs: number;
+    durationCount: number;
+    tokenUsage?: GeoAppAiTokenUsage;
+    lastExecutionAt?: string;
+    lastStatus?: GeoAppAiExecutionStatus;
+}
+
 interface InternalTaskExecution {
     operationId: string;
     subjectId?: string;
@@ -227,6 +265,97 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             record.taskId === taskId && (subjectId === undefined || record.subjectId === subjectId);
         return [...this.activeExecutions.values()].find(matches)
             ?? this.executionHistory.find(matches);
+    }
+
+    getExecutionMetrics(): GeoAppAiExecutionMetrics {
+        const createBucket = (key: string, label: string): MutableGeoAppAiExecutionMetricBucket => ({
+            key,
+            label,
+            executions: 0,
+            succeeded: 0,
+            failed: 0,
+            cancelled: 0,
+            totalDurationMs: 0,
+            durationCount: 0,
+        });
+        const addRecord = (bucket: MutableGeoAppAiExecutionMetricBucket, record: GeoAppAiExecutionRecord): void => {
+            bucket.executions++;
+            if (record.status === 'succeeded') {
+                bucket.succeeded++;
+            } else if (record.status === 'failed') {
+                bucket.failed++;
+            } else if (record.status === 'cancelled') {
+                bucket.cancelled++;
+            }
+            if (record.durationMs !== undefined && Number.isFinite(record.durationMs)) {
+                bucket.totalDurationMs += record.durationMs;
+                bucket.durationCount++;
+                bucket.durationMs = bucket.totalDurationMs / bucket.durationCount;
+            }
+            if (record.tokenUsage) {
+                bucket.tokenUsage = bucket.tokenUsage || {};
+                for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens'] as const) {
+                    const value = record.tokenUsage[key];
+                    if (value !== undefined && Number.isFinite(value)) {
+                        bucket.tokenUsage[key] = (bucket.tokenUsage[key] || 0) + value;
+                    }
+                }
+            }
+            const timestamp = record.completedAt || record.startedAt;
+            const time = Date.parse(timestamp);
+            if (Number.isFinite(time)
+                && (!bucket.lastExecutionAt || time > Date.parse(bucket.lastExecutionAt))) {
+                bucket.lastExecutionAt = timestamp;
+                bucket.lastStatus = record.status;
+            }
+        };
+        const finishBucket = (bucket: MutableGeoAppAiExecutionMetricBucket): GeoAppAiExecutionMetricBucket => Object.freeze({
+            key: bucket.key,
+            label: bucket.label,
+            executions: bucket.executions,
+            succeeded: bucket.succeeded,
+            failed: bucket.failed,
+            cancelled: bucket.cancelled,
+            successRate: bucket.executions ? bucket.succeeded / bucket.executions : 0,
+            durationMs: bucket.durationMs,
+            totalDurationMs: bucket.totalDurationMs,
+            tokenUsage: bucket.tokenUsage && Object.freeze({ ...bucket.tokenUsage }),
+            lastExecutionAt: bucket.lastExecutionAt,
+            lastStatus: bucket.lastStatus,
+        });
+
+        const total = createBucket('all', 'Toutes les tâches');
+        const taskBuckets = new Map<string, MutableGeoAppAiExecutionMetricBucket>();
+        const providerBuckets = new Map<string, MutableGeoAppAiExecutionMetricBucket>();
+        for (const record of this.executionHistory) {
+            addRecord(total, record);
+            const taskKey = record.taskId;
+            let taskBucket = taskBuckets.get(taskKey);
+            if (!taskBucket) {
+                taskBucket = createBucket(taskKey, record.taskLabel || taskKey);
+                taskBuckets.set(taskKey, taskBucket);
+            }
+            addRecord(taskBucket, record);
+
+            const providerLabel = record.reportedProvider || record.resolution.provider || 'inconnu';
+            const providerKey = providerLabel.toLowerCase();
+            let providerBucket = providerBuckets.get(providerKey);
+            if (!providerBucket) {
+                providerBucket = createBucket(providerKey, providerLabel);
+                providerBuckets.set(providerKey, providerBucket);
+            }
+            addRecord(providerBucket, record);
+        }
+        const sortBuckets = (buckets: MutableGeoAppAiExecutionMetricBucket[]): GeoAppAiExecutionMetricBucket[] =>
+            buckets
+                .sort((left, right) => right.executions - left.executions || left.label.localeCompare(right.label, 'fr'))
+                .map(finishBucket);
+        return Object.freeze({
+            total: finishBucket(total),
+            running: this.activeExecutions.size,
+            byTask: Object.freeze(sortBuckets([...taskBuckets.values()])),
+            byProvider: Object.freeze(sortBuckets([...providerBuckets.values()])),
+        });
     }
 
     async runOperation<T>(
