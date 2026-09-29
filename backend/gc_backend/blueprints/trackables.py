@@ -16,22 +16,30 @@ Le code de suivi ne sort jamais d'ici : les réponses disent seulement s'il est 
 """
 from __future__ import annotations
 
+import html as html_lib
 import logging
+import re
+import threading
 from datetime import date as date_type
 from datetime import datetime, timezone
+from time import monotonic
+from typing import Optional
 
 from flask import Blueprint, jsonify, request
 
 from ..database import db
 from ..models import Trackable
 from ..services import trackable_store
+from ..services.geocaching_auth import get_auth_service
 from ..services.geocaching_friends import NotAuthenticatedError
 from ..services.geocaching_submit_logs import (
     TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE,
     GeocachingSubmitLogsClient,
+    LogSubmitNetworkError,
 )
 from ..services.geocaching_trackables import (
     TRACKABLE_LOG_TYPE_LABELS,
+    WEBSITE_URL,
     GeocachingTrackablesClient,
     TrackableError,
     TrackableNotFoundError,
@@ -46,6 +54,15 @@ logger = logging.getLogger(__name__)
 _MAX_LOG_TEXT_LENGTH = 10_000
 _MAX_TRACKING_CODE_LENGTH = 64
 _MAX_GEOCACHE_CODE_LENGTH = 16
+
+# Clés d'opération locales : Geocaching.com ne supporte pas l'idempotence, alors un
+# `operationId` fourni par le client garantit qu'un même envoi ne part pas deux
+# fois — ni en parallèle (409 `operation_in_flight`), ni en re-clic après coup
+# (la réponse mémorisée est rejouée telle quelle pendant _LOG_OPERATION_TTL_SECONDS).
+_log_operations: dict[str, dict] = {}
+_log_operations_lock = threading.Lock()
+_LOG_OPERATION_TTL_SECONDS = 10 * 60
+_MAX_OPERATION_ID_LENGTH = 100
 
 
 def _error(code: str, message: str, status: int):
@@ -335,24 +352,113 @@ def post_trackable_log(tb_code: str):
                     400,
                 )
 
-    result = GeocachingSubmitLogsClient().submit_trackable_log(
-        code,
-        tracking_code=tracking_code,
-        log_type_id=log_type_id,
-        log_text=text,
-        visited_date=visited_date,
-        geocache_code=geocache_code,
-    )
-    if not result:
-        return _error('submit_failed', "Échec de l'envoi du log vers Geocaching.com.", 502)
-    if not result.get('logReferenceCode'):
-        return jsonify({
-            'success': False,
-            'error': 'submit_rejected',
-            'error_message': result.get('error_message') or "Geocaching.com n'a pas accepté le log.",
-            'gc_response': result,
-        }), 502
+    # Clé d'opération : empêche un double envoi (double clic, workers parallèles).
+    operation_id = str(data.get('operationId') or '').strip()
+    if len(operation_id) > _MAX_OPERATION_ID_LENGTH:
+        return _error('invalid_operation_id', 'operationId trop long.', 400)
+    existing = _claim_log_operation(operation_id) if operation_id else None
+    if existing is not None:
+        if existing['state'] == 'in_flight':
+            return _error('operation_in_flight', 'Ce log est déjà en cours d’envoi.', 409)
+        return jsonify(existing['payload']), existing['status']
 
+    try:
+        payload, status = _submit_validated_trackable_log(
+            code,
+            tracking_code=tracking_code,
+            log_type_id=log_type_id,
+            text=text,
+            visited_date=visited_date,
+            geocache_code=geocache_code,
+        )
+    except Exception:
+        if operation_id:
+            _release_log_operation(operation_id)
+        raise
+    if operation_id:
+        _store_log_operation(operation_id, payload, status)
+    return jsonify(payload), status
+
+
+# ----------------------------------------------------------- Envoi et résultat
+
+def _submit_validated_trackable_log(code: str, *, tracking_code, log_type_id: int,
+                                    text: str, visited_date, geocache_code):
+    """Envoie le log déjà validé et classe la réponse. Retourne (payload, statut)."""
+    try:
+        result = GeocachingSubmitLogsClient().submit_trackable_log(
+            code,
+            tracking_code=tracking_code,
+            log_type_id=log_type_id,
+            log_text=text,
+            visited_date=visited_date,
+            geocache_code=geocache_code,
+        )
+    except LogSubmitNetworkError as exc:
+        return _classify_network_outcome(code, exc, log_type_id=log_type_id,
+                                         text=text, visited_date=visited_date,
+                                         geocache_code=geocache_code,
+                                         tracking_code=tracking_code)
+
+    if not result:
+        return {'success': False, 'error': 'submit_failed',
+                'error_message': "Échec de l'envoi du log vers Geocaching.com."}, 502
+
+    log_reference_code = result.get('logReferenceCode')
+    if not log_reference_code:
+        return {'success': False, 'error': 'submit_rejected',
+                'error_message': result.get('error_message') or "Geocaching.com n'a pas accepté le log.",
+                'gc_response': result}, 502
+
+    return _success_payload(code, log_type_id, geocache_code, log_reference_code,
+                            tracking_code=tracking_code), 200
+
+
+def _classify_network_outcome(code: str, exc: LogSubmitNetworkError, *,
+                              log_type_id: int, text: str, visited_date,
+                              geocache_code, tracking_code) -> tuple[dict, int]:
+    """
+    Un POST coupé en vol : on réconcilie avec les logs récents du TB plutôt que
+    de supposer un échec — le log a pu être enregistré avant la coupure.
+    """
+    if exc.outcome == 'network_failed_before_response':
+        return {
+            'success': False,
+            'error': 'network_failed_before_response',
+            'error_message': (
+                'La connexion a été coupée avant la réponse du site : le log '
+                'n’a sans doute pas été envoyé, vous pouvez réessayer.'
+            ),
+        }, 502
+
+    verdict, entry = _reconcile_submitted_log(code, log_type_id, text, visited_date)
+    if verdict == 'confirmed':
+        return _success_payload(code, log_type_id, geocache_code, entry.log_reference_code,
+                                tracking_code=tracking_code, reconciled='confirmed'), 200
+    if verdict == 'absent':
+        return {
+            'success': False,
+            'error': 'submit_failed',
+            'reconciled': 'absent',
+            'error_message': (
+                'Pas de réponse du site et le log n’apparaît pas dans les logs '
+                'récents du trackable : vous pouvez réessayer.'
+            ),
+        }, 502
+    return {
+        'success': False,
+        'error': 'unknown_remote_outcome',
+        'reconciled': 'ambiguous',
+        'trackable_url': f'{WEBSITE_URL}/track/details.aspx?tracker={code}',
+        'error_message': (
+            'Résultat distant incertain : le log a peut-être été enregistré. '
+            'Vérifiez sur Geocaching.com avant de réessayer.'
+        ),
+    }, 502
+
+
+def _success_payload(code: str, log_type_id: int, geocache_code, log_reference_code, *,
+                     tracking_code=None, reconciled: Optional[str] = None) -> dict:
     try:
         row = trackable_store.apply_trackable_log(code, log_type_id, tracking_code=tracking_code)
         trackable = row.to_dict()
@@ -361,10 +467,93 @@ def post_trackable_log(tb_code: str):
         db.session.rollback()
         trackable = None
 
-    return jsonify({
+    payload = {
         'success': True,
-        'log_reference_code': result.get('logReferenceCode'),
+        'log_reference_code': log_reference_code,
         'log_type': {'id': log_type_id, 'label': TRACKABLE_LOG_TYPE_LABELS.get(log_type_id)},
         'geocache_code': geocache_code if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE else None,
         'trackable': trackable,
-    })
+    }
+    if reconciled:
+        payload['reconciled'] = reconciled
+    return payload
+
+
+def _reconcile_submitted_log(code: str, log_type_id: int, text: str, visited_date):
+    """
+    Cherche dans les logs récents du TB le log qu'on vient peut-être de créer :
+    empreinte = type + date + auteur courant + texte normalisé.
+
+    Retourne ``('confirmed', entrée)`` / ``('absent', None)`` / ``('ambiguous', None)`` —
+    ambigu quand la fiche est illisible ou l'auteur inconnu : impossible de trancher.
+    """
+    try:
+        state = get_auth_service().get_auth_state()
+        author = getattr(getattr(state, 'user_info', None), 'username', None)
+    except Exception:  # pragma: no cover - état d'auth local indisponible
+        author = None
+    if not author:
+        return 'ambiguous', None
+
+    try:
+        details = GeocachingTrackablesClient().fetch_details(code)
+    except (TrackableError, NotAuthenticatedError):
+        return 'ambiguous', None
+
+    wanted = _log_text_fingerprint(text, is_html=False)
+    for entry in details.logs:
+        if (entry.log_type_id == log_type_id
+                and entry.log_date == visited_date.isoformat()
+                and entry.author_username == author
+                and _log_text_fingerprint(entry.text_html, is_html=True) == wanted):
+            return ('confirmed', entry) if entry.log_reference_code else ('ambiguous', None)
+    return 'absent', None
+
+
+def _log_text_fingerprint(text, *, is_html: bool) -> str:
+    """
+    Empreinte de texte pour comparer le corps envoyé (markdown brut) au `text_html`
+    rendu par le site : les balises sont retirées côté HTML, puis tout caractère
+    non alphanumérique est ignoré — « **super** » et « <strong>super</strong> »
+    se rejoignent. Le but est de retrouver *le même* log, pas de prouver qu'un
+    texte différent n'existe pas : en cas de doute, la réconciliation répond
+    « absent » et l'utilisateur décide.
+    """
+    if is_html:
+        text = re.sub(r'<[^>]+>', '', text or '')
+    text = html_lib.unescape(text or '')
+    return re.sub(r'[^\w]+', '', text.lower())
+
+
+# ------------------------------------------------------------- Clés d'opération
+
+def _claim_log_operation(operation_id: str) -> Optional[dict]:
+    """Réserve `operation_id` ; retourne l'entrée existante ou None (nouvelle)."""
+    with _log_operations_lock:
+        now = monotonic()
+        for key in [k for k, v in _log_operations.items() if v['expires_at'] <= now]:
+            _log_operations.pop(key, None)
+        entry = _log_operations.get(operation_id)
+        if entry is None:
+            _log_operations[operation_id] = {
+                'state': 'in_flight',
+                'expires_at': now + _LOG_OPERATION_TTL_SECONDS,
+            }
+        return entry
+
+
+def _store_log_operation(operation_id: str, payload: dict, status: int) -> None:
+    """Mémorise la réponse finie pour rejouer un `operationId` sans renvoyer."""
+    with _log_operations_lock:
+        _log_operations[operation_id] = {
+            'state': 'done',
+            'payload': payload,
+            'status': status,
+            'expires_at': monotonic() + _LOG_OPERATION_TTL_SECONDS,
+        }
+
+
+def _release_log_operation(operation_id: str) -> None:
+    """En cas de plantage entre envoi et réponse mémorisée : on libère la clé."""
+    with _log_operations_lock:
+        _log_operations.pop(operation_id, None)

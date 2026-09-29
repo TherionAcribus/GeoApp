@@ -4,6 +4,7 @@ import json
 from datetime import date
 
 import pytest
+import requests
 
 from gc_backend.services import geocaching_submit_logs
 from gc_backend.services.geocaching_submit_logs import (
@@ -12,6 +13,7 @@ from gc_backend.services.geocaching_submit_logs import (
     LOG_IMAGE_FORM_FIELD,
     TRPC_CREATE_GEOCACHE_LOG_URL,
     GeocachingSubmitLogsClient,
+    LogSubmitNetworkError,
 )
 
 
@@ -427,3 +429,55 @@ def test_trackable_log_rejection_masks_the_tracking_code():
     assert result['error_code'] == 'BAD_REQUEST'
     assert 'AB12CD' not in result['body']
     assert result['error_message'] == 'Invalid tracking code ***'
+
+
+class _FailingSession:
+    """Session qui lève une erreur réseau sur le POST (le GET CSRF passe)."""
+
+    def __init__(self, exc):
+        self.headers = {}
+        self.exc = exc
+        self.post_calls = 0
+
+    def get(self, url, **kwargs):
+        return FakeResponse(200, {'csrfToken': 'token-42'})
+
+    def post(self, url, **kwargs):
+        self.post_calls += 1
+        raise self.exc
+
+
+def test_read_timeout_is_an_unknown_remote_outcome_without_retry():
+    """Timeout en lecture : le log a pu être créé — l'erreur le dit, sans rejouer."""
+    session = _FailingSession(requests.ReadTimeout('read timed out'))
+    client = GeocachingSubmitLogsClient(session=session)
+
+    with pytest.raises(LogSubmitNetworkError) as excinfo:
+        client.submit_trackable_log('TB6Q3ER', tracking_code='AB12CD', log_type_id=48,
+                                    log_text='Vu', visited_date=date(2026, 9, 29))
+
+    assert excinfo.value.outcome == 'unknown_remote_outcome'
+    assert session.post_calls == 1
+
+
+def test_connection_error_is_a_failure_before_response():
+    """Connexion impossible : la requête n'a sans doute jamais quitté la machine."""
+    session = _FailingSession(requests.ConnectionError('connection refused'))
+    client = GeocachingSubmitLogsClient(session=session)
+
+    with pytest.raises(LogSubmitNetworkError) as excinfo:
+        client.submit_trackable_log('TB6Q3ER', tracking_code='AB12CD', log_type_id=48,
+                                    log_text='Vu', visited_date=date(2026, 9, 29))
+
+    assert excinfo.value.outcome == 'network_failed_before_response'
+    assert session.post_calls == 1
+
+
+def test_geocache_log_network_failure_stays_a_simple_failure():
+    """Le log de cache garde son contrat `None` : un doublon « Found it » est de
+    toute façon refusé côté site, pas besoin de distinguer les coupures."""
+    session = _FailingSession(requests.ReadTimeout('read timed out'))
+    client = GeocachingSubmitLogsClient(session=session)
+
+    assert submit(client) is None
+    assert session.post_calls == 1

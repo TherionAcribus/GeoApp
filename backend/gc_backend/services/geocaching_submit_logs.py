@@ -28,6 +28,22 @@ TRPC_CREATE_TRACKABLE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/trpc/web.logs.create
 #: Types de log trackable qui exigent la cache où se trouve le TB (« Retiré de la cache »).
 TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE = frozenset({13})
 
+
+class LogSubmitNetworkError(RuntimeError):
+    """
+    Échec réseau sur un POST de log : `outcome` qualifie où ça a coupé.
+
+    - ``network_failed_before_response`` : la requête n'a sans doute jamais atteint
+      le serveur (connexion) — le log n'existe pas, réessayer est sans risque ;
+    - ``unknown_remote_outcome`` : la requête a pu être traitée (timeout en lecture,
+      coupure après envoi…) — jamais de réessaie automatique, le log existe
+      peut-être déjà.
+    """
+
+    def __init__(self, message: str, *, outcome: str) -> None:
+        super().__init__(message)
+        self.outcome = outcome
+
 # Le jeton CSRF est lié à la session (à ses cookies), pas à un appel : le redemander avant
 # chaque log et chaque image doublait le nombre de requêtes vers Geocaching.com sur un lot
 # (20 caches + photos = 20+ allers-retours pour rien). Il est donc mémorisé par session.
@@ -389,6 +405,9 @@ class GeocachingSubmitLogsClient:
         (il peut être nul pour une simple note sur un TB qu'on détient) ;
         `geocacheReferenceCode` n'est envoyé que pour « Retiré de la cache ».
         Le code de suivi n'est jamais écrit dans les logs applicatifs.
+
+        Lève ``LogSubmitNetworkError`` si la réponse distante n'a pas été reçue
+        (l'appelant décide alors quoi faire — jamais de nouvel envoi automatique).
         """
         tb_code = (tb_code or '').strip().upper()
         if not tb_code:
@@ -433,8 +452,6 @@ class GeocachingSubmitLogsClient:
             gc_code=tb_code,
             secrets=(body.get('trackingCode') or '',),
         )
-        if response is None:
-            return None
         status, data, body_preview = response
         secret = body.get('trackingCode')
         if secret and data is not None:
@@ -478,14 +495,15 @@ class GeocachingSubmitLogsClient:
     ) -> dict[str, Any] | None:
         payload = {'0': {'referenceCode': gc_code, 'body': log_body}}
 
-        response = self._post_json(
-            TRPC_CREATE_GEOCACHE_LOG_URL,
-            params={'batch': '1'},
-            payload=payload,
-            headers=headers,
-            gc_code=gc_code,
-        )
-        if response is None:
+        try:
+            response = self._post_json(
+                TRPC_CREATE_GEOCACHE_LOG_URL,
+                params={'batch': '1'},
+                payload=payload,
+                headers=headers,
+                gc_code=gc_code,
+            )
+        except LogSubmitNetworkError:
             return None
 
         return self._interpret_trpc_log_response(gc_code, *response)
@@ -539,14 +557,15 @@ class GeocachingSubmitLogsClient:
     ) -> dict[str, Any] | None:
         payload = {key: value for key, value in log_body.items() if key != 'geocacheReferenceCode'}
 
-        response = self._post_json(
-            LEGACY_CREATE_GEOCACHE_LOG_URL.format(gc_code=gc_code),
-            params=None,
-            payload=payload,
-            headers=headers,
-            gc_code=gc_code,
-        )
-        if response is None:
+        try:
+            response = self._post_json(
+                LEGACY_CREATE_GEOCACHE_LOG_URL.format(gc_code=gc_code),
+                params=None,
+                payload=payload,
+                headers=headers,
+                gc_code=gc_code,
+            )
+        except LogSubmitNetworkError:
             return None
 
         status, data, body_preview = response
@@ -571,12 +590,28 @@ class GeocachingSubmitLogsClient:
 
         `secrets` (le code de suivi d'un TB) est masqué dans l'extrait, qui part
         dans les logs applicatifs et dans la réponse renvoyée au frontend.
+
+        Lève ``LogSubmitNetworkError`` sur erreur réseau : un timeout en lecture
+        peut arriver *après* la création du log côté site — l'appelant doit
+        traiter ce cas distinctement au lieu de réessayer à l'aveugle.
         """
         try:
             resp = self.session.post(url, params=params, json=payload, headers=headers, timeout=60)
+        except requests.ConnectionError as e:  # pragma: no cover
+            # Connexion impossible (DNS, refusé, timeout de connexion) : la
+            # requête n'a sans doute jamais atteint le serveur.
+            logger.error('Failed to submit log for %s: %s', gc_code, type(e).__name__)
+            raise LogSubmitNetworkError(
+                f'Connexion coupée avant la réponse pour {gc_code} ({type(e).__name__})',
+                outcome='network_failed_before_response',
+            ) from e
         except requests.RequestException as e:  # pragma: no cover
-            logger.error('Failed to submit log for %s: %s', gc_code, e)
-            return None
+            # ReadTimeout & co : la requête a pu être traitée côté serveur.
+            logger.error('Failed to submit log for %s: %s', gc_code, type(e).__name__)
+            raise LogSubmitNetworkError(
+                f'Réponse interrompue pour {gc_code} ({type(e).__name__})',
+                outcome='unknown_remote_outcome',
+            ) from e
 
         body_preview = (resp.text or '')[:2000]
         for secret in secrets:

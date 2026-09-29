@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from time import monotonic
 
 import pytest
 import requests
@@ -16,9 +17,12 @@ from gc_backend.geocaches.models import Geocache
 from gc_backend.models import Trackable, Zone
 from gc_backend.services import trackable_store
 from gc_backend.services.geocaching_friends import NotAuthenticatedError
+from gc_backend.services.geocaching_submit_logs import LogSubmitNetworkError
 from gc_backend.services.geocaching_trackables import (
     GeocachingTrackablesClient,
+    TrackableDetails,
     TrackableError,
+    TrackableLogEntry,
     TrackableLogPageInfo,
     TrackableNotFoundError,
     TrackableSummary,
@@ -438,8 +442,12 @@ def trackable_log_client(app, fake_network, monkeypatch):
     class _RecordingSubmitClient:
         def submit_trackable_log(self, tb_code, **kwargs):
             sent['tb_code'] = tb_code
+            sent['count'] = sent.get('count', 0) + 1
             sent.update(kwargs)
-            return sent.get('result', {'logReferenceCode': 'TL1ABC', 'ok': True})
+            result = sent.get('result', {'logReferenceCode': 'TL1ABC', 'ok': True})
+            if isinstance(result, Exception):
+                raise result
+            return result
 
     monkeypatch.setattr(trackables_bp, 'GeocachingSubmitLogsClient', lambda *a, **k: _RecordingSubmitClient())
     fake_network(log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4, 13, 19, 48],
@@ -550,6 +558,124 @@ def test_trackable_log_field_bounds(trackable_log_client, overrides, error):
     assert response.status_code == 400
     assert response.get_json()['error'] == error
     assert 'tb_code' not in trackable_log_client.sent
+
+
+# ------------------------------------- Résultat distant incertain (timeout…)
+
+def _log_entry(**overrides):
+    """Un log de la fiche du TB, tel que `fetch_details` le parserait."""
+    base = dict(
+        log_reference_code='TL9XYZ', log_type_id=13, log_type_label='Retiré de la cache',
+        log_date='2026-09-29', log_date_raw='09/29/2026',
+        author_username='moi', author_guid='g',
+        geocache_code='GC1E51', geocache_name=None,
+        text_html='<p>Je le <strong>prends</strong></p>',
+    )
+    base.update(overrides)
+    return TrackableLogEntry(**base)
+
+
+def _unknown_outcome(trackable_log_client, fake_network, monkeypatch, *, details):
+    """Simule un POST interrompu : erreur réseau au résultat distant inconnu."""
+    monkeypatch.setattr(trackables_bp, 'get_auth_service', lambda: _FakeAuthService())
+    fake = fake_network(
+        log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4, 13, 19, 48],
+                                      current_geocache_code='GC1E51'),
+        details=details,
+    )
+    trackable_log_client.sent['result'] = LogSubmitNetworkError(
+        'read timeout', outcome='unknown_remote_outcome')
+    return fake
+
+
+def test_timeout_reconciles_a_log_that_actually_landed(app, trackable_log_client, fake_network, monkeypatch):
+    """Le log a été enregistré malgré le timeout : réconcilié, sans second POST."""
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch,
+                     details=TrackableDetails(reference_code='TBBAQ0Z', logs=[_log_entry()]))
+    trackable_store.save_cache_inventory('GC1E51', [TrackableSummary(reference_code='TBBAQ0Z')])
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body['reconciled'] == 'confirmed'
+    assert body['log_reference_code'] == 'TL9XYZ'
+    assert trackable_log_client.sent['count'] == 1
+    # Le retrait est reporté localement comme pour un succès direct.
+    assert trackable_store.list_cache_inventory('GC1E51') == []
+
+
+def test_timeout_without_matching_log_reports_absent(app, trackable_log_client, fake_network, monkeypatch):
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch,
+                     details=TrackableDetails(reference_code='TBBAQ0Z', logs=[]))
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 502
+    body = response.get_json()
+    assert body['error'] == 'submit_failed'
+    assert body['reconciled'] == 'absent'
+    assert trackable_log_client.sent['count'] == 1
+
+
+def test_timeout_with_unreadable_details_is_ambiguous(app, trackable_log_client, fake_network, monkeypatch):
+    """Impossible de relire la fiche : on ne marque ni succès ni échec certain."""
+    fake = _unknown_outcome(trackable_log_client, fake_network, monkeypatch,
+                            details=TrackableError('boom'))
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 502
+    body = response.get_json()
+    assert body['error'] == 'unknown_remote_outcome'
+    assert body['reconciled'] == 'ambiguous'
+    assert body['trackable_url'].endswith('tracker=TBBAQ0Z')
+    assert 'AB12CD' not in response.get_data(as_text=True)
+    assert trackable_log_client.sent['count'] == 1
+
+
+def test_connection_failure_needs_no_reconciliation(app, trackable_log_client, fake_network, monkeypatch):
+    """Coupé avant réponse : la requête n'est pas partie, pas besoin de relire la fiche."""
+    monkeypatch.setattr(trackables_bp, 'get_auth_service', lambda: _FakeAuthService())
+    fake = fake_network(
+        log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4, 13, 19, 48],
+                                      current_geocache_code='GC1E51'),
+        details=TrackableError('ne doit pas être appelé'),
+    )
+    trackable_log_client.sent['result'] = LogSubmitNetworkError(
+        'conn refused', outcome='network_failed_before_response')
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 502
+    assert response.get_json()['error'] == 'network_failed_before_response'
+    assert 'fetch_details' not in [name for name, _ in fake.calls]
+
+
+# ---------------------------------------------------------- Clé d'opération
+
+def test_operation_id_prevents_double_submit(trackable_log_client):
+    trackable_store.save_cache_inventory('GC1E51', [TrackableSummary(reference_code='TBBAQ0Z')])
+
+    first = _post_tb_log(trackable_log_client, operationId='op-1')
+    second = _post_tb_log(trackable_log_client, operationId='op-1')
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.get_json() == first.get_json()   # réponse rejouée, pas renvoyée
+    assert trackable_log_client.sent['count'] == 1
+
+
+def test_in_flight_operation_is_refused(trackable_log_client):
+    trackables_bp._log_operations['op-stuck'] = {'state': 'in_flight', 'expires_at': monotonic() + 600}
+    try:
+        response = _post_tb_log(trackable_log_client, operationId='op-stuck')
+    finally:
+        trackables_bp._log_operations.pop('op-stuck', None)
+
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'operation_in_flight'
+    assert 'count' not in trackable_log_client.sent
 
 
 def test_inventory_is_refetched_when_older_than_max_age(app, fake_network):

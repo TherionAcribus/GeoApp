@@ -149,7 +149,7 @@ parallèle existe (`add_trackable_tables`).
 `POST /api/trackables/<TB>/logs` envoie un log sur un TB seul. Corps :
 
 ```json
-{"logType": 13, "text": "…", "date": "2026-09-29", "trackingCode": "AB12CD", "geocacheCode": "GC1E51"}
+{"logType": 13, "text": "…", "date": "2026-09-29", "trackingCode": "AB12CD", "geocacheCode": "GC1E51", "operationId": "uuid-par-envoi"}
 ```
 
 - **Endpoint** : `POST /api/live/v1/trpc/web.logs.createTrackableLog?batch=1`, avec
@@ -170,6 +170,24 @@ parallèle existe (`add_trackable_tables`).
 - **Masquage du code de suivi** : la réponse de geocaching.com reprend le corps
   envoyé, donc le code de suivi. Il est masqué (`***`) dans l'extrait de réponse
   et dans la réponse décodée, avant les logs applicatifs, et retiré du résultat.
+- **Clé d'opération** (`operationId`, optionnel) : mémorisée avec la réponse pour
+  rejouer un appel identique sans renvoyer le log — réponse rejouée à l'identique,
+  ou 409 `operation_in_flight` si l'envoi est encore en cours. Sans clé, chaque
+  appel part au site.
+- **Coupure réseau** : `LogSubmitNetworkError` distingue `ConnectionError`
+  (requête sans doute jamais partie → 502 `network_failed_before_response`,
+  l'utilisateur peut réessayer) des autres erreurs de transport — timeout de
+  lecture, réponse tronquée — où le site a pu enregistrer le log. Dans ce cas
+  aucun renvoi automatique : la route relit les logs récents du TB et cherche le
+  log envoyé (empreinte : type + date + auteur courant + texte normalisé). S'il
+  est là → 200 avec `reconciled: 'confirmed'`, comme un succès direct. S'il n'y
+  est pas → 502 `submit_failed` avec `reconciled: 'absent'`, on peut réessayer.
+  Si la fiche est illisible ou l'auteur inconnu → 502 `unknown_remote_outcome`
+  avec `reconciled: 'ambiguous'` et `trackable_url` : l'utilisateur doit vérifier
+  sur le site avant de réessayer. L'état local n'est écrit qu'en cas de succès
+  confirmé.
+- **Réessais CSRF** : inchangés — un rejet 401/403 explicite retente une fois avec
+  un jeton frais ; une coupure réseau, jamais.
 
 ### 5.3 Routes `/api/trackables`
 
@@ -184,7 +202,7 @@ Toutes les erreurs ont le format des routes amis,
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
 | `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
-| `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `text_too_long`, `invalid_date`, `missing_tracking_code`, `invalid_tracking_code`, `invalid_geocache`, `missing_geocache`, `trackable_action_not_allowed` ; 409 `trackable_location_conflict` ; 502 `submit_failed`, `submit_rejected` |
+| `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `text_too_long`, `invalid_date`, `missing_tracking_code`, `invalid_tracking_code`, `invalid_geocache`, `missing_geocache`, `trackable_action_not_allowed`, `invalid_operation_id` ; 409 `trackable_location_conflict`, `operation_in_flight` ; 502 `submit_failed` (+ `reconciled: absent` si relu), `submit_rejected`, `network_failed_before_response`, `unknown_remote_outcome` |
 
 ## 6. Éditeur de logs : section « Trackables »
 

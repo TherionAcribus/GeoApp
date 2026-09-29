@@ -146,6 +146,9 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
   - `POST /api/trackables/<tb>/logs` dans le client, avec `create_trackable_log(tb_code, tracking_code, log_type_id, text, date, geocache_code?)`. Il réutilise `_fetch_csrf_token`, `unwrap_trpc_payload` et `extract_trpc_error_info` de `geocaching_submit_logs.py`, factorisés si besoin.
   - Pour « Retiré », `geocacheReferenceCode` est déduit de `currentGeocache` quand l'utilisateur ne le fournit pas.
   - Après succès, mise à jour de l'inventaire local : un TB retiré ou pris entre dans l'inventaire.
+- **Résultat distant incertain** (livré avec l'audit, cf. trackables-technique §5.2) :
+  - Le client génère un `operationId` par opération (double clic, workers parallèles) : le même identifiant rejoue la réponse mémorisée sans repartir au site (409 `operation_in_flight` si l'envoi n'est pas fini). Un réessai volontaire — après vérification par l'utilisateur — est une nouvelle opération, donc un nouvel `operationId`.
+  - Sur coupure réseau, la réponse distingue `network_failed_before_response` (réessai possible) de `unknown_remote_outcome` (le log a peut-être été créé). La file du lot 5 devra garder l'élément, afficher « Vérifier sur Geocaching.com » avec le `trackable_url` fourni, et ne jamais renvoyer automatiquement — la réconciliation empreinte (type + date + auteur + texte) a déjà été tentée côté backend (`reconciled: confirmed | absent | ambiguous`).
 - **Code de suivi** : il n'est stocké qu'en DB locale. Il n'apparaît jamais dans les logs applicatifs, ni dans les contextes envoyés à l'IA.
 
 ### Lot 6 (optionnel) : finitions
