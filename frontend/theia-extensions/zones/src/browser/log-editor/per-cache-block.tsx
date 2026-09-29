@@ -41,6 +41,9 @@ export interface PerCacheBlockProps {
     formatFavoritePercent: (gc: GeocacheListItem) => string;
     getLogTypeLabel: (value: LogTypeValue) => string;
 
+    /** Ce que ce log fait des TBs en main (« 3 TB visités · TB1234 déposé »), réglé dans la section Trackables. */
+    trackablesSummary?: string;
+
     // Images
     images: SelectedLogImage[];
     isImagesDisabled: boolean;
@@ -123,7 +126,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         submitStatus, submitReference, submitError,
         logType, onLogTypeChange, isFavorite, onFavoriteChange, remainingFavoritePoints,
         favoritePointsPending = false,
-        formatFavoritePercent, getLogTypeLabel,
+        formatFavoritePercent, getLogTypeLabel, trackablesSummary,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
         onTranslate, translateDisabledReason, isTranslating, logLanguage, translationExecutionBadge,
@@ -188,6 +191,14 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                     {formatFavoritePercent(gc)}
                     )
                 </div>
+                {trackablesSummary && (
+                    <div
+                        className='geoapp-log-cache-block__trackables'
+                        title='Réglé dans la section « Trackables », en haut de l’éditeur'
+                    >
+                        🐞 {trackablesSummary}
+                    </div>
+                )}
                 <div className='geoapp-log-cache-block__fields'>
                     <label className='geoapp-log-cache-block__field'>
                         <span className='geoapp-log-cache-block__field-label'>Type</span>

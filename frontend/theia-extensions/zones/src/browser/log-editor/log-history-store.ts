@@ -8,6 +8,7 @@
 
 import { StorageService } from '@theia/core/lib/browser';
 import { sanitizeLogTypeForGeocache, todayIsoDate } from './helpers';
+import { TrackableSelection, sanitizeTrackableSelection } from './trackables';
 import { GeocacheListItem, LogDraft, LogHistoryEntry, LogTypeValue, SubmissionStatus, isLogTypeValue, isSubmissionStatus } from './types';
 
 /** Génère un identifiant unique (fallback quand un entry n'en a pas). */
@@ -224,7 +225,8 @@ export function buildDraftFromState(
     perCacheFavorite: Record<number, boolean>,
     perCacheSubmitStatus: Record<number, SubmissionStatus>,
     perCacheSubmitReference: Record<number, string | undefined>,
-    logLanguage = ''
+    logLanguage = '',
+    trackables?: TrackableSelection
 ): LogDraft {
     return {
         savedAt: new Date().toISOString(),
@@ -239,6 +241,9 @@ export function buildDraftFromState(
         perCacheFavorite: { ...perCacheFavorite },
         perCacheSubmitStatus: { ...perCacheSubmitStatus },
         perCacheSubmitReference: { ...perCacheSubmitReference },
+        trackables: trackables
+            ? { actions: { ...trackables.actions }, dropTargets: { ...trackables.dropTargets } }
+            : undefined,
     };
 }
 
@@ -284,6 +289,8 @@ export interface DraftApplicationResult {
     perCacheSubmitReference: Record<number, string | undefined>;
     /** IDs dans l'ordre restauré, si applicable. */
     reorderedGeocacheIds?: number[];
+    /** Actions TB du brouillon, si le brouillon en porte. */
+    trackables?: TrackableSelection;
 }
 
 /** Calcule l'état résultant de l'application d'un brouillon (sans muter le widget). */
@@ -342,6 +349,7 @@ export function computeDraftApplication(
         perCacheSubmitStatus,
         perCacheSubmitReference,
         reorderedGeocacheIds,
+        trackables: draft.trackables ? sanitizeTrackableSelection(draft.trackables) : undefined,
     };
 }
 

@@ -129,6 +129,11 @@ export interface LogDraft {
     /** Logs déjà postés : les restaurer évite de republier après un plantage en cours de lot. */
     perCacheSubmitStatus: Record<number, SubmissionStatus>;
     perCacheSubmitReference: Record<number, string | undefined>;
+    /**
+     * Actions sur les TBs de mon inventaire (`{actions, dropTargets}`, cf. `trackables.ts`).
+     * Absent des brouillons antérieurs aux trackables.
+     */
+    trackables?: { actions: Record<string, string>; dropTargets: Record<string, number> };
 }
 
 export interface LogTextPattern {

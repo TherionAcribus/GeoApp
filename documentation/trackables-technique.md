@@ -6,7 +6,8 @@ document décrit ce qui est livré.
 
 État au 2026-09-29 :
 - **lot 1 livré** : client backend, modèle, stockage ;
-- **lot 2 livré** : TBs dans le log de cache, routes `/api/trackables`, log de TB autonome côté backend.
+- **lot 2 livré** : TBs dans le log de cache, routes `/api/trackables`, log de TB autonome côté backend ;
+- **lot 3 livré** : section « Trackables » de l'éditeur de logs.
 
 ## 1. Vue d'ensemble
 
@@ -168,7 +169,59 @@ Toutes les erreurs ont le format des routes amis,
 | `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
 | `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `invalid_date`, `missing_tracking_code`, `missing_geocache` ; 502 `submit_failed`, `submit_rejected` |
 
-## 6. Points d'attention
+## 6. Éditeur de logs : section « Trackables »
+
+### 6.1 Ce que voit l'utilisateur
+
+Sous le tableau des géocaches, une section repliable :
+- **En-tête** : il annonce le bilan (« 70 en main · 3 visités · 1 déposé »), ce qui
+  évite d'ouvrir la section quand rien n'est prévu. Un bouton ⟳ relit l'inventaire
+  sur Geocaching.com.
+- **Barre d'outils** :
+  - un filtre (code, nom, type ; sans accents ni casse), affiché à partir de 9 TBs ;
+  - « Tout mettre à » (Ne rien faire / Visité), appliqué aux TBs affichés quand le
+    filtre est actif.
+- **Une ligne par TB** : icône, nom, code (lien vers la fiche du site), action (Ne
+  rien faire / Visité / Déposé). En « Déposé », un second sélecteur choisit la
+  géocache du lot si plusieurs sont possibles.
+- **Blocs par cache** : en mode « texte différent par cache », chaque bloc rappelle
+  en lecture seule ce que son log fait des TBs (« 🐞 3 TB visités · TB1234 déposé »).
+- **Confirmation** : le récapitulatif avant envoi liste les visites et chaque dépôt.
+
+### 6.2 Règles du lot
+
+La logique pure est dans `log-editor/trackables.ts`, testée sans React.
+
+- **Types de log** : « Visité » accompagne chaque log trouvé ou note ; un DNF ne porte
+  jamais de TB. « Déposé » vise une seule géocache, en « Found it », pas encore envoyée.
+- **Cible de dépôt par défaut** : la dernière géocache trouvée du lot. Une cible
+  devenue invalide (passée en DNF, déjà envoyée) retombe sur ce défaut.
+- **Envoi** : un TB déposé est en « Ne rien faire » dans les logs d'avant, et
+  disparaît des logs d'après. Il n'est plus en main.
+- **Mémoire** : chaque log envoie tous les TBs encore en main, « none » compris. Le
+  backend ne transmet pas « none » au site, mais le mémorise comme défaut du log
+  suivant.
+- **Plan figé** : le plan TB du lot est calculé une fois avant la boucle d'envoi
+  (`trackablePlan`). Sans ça, une géocache envoyée sortirait du lot restant, et un
+  dépôt prévu chez elle se reporterait sur la suivante.
+- **Validation avant envoi** : un TB en « Déposé » sans géocache trouvée pour le
+  recevoir bloque l'envoi, et la section s'ouvre.
+- **Avertissement** : au-delà de 100 visites par log (seuil de c:geo), le
+  récapitulatif surligne un avertissement.
+
+### 6.3 Valeurs par défaut et brouillon
+
+- **Action par défaut** (`defaultTrackableAction`, ordre de c:geo) : l'action
+  mémorisée au dernier log (`visit` ou `none`), sinon la préférence
+  `geoApp.logs.trackableAutoVisit` (défaut : faux). Un « Déposé » mémorisé n'est
+  jamais repris : un TB de nouveau en main a été repris depuis.
+- **Brouillon** : les choix de TB entrent dans `LogDraft.trackables`, seulement s'ils
+  s'écartent des défauts. Tant que l'inventaire n'est pas chargé, les choix restaurés
+  sont conservés tels quels plutôt que perdus à la première sauvegarde.
+- **Chargement de l'inventaire** : il se fait après la restauration du brouillon, sans
+  bloquer la rédaction. Il est relu après un lot qui a visité ou déposé des TBs.
+
+## 7. Points d'attention
 
 - **Code de suivi secret.** Il permet de loguer le TB. Il est stocké en base locale
   uniquement. `Trackable.to_dict()` et `TrackableSummary.to_dict()` ne l'exposent
@@ -180,7 +233,7 @@ Toutes les erreurs ont le format des routes amis,
   identifiants (`ctl00_ContentBody_…`) sont stables depuis des années, mais c'est
   le point le plus fragile. Tout ce qui est disponible en JSON est lu en JSON.
 
-## 7. Tests
+## 8. Tests
 
 `backend/tests/test_geocaching_trackables.py` (36 tests), sur des extraits calqués
 sur les réponses réelles :
@@ -191,6 +244,12 @@ sur les réponses réelles :
 - stockage : fusion, sortie d'inventaire, remplacement de l'inventaire d'une
   cache, code de suivi jamais sérialisé.
 
+`frontend/theia-extensions/zones/src/browser/tests/trackables-submission.test.ts`
+(dans `npm run test:geoapp`) :
+- défauts ;
+- répartition sur un lot (visites, dépôt, DNF, notes, caches déjà envoyées) ;
+- validation, payload, récapitulatif, filtre, restauration de brouillon.
+
 `backend/tests/test_geocaching_submit_logs.py` (section Trackables) :
 - format du champ `trackables`, et conservation par le repli REST ;
 - corps de `createTrackableLog` ;
@@ -200,7 +259,7 @@ sur les réponses réelles :
 - la route du log de cache avec des TBs : envoi, validation, effets en base ;
 - toutes les routes `/api/trackables`, avec un client réseau simulé.
 
-## 8. Références code
+## 9. Références code
 
 - Client : `backend/gc_backend/services/geocaching_trackables.py`
 - Stockage : `backend/gc_backend/services/trackable_store.py`
@@ -208,6 +267,9 @@ sur les réponses réelles :
   `submit_trackable_log` dans `backend/gc_backend/services/geocaching_submit_logs.py`
 - Routes : `backend/gc_backend/blueprints/trackables.py`, et `_parse_trackable_actions`
   dans `backend/gc_backend/blueprints/logs.py`
+- Frontend : `log-editor/trackables.ts` (logique), `log-editor/trackables-section.tsx`
+  (section), intégration dans `geocache-log-editor-widget.tsx`
+  (`loadTrackableInventory`, `renderTrackablesSection`, `trackablePlan`)
 - Modèles : `Trackable`, `GeocacheTrackable` dans `backend/gc_backend/models.py`
 - Migration : `backend/migrations/versions/add_trackable_tables.py`
 - c:geo : `connector/gc/GCWebAPI.java` (`getTrackableInventory`,

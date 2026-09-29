@@ -2517,6 +2517,32 @@
         "ui"
       ]
     },
+    "geoApp.logs.trackableAutoVisit": {
+      "type": "boolean",
+      "default": false,
+      "title": "Visiter les trackables par défaut",
+      "description": "Dans l'éditeur de logs, un trackable de votre inventaire sans action mémorisée part en « Visité » plutôt qu'en « Ne rien faire ». L'action choisie au log précédent reste prioritaire (comme la préférence « visite auto » de c:geo).",
+      "x-ui": {
+        "section": "Envoi",
+        "label": "Visiter les trackables par défaut",
+        "order": 60,
+        "keywords": [
+          "logs",
+          "trackables",
+          "travel bug",
+          "TB",
+          "visite"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "trackables"
+      ]
+    },
     "geoApp.logs.downloadImages": {
       "type": "boolean",
       "default": true,

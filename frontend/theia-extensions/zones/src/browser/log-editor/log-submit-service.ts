@@ -8,6 +8,7 @@
 
 import { ConfirmDialog } from '@theia/core/lib/browser';
 import { dayOffsetFromToday, formatIsoDateFr, getLogTypeLabel, todayIsoDate } from './helpers';
+import { TrackablePayloadEntry } from './trackables';
 import { GeocacheListItem, LogTypeValue, SelectedLogImage } from './types';
 
 /** URL de base du backend GeoApp. */
@@ -20,6 +21,7 @@ export interface SubmitLogPayload {
     logType: LogTypeValue;
     favorite: boolean;
     images?: string[];
+    trackables?: TrackablePayloadEntry[];
 }
 
 /** Résultat structuré d'un envoi de log. */
@@ -316,6 +318,8 @@ export interface SubmissionSummaryContext {
     isGeocacheSkipped: (geocacheId: number) => boolean;
     /** Vrai si le log a déjà été envoyé avec succès. */
     isGeocacheSubmittedOk: (geocacheId: number) => boolean;
+    /** Lignes sur les trackables (visites, dépôts), cf. `buildTrackableSummaryLines`. */
+    trackableLines?: { text: string; highlight: boolean }[];
 }
 
 /** Construit le nœud DOM du récapitulatif avant envoi. */
@@ -396,6 +400,10 @@ export function buildSubmissionSummaryNode(
         const codes = skipped.slice(0, 6).map(gc => gc.gc_code).join(', ');
         const more = skipped.length > 6 ? `, +${skipped.length - 6}` : '';
         addLine(`⏭️ ${skipped.length} géocache(s) en « Ne pas loguer », non envoyée(s) : ${codes}${more}`);
+    }
+
+    for (const line of ctx.trackableLines ?? []) {
+        addLine(line.text, line.highlight);
     }
 
     const alreadySent = ctx.geocaches.filter(gc => ctx.isGeocacheSubmittedOk(gc.id)).length;

@@ -127,6 +127,25 @@ import {
 } from './log-editor/log-improver';
 import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
+import { TrackablesSection } from './log-editor/trackables-section';
+import {
+    InventoryTrackable,
+    TRACKABLE_AUTO_VISIT_PREF,
+    TrackableAction,
+    TrackableBatchContext,
+    TrackablePayloadEntry,
+    TrackableSelection,
+    buildTrackableSummaryLines,
+    canCarryTrackables,
+    describeTrackablesForGeocache,
+    dropTargetCandidates,
+    hasTrackableChoices,
+    resolveDropTarget,
+    summarizeTrackableSelection,
+    trackablesForGeocache,
+    validateTrackableSelection,
+    withDefaultActions,
+} from './log-editor/trackables';
 import { LogEditorHeader } from './log-editor/log-editor-header';
 import { SubmitActions } from './log-editor/submit-actions';
 import { PatternsSection } from './log-editor/patterns-section';
@@ -340,6 +359,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected historyDropdownOpen = false;
 
+    /** TBs de mon inventaire (`GET /api/trackables/inventory`), communs à tous les onglets de logs. */
+    protected trackableInventory: InventoryTrackable[] = [];
+    /** Ce que ce lot fait de chaque TB ; remplacé (jamais muté) pour que la mémoïsation des blocs le voie. */
+    protected trackableSelection: TrackableSelection = { actions: {}, dropTargets: {} };
+    protected isTrackablesOpen = false;
+    protected isLoadingTrackables = false;
+    protected trackablesError: string | undefined;
+    protected trackablesLastSyncAt: string | null | undefined;
+    protected trackablesFilter = '';
+
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(GeoAppAiExecutionService) protected readonly aiExecutionService: GeoAppAiExecutionService,
@@ -396,6 +425,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * de brouillon : ça ferait réapparaître un bandeau de restauration pour rien.
      */
     protected hasDraftWorthSaving(): boolean {
+        if (this.getTrackableSelectionForDraft() !== undefined) {
+            return true;
+        }
         return hasDraftWorthSavingPure(
             this.globalText,
             this.perCacheText,
@@ -419,7 +451,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.perCacheFavorite,
             this.perCacheSubmitStatus,
             this.perCacheSubmitReference,
-            this.logLanguage
+            this.logLanguage,
+            this.getTrackableSelectionForDraft()
         );
     }
 
@@ -523,6 +556,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheFavorite = result.perCacheFavorite;
         this.perCacheSubmitStatus = result.perCacheSubmitStatus;
         this.perCacheSubmitReference = result.perCacheSubmitReference;
+        if (result.trackables) {
+            this.trackableSelection = result.trackables;
+        }
 
         if (result.reorderedGeocacheIds) {
             this.reorderGeocaches(result.reorderedGeocacheIds);
@@ -985,6 +1021,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheSubmitError = {};
         this.globalImages = [];
         this.perCacheImages = {};
+        this.trackableSelection = { actions: {}, dropTargets: {} };
+        this.trackablesFilter = '';
         this.releaseUnusedPreviewUrls();
 
         if (params.title) {
@@ -1017,6 +1055,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             await this.loadImprovementMode();
             await this.loadGeocaches();
             await this.restoreDraftIfAny();
+            // Après le brouillon : ses choix de TB priment sur les défauts. Pas d'attente,
+            // le premier chargement interroge Geocaching.com et ne doit pas bloquer la rédaction.
+            void this.loadTrackableInventory();
         } finally {
             this.draftAutosaveSuspended = false;
             this.update();
@@ -1944,6 +1985,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             getImagesForGeocacheId: id => this.getImagesForGeocacheId(id).length,
             isGeocacheSkipped: id => this.isGeocacheSkipped(id),
             isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
+            trackableLines: this.getTrackableSummaryLines(toSubmit),
         });
     }
 
@@ -1958,7 +2000,150 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             getImagesForGeocacheId: id => this.getImagesForGeocacheId(id).length,
             isGeocacheSkipped: id => this.isGeocacheSkipped(id),
             isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
+            trackableLines: this.getTrackableSummaryLines(toSubmit),
         });
+    }
+
+    protected isTrackableAutoVisit(): boolean {
+        return this.preferenceService.get<boolean>(TRACKABLE_AUTO_VISIT_PREF, false) === true;
+    }
+
+    /** Le lot tel que l'envoi le verra : ordre d'envoi, types de log, géocaches qui partent. */
+    protected getTrackableBatchContext(): TrackableBatchContext {
+        return {
+            geocaches: this.geocaches,
+            getLogType: id => this.getLogTypeForGeocacheId(id),
+            willSubmit: id => !this.isGeocacheSubmittedOk(id) && !this.isGeocacheSkipped(id),
+        };
+    }
+
+    protected getTrackablesForGeocache(geocacheId: number): TrackablePayloadEntry[] {
+        return trackablesForGeocache(geocacheId, this.trackableInventory, this.trackableSelection, this.getTrackableBatchContext());
+    }
+
+    /**
+     * Choix de TB à garder dans le brouillon. Tant que l'inventaire n'est pas chargé
+     * (backend lent ou injoignable), on garde ceux restaurés plutôt que de les perdre
+     * à la première sauvegarde.
+     */
+    protected getTrackableSelectionForDraft(): TrackableSelection | undefined {
+        if (this.trackableInventory.length === 0) {
+            return Object.keys(this.trackableSelection.actions).length > 0 ? this.trackableSelection : undefined;
+        }
+        return hasTrackableChoices(this.trackableInventory, this.trackableSelection, this.isTrackableAutoVisit())
+            ? this.trackableSelection
+            : undefined;
+    }
+
+    protected getTrackableSummaryLines(toSubmit: GeocacheListItem[]): { text: string; highlight: boolean }[] {
+        const summary = summarizeTrackableSelection(this.trackableInventory, this.trackableSelection, this.getTrackableBatchContext());
+        const carrying = toSubmit.filter(gc => canCarryTrackables(this.getLogTypeForGeocacheId(gc.id))).length;
+        return buildTrackableSummaryLines(summary, carrying);
+    }
+
+    /**
+     * Charge mon inventaire. Sans `refresh`, le backend sert sa copie locale (il
+     * n'interroge Geocaching.com qu'au tout premier appel) ; avec, il relit le site.
+     */
+    protected async loadTrackableInventory(refresh = false): Promise<void> {
+        if (this.isLoadingTrackables) {
+            return;
+        }
+        this.isLoadingTrackables = true;
+        this.trackablesError = undefined;
+        this.update();
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/trackables/inventory${refresh ? '?refresh=1' : ''}`, {
+                credentials: 'include',
+            });
+            const body = await res.json().catch(() => undefined);
+            if (!res.ok || !body?.success) {
+                this.trackablesError = res.status === 401
+                    ? 'Connectez-vous à Geocaching.com pour charger vos trackables.'
+                    : `Inventaire des trackables indisponible${body?.error_message ? ` : ${body.error_message}` : ''}.`;
+                return;
+            }
+            const inventory: InventoryTrackable[] = Array.isArray(body.trackables)
+                ? body.trackables.filter((tb: unknown): tb is InventoryTrackable =>
+                    !!tb && typeof (tb as InventoryTrackable).reference_code === 'string')
+                : [];
+            const codes = new Set(inventory.map(tb => tb.reference_code));
+            const dropTargets: Record<string, number> = {};
+            for (const [code, target] of Object.entries(this.trackableSelection.dropTargets)) {
+                if (codes.has(code)) {
+                    dropTargets[code] = target;
+                }
+            }
+            this.trackableInventory = inventory;
+            this.trackablesLastSyncAt = typeof body.last_sync_at === 'string' ? body.last_sync_at : null;
+            this.trackableSelection = {
+                actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
+                dropTargets,
+            };
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] loadTrackableInventory error', e);
+            this.trackablesError = 'Backend injoignable : inventaire des trackables non chargé.';
+        } finally {
+            this.isLoadingTrackables = false;
+            this.update();
+        }
+    }
+
+    protected setTrackableAction(code: string, action: TrackableAction): void {
+        this.trackableSelection = {
+            ...this.trackableSelection,
+            actions: { ...this.trackableSelection.actions, [code]: action },
+        };
+        this.update();
+    }
+
+    protected setTrackableActions(action: TrackableAction, codes: string[]): void {
+        const actions = { ...this.trackableSelection.actions };
+        for (const code of codes) {
+            actions[code] = action;
+        }
+        this.trackableSelection = { ...this.trackableSelection, actions };
+        this.update();
+    }
+
+    protected setTrackableDropTarget(code: string, geocacheId: number): void {
+        this.trackableSelection = {
+            ...this.trackableSelection,
+            dropTargets: { ...this.trackableSelection.dropTargets, [code]: geocacheId },
+        };
+        this.update();
+    }
+
+    protected renderTrackablesSection(disabled: boolean): React.ReactNode {
+        const ctx = this.getTrackableBatchContext();
+        const selection = this.trackableSelection;
+        const dropTargets: Record<string, number | undefined> = {};
+        for (const tb of this.trackableInventory) {
+            if (selection.actions[tb.reference_code] === 'drop') {
+                dropTargets[tb.reference_code] = resolveDropTarget(tb.reference_code, selection, ctx);
+            }
+        }
+        return (
+            <TrackablesSection
+                inventory={this.trackableInventory}
+                actions={selection.actions}
+                dropTargets={dropTargets}
+                dropCandidates={dropTargetCandidates(ctx)}
+                summary={summarizeTrackableSelection(this.trackableInventory, selection, ctx)}
+                isOpen={this.isTrackablesOpen}
+                isLoading={this.isLoadingTrackables}
+                error={this.trackablesError}
+                lastSyncAt={this.trackablesLastSyncAt}
+                filter={this.trackablesFilter}
+                disabled={disabled}
+                onToggleOpen={() => { this.isTrackablesOpen = !this.isTrackablesOpen; this.update(); }}
+                onFilterChange={value => { this.trackablesFilter = value; this.update(); }}
+                onActionChange={(code, action) => this.setTrackableAction(code, action)}
+                onSetAll={(action, codes) => this.setTrackableActions(action, codes)}
+                onDropTargetChange={(code, id) => this.setTrackableDropTarget(code, id)}
+                onRefresh={() => { void this.loadTrackableInventory(true); }}
+            />
+        );
     }
 
     protected async submitLogsToGeocaching(): Promise<void> {
@@ -1989,6 +2174,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         if (validation.tooLong.length > 0) {
             this.messages.warn(buildTooLongTextWarning(validation.tooLong, this.useSameTextForAll));
+            return;
+        }
+
+        const trackableIssues = validateTrackableSelection(
+            this.trackableInventory,
+            this.trackableSelection,
+            this.getTrackableBatchContext()
+        );
+        if (trackableIssues.length > 0) {
+            this.messages.warn(trackableIssues.map(issue => issue.message).join(' '));
+            this.isTrackablesOpen = true;
+            this.update();
             return;
         }
 
@@ -2025,6 +2222,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const submittedCodes: string[] = [];
         /** Fermeture de l'onglet décidée en fin de lot, exécutée après la remise à zéro de l'état. */
         let closeAfterSubmit = false;
+        // Plan des TBs figé avant la boucle : une fois une géocache envoyée, elle sort du lot
+        // restant, et un dépôt prévu chez elle se reporterait sinon sur la géocache suivante.
+        const trackablePlan = new Map<number, TrackablePayloadEntry[]>(
+            toSubmit.map(gc => [gc.id, this.getTrackablesForGeocache(gc.id)])
+        );
+        let trackablesSent = false;
 
         try {
             for (const gc of this.geocaches) {
@@ -2075,13 +2278,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     this.logDate,
                     logTypeForGc,
                     this.perCacheFavorite[gc.id] === true,
-                    upload.guids
+                    upload.guids,
+                    trackablePlan.get(gc.id) ?? []
                 );
 
                 const result = await submitOneLog(this.backendBaseUrl, gc.id, payload);
                 if (result.ok) {
                     ok += 1;
                     submittedCodes.push(gc.gc_code);
+                    if ((trackablePlan.get(gc.id) ?? []).some(entry => entry.action !== 'none')) {
+                        trackablesSent = true;
+                    }
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
                     this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: result.logReferenceCode };
                     this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
@@ -2138,6 +2345,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
 
             this.lastSubmitSummary = { ok, failed };
+            if (trackablesSent) {
+                // Les TBs déposés ont quitté l'inventaire (le backend l'a noté) : on relit sa copie.
+                void this.loadTrackableInventory();
+            }
             if (ok > 0) {
                 await this.saveCurrentStateToHistory();
             }
@@ -2699,6 +2910,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 favoritePointsPending={this.isFavoritePointsStockPending()}
                 formatFavoritePercent={gc => this.formatFavoritePercent(gc)}
                 getLogTypeLabel={value => this.getLogTypeLabel(value)}
+                trackablesSummary={this.isGeocacheSubmittedOk(gc.id)
+                    ? undefined
+                    : describeTrackablesForGeocache(this.getTrackablesForGeocache(gc.id))}
                 images={this.getImagesForGeocacheId(gc.id)}
                 isImagesDisabled={this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id)}
                 isDragOver={this.dragOverDropZone === dropZoneKey}
@@ -2952,6 +3166,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     </div>
                 )}
 
+                {!this.isLoading && this.geocaches.length > 0
+                    && this.renderTrackablesSection(this.isSubmitting || allSubmitted)}
+
                 {allSubmitted && (
                     <div className='geoapp-log-editor__all-submitted'>
                         ✅ Tous les logs ont été envoyés.
@@ -3155,6 +3372,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                         this.customPatterns,
                                         this.userFindsCount,
                                         this.logDate,
+                                        this.trackableInventory,
+                                        this.trackableSelection,
                                         this.perCacheImages[gc.id],
                                         this.dragOverDropZone === `cache-${gc.id}`,
                                         this.isEditorActive({ type: 'per-cache', geocacheId: gc.id })

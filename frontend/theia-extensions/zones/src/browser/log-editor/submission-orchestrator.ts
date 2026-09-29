@@ -7,6 +7,7 @@
  */
 
 import { formatIsoDateFr } from './helpers';
+import { TrackablePayloadEntry } from './trackables';
 import { GeocacheListItem, LogTypeValue } from './types';
 import { GC_LOG_MAX_LENGTH } from './constants';
 
@@ -91,6 +92,8 @@ export interface LogSubmissionPayload {
     logType: LogTypeValue;
     favorite: boolean;
     images?: string[];
+    /** Actions sur les TBs de mon inventaire (absent si aucun TB n'est concerné). */
+    trackables?: TrackablePayloadEntry[];
 }
 
 /** Construit le payload de soumission pour une géocache. */
@@ -99,7 +102,8 @@ export function buildLogSubmissionPayload(
     logDate: string,
     logType: LogTypeValue,
     isFavorite: boolean,
-    imageGuids: string[]
+    imageGuids: string[],
+    trackables: TrackablePayloadEntry[] = []
 ): LogSubmissionPayload {
     const payload: LogSubmissionPayload = {
         text: resolvedText,
@@ -109,6 +113,9 @@ export function buildLogSubmissionPayload(
     };
     if (imageGuids.length > 0) {
         payload.images = imageGuids;
+    }
+    if (trackables.length > 0) {
+        payload.trackables = trackables;
     }
     return payload;
 }

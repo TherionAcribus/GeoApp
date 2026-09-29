@@ -101,7 +101,7 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
   - `GET /<tb>/log-info`.
 - **Tests** : la forme du payload (mise à jour de l'assert de `test_geocaching_submit_logs.py:98`) et une route monkeypatchée.
 
-### Lot 3 : section TB dans l'éditeur de logs (frontend)
+### Lot 3 : section TB dans l'éditeur de logs (frontend) — livré le 2026-09-29
 
 - `log-editor/trackables-section.tsx`, qui se charge une fois pour tout le lot.
   - Il liste l'inventaire (icône, nom, code).
