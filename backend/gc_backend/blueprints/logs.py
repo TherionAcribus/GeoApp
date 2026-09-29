@@ -33,6 +33,8 @@ from ..services.geocaching_logs import (
     GeocachingLogsError,
 )
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient
+from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
+from ..services import trackable_store
 
 bp = Blueprint('logs', __name__)
 logger = logging.getLogger(__name__)
@@ -498,6 +500,34 @@ _ALREADY_LOGGED_ERROR_CODES = frozenset({
 _ALREADY_LOGGED_HTTP_STATUS = 409
 
 
+def _parse_trackable_actions(raw):
+    """
+    Champ `trackables` du corps : ``[{code: "TBxxx", action: "visit"|"drop"|"none"}]``.
+
+    Retourne (actions {code: action}, message d'erreur ou None). Un même TB ne peut
+    figurer qu'une fois.
+    """
+    if raw is None:
+        return {}, None
+    if not isinstance(raw, list):
+        return None, 'Invalid trackables (expected array of {code, action})'
+
+    actions: dict[str, str] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            return None, 'Invalid trackables (expected array of {code, action})'
+        code = normalize_code(entry.get('code'))
+        action = str(entry.get('action') or '').strip().lower()
+        if not is_public_code(code):
+            return None, f'Invalid trackable code: {code or "(vide)"}'
+        if action not in trackable_store.CACHE_LOG_ACTIONS:
+            return None, f'Invalid trackable action for {code}: {action or "(vide)"}'
+        if code in actions:
+            return None, f'Trackable listed twice: {code}'
+        actions[code] = action
+    return actions, None
+
+
 def _looks_like_already_logged(result) -> bool:
     """L'envoi a-t-il été refusé parce que la cache est déjà loguée ?"""
     if not isinstance(result, dict):
@@ -604,6 +634,10 @@ def submit_geocache_log(geocache_id: int):
                 'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
             }), 409
 
+        trackable_actions, trackables_error = _parse_trackable_actions(data.get('trackables'))
+        if trackables_error:
+            return jsonify({'error': trackables_error, 'error_code': 'INVALID_TRACKABLES'}), 400
+
         favorite = data.get('favorite')
         used_favorite_point = None
         if isinstance(favorite, bool) and is_find_log:
@@ -617,6 +651,11 @@ def submit_geocache_log(geocache_id: int):
             visited_date=visited_date,
             images=safe_images,
             used_favorite_point=used_favorite_point,
+            trackables=[
+                (code, CACHE_LOG_TRACKABLE_ACTIONS[action])
+                for code, action in trackable_actions.items()
+                if action in CACHE_LOG_TRACKABLE_ACTIONS
+            ],
         )
         if not result:
             return jsonify({'error': 'Failed to submit log to Geocaching.com'}), 502
@@ -643,6 +682,14 @@ def submit_geocache_log(geocache_id: int):
             geocache.found_date = datetime.combine(visited_date, time_type.min)
             db.session.commit()
             ArchiveService.sync_from_geocache(geocache)
+
+        if trackable_actions:
+            # Best-effort : le log est parti, un échec local ne doit pas le faire croire raté.
+            try:
+                trackable_store.apply_cache_log_trackable_actions(gc_code, trackable_actions)
+            except Exception as e:  # pragma: no cover
+                logger.warning('Could not record trackable actions after log for %s: %s', gc_code, e)
+                db.session.rollback()
 
         log_reference_code = result.get('logReferenceCode')
         stored_log = _store_submitted_log(
@@ -672,6 +719,7 @@ def submit_geocache_log(geocache_id: int):
             'gc_response': result,
             'log_reference_code': log_reference_code,
             'log': stored_log.to_dict() if stored_log else None,
+            'trackables': [{'code': code, 'action': action} for code, action in trackable_actions.items()],
             'found': bool(geocache.found),
             'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
         })

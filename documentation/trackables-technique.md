@@ -4,7 +4,9 @@ Gestion des trackables geocaching.com (Travel Bugs, geocoins) dans GeoApp. Le pl
 et le découpage en lots sont dans [trackables-spec.md](trackables-spec.md) ; ce
 document décrit ce qui est livré.
 
-État : **lot 1 livré** (client backend, modèle, stockage) le 2026-09-29.
+État au 2026-09-29 :
+- **lot 1 livré** : client backend, modèle, stockage ;
+- **lot 2 livré** : TBs dans le log de cache, routes `/api/trackables`, log de TB autonome côté backend.
 
 ## 1. Vue d'ensemble
 
@@ -104,7 +106,69 @@ parallèle existe (`add_trackable_tables`).
 - la date du dernier relevé est gardée dans `AppConfig`
   (`trackables.inventory.last_sync_at`).
 
-## 5. Points d'attention
+## 5. Envoi des logs
+
+### 5.1 TBs dans le log de cache
+
+`POST /api/geocaches/<id>/logs/submit` accepte un champ `trackables` :
+
+```json
+{"text": "…", "date": "2026-09-29", "logType": "found",
+ "trackables": [{"code": "TB6Q3ER", "action": "visit"},
+                {"code": "TBAAA2",  "action": "drop"},
+                {"code": "TBAAA3",  "action": "none"}]}
+```
+
+- **Validation** (`_parse_trackable_actions`) : code public obligatoire, action
+  `visit`, `drop` ou `none`, un TB une seule fois. Sinon, 400 `INVALID_TRACKABLES`,
+  avant tout envoi.
+- **Envoi** : `GeocachingSubmitLogsClient.submit_geocache_log(..., trackables=[(code, id)])`
+  remplit le champ `trackables` du corps tRPC au format de c:geo,
+  `[{"trackableCode": "TB…", "trackableLogTypeId": 75}]`. « Ne rien faire » n'est
+  pas envoyé. Le repli sur l'ancien endpoint REST garde le champ.
+- **Après succès** : `trackable_store.apply_cache_log_trackable_actions` mémorise
+  l'action de chaque TB, `none` compris, pour le défaut du log suivant. Un TB
+  déposé sort de mon inventaire et est placé dans la cache ; un TB n'est que dans
+  une cache à la fois. C'est du best-effort : le log est parti, un échec local ne
+  le fait pas passer pour raté.
+- **Réponse** : la route renvoie `trackables` (les actions appliquées).
+
+### 5.2 Log de TB autonome
+
+`POST /api/trackables/<TB>/logs` envoie un log sur un TB seul. Corps :
+
+```json
+{"logType": 13, "text": "…", "date": "2026-09-29", "trackingCode": "AB12CD", "geocacheCode": "GC1E51"}
+```
+
+- **Endpoint** : `POST /api/live/v1/trpc/web.logs.createTrackableLog?batch=1`, avec
+  le corps de c:geo : `images`, `logDate`, `logText`, `logType`, `trackingCode`,
+  plus `geocacheReferenceCode` pour « Retiré » (13) seulement.
+- **Code de suivi** : pris dans le corps, sinon celui connu en base. Il n'est
+  facultatif que pour une note (4), comme chez c:geo.
+- **Cache pour « Retiré »** : prise dans le corps, sinon lue comme cache courante
+  sur la page de log du TB.
+- **Après succès** : `apply_trackable_log` fait entrer un TB retiré ou pris dans
+  mon inventaire et le sort de sa cache, puis garde le code de suivi accepté.
+- **Masquage du code de suivi** : la réponse de geocaching.com reprend le corps
+  envoyé, donc le code de suivi. Il est masqué (`***`) dans l'extrait de réponse
+  et dans la réponse décodée, avant les logs applicatifs, et retiré du résultat.
+
+### 5.3 Routes `/api/trackables`
+
+Toutes les erreurs ont le format des routes amis,
+`{success: false, error, error_message}`.
+
+| Route | Rôle | Erreurs |
+|---|---|---|
+| `GET /inventory[?refresh=1]` | Mon inventaire depuis la base ; le site est lu au premier appel ou sur `refresh` | 401 `not_authenticated`, 502 `fetch_failed` |
+| `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
+| `GET /lookup?code=` | Code public ou code de suivi ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 404 `not_found` |
+| `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
+| `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
+| `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `invalid_date`, `missing_tracking_code`, `missing_geocache` ; 502 `submit_failed`, `submit_rejected` |
+
+## 6. Points d'attention
 
 - **Code de suivi secret.** Il permet de loguer le TB. Il est stocké en base locale
   uniquement. `Trackable.to_dict()` et `TrackableSummary.to_dict()` ne l'exposent
@@ -116,7 +180,7 @@ parallèle existe (`add_trackable_tables`).
   identifiants (`ctl00_ContentBody_…`) sont stables depuis des années, mais c'est
   le point le plus fragile. Tout ce qui est disponible en JSON est lu en JSON.
 
-## 6. Tests
+## 7. Tests
 
 `backend/tests/test_geocaching_trackables.py` (36 tests), sur des extraits calqués
 sur les réponses réelles :
@@ -127,10 +191,23 @@ sur les réponses réelles :
 - stockage : fusion, sortie d'inventaire, remplacement de l'inventaire d'une
   cache, code de suivi jamais sérialisé.
 
-## 7. Références code
+`backend/tests/test_geocaching_submit_logs.py` (section Trackables) :
+- format du champ `trackables`, et conservation par le repli REST ;
+- corps de `createTrackableLog` ;
+- masquage du code de suivi.
+
+`backend/tests/test_trackables_api.py` :
+- la route du log de cache avec des TBs : envoi, validation, effets en base ;
+- toutes les routes `/api/trackables`, avec un client réseau simulé.
+
+## 8. Références code
 
 - Client : `backend/gc_backend/services/geocaching_trackables.py`
 - Stockage : `backend/gc_backend/services/trackable_store.py`
+- Envoi : `GeocachingSubmitLogsClient.submit_geocache_log(trackables=…)` et
+  `submit_trackable_log` dans `backend/gc_backend/services/geocaching_submit_logs.py`
+- Routes : `backend/gc_backend/blueprints/trackables.py`, et `_parse_trackable_actions`
+  dans `backend/gc_backend/blueprints/logs.py`
 - Modèles : `Trackable`, `GeocacheTrackable` dans `backend/gc_backend/models.py`
 - Migration : `backend/migrations/versions/add_trackable_tables.py`
 - c:geo : `connector/gc/GCWebAPI.java` (`getTrackableInventory`,

@@ -464,10 +464,39 @@ def test_cache_inventory_is_replaced_on_each_scan(app):
     assert GeocacheTrackable.query.count() == 1
 
 
-def test_remember_cache_log_actions(app):
+def test_cache_log_actions_are_remembered_and_drops_move_the_trackable(app):
     trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA1')), _summary(_inventory_item('TBAAA2'))])
+    trackable_store.save_cache_inventory('GCOLD', [_summary(_cache_item('TBAAA3'))])
 
-    trackable_store.remember_cache_log_actions({'TBAAA1': 'visit', 'TBAAA2': 'bogus', 'TBUNKNOWN': 'drop'})
+    trackable_store.apply_cache_log_trackable_actions(
+        'gcnew', {'TBAAA1': 'visit', 'TBAAA2': 'drop', 'TBAAA3': 'bogus'}
+    )
 
-    assert Trackable.query.filter_by(reference_code='TBAAA1').one().last_cache_log_action == 'visit'
-    assert Trackable.query.filter_by(reference_code='TBAAA2').one().last_cache_log_action is None
+    visited = Trackable.query.filter_by(reference_code='TBAAA1').one()
+    dropped = Trackable.query.filter_by(reference_code='TBAAA2').one()
+    assert visited.last_cache_log_action == 'visit' and visited.in_my_inventory is True
+    assert dropped.last_cache_log_action == 'drop' and dropped.in_my_inventory is False
+    assert dropped.current_geocache_code == 'GCNEW'
+    assert [t.reference_code for t in trackable_store.list_cache_inventory('GCNEW')] == ['TBAAA2']
+    assert Trackable.query.filter_by(reference_code='TBAAA3').one().last_cache_log_action is None
+
+
+def test_retrieved_trackable_enters_my_inventory_and_leaves_its_cache(app):
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBBAQ0Z'))])
+
+    row = trackable_store.apply_trackable_log('TBBAQ0Z', 13, tracking_code='ab12cd')
+
+    assert row.in_my_inventory is True
+    assert row.current_geocache_code is None
+    assert row.tracking_code == 'AB12CD'
+    assert trackable_store.list_cache_inventory('GC1E51') == []
+    assert trackable_store.cache_inventory_synced_at('gc1e51') is not None
+
+
+def test_discovered_trackable_stays_where_it_is(app):
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBBAQ0Z'))])
+
+    row = trackable_store.apply_trackable_log('TBBAQ0Z', 48, tracking_code='AB12CD')
+
+    assert row.in_my_inventory is False
+    assert [t.reference_code for t in trackable_store.list_cache_inventory('GC1E51')] == ['TBBAQ0Z']

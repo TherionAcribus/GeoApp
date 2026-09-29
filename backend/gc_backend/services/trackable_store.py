@@ -136,6 +136,7 @@ def save_cache_inventory(gc_code: str, items: Iterable[TrackableSummary]) -> lis
             continue
         db.session.add(GeocacheTrackable(gc_code=gc_code, trackable_code=row.reference_code, seen_at=now))
         rows.append(row)
+    AppConfig.set_value(_cache_sync_key(gc_code), now.isoformat())
     db.session.commit()
     return rows
 
@@ -155,15 +156,78 @@ def get_tracking_code(tb_code: str) -> Optional[str]:
     return row.tracking_code if row is not None else None
 
 
-def remember_cache_log_actions(actions: dict[str, str]) -> None:
-    """Mémorise l'action choisie par TB au dernier log de cache (défaut du log suivant)."""
+def apply_cache_log_trackable_actions(gc_code: str, actions: dict[str, str]) -> None:
+    """
+    Reporte en base un log de cache accepté par Geocaching.com : l'action de chaque TB
+    est mémorisée, et un TB déposé quitte mon inventaire pour la cache.
+    """
+    gc_code = normalize_code(gc_code)
     now = datetime.now(timezone.utc)
     for code, action in actions.items():
         if action not in CACHE_LOG_ACTIONS:
             continue
-        row = Trackable.query.filter_by(reference_code=normalize_code(code)).one_or_none()
+        code = normalize_code(code)
+        row = Trackable.query.filter_by(reference_code=code).one_or_none()
         if row is None:
-            continue
+            row = Trackable(reference_code=code, brand='gc')
+            db.session.add(row)
         row.last_cache_log_action = action
         row.last_cache_log_action_at = now
+        if action == 'drop':
+            row.in_my_inventory = False
+            row.current_geocache_code = gc_code
+            row.current_geocache_name = None
+            _place_in_geocache(code, gc_code, now)
     db.session.commit()
+
+
+def apply_trackable_log(
+    tb_code: str,
+    log_type_id: int,
+    *,
+    tracking_code: Optional[str] = None,
+) -> Trackable:
+    """
+    Reporte en base un log de trackable accepté par Geocaching.com.
+
+    Retiré (13) ou pris ailleurs (19) : le TB entre dans mon inventaire et sort de sa
+    cache. Déplacé vers la collection (69) : il sort de l'inventaire. Un code de suivi
+    accepté par le site est gardé, pour les logs suivants.
+    """
+    from .geocaching_trackables import TrackableLogType
+
+    code = normalize_code(tb_code)
+    row = Trackable.query.filter_by(reference_code=code).one_or_none()
+    if row is None:
+        row = Trackable(reference_code=code, brand='gc')
+        db.session.add(row)
+    if tracking_code:
+        row.tracking_code = normalize_code(tracking_code)
+
+    if log_type_id in (TrackableLogType.RETRIEVED, TrackableLogType.GRABBED, TrackableLogType.MOVE_TO_INVENTORY):
+        row.in_my_inventory = True
+        row.current_geocache_code = None
+        row.current_geocache_name = None
+        GeocacheTrackable.query.filter_by(trackable_code=code).delete()
+    elif log_type_id == TrackableLogType.MOVE_TO_COLLECTION:
+        row.in_my_inventory = False
+    db.session.commit()
+    return row
+
+
+def _place_in_geocache(tb_code: str, gc_code: str, now: datetime) -> None:
+    """Un TB n'est que dans une cache à la fois : on efface sa présence ailleurs."""
+    GeocacheTrackable.query.filter(
+        GeocacheTrackable.trackable_code == tb_code,
+        GeocacheTrackable.gc_code != gc_code,
+    ).delete(synchronize_session=False)
+    if GeocacheTrackable.query.filter_by(gc_code=gc_code, trackable_code=tb_code).first() is None:
+        db.session.add(GeocacheTrackable(gc_code=gc_code, trackable_code=tb_code, seen_at=now))
+
+
+def cache_inventory_synced_at(gc_code: str) -> Optional[str]:
+    return AppConfig.get_value(_cache_sync_key(gc_code))
+
+
+def _cache_sync_key(gc_code: str) -> str:
+    return f'trackables.cache.{normalize_code(gc_code)}.synced_at'

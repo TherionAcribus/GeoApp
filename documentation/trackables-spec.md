@@ -83,7 +83,9 @@ Ergonomie de c:geo à reprendre :
   - `GeocacheTrackable` : cache ↔ TB, avec `seen_at`.
 - **Tests** : `backend/tests/test_geocaching_trackables.py`, avec FakeSession sur des fixtures JSON/HTML (pagination, 401, codes de suivi à 6 caractères, extraction de `logTypes` et `currentGeocache`).
 
-### Lot 2 : actions TB au log de cache (backend)
+### Lot 2 : actions TB au log de cache (backend) — livré le 2026-09-29
+
+Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submit_trackable_log`, `POST /api/trackables/<tb>/logs`). Le lot 5 ne garde que le widget.
 
 - `submit_geocache_log(..., trackables=None)` construit `[{"trackableCode", "trackableLogTypeId"}]` et filtre les id 1.
   - Le fallback REST legacy suit le même chemin.

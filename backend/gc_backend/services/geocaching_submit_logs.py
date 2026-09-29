@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from datetime import date as date_type
@@ -21,6 +22,11 @@ WEBSITE_URL = 'https://www.geocaching.com'
 # Cf. c:geo 2026.06.19 (commit a7e42d3 "rel to #18249: fix changed GC Log API").
 TRPC_CREATE_GEOCACHE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/trpc/web.logs.createGeocacheLog'
 LEGACY_CREATE_GEOCACHE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/logs/{{gc_code}}/geocacheLog'
+# Log d'un trackable seul (découvert, retiré, pris, note…), cf. c:geo GCLogAPI.createLogTrackable.
+TRPC_CREATE_TRACKABLE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/trpc/web.logs.createTrackableLog'
+
+#: Types de log trackable qui exigent la cache où se trouve le TB (« Retiré de la cache »).
+TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE = frozenset({13})
 
 # Le jeton CSRF est lié à la session (à ses cookies), pas à un appel : le redemander avant
 # chaque log et chaque image doublait le nombre de requêtes vers Geocaching.com sur un lot
@@ -300,7 +306,15 @@ class GeocachingSubmitLogsClient:
         visited_date: date_type,
         images: list[str] | None = None,
         used_favorite_point: bool | None = None,
+        trackables: list[tuple[str, int]] | None = None,
     ) -> dict[str, Any] | None:
+        """
+        Envoie un log de cache.
+
+        `trackables` : actions sur les TBs de mon inventaire, en couples
+        (code public TBxxx, id du type de log trackable : 75 visité, 14 déposé).
+        « Ne rien faire » ne s'envoie pas : le TB est simplement absent de la liste.
+        """
         gc_code = gc_code.strip().upper()
         if not gc_code:
             return None
@@ -323,7 +337,7 @@ class GeocachingSubmitLogsClient:
             'logDate': datetime.combine(visited_date, time(12, 0, 0)).isoformat(timespec='seconds'),
             'logText': log_text,
             'logType': log_type_id,
-            'trackables': [],
+            'trackables': self.build_trackables_payload(trackables),
             'geocacheReferenceCode': '',
         }
         if used_favorite_point is not None:
@@ -341,6 +355,94 @@ class GeocachingSubmitLogsClient:
                                gc_code, result.get('status'))
                 result = self._submit_log_with_token(gc_code, log_body, fresh_token)
 
+        return result
+
+    @staticmethod
+    def build_trackables_payload(trackables: list[tuple[str, int]] | None) -> list[dict[str, Any]]:
+        """Champ `trackables` du log de cache, au format de c:geo (GCWebLogTrackable)."""
+        payload: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for code, log_type_id in trackables or []:
+            code = (code or '').strip().upper()
+            # 1 = « Ne rien faire » chez c:geo : on ne l'envoie pas.
+            if not code or code in seen or not isinstance(log_type_id, int) or log_type_id <= 1:
+                continue
+            seen.add(code)
+            payload.append({'trackableCode': code, 'trackableLogTypeId': log_type_id})
+        return payload
+
+    def submit_trackable_log(
+        self,
+        tb_code: str,
+        *,
+        tracking_code: str | None,
+        log_type_id: int,
+        log_text: str,
+        visited_date: date_type,
+        geocache_code: str | None = None,
+        images: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Envoie un log de trackable seul (`web.logs.createTrackableLog`).
+
+        Corps identique à c:geo : `trackingCode` prouve qu'on a le TB sous les yeux
+        (il peut être nul pour une simple note sur un TB qu'on détient) ;
+        `geocacheReferenceCode` n'est envoyé que pour « Retiré de la cache ».
+        Le code de suivi n'est jamais écrit dans les logs applicatifs.
+        """
+        tb_code = (tb_code or '').strip().upper()
+        if not tb_code:
+            return None
+
+        csrf_token = self.get_csrf_token()
+        if not csrf_token:
+            logger.error('Could not get CSRF token')
+            return None
+
+        body: dict[str, Any] = {
+            'images': [v.strip() for v in images or [] if isinstance(v, str) and v.strip()],
+            'logDate': datetime.combine(visited_date, time(12, 0, 0)).isoformat(timespec='seconds'),
+            'logText': log_text,
+            'logType': log_type_id,
+            'trackingCode': (tracking_code or '').strip().upper() or None,
+        }
+        if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE and geocache_code:
+            body['geocacheReferenceCode'] = geocache_code.strip().upper()
+
+        result = self._post_trackable_log(tb_code, body, csrf_token)
+        if self._is_csrf_rejection(result):
+            self.invalidate_csrf_token()
+            fresh_token = self.get_csrf_token(force_refresh=True)
+            if fresh_token and fresh_token != csrf_token:
+                logger.warning('Trackable log rejected for %s (status=%s), retrying with a fresh CSRF token',
+                               tb_code, result.get('status'))
+                result = self._post_trackable_log(tb_code, body, fresh_token)
+        return result
+
+    def _post_trackable_log(self, tb_code: str, body: dict[str, Any], csrf_token: str) -> dict[str, Any] | None:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'CSRF-Token': csrf_token,
+        }
+        response = self._post_json(
+            TRPC_CREATE_TRACKABLE_LOG_URL,
+            params={'batch': '1'},
+            payload={'0': {'referenceCode': tb_code, 'body': body}},
+            headers=headers,
+            gc_code=tb_code,
+            secrets=(body.get('trackingCode') or '',),
+        )
+        if response is None:
+            return None
+        status, data, body_preview = response
+        secret = body.get('trackingCode')
+        if secret and data is not None:
+            # Même masque que l'extrait : le message d'erreur part lui aussi dans les logs.
+            data = json.loads(json.dumps(data).replace(secret, '***'))
+        result = self._interpret_trpc_log_response(tb_code, status, data, body_preview)
+        # La réponse reprend le corps envoyé, code de suivi compris.
+        result.pop('trackingCode', None)
         return result
 
     def _submit_log_with_token(
@@ -386,8 +488,16 @@ class GeocachingSubmitLogsClient:
         if response is None:
             return None
 
-        status, data, body_preview = response
+        return self._interpret_trpc_log_response(gc_code, *response)
 
+    def _interpret_trpc_log_response(
+        self,
+        gc_code: str,
+        status: int,
+        data: Any,
+        body_preview: str,
+    ) -> dict[str, Any]:
+        """Réponse tRPC d'un envoi de log (cache ou trackable) → dict `ok`/`logReferenceCode`/erreur."""
         error_info = self.extract_trpc_error_info(data)
         if error_info:
             logger.error('Log submit rejected for %s: status=%s code=%r http_status=%r message=%r',
@@ -454,8 +564,14 @@ class GeocachingSubmitLogsClient:
         payload: dict[str, Any],
         headers: dict[str, str],
         gc_code: str,
+        secrets: tuple[str, ...] = (),
     ) -> tuple[int, Any, str] | None:
-        """POST JSON et retourne (status, json_décodé_ou_None, extrait_du_corps)."""
+        """
+        POST JSON et retourne (status, json_décodé_ou_None, extrait_du_corps).
+
+        `secrets` (le code de suivi d'un TB) est masqué dans l'extrait, qui part
+        dans les logs applicatifs et dans la réponse renvoyée au frontend.
+        """
         try:
             resp = self.session.post(url, params=params, json=payload, headers=headers, timeout=60)
         except requests.RequestException as e:  # pragma: no cover
@@ -463,6 +579,9 @@ class GeocachingSubmitLogsClient:
             return None
 
         body_preview = (resp.text or '')[:2000]
+        for secret in secrets:
+            if secret:
+                body_preview = body_preview.replace(secret, '***')
         if resp.status_code != 200:
             logger.error('Log submit failed for %s: status=%s body=%r', gc_code, resp.status_code, body_preview)
 

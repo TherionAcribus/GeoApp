@@ -347,3 +347,83 @@ def test_image_upload_reports_invalid_json_without_resending():
     assert result['status'] == 200
     assert result['body'] == '<html>oops</html>'
     assert len(session.calls) == 1
+
+
+# ---------------------------------------------------------------- Trackables
+
+def test_cache_log_carries_trackable_actions_in_cgeo_format():
+    client, session = make_client([
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL1TB'}}}]),
+    ])
+
+    submit(client, trackables=[('tb6q3er', 75), ('TBAAA2', 14), ('TBAAA3', 1), ('TB6Q3ER', 14)])
+
+    assert session.calls[0]['json']['0']['body']['trackables'] == [
+        {'trackableCode': 'TB6Q3ER', 'trackableLogTypeId': 75},
+        {'trackableCode': 'TBAAA2', 'trackableLogTypeId': 14},
+    ]
+
+
+def test_legacy_fallback_keeps_trackables():
+    client, session = make_client([
+        FakeResponse(404, None, text='Not Found'),
+        FakeResponse(200, {'logReferenceCode': 'GL1LEGACY'}),
+    ])
+
+    submit(client, trackables=[('TB6Q3ER', 75)])
+
+    assert session.calls[1]['json']['trackables'] == [{'trackableCode': 'TB6Q3ER', 'trackableLogTypeId': 75}]
+
+
+def test_trackable_log_uses_trpc_endpoint_with_cgeo_body():
+    client, session = make_client([
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'TL1ABC', 'trackingCode': 'AB12CD'}}}]),
+    ])
+
+    result = client.submit_trackable_log(
+        'tbbaq0z', tracking_code='ab12cd', log_type_id=13, log_text='Pris pour voyager',
+        visited_date=date(2026, 9, 29), geocache_code='gc1e51',
+    )
+
+    assert result['logReferenceCode'] == 'TL1ABC'
+    # La réponse reprend le code de suivi : il ne doit pas remonter plus loin.
+    assert 'trackingCode' not in result
+    call = session.calls[0]
+    assert call['url'] == geocaching_submit_logs.TRPC_CREATE_TRACKABLE_LOG_URL
+    assert call['params'] == {'batch': '1'}
+    assert call['json'] == {'0': {'referenceCode': 'TBBAQ0Z', 'body': {
+        'images': [],
+        'logDate': '2026-09-29T12:00:00',
+        'logText': 'Pris pour voyager',
+        'logType': 13,
+        'trackingCode': 'AB12CD',
+        'geocacheReferenceCode': 'GC1E51',
+    }}}
+
+
+def test_trackable_note_sends_null_tracking_code_and_no_geocache():
+    client, session = make_client([
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'TL1NOTE'}}}]),
+    ])
+
+    client.submit_trackable_log('TB6Q3ER', tracking_code=None, log_type_id=4, log_text='Coucou',
+                                visited_date=date(2026, 9, 29), geocache_code='GC1E51')
+
+    body = session.calls[0]['json']['0']['body']
+    assert body['trackingCode'] is None
+    assert 'geocacheReferenceCode' not in body
+
+
+def test_trackable_log_rejection_masks_the_tracking_code():
+    client, _ = make_client([
+        FakeResponse(200, [{'error': {'message': 'Invalid tracking code AB12CD',
+                                      'data': {'code': 'BAD_REQUEST', 'httpStatus': 400}}}]),
+    ])
+
+    result = client.submit_trackable_log('TB6Q3ER', tracking_code='AB12CD', log_type_id=48,
+                                         log_text='Vu', visited_date=date(2026, 9, 29))
+
+    assert result['ok'] is False
+    assert result['error_code'] == 'BAD_REQUEST'
+    assert 'AB12CD' not in result['body']
+    assert result['error_message'] == 'Invalid tracking code ***'
