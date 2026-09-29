@@ -41,16 +41,20 @@ _FLAG_FIELDS = ('is_missing', 'is_active', 'is_locked', 'allowed_to_be_collected
 @dataclass
 class InventorySyncReport:
     fetched: int
-    created: int
+    created: int      # lignes nouvelles en base
     updated: int
-    removed: int
+    removed: int      # TBs sortis de l'inventaire
     synced_at: datetime
+    # TBs entrés dans l'inventaire, nouveaux en base ou non (un TB déposé puis repris
+    # existe déjà : il n'est pas « créé », mais il revient bien dans la liste).
+    added: int = 0
 
     def to_dict(self) -> dict:
         return {
             'fetched': self.fetched,
             'created': self.created,
             'updated': self.updated,
+            'added': self.added,
             'removed': self.removed,
             'synced_at': self.synced_at.isoformat(),
         }
@@ -85,10 +89,11 @@ def save_my_inventory(items: Iterable[TrackableSummary]) -> InventorySyncReport:
     n'y sont plus en sortent (déposés ou pris par quelqu'un d'autre entre-temps).
     """
     items = list(items)
-    created = updated = 0
+    created = updated = added = 0
     seen: set[str] = set()
     for summary in items:
         row, is_new = upsert_trackable(summary)
+        added += int(not row.in_my_inventory)
         row.in_my_inventory = True
         # Un TB en main n'est plus dans une cache.
         row.current_geocache_code = None
@@ -106,7 +111,7 @@ def save_my_inventory(items: Iterable[TrackableSummary]) -> InventorySyncReport:
     synced_at = datetime.now(timezone.utc)
     AppConfig.set_value(INVENTORY_LAST_SYNC_KEY, synced_at.isoformat())
     db.session.commit()
-    return InventorySyncReport(len(items), created, updated, removed, synced_at)
+    return InventorySyncReport(len(items), created, updated, removed, synced_at, added)
 
 
 def list_my_inventory() -> list[Trackable]:

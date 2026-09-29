@@ -131,12 +131,14 @@ import { TrackablesSection } from './log-editor/trackables-section';
 import {
     InventoryTrackable,
     TRACKABLE_AUTO_VISIT_PREF,
+    TRACKABLE_INVENTORY_MAX_AGE_SECONDS,
     TrackableAction,
     TrackableBatchContext,
     TrackablePayloadEntry,
     TrackableSelection,
     buildTrackableSummaryLines,
     canCarryTrackables,
+    describeInventorySync,
     describeTrackablesForGeocache,
     dropTargetCandidates,
     hasTrackableChoices,
@@ -366,6 +368,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected isTrackablesOpen = false;
     protected isLoadingTrackables = false;
     protected trackablesError: string | undefined;
+    protected trackablesNotice: string | undefined;
     protected trackablesLastSyncAt: string | null | undefined;
     protected trackablesFilter = '';
 
@@ -1055,9 +1058,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             await this.loadImprovementMode();
             await this.loadGeocaches();
             await this.restoreDraftIfAny();
-            // Après le brouillon : ses choix de TB priment sur les défauts. Pas d'attente,
-            // le premier chargement interroge Geocaching.com et ne doit pas bloquer la rédaction.
-            void this.loadTrackableInventory();
+            // Après le brouillon : ses choix de TB priment sur les défauts. Pas d'attente : un
+            // relevé trop ancien part sur Geocaching.com et ne doit pas bloquer la rédaction.
+            void this.loadTrackableInventory('auto');
         } finally {
             this.draftAutosaveSuspended = false;
             this.update();
@@ -2042,18 +2045,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     /**
-     * Charge mon inventaire. Sans `refresh`, le backend sert sa copie locale (il
-     * n'interroge Geocaching.com qu'au tout premier appel) ; avec, il relit le site.
+     * Charge mon inventaire :
+     * - `local` : la copie du backend telle quelle (après un envoi, qu'il vient de mettre à jour) ;
+     * - `auto` : relue sur Geocaching.com si elle a plus de 15 minutes (ouverture de l'éditeur) ;
+     * - `refresh` : relue sur Geocaching.com, à la demande, avec un bilan affiché.
      */
-    protected async loadTrackableInventory(refresh = false): Promise<void> {
+    protected async loadTrackableInventory(mode: 'local' | 'auto' | 'refresh' = 'local'): Promise<void> {
         if (this.isLoadingTrackables) {
             return;
         }
         this.isLoadingTrackables = true;
         this.trackablesError = undefined;
+        this.trackablesNotice = undefined;
         this.update();
+        const query = mode === 'refresh'
+            ? '?refresh=1'
+            : mode === 'auto' ? `?max_age=${TRACKABLE_INVENTORY_MAX_AGE_SECONDS}` : '';
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/trackables/inventory${refresh ? '?refresh=1' : ''}`, {
+            const res = await fetch(`${this.backendBaseUrl}/api/trackables/inventory${query}`, {
                 credentials: 'include',
             });
             const body = await res.json().catch(() => undefined);
@@ -2080,6 +2089,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
                 dropTargets,
             };
+            if (typeof body.sync_error === 'string' && body.sync_error) {
+                this.trackablesNotice = `Relecture sur Geocaching.com impossible (${body.sync_error}) : liste locale affichée.`;
+            }
+            if (mode === 'refresh') {
+                this.messages.info(describeInventorySync(body.sync));
+            }
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] loadTrackableInventory error', e);
             this.trackablesError = 'Backend injoignable : inventaire des trackables non chargé.';
@@ -2133,6 +2148,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 isOpen={this.isTrackablesOpen}
                 isLoading={this.isLoadingTrackables}
                 error={this.trackablesError}
+                notice={this.trackablesNotice}
                 lastSyncAt={this.trackablesLastSyncAt}
                 filter={this.trackablesFilter}
                 disabled={disabled}
@@ -2141,7 +2157,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 onActionChange={(code, action) => this.setTrackableAction(code, action)}
                 onSetAll={(action, codes) => this.setTrackableActions(action, codes)}
                 onDropTargetChange={(code, id) => this.setTrackableDropTarget(code, id)}
-                onRefresh={() => { void this.loadTrackableInventory(true); }}
+                onRefresh={() => { void this.loadTrackableInventory('refresh'); }}
             />
         );
     }

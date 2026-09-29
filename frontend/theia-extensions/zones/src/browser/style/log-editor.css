@@ -1401,3 +1401,12 @@
     font-size: 12px;
     opacity: 0.85;
 }
+
+.geoapp-log-trackables__sync {
+    opacity: 0.65;
+    white-space: nowrap;
+}
+
+.geoapp-log-trackables__notice {
+    color: var(--theia-editorWarning-foreground);
+}

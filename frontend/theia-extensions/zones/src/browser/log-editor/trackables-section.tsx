@@ -30,6 +30,8 @@ export interface TrackablesSectionProps {
     isOpen: boolean;
     isLoading: boolean;
     error?: string;
+    /** Avertissement non bloquant (relevé automatique raté, liste locale affichée). */
+    notice?: string;
     lastSyncAt?: string | null;
     filter: string;
     disabled: boolean;
@@ -46,7 +48,7 @@ const FILTER_THRESHOLD = 8;
 
 export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
     const {
-        inventory, actions, dropTargets, dropCandidates, summary, isOpen, isLoading, error,
+        inventory, actions, dropTargets, dropCandidates, summary, isOpen, isLoading, error, notice,
         lastSyncAt, filter, disabled,
     } = props;
     const visible = filterTrackables(inventory, filter);
@@ -65,19 +67,24 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                     <strong>Trackables</strong>
                     <span className='geoapp-log-trackables__headline'>{headline}</span>
                 </button>
+                {lastSyncAt && (
+                    <span className='geoapp-log-trackables__sync' title='Dernier relevé de l’inventaire sur Geocaching.com'>
+                        relevé le {formatIsoDateTimeFr(lastSyncAt)}
+                    </span>
+                )}
+                {/* Jamais grisé par l'envoi : c'est après un lot qu'on a besoin de relire. */}
                 <button
-                    className='theia-button secondary geoapp-log-button--icon'
+                    className='theia-button secondary geoapp-log-button--small'
                     onClick={props.onRefresh}
-                    disabled={isLoading || disabled}
-                    title={lastSyncAt
-                        ? `Relire mon inventaire sur Geocaching.com (dernier relevé : ${formatIsoDateTimeFr(lastSyncAt)})`
-                        : 'Relire mon inventaire sur Geocaching.com'}
+                    disabled={isLoading}
+                    title='Relire mon inventaire sur Geocaching.com (TB pris ou déposé ailleurs, sur le site ou dans une appli)'
                 >
-                    {isLoading ? '⏳' : '⟳'}
+                    {isLoading ? '⏳ Relecture…' : '⟳ Rafraîchir'}
                 </button>
             </div>
 
             {error && <div className='geoapp-log-trackables__error'>{error}</div>}
+            {!error && notice && <div className='geoapp-log-trackables__notice'>{notice}</div>}
 
             {isOpen && !error && inventory.length === 0 && !isLoading && (
                 <div className='geoapp-log-trackables__empty'>Aucun trackable dans votre inventaire.</div>

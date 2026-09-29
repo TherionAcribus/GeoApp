@@ -426,6 +426,11 @@ def test_save_my_inventory_adds_updates_and_removes(app):
     report = trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA2', name='Renommé'))])
     assert (report.created, report.updated, report.removed) == (0, 1, 1)
 
+    # Repris après un dépôt : la ligne existe déjà, mais le TB revient dans l'inventaire.
+    report = trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA1')), _summary(_inventory_item('TBAAA2'))])
+    assert (report.created, report.added, report.removed) == (0, 1, 0)
+    trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA2', name='Renommé'))])
+
     inventory = trackable_store.list_my_inventory()
     assert [t.reference_code for t in inventory] == ['TBAAA2']
     assert inventory[0].name == 'Renommé'

@@ -1,7 +1,8 @@
 """Blueprint des trackables (Travel Bugs, geocoins…).
 
 Routes :
-- ``GET  /api/trackables/inventory``        mon inventaire (base locale, ``?refresh=1`` pour relire le site)
+- ``GET  /api/trackables/inventory``        mon inventaire (base locale, ``?refresh=1`` pour relire le site,
+  ``?max_age=<s>`` pour le relire seulement si le dernier relevé est plus vieux)
 - ``GET  /api/trackables/geocache/<gc>``    TBs déclarés dans une cache (idem)
 - ``GET  /api/trackables/lookup?code=``     retrouver un TB par code public ou code de suivi
 - ``GET  /api/trackables/<tb>``             fiche détaillée (JSON + page HTML du site)
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date as date_type
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
 
@@ -66,6 +67,23 @@ def _wants_refresh() -> bool:
     return str(request.args.get('refresh', '')).strip().lower() in ('1', 'true', 'yes')
 
 
+def _is_stale(last_sync_at, max_age_arg) -> bool:
+    """
+    Vrai si le relevé date de plus de ``max_age`` secondes. Sans ``max_age`` (ou s'il est
+    illisible), la copie locale n'est jamais périmée : seul ``refresh`` force la relecture.
+    """
+    if max_age_arg is None or last_sync_at is None:
+        return False
+    try:
+        max_age = float(max_age_arg)
+        synced = datetime.fromisoformat(last_sync_at)
+    except (TypeError, ValueError):
+        return False
+    if synced.tzinfo is None:
+        synced = synced.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - synced).total_seconds() > max_age
+
+
 def _valid_tb_code(tb_code: str):
     code = normalize_code(tb_code)
     return code if is_public_code(code) else None
@@ -78,12 +96,24 @@ def _valid_tb_code(tb_code: str):
 def get_inventory():
     """
     Mon inventaire. Sans ``refresh``, la base locale ; au premier appel (jamais relevé),
-    le site est interrogé d'office.
+    ou si le relevé a plus de ``max_age`` secondes, le site est interrogé d'office.
+
+    Un relevé automatique (``max_age``) qui échoue ne cache pas la copie locale : elle
+    est servie avec ``sync_error``. Un ``refresh`` explicite, lui, remonte l'erreur.
     """
     report = None
-    if _wants_refresh() or trackable_store.inventory_last_sync_at() is None:
-        items = GeocachingTrackablesClient().fetch_my_inventory()
-        report = trackable_store.save_my_inventory(items).to_dict()
+    sync_error = None
+    last_sync_at = trackable_store.inventory_last_sync_at()
+    explicit = _wants_refresh() or last_sync_at is None
+    if explicit or _is_stale(last_sync_at, request.args.get('max_age')):
+        try:
+            items = GeocachingTrackablesClient().fetch_my_inventory()
+            report = trackable_store.save_my_inventory(items).to_dict()
+        except (NotAuthenticatedError, TrackableError) as exc:
+            if explicit:
+                raise
+            logger.warning("Trackables: relevé automatique de l'inventaire impossible : %s", exc)
+            sync_error = str(exc)
 
     rows = trackable_store.list_my_inventory()
     return jsonify({
@@ -92,6 +122,7 @@ def get_inventory():
         'total': len(rows),
         'last_sync_at': trackable_store.inventory_last_sync_at(),
         'sync': report,
+        'sync_error': sync_error,
     })
 
 

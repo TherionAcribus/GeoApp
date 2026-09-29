@@ -331,3 +331,47 @@ def test_rejected_trackable_log_is_reported(trackable_log_client):
 
     assert response.status_code == 502
     assert response.get_json()['error_message'] == 'Nope'
+
+
+def test_inventory_is_refetched_when_older_than_max_age(app, fake_network):
+    from datetime import datetime, timedelta, timezone
+
+    from gc_backend.models import AppConfig
+
+    fake = fake_network(inventory=[_mine('TBAAA1')])
+    client = app.test_client()
+    client.get('/api/trackables/inventory')
+    assert len(fake.calls) == 1
+
+    # Relevé récent : max_age ne relit pas le site.
+    client.get('/api/trackables/inventory?max_age=900')
+    assert len(fake.calls) == 1
+
+    old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    AppConfig.set_value(trackable_store.INVENTORY_LAST_SYNC_KEY, old)
+    db.session.commit()
+    body = client.get('/api/trackables/inventory?max_age=900').get_json()
+    assert len(fake.calls) == 2
+    assert body['sync']['fetched'] == 1
+
+
+def test_automatic_refresh_failure_still_serves_local_copy(app, fake_network):
+    from datetime import datetime, timedelta, timezone
+
+    from gc_backend.models import AppConfig
+
+    fake_network(inventory=[_mine('TBAAA1')])
+    client = app.test_client()
+    client.get('/api/trackables/inventory')
+    old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    AppConfig.set_value(trackable_store.INVENTORY_LAST_SYNC_KEY, old)
+    db.session.commit()
+
+    fake_network(inventory=TrackableError('HTTP 429'))
+    response = client.get('/api/trackables/inventory?max_age=900')
+    assert response.status_code == 200
+    body = response.get_json()
+    assert [t['reference_code'] for t in body['trackables']] == ['TBAAA1']
+    assert 'HTTP 429' in body['sync_error']
+    # Un rafraîchissement explicite, lui, signale l'échec.
+    assert client.get('/api/trackables/inventory?refresh=1').status_code == 502

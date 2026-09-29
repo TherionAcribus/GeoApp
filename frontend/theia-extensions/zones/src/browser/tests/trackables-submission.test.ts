@@ -13,6 +13,7 @@ import {
     TrackableSelection,
     buildTrackableSummaryLines,
     defaultTrackableAction,
+    describeInventorySync,
     describeTrackablesForGeocache,
     filterTrackables,
     hasTrackableChoices,
@@ -169,6 +170,22 @@ function testSanitizeRestoredSelection(): void {
     assert.deepEqual(sanitizeTrackableSelection(null), { actions: {}, dropTargets: {} });
 }
 
+function testInventorySyncMessage(): void {
+    assert.equal(
+        describeInventorySync({ fetched: 70, added: 1, removed: 0 }),
+        'Inventaire relu sur Geocaching.com : 70 trackable(s) en main (1 entré).'
+    );
+    assert.equal(
+        describeInventorySync({ fetched: 69, added: 0, removed: 2 }),
+        'Inventaire relu sur Geocaching.com : 69 trackable(s) en main (2 sortis).'
+    );
+    assert.equal(
+        describeInventorySync({ fetched: 70 }),
+        'Inventaire relu sur Geocaching.com : 70 trackable(s) en main, aucun changement.'
+    );
+}
+
+testInventorySyncMessage();
 testDefaultsFollowLastActionThenPreference();
 testWithDefaultActionsKeepsUserChoicesAndDropsUnknownCodes();
 testHasTrackableChoicesOnlyWhenUserDeviatesFromDefaults();

@@ -162,7 +162,7 @@ Toutes les erreurs ont le format des routes amis,
 
 | Route | Rôle | Erreurs |
 |---|---|---|
-| `GET /inventory[?refresh=1]` | Mon inventaire depuis la base ; le site est lu au premier appel ou sur `refresh` | 401 `not_authenticated`, 502 `fetch_failed` |
+| `GET /inventory[?refresh=1 | ?max_age=<s>]` | Mon inventaire depuis la base ; le site est lu au premier appel, sur `refresh`, ou si le relevé a plus de `max_age` secondes. Le bilan `sync` compte `added` (TBs entrés, y compris repris après un dépôt) et `removed`. Un relevé `max_age` raté sert la copie locale avec `sync_error` | 401 `not_authenticated`, 502 `fetch_failed` (sur `refresh` seulement) |
 | `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
 | `GET /lookup?code=` | Code public ou code de suivi ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
@@ -175,8 +175,11 @@ Toutes les erreurs ont le format des routes amis,
 
 Sous le tableau des géocaches, une section repliable :
 - **En-tête** : il annonce le bilan (« 70 en main · 3 visités · 1 déposé »), ce qui
-  évite d'ouvrir la section quand rien n'est prévu. Un bouton ⟳ relit l'inventaire
-  sur Geocaching.com.
+  évite d'ouvrir la section quand rien n'est prévu. Il affiche aussi la date du
+  dernier relevé et un bouton « ⟳ Rafraîchir ».
+- **Rafraîchir** relit l'inventaire sur Geocaching.com (TB pris ou déposé ailleurs)
+  et affiche un bilan (« 70 trackable(s) en main (1 entré) »). Le bouton n'est jamais
+  grisé par l'envoi : c'est après un lot qu'on en a besoin.
 - **Barre d'outils** :
   - un filtre (code, nom, type ; sans accents ni casse), affiché à partir de 9 TBs ;
   - « Tout mettre à » (Ne rien faire / Visité), appliqué aux TBs affichés quand le
@@ -219,7 +222,10 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
   s'écartent des défauts. Tant que l'inventaire n'est pas chargé, les choix restaurés
   sont conservés tels quels plutôt que perdus à la première sauvegarde.
 - **Chargement de l'inventaire** : il se fait après la restauration du brouillon, sans
-  bloquer la rédaction. Il est relu après un lot qui a visité ou déposé des TBs.
+  bloquer la rédaction, avec `max_age=900`. Un relevé de plus de 15 minutes est donc
+  relu sur le site à l'ouverture de l'éditeur. En cas d'échec, la liste locale
+  s'affiche avec un avertissement. Après un lot qui a visité ou déposé des TBs, la
+  copie locale (déjà mise à jour par le backend) est relue.
 
 ## 7. Points d'attention
 

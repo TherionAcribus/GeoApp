@@ -29,6 +29,34 @@ export const TRACKABLE_ACTION_LABELS: Record<TrackableAction, string> = {
     drop: 'Déposé',
 };
 
+/**
+ * À l'ouverture de l'éditeur, l'inventaire est relu sur Geocaching.com si le dernier relevé
+ * a plus de 15 minutes : un TB pris ou déposé ailleurs (site, appli) doit apparaître sans geste.
+ */
+export const TRACKABLE_INVENTORY_MAX_AGE_SECONDS = 15 * 60;
+
+/** Bilan d'un relevé de l'inventaire, tel que le renvoie le backend (`sync`). */
+export interface TrackableInventorySyncReport {
+    fetched?: number;
+    /** TBs entrés dans l'inventaire (nouveaux, ou repris après un dépôt). */
+    added?: number;
+    removed?: number;
+}
+
+/** Message après un rafraîchissement demandé : ce qui a changé, pas seulement « c'est fait ». */
+export function describeInventorySync(report: TrackableInventorySyncReport | undefined | null): string {
+    const fetched = report?.fetched ?? 0;
+    const parts: string[] = [];
+    if (report?.added) {
+        parts.push(report.added === 1 ? '1 entré' : `${report.added} entrés`);
+    }
+    if (report?.removed) {
+        parts.push(report.removed === 1 ? '1 sorti' : `${report.removed} sortis`);
+    }
+    const changes = parts.length > 0 ? ` (${parts.join(', ')})` : ', aucun changement';
+    return `Inventaire relu sur Geocaching.com : ${fetched} trackable(s) en main${changes}.`;
+}
+
 /** Préférence : un TB sans action mémorisée part en « Visité » plutôt qu'en « Ne rien faire ». */
 export const TRACKABLE_AUTO_VISIT_PREF = 'geoApp.logs.trackableAutoVisit';
 
