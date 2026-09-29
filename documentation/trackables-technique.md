@@ -112,6 +112,19 @@ parallèle existe (`add_trackable_tables`).
 - la date du dernier relevé est gardée dans `AppConfig`
   (`trackables.inventory.last_sync_at`).
 
+**HTML distant — contrat de rendu sûr** (`services/html_sanitize.py`). Choix retenu :
+**HTML assaini**, pas de texte aplati — objectifs et logs de TBs ont besoin de
+liens et de listes. `sanitize_html_fragment` est appliquée à l'extraction
+(`currentGoal` JSON, `TrackableGoal`/`TrackableDetails`/`TrackLogText` de la
+fiche) : la base ne stocke jamais de markup actif. `Trackable.to_dict()`
+re-assainit à la sortie pour les lignes écrites avant ce contrat. Liste blanche
+de balises de mise en forme, attributs réduits (`href`/`title`, `src`/`alt`/
+dimensions), jamais `style` ni `on*` ; conteneurs actifs (`script`, `iframe`,
+`form`, `svg`…) supprimés avec leur contenu ; URLs limitées à `http`/`https`,
+relatives résolues vers `geocaching.com` (`clean_remote_url`, aussi utilisé pour
+`icon_url`/`image_url`) ; liens estampillés `rel="nofollow noopener noreferrer"`.
+Le frontend ne doit jamais rendre la valeur brute sans assainissement.
+
 ## 5. Envoi des logs
 
 ### 5.1 TBs dans le log de cache
@@ -326,17 +339,25 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
 - **Motifs HTML.** La fiche `details.aspx` est une vieille page ASP.NET. Ses
   identifiants (`ctl00_ContentBody_…`) sont stables depuis des années, mais c'est
   le point le plus fragile. Tout ce qui est disponible en JSON est lu en JSON.
+  Le HTML extrait (objectif, détails, textes de logs) est du contenu tiers :
+  il passe par `sanitize_html_fragment` avant stockage et sérialisation (§ 4).
 
 ## 8. Tests
 
-`backend/tests/test_geocaching_trackables.py` (36 tests), sur des extraits calqués
+`backend/tests/test_geocaching_trackables.py` (49 tests), sur des extraits calqués
 sur les réponses réelles :
 - parsing des trois formes JSON, de la page Next.js (avec repli sur regex) et de la
   fiche HTML ;
 - dates selon le format du compte ;
 - pagination, 401/403/404/429, recherche par code public ou par code de suivi ;
+- assainissement du HTML tiers à l'extraction et re-assainissement à la
+  sérialisation des lignes anciennes ;
 - stockage : fusion, sortie d'inventaire, remplacement de l'inventaire d'une
   cache, code de suivi jamais sérialisé.
+
+`backend/tests/test_html_sanitize.py` : contrat de rendu — `script`, `iframe`,
+`on*`, `javascript:`/`data:`/`vbscript:` neutralisés ; paragraphes, listes,
+liens HTTPS et URLs relatives (vers `geocaching.com`) conservés.
 
 `frontend/theia-extensions/zones/src/browser/tests/trackables-submission.test.ts`
 (dans `npm run test:geoapp`) :

@@ -142,7 +142,7 @@ Livré avec, en plus, la partie backend du log autonome prévue au lot 5 (`submi
      - Résolution de chaque code par `lookup`, avec aperçu (nom, propriétaire, localisation).
      - Choix du type parmi les types autorisés (`log-info`), date, texte commun avec les boutons IA existants de `GlobalLogEditor` si possible, cache pour « Retiré ».
      - Envoi en file avec progression et bouton stop, en réutilisant `submit-progress.tsx` et `submit-badge.tsx`. C'est le cas typique des découvertes en masse lors d'un event.
-  3. **Fiche TB** : détails scrapés (propriétaire, objectif, origine, localisation, distance, image) et logs de la première page.
+  3. **Fiche TB** : détails scrapés (propriétaire, objectif, origine, localisation, distance, image) et logs de la première page. Les champs HTML (`goal_html`, `details_html`, `text_html`) sont déjà assainis côté backend (`sanitize_html_fragment`, liste blanche restrictive) — les rendre tels quels, jamais de `dangerouslySetInnerHTML` sur du brut.
 - **Backend** :
   - `POST /api/trackables/<tb>/logs` dans le client, avec `create_trackable_log(tb_code, tracking_code, log_type_id, text, date, geocache_code?)`. Il réutilise `_fetch_csrf_token`, `unwrap_trpc_payload` et `extract_trpc_error_info` de `geocaching_submit_logs.py`, factorisés si besoin.
   - Pour « Retiré », `geocacheReferenceCode` est déduit de `currentGeocache` quand l'utilisateur ne le fournit pas.

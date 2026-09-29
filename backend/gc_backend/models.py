@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from .database import db
+from .services.html_sanitize import sanitize_html_fragment
 
 
 class Zone(db.Model):
@@ -382,7 +383,10 @@ class Trackable(db.Model):
             'holder_username': self.holder_username,
             'current_geocache_code': self.current_geocache_code,
             'current_geocache_name': self.current_geocache_name,
-            'goal_html': self.goal_html,
+            # Des lignes écrites avant l'assainissement à l'entrée peuvent porter
+            # du markup actif : on re-assainit à la sortie, le contrat « HTML sûr »
+            # vaut pour tout ce que l'API renvoie.
+            'goal_html': sanitize_html_fragment(self.goal_html),
             'released_at': self.released_at,
             'origin': self.origin,
             'distance_km': self.distance_km,

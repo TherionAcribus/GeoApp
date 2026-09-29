@@ -255,7 +255,8 @@ def test_parse_details_page():
     assert details.icon_url == 'https://www.geocaching.com/images/WptTypes/23.gif'
     assert details.type_name == 'albi.fc tag'
     # Le <p> qui enveloppait tout l'objectif a disparu, le contenu reste.
-    assert details.goal_html.startswith('<p>I&#39;m in a trackable race.</p>')
+    # L'assainisseur ré-émet les entités : l'apostrophe ressort littérale (sûre hors attribut).
+    assert details.goal_html.startswith("<p>I'm in a trackable race.</p>")
     assert 'Let me travel a lot!' in details.goal_html
 
 
@@ -272,6 +273,29 @@ def test_parse_details_logs():
     assert retrieved.geocache_code == 'GCBRDZX'
     assert retrieved.geocache_name == '"LaDaDi" coming home'
     assert retrieved.text_html == '<p>Die Reise geht weiter.</p>'
+
+
+def test_details_page_html_is_sanitized_at_parse():
+    """Markup actif dans la fiche (objectif, détails, logs) : neutralisé dès le parsing."""
+    dirty = DETAILS_PAGE.replace(
+        '<div id="TrackableGoal">',
+        '<div id="TrackableGoal"><script>alert(1)</script><img src="x.png" onerror="evil()">'
+    ).replace(
+        '<div id="TrackableDetails">',
+        '<div id="TrackableDetails"><iframe src="https://evil.example"></iframe>'
+    ).replace(
+        '<p>Die Reise geht weiter.</p>',
+        '<p>Die Reise <a href="javascript:alert(1)" onclick="x()">geht</a> weiter.</p>',
+    )
+    details = GeocachingTrackablesClient.parse_details_page(dirty)
+
+    for html in (details.goal_html, details.details_html, details.logs[1].text_html):
+        assert 'script' not in html
+        assert 'javascript:' not in html
+        assert 'onerror' not in html and 'onclick' not in html
+        assert 'iframe' not in html
+    assert 'x.png' in details.goal_html  # l'image reste, son gestionnaire non
+    assert 'geht' in details.logs[1].text_html  # le texte du lien survit
 
 
 @pytest.mark.parametrize('raw_dates, expected', [
@@ -493,6 +517,19 @@ def test_tracking_code_is_stored_but_never_serialized(app):
     assert 'tracking_code' not in data
     assert data['has_tracking_code'] is True
     assert 'SECRET' not in json.dumps(data)
+
+
+def test_stored_html_is_resanitized_on_serialization(app):
+    """Une ligne écrite avant l'assainissement à l'entrée ressort sûre de `to_dict`."""
+    dirty = '<p>Goal</p><script>alert(1)</script><a href="javascript:x">l</a>'
+    trackable_store.upsert_trackable(TrackableSummary(reference_code='TBAAA1', goal_html=dirty))
+    db.session.commit()
+
+    # La base conserve le brut (écrit avant le contrat) mais l'API le re-assainit.
+    assert 'script' in Trackable.query.one().goal_html
+    clean = Trackable.query.one().to_dict()['goal_html']
+    assert 'script' not in clean and 'javascript:' not in clean
+    assert '<p>Goal</p>' in clean
 
 
 def test_cache_inventory_does_not_erase_known_fields(app):

@@ -37,6 +37,7 @@ import requests
 
 from .geocaching_auth import get_auth_service
 from .geocaching_friends import NotAuthenticatedError
+from .html_sanitize import clean_remote_url, sanitize_html_fragment
 
 logger = logging.getLogger(__name__)
 
@@ -402,7 +403,6 @@ class GeocachingTrackablesClient:
         return TrackableSummary(
             reference_code=reference_code,
             name=_as_str(raw.get('name')),
-            icon_url=_as_str(raw.get('iconUrl')),
             tracking_code=_as_str(raw.get('trackingNumber')),
             type_id=type_id,
             type_name=type_name,
@@ -412,7 +412,10 @@ class GeocachingTrackablesClient:
             current_geocache_code=_as_str(current.get('referenceCode')),
             current_geocache_name=_as_str(current.get('name')),
             location_known=location_known,
-            goal_html=_as_str(raw.get('currentGoal')),
+            # HTML d'utilisateurs tiers : assaini à l'entrée, la base ne stocke
+            # jamais de markup actif (contrat de rendu, cf. html_sanitize.py).
+            goal_html=sanitize_html_fragment(_as_str(raw.get('currentGoal'))),
+            icon_url=clean_remote_url(_as_str(raw.get('iconUrl'))),
             released_at=date_released,
             origin=origin or None,
             distance_km=round(float(distance), 1) if isinstance(distance, (int, float)) else None,
@@ -499,14 +502,17 @@ class GeocachingTrackablesClient:
             details.location_name = _text(cls._search(r'data-name="([^"]*)"', attrs)) or _text(location.group(2))
             details.location_geocache_code = cls._search(r'href="[^"]*/geocache/(GC[0-9A-Z]+)"', attrs)
 
-        details.goal_html = _inner_html(cls._search(r'<div id="TrackableGoal">(.*?)</div>', page, re.S))
-        details.details_html = _inner_html(cls._search(r'<div id="TrackableDetails">(.*?)</div>', page, re.S))
-        details.image_url = cls._search(r'<img id="ctl00_ContentBody_BugDetails_BugImage"[^>]*src="([^"]+)"', page)
+        # HTML d'utilisateurs tiers : assaini à l'entrée (contrat de rendu sûr).
+        details.goal_html = sanitize_html_fragment(
+            _inner_html(cls._search(r'<div id="TrackableGoal">(.*?)</div>', page, re.S)))
+        details.details_html = sanitize_html_fragment(
+            _inner_html(cls._search(r'<div id="TrackableDetails">(.*?)</div>', page, re.S)))
+        details.image_url = clean_remote_url(
+            cls._search(r'<img id="ctl00_ContentBody_BugDetails_BugImage"[^>]*src="([^"]+)"', page))
 
         icon = re.search(r'<img id="ctl00_ContentBody_BugTypeImage"[^>]*>', page)
         if icon:
-            src = cls._search(r'src="([^"]+)"', icon.group(0))
-            details.icon_url = f'{WEBSITE_URL}{src}' if src and src.startswith('/') else src
+            details.icon_url = clean_remote_url(cls._search(r'src="([^"]+)"', icon.group(0)))
             details.type_name = _text(cls._search(r'alt="([^"]+)"', icon.group(0)))
 
         distance = re.search(r'\(([0-9.,]+)\s*(km|mi)[^)]*\)\s*<a href="map_gm', page)
@@ -551,7 +557,7 @@ class GeocachingTrackablesClient:
                 author_guid=author.group(1) if author else None,
                 geocache_code=cache.group(1) if cache else None,
                 geocache_name=_text(cache.group(2)) if cache else None,
-                text_html=(text or '').strip() or None,
+                text_html=sanitize_html_fragment((text or '').strip() or None),
             ))
 
         day_first = _guess_day_first(raw_dates)
