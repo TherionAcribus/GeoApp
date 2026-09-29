@@ -64,28 +64,78 @@ class InventorySyncReport:
         }
 
 
-def upsert_trackable(summary: TrackableSummary) -> tuple[Trackable, bool]:
-    """Insère ou met à jour un TB. Retourne (ligne, créée ?). Ne commite pas."""
-    code = normalize_code(summary.reference_code)
-    row = Trackable.query.filter_by(reference_code=code).one_or_none()
-    created = row is None
-    if created:
-        row = Trackable(reference_code=code, brand='gc')
-        db.session.add(row)
+def _merge_summary(row: Trackable, summary: TrackableSummary) -> None:
+    """Recopie un résumé dans une ligne selon les règles de fusion. Aucune requête."""
+    values: dict = {}
+    _merge_into_values(values, summary)
+    for name, value in values.items():
+        setattr(row, name, value)
 
+
+def _merge_into_values(values: dict, summary: TrackableSummary) -> None:
+    """Mêmes règles de fusion, sur un dictionnaire de colonnes (voie bulk)."""
     for name in _OPTIONAL_FIELDS:
         value = getattr(summary, name)
         if value is not None:
-            setattr(row, name, value)
+            values[name] = value
     for name in _FLAG_FIELDS:
-        setattr(row, name, bool(getattr(summary, name)))
+        values[name] = bool(getattr(summary, name))
     if summary.tracking_code:
-        row.tracking_code = normalize_code(summary.tracking_code)
+        values['tracking_code'] = normalize_code(summary.tracking_code)
     if summary.location_known:
         # La source affirme la localisation : une valeur vide veut dire « plus
         # dans une cache », pas « champ inconnu ».
-        row.current_geocache_code = normalize_code(summary.current_geocache_code) or None
-        row.current_geocache_name = summary.current_geocache_name if row.current_geocache_code else None
+        values['current_geocache_code'] = normalize_code(summary.current_geocache_code) or None
+        values['current_geocache_name'] = summary.current_geocache_name if values['current_geocache_code'] else None
+
+
+def _new_row_values(code: str, now: datetime) -> dict:
+    """Base d'une ligne nouvelle : les défauts ORM ne jouent pas en insert groupé."""
+    return {
+        'reference_code': code,
+        'brand': 'gc',
+        'in_my_inventory': False,
+        'is_missing': False,
+        'is_active': True,
+        'is_locked': False,
+        'allowed_to_be_collected': False,
+        'created_at': now,
+        'updated_at': now,
+    }
+
+
+def _get_or_create(code: str, by_code: dict[str, Trackable]) -> tuple[Trackable, bool]:
+    """Ligne du dictionnaire préchargé, ou nouvelle ligne ajoutée. Aucune requête."""
+    row = by_code.get(code)
+    if row is not None:
+        return row, False
+    row = Trackable(reference_code=code, brand='gc')
+    db.session.add(row)
+    by_code[code] = row
+    return row, True
+
+
+# Sous la limite SQLITE_MAX_VARIABLE_NUMBER des vieilles bases : les codes sont
+# préchargés par paquets — le nombre de requêtes reste borné, jamais par TB.
+_PRELOAD_CHUNK = 500
+
+
+def _preload_trackables(codes: Iterable[str]) -> dict[str, Trackable]:
+    """Toutes les lignes déjà en base pour ces codes, en quelques requêtes fixes."""
+    codes = list(dict.fromkeys(codes))
+    by_code: dict[str, Trackable] = {}
+    for start in range(0, len(codes), _PRELOAD_CHUNK):
+        chunk = codes[start:start + _PRELOAD_CHUNK]
+        for row in Trackable.query.filter(Trackable.reference_code.in_(chunk)).all():
+            by_code[row.reference_code] = row
+    return by_code
+
+
+def upsert_trackable(summary: TrackableSummary) -> tuple[Trackable, bool]:
+    """Insère ou met à jour un TB. Retourne (ligne, créée ?). Ne commite pas."""
+    code = normalize_code(summary.reference_code)
+    row, created = _get_or_create(code, _preload_trackables([code]))
+    _merge_summary(row, summary)
     return row, created
 
 
@@ -93,31 +143,66 @@ def save_my_inventory(items: Iterable[TrackableSummary]) -> InventorySyncReport:
     """
     Remplace mon inventaire local par le relevé : les TBs relevés y entrent, ceux qui
     n'y sont plus en sortent (déposés ou pris par quelqu'un d'autre entre-temps).
+
+    Une seule transaction, un coût borné en requêtes : préchargement par paquets,
+    fusion en mémoire sur dictionnaires, puis INSERT/UPDATE groupés (`executemany`)
+    — le nombre d'ordres SQL ne dépend pas du nombre de TBs.
     """
     items = list(items)
-    created = updated = added = 0
-    seen: set[str] = set()
-    for summary in items:
-        row, is_new = upsert_trackable(summary)
-        added += int(not row.in_my_inventory)
-        row.in_my_inventory = True
-        # Un TB en main n'est plus dans une cache.
-        row.current_geocache_code = None
-        row.current_geocache_name = None
-        seen.add(row.reference_code)
-        created += int(is_new)
-        updated += int(not is_new)
+    try:
+        now = datetime.now(timezone.utc)
+        by_code = _preload_trackables(normalize_code(s.reference_code) for s in items)
 
-    removed = 0
-    for row in Trackable.query.filter_by(in_my_inventory=True).all():
-        if row.reference_code not in seen:
-            row.in_my_inventory = False
-            removed += 1
+        inserts: dict[str, dict] = {}
+        updates: dict[str, dict] = {}
+        created = updated = added = 0
+        for summary in items:
+            code = normalize_code(summary.reference_code)
+            row = by_code.get(code)
+            if code in inserts or code in updates:
+                values = inserts.get(code) or updates[code]
+                is_new = False
+            elif row is not None:
+                values = updates[code] = {'id': row.id}
+                is_new = False
+            else:
+                values = inserts[code] = _new_row_values(code, now)
+                is_new = True
 
-    synced_at = datetime.now(timezone.utc)
-    AppConfig.set_value(INVENTORY_LAST_SYNC_KEY, synced_at.isoformat())
-    db.session.commit()
-    return InventorySyncReport(len(items), created, updated, removed, synced_at, added)
+            # « Entré » = la ligne n'était pas en inventaire avant ce relevé
+            # (un doublon dans le relevé ne compte qu'une fois).
+            in_before = values.get('in_my_inventory', row.in_my_inventory if row else False)
+            added += int(not in_before)
+            created += int(is_new)
+            updated += int(not is_new)
+
+            _merge_into_values(values, summary)
+            values['updated_at'] = now
+            values['in_my_inventory'] = True
+            # Un TB en main n'est plus dans une cache.
+            values['current_geocache_code'] = None
+            values['current_geocache_name'] = None
+
+        if inserts:
+            db.session.execute(Trackable.__table__.insert(), list(inserts.values()))
+        if updates:
+            db.session.bulk_update_mappings(Trackable, list(updates.values()))
+
+        # Sortie d'inventaire des absents du relevé : un UPDATE groupé. Les codes
+        # sont paquetés en filtres `NOT IN` combinés par AND (limite de variables).
+        seen = list(dict.fromkeys(normalize_code(s.reference_code) for s in items))
+        stale = Trackable.query.filter_by(in_my_inventory=True)
+        for start in range(0, len(seen), _PRELOAD_CHUNK):
+            stale = stale.filter(~Trackable.reference_code.in_(seen[start:start + _PRELOAD_CHUNK]))
+        removed = stale.update({'in_my_inventory': False}, synchronize_session=False)
+
+        synced_at = datetime.now(timezone.utc)
+        AppConfig.set_value(INVENTORY_LAST_SYNC_KEY, synced_at.isoformat())
+        db.session.commit()
+        return InventorySyncReport(len(items), created, updated, removed, synced_at, added)
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def list_my_inventory() -> list[Trackable]:
@@ -147,33 +232,77 @@ def save_cache_inventory(gc_code: str, items: Iterable[TrackableSummary]) -> lis
     Le relevé fait foi pour la localisation : un TB qui n'y figure plus perd la
     cache comme localisation courante, même sans relation `GeocacheTrackable`
     restante (p. ex. position apprise par une fiche complète).
+
+    Une seule transaction, un coût borné en requêtes : préchargement par paquets,
+    fusion en mémoire, INSERT/UPDATE groupés, relations recréées en un seul
+    `executemany`.
     """
     gc_code = normalize_code(gc_code)
     now = datetime.now(timezone.utc)
-    GeocacheTrackable.query.filter_by(gc_code=gc_code).delete()
+    items = list(items)
+    try:
+        GeocacheTrackable.query.filter_by(gc_code=gc_code).delete()
+        by_code = _preload_trackables(normalize_code(s.reference_code) for s in items)
 
-    rows: list[Trackable] = []
-    seen: set[str] = set()
-    for summary in items:
-        # Le relevé affirme la localisation : le TB est dans cette cache.
-        summary.current_geocache_code = summary.current_geocache_code or gc_code
-        summary.location_known = True
-        row, _ = upsert_trackable(summary)
-        row.in_my_inventory = False
-        if row.reference_code in seen:
-            continue
-        seen.add(row.reference_code)
-        db.session.add(GeocacheTrackable(gc_code=gc_code, trackable_code=row.reference_code, seen_at=now))
-        rows.append(row)
+        inserts: dict[str, dict] = {}
+        updates: dict[str, dict] = {}
+        seen: list[str] = []
+        seen_set: set[str] = set()
+        for summary in items:
+            code = normalize_code(summary.reference_code)
+            row = by_code.get(code)
+            # Le relevé affirme la localisation : le TB est dans cette cache.
+            summary.current_geocache_code = summary.current_geocache_code or gc_code
+            summary.location_known = True
+            if code in inserts or code in updates:
+                values = inserts.get(code) or updates[code]
+            elif row is not None:
+                values = updates[code] = {'id': row.id}
+            else:
+                values = inserts[code] = _new_row_values(code, now)
+            _merge_into_values(values, summary)
+            values['updated_at'] = now
+            values['in_my_inventory'] = False
+            if code not in seen_set:
+                seen_set.add(code)
+                seen.append(code)
 
-    for row in Trackable.query.filter_by(current_geocache_code=gc_code).all():
-        if row.reference_code not in seen:
-            row.current_geocache_code = None
-            row.current_geocache_name = None
+        if inserts:
+            db.session.execute(Trackable.__table__.insert(), list(inserts.values()))
+        if updates:
+            db.session.bulk_update_mappings(Trackable, list(updates.values()))
+        if seen:
+            db.session.execute(
+                GeocacheTrackable.__table__.insert(),
+                [{'gc_code': gc_code, 'trackable_code': code, 'seen_at': now} for code in seen],
+            )
 
-    AppConfig.set_value(_cache_sync_key(gc_code), now.isoformat())
-    db.session.commit()
-    return rows
+        # TBs partis de la cache : localisation vidée en un UPDATE groupé
+        # (`NOT IN` paqueté en filtres AND, comme pour l'inventaire).
+        departed = Trackable.query.filter_by(current_geocache_code=gc_code)
+        for start in range(0, len(seen), _PRELOAD_CHUNK):
+            departed = departed.filter(~Trackable.reference_code.in_(seen[start:start + _PRELOAD_CHUNK]))
+        departed.update(
+            {'current_geocache_code': None, 'current_geocache_name': None},
+            synchronize_session=False,
+        )
+
+        AppConfig.set_value(_cache_sync_key(gc_code), now.isoformat())
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    # Les lignes sont relues après commit : la voie bulk ne peuple pas l'ORM.
+    order = {code: index for index, code in enumerate(seen)}
+    rows = [by_code.get(code) for code in seen]
+    missing = [code for code, row in zip(seen, rows) if row is None]
+    if missing:
+        fresh = _preload_trackables(missing)
+        for index, code in enumerate(seen):
+            if rows[index] is None:
+                rows[index] = fresh[code]
+    return sorted((row for row in rows if row is not None), key=lambda row: order[row.reference_code])
 
 
 def list_cache_inventory(gc_code: str) -> list[Trackable]:
@@ -198,22 +327,44 @@ def apply_cache_log_trackable_actions(gc_code: str, actions: dict[str, str]) -> 
     """
     gc_code = normalize_code(gc_code)
     now = datetime.now(timezone.utc)
-    for code, action in actions.items():
-        if action not in CACHE_LOG_ACTIONS:
-            continue
-        code = normalize_code(code)
-        row = Trackable.query.filter_by(reference_code=code).one_or_none()
-        if row is None:
-            row = Trackable(reference_code=code, brand='gc')
-            db.session.add(row)
-        row.last_cache_log_action = action
-        row.last_cache_log_action_at = now
-        if action == 'drop':
-            row.in_my_inventory = False
-            row.current_geocache_code = gc_code
-            row.current_geocache_name = None
-            _place_in_geocache(code, gc_code, now)
-    db.session.commit()
+    valid = {normalize_code(code): action for code, action in actions.items() if action in CACHE_LOG_ACTIONS}
+    if not valid:
+        return
+    try:
+        by_code = _preload_trackables(valid.keys())
+        inserts: list[dict] = []
+        updates: list[dict] = []
+        dropped: list[str] = []
+        for code, action in valid.items():
+            row = by_code.get(code)
+            if row is None:
+                values = _new_row_values(code, now)
+                values['last_cache_log_action'] = action
+                values['last_cache_log_action_at'] = now
+            else:
+                values = {
+                    'id': row.id,
+                    'last_cache_log_action': action,
+                    'last_cache_log_action_at': now,
+                    'updated_at': now,
+                }
+            if action == 'drop':
+                values['in_my_inventory'] = False
+                values['current_geocache_code'] = gc_code
+                values['current_geocache_name'] = None
+                dropped.append(code)
+            (inserts if row is None else updates).append(values)
+
+        if inserts:
+            db.session.execute(Trackable.__table__.insert(), inserts)
+        if updates:
+            db.session.bulk_update_mappings(Trackable, updates)
+        if dropped:
+            _place_all_in_geocache(dropped, gc_code, now)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def apply_trackable_log(
@@ -250,14 +401,30 @@ def apply_trackable_log(
     return row
 
 
-def _place_in_geocache(tb_code: str, gc_code: str, now: datetime) -> None:
-    """Un TB n'est que dans une cache à la fois : on efface sa présence ailleurs."""
-    GeocacheTrackable.query.filter(
-        GeocacheTrackable.trackable_code == tb_code,
-        GeocacheTrackable.gc_code != gc_code,
-    ).delete(synchronize_session=False)
-    if GeocacheTrackable.query.filter_by(gc_code=gc_code, trackable_code=tb_code).first() is None:
-        db.session.add(GeocacheTrackable(gc_code=gc_code, trackable_code=tb_code, seen_at=now))
+def _place_all_in_geocache(tb_codes: list[str], gc_code: str, now: datetime) -> None:
+    """
+    Des TBs déposés dans cette cache : un TB n'est que dans une cache à la fois,
+    on efface leur présence ailleurs puis on insère les relations manquantes —
+    deux requêtes quel que soit le nombre de TBs.
+    """
+    # Paqueté sous la limite de variables : chaque paquet supprime sa propre part.
+    for start in range(0, len(tb_codes), _PRELOAD_CHUNK):
+        chunk = tb_codes[start:start + _PRELOAD_CHUNK]
+        GeocacheTrackable.query.filter(
+            GeocacheTrackable.trackable_code.in_(chunk),
+            GeocacheTrackable.gc_code != gc_code,
+        ).delete(synchronize_session=False)
+    already = {
+        code for (code,) in GeocacheTrackable.query
+        .with_entities(GeocacheTrackable.trackable_code)
+        .filter_by(gc_code=gc_code)
+        .filter(GeocacheTrackable.trackable_code.in_(tb_codes))
+        .all()
+    }
+    missing = [{'gc_code': gc_code, 'trackable_code': code, 'seen_at': now}
+               for code in tb_codes if code not in already]
+    if missing:
+        db.session.execute(GeocacheTrackable.__table__.insert(), missing)
 
 
 def cache_inventory_synced_at(gc_code: str) -> Optional[str]:

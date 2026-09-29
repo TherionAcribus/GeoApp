@@ -658,3 +658,99 @@ def test_partial_summary_keeps_known_fields_and_location(app):
     assert row.current_geocache_code == 'GC1E51'
     assert row.owner_username == 'AngeEtDemon'
     assert row.tracking_code == 'SECRET'
+
+
+# ------------------------------------------------------- P2-01 : coût borné
+
+from contextlib import contextmanager
+
+from sqlalchemy import event
+
+
+@contextmanager
+def count_statements():
+    """Compte les ordres SQL émis pendant le bloc (executemany = 1)."""
+    statements: list[str] = []
+
+    def _before(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        statements.append(statement)
+
+    event.listen(db.engine, 'before_cursor_execute', _before)
+    try:
+        yield statements
+    finally:
+        event.remove(db.engine, 'before_cursor_execute', _before)
+
+
+def _summaries(n: int) -> list[TrackableSummary]:
+    return [TrackableSummary(reference_code=f'TB{i:05X}', name=f'TB {i}') for i in range(n)]
+
+
+@pytest.mark.parametrize('size, max_statements', [(1, 15), (70, 15), (1000, 20), (5000, 40)])
+def test_save_my_inventory_query_count_stays_flat(app, size, max_statements):
+    """Le nombre de requêtes ne croît pas avec le nombre de TBs (P2-01)."""
+    with count_statements() as statements:
+        report = trackable_store.save_my_inventory(_summaries(size))
+
+    assert (report.created, report.fetched) == (size, size)
+    assert len(statements) <= max_statements
+    assert Trackable.query.count() == size
+
+
+def test_save_my_inventory_second_sync_updates_in_bulk(app):
+    """Une seconde synchro : updates groupés, autant de bornes sur les requêtes."""
+    trackable_store.save_my_inventory(_summaries(500))
+
+    with count_statements() as statements:
+        report = trackable_store.save_my_inventory(_summaries(300))
+
+    assert (report.created, report.removed) == (0, 200)
+    assert len(statements) <= 15
+
+
+@pytest.mark.parametrize('size, max_statements', [(1, 15), (70, 15), (1000, 20), (5000, 40)])
+def test_save_cache_inventory_query_count_stays_flat(app, size, max_statements):
+    with count_statements() as statements:
+        rows = trackable_store.save_cache_inventory('GC1E51', _summaries(size))
+
+    assert len(rows) == size
+    assert GeocacheTrackable.query.filter_by(gc_code='GC1E51').count() == size
+    assert len(statements) <= max_statements
+
+
+def test_save_my_inventory_rolls_back_on_error(app, monkeypatch):
+    """Une erreur en cours de synchro ne laisse aucune écriture partielle."""
+    trackable_store.save_my_inventory([TrackableSummary(reference_code='TBAAA1')])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('panne')
+
+    monkeypatch.setattr(trackable_store.AppConfig, 'set_value', boom)
+    with pytest.raises(RuntimeError):
+        trackable_store.save_my_inventory(_summaries(10))
+
+    # Tout est annulé : ni nouveau TB, ni sortie d'inventaire.
+    assert Trackable.query.count() == 1
+    assert Trackable.query.one().in_my_inventory is True
+
+
+def test_save_cache_inventory_rolls_back_on_error(app, monkeypatch):
+    trackable_store.save_cache_inventory('GC1E51', [TrackableSummary(reference_code='TBAAA1')])
+
+    def boom(*args, **kwargs):
+        raise RuntimeError('panne')
+
+    monkeypatch.setattr(trackable_store.AppConfig, 'set_value', boom)
+    with pytest.raises(RuntimeError):
+        trackable_store.save_cache_inventory('GC1E51', _summaries(10))
+
+    assert [r.trackable_code for r in GeocacheTrackable.query.all()] == ['TBAAA1']
+
+
+def test_apply_cache_log_actions_query_count_stays_flat(app):
+    with count_statements() as statements:
+        trackable_store.apply_cache_log_trackable_actions(
+            'GC1E51', {f'TB{i:05X}': ('drop' if i % 2 else 'visit') for i in range(200)}
+        )
+    assert len(statements) <= 15
+    assert GeocacheTrackable.query.filter_by(gc_code='GC1E51').count() == 100

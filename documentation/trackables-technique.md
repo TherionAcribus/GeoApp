@@ -112,6 +112,15 @@ parallèle existe (`add_trackable_tables`).
 - la date du dernier relevé est gardée dans `AppConfig`
   (`trackables.inventory.last_sync_at`).
 
+**Coût borné en requêtes** : `save_my_inventory`, `save_cache_inventory` et
+`apply_cache_log_trackable_actions` préchargent les lignes connues par paquets
+(`_preload_trackables`), fusionnent les résumés en mémoire sur des
+dictionnaires, puis émettent les écritures groupées
+(`executemany` : `table.insert()`, `bulk_update_mappings`, UPDATE `NOT IN`
+paqueté). Une transaction unique par opération, avec `rollback` sur erreur : le
+nombre d'ordres SQL ne dépend pas du nombre de TBs (mesuré : ≤ 15 ordres jusqu'à
+70 TBs, ≤ 40 à 5 000). `upsert_trackable` reste la voie ORM unitaire (fiches).
+
 **HTML distant — contrat de rendu sûr** (`services/html_sanitize.py`). Choix retenu :
 **HTML assaini**, pas de texte aplati — objectifs et logs de TBs ont besoin de
 liens et de listes. `sanitize_html_fragment` est appliquée à l'extraction
