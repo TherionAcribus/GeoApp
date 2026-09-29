@@ -4,7 +4,7 @@ import {
     buildLogTranslationPrompt,
     buildTranslationSource,
 } from '../log-editor/log-translator';
-import { extractPatternTokens, findLostPatterns } from '../log-editor/log-ai-common';
+import { extractPatternTokens, findLostPatterns, getLogAiSubjectId, requestCleanedText } from '../log-editor/log-ai-common';
 import { computeHistoryApplication } from '../log-editor/log-history-store';
 import { LogHistoryEntry } from '../log-editor/types';
 
@@ -145,7 +145,30 @@ function testAnEntryWithoutLanguageChangesNothing(): void {
     assert.equal(result.logLanguage, undefined);
 }
 
-function run(): void {
+async function testTheAiSubjectReachesTheExecutionService(): Promise<void> {
+    const calls: Array<{ taskId: string; options: { subjectId?: string } }> = [];
+    const aiExecutionService = {
+        sendTaskRequest: async (taskId: string, _request: unknown, options: { subjectId?: string }) => {
+            calls.push({ taskId, options });
+            return { response: { text: 'Texte corrigé.' } };
+        },
+    };
+
+    const output = await requestCleanedText(
+        aiExecutionService as never,
+        'log-improve',
+        'prompt',
+        'geoapp-log-improver',
+        getLogAiSubjectId(42)
+    );
+
+    assert.equal(output, 'Texte corrigé.');
+    assert.equal(calls[0].taskId, 'log-improve');
+    assert.equal(calls[0].options.subjectId, 'geocache-42');
+    assert.equal(getLogAiSubjectId('global'), 'log-editor-global');
+}
+
+async function run(): Promise<void> {
     testThePromptCarriesTheTargetLanguage();
     testThePromptNamesThePatternsToPreserve();
     testThePromptSurvivesAnEmptyPatternSet();
@@ -163,8 +186,12 @@ function run(): void {
     testAPinnedLanguageIsNotOverwrittenByHistory();
     testAnUnpinnedLanguageIsRestoredFromHistory();
     testAnEntryWithoutLanguageChangesNothing();
+    await testTheAiSubjectReachesTheExecutionService();
     // eslint-disable-next-line no-console
     console.log('log-translator tests passed');
 }
 
-run();
+run().catch(error => {
+    console.error(error);
+    process.exit(1);
+});

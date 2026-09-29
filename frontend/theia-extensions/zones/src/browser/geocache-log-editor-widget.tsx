@@ -115,7 +115,8 @@ import {
     refreshUserStats,
     toGeocacheListItem as toGeocacheListItemPure,
 } from './log-editor/geocache-loader';
-import { NoLanguageModelError } from './log-editor/log-ai-common';
+import { getLogAiSubjectId, NoLanguageModelError } from './log-editor/log-ai-common';
+import { GeoAppAiExecutionBadge } from './geoapp-ai-execution-badge';
 import { LogTranslationMode, translateLogWithAi as translateLogWithAiPure } from './log-editor/log-translator';
 import {
     DEFAULT_LOG_IMPROVEMENT_MODE,
@@ -353,6 +354,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'fa fa-pencil';
         this.addClass('theia-geocache-log-editor-widget');
+        this.toDispose.push(this.aiExecutionService.onDidStartExecution(() => this.update()));
+        this.toDispose.push(this.aiExecutionService.onDidFinishExecution(() => this.update()));
     }
 
     protected getLogHistoryMaxItems(): number {
@@ -2306,7 +2309,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * Cœur de la traduction : un appel, quel que soit le point d’entrée.
      * Retourne le texte assemblé, ou `undefined` si rien n’est exploitable.
      */
-    protected async runTranslation(sourceText: string): Promise<string | undefined> {
+    protected async runTranslation(sourceText: string, subjectId?: string): Promise<string | undefined> {
         const mode: LogTranslationMode =
             this.preferenceService.get<string>(this.translationModePreferenceKey, 'replace') === 'bilingual'
                 ? 'bilingual'
@@ -2327,7 +2330,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             separator,
             addNotice,
             noticeText,
-            this.getLexicon()
+            this.getLexicon(),
+            subjectId
         );
 
         if (!result) {
@@ -2351,13 +2355,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     /** Cœur de la correction. Ne dépend d’aucune langue : le mode courant suffit. */
-    protected async runImprovement(sourceText: string): Promise<string | undefined> {
+    protected async runImprovement(sourceText: string, subjectId?: string): Promise<string | undefined> {
         const result = await improveLogWithAiPure(
             this.aiExecutionService,
             sourceText,
             this.improvementMode,
             this.getPatternsIndex().names,
-            this.getLexicon()
+            this.getLexicon(),
+            subjectId
         );
 
         if (!result) {
@@ -2390,7 +2395,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             action: 'translate',
             canRun: () => this.canTranslate(),
             verb: 'traduire',
-            run: sourceText => this.runTranslation(sourceText),
+            run: (sourceText, subjectId) => this.runTranslation(sourceText, subjectId),
             successMessage: `Log traduit en ${this.logLanguage}.`,
             lengthSubject: 'La traduction',
             reportError: error => this.reportAiError(error, 'la traduction', 'Traduction de logs'),
@@ -2411,7 +2416,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             action: 'improve',
             canRun: () => this.canImprove(),
             verb: 'corriger',
-            run: sourceText => this.runImprovement(sourceText),
+            run: (sourceText, subjectId) => this.runImprovement(sourceText, subjectId),
             successMessage: mode.doneMessage,
             lengthSubject: 'Le texte corrigé',
             reportError: error => this.reportAiError(error, 'la correction', 'Correction de logs'),
@@ -2449,7 +2454,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const rewritten = await job.run(sourceText);
+            const rewritten = await job.run(
+                sourceText,
+                getLogAiSubjectId(isGlobal ? 'global' : target.geocacheId)
+            );
             if (!rewritten) {
                 return;
             }
@@ -2581,7 +2589,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     if (!sourceText) {
                         continue;
                     }
-                    const rewritten = await job.run(sourceText);
+                    const rewritten = await job.run(sourceText, getLogAiSubjectId(gc.id));
                     if (!rewritten) {
                         failedCount += 1;
                         continue;
@@ -2672,6 +2680,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const overlayKey = `per-cache-overlay-${gc.id}`;
         const charCounterStats = this.getFinalLengthStats({ geocacheId: gc.id });
         const isTextSameAsGlobal = (this.perCacheText[gc.id] ?? '') === this.globalText;
+        const aiSubjectId = getLogAiSubjectId(gc.id);
 
         return (
             <PerCacheBlock
@@ -2713,9 +2722,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 translateDisabledReason={this.getTranslateDisabledReason()}
                 isTranslating={this.aiBusyKey === gc.id && this.aiBusyAction === 'translate'}
                 logLanguage={this.logLanguage}
+                translationExecutionBadge={<GeoAppAiExecutionBadge
+                    label='Traduction'
+                    execution={this.aiExecutionService.getLatestExecution('log-translate', aiSubjectId)}
+                />}
                 onImprove={() => { void this.improvePerCacheText(gc.id); }}
                 improveDisabledReason={this.getImproveDisabledReason()}
                 isImproving={this.aiBusyKey === gc.id && this.aiBusyAction === 'improve'}
+                improvementExecutionBadge={<GeoAppAiExecutionBadge
+                    label='Correction'
+                    execution={this.aiExecutionService.getLatestExecution('log-improve', aiSubjectId)}
+                />}
                 improvementModeLabel={getLogImprovementMode(this.improvementMode).label}
                 canRevertAiEdit={this.preAiPerCacheText[gc.id] !== undefined}
                 onRevertAiEdit={() => this.revertPerCacheAiEdit(gc.id)}
@@ -2794,6 +2811,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const globalPreviewKey = 'global-preview';
         const globalOverlayKey = 'global-overlay';
         const globalDropZoneKey = 'global';
+        const globalAiSubjectId = getLogAiSubjectId('global');
         const charCounterStats = this.getFinalLengthStats('global');
 
         return (
@@ -2956,6 +2974,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onTranslate={() => { void this.translateGlobalText(); }}
                     translateDisabledReason={this.getTranslateDisabledReason()}
                     isTranslating={this.aiBusyKey === 'global' && this.aiBusyAction === 'translate'}
+                    translationExecutionBadge={<GeoAppAiExecutionBadge
+                        label='Traduction'
+                        execution={this.aiExecutionService.getLatestExecution('log-translate', globalAiSubjectId)}
+                    />}
                     improvementMode={this.improvementMode}
                     isImprovementMenuOpen={this.isImprovementMenuOpen}
                     onToggleImprovementMenu={() => this.toggleImprovementMenu()}
@@ -2964,6 +2986,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onImprove={() => { void this.improveGlobalText(); }}
                     improveDisabledReason={this.getImproveDisabledReason()}
                     isImproving={this.aiBusyKey === 'global' && this.aiBusyAction === 'improve'}
+                    improvementExecutionBadge={<GeoAppAiExecutionBadge
+                        label='Correction'
+                        execution={this.aiExecutionService.getLatestExecution('log-improve', globalAiSubjectId)}
+                    />}
                     canRevertAiEdit={this.preAiGlobalText !== undefined}
                     onRevertAiEdit={() => this.revertGlobalAiEdit()}
                     logType={this.logType}

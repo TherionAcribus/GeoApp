@@ -63,11 +63,16 @@ export function findLostPatterns(source: string, rewritten: string, patternNames
  * Lève `NoLanguageModelError` si aucun modèle n'est assigné à l'agent ; retourne la chaîne
  * vide si le modèle n'a rien renvoyé d'exploitable.
  */
+export function getLogAiSubjectId(target: 'global' | number): string {
+    return target === 'global' ? 'log-editor-global' : `geocache-${target}`;
+}
+
 export async function requestCleanedText(
     aiExecutionService: GeoAppAiExecutionService,
     taskId: string,
     prompt: string,
-    requestKind: string
+    requestKind: string,
+    subjectId?: string
 ): Promise<string> {
     let response: LanguageModelResponse;
     try {
@@ -77,6 +82,7 @@ export async function requestCleanedText(
             ],
         }, {
             operationId: `${requestKind}-${Date.now()}`,
+            subjectId,
         })).response;
     } catch (error) {
         if (error instanceof GeoAppAiExecutionUnavailableError

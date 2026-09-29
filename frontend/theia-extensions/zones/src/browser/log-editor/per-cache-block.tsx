@@ -63,12 +63,16 @@ export interface PerCacheBlockProps {
     translateDisabledReason?: string;
     isTranslating: boolean;
     logLanguage: string;
+    /** Dernière exécution connue pour cette géocache. */
+    translationExecutionBadge?: React.ReactNode;
 
     // Correction IA
     onImprove: () => void;
     /** Non vide quand la correction est impossible : sert d'infobulle sur le bouton désactivé. */
     improveDisabledReason?: string;
     isImproving: boolean;
+    /** Dernière exécution connue pour cette géocache. */
+    improvementExecutionBadge?: React.ReactNode;
     /** Libellé du mode courant (« Corriger les fautes », « Rédiger le texte »), pour l'infobulle. */
     improvementModeLabel: string;
 
@@ -122,8 +126,8 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         formatFavoritePercent, getLogTypeLabel,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
-        onTranslate, translateDisabledReason, isTranslating, logLanguage,
-        onImprove, improveDisabledReason, isImproving, improvementModeLabel,
+        onTranslate, translateDisabledReason, isTranslating, logLanguage, translationExecutionBadge,
+        onImprove, improveDisabledReason, isImproving, improvementExecutionBadge, improvementModeLabel,
         canRevertAiEdit, onRevertAiEdit,
         globalText, globalTextExcerpt, onApplyGlobalText, isApplyGlobalTextDisabled, applyGlobalTextTitle,
         text, textareaProps, textareaRef, overlayKey, patternNames, resolvePatternValue,
@@ -264,6 +268,8 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 >
                     {isImproving ? '⏳ Correction…' : '✨ Corriger'}
                 </button>
+                {translationExecutionBadge}
+                {improvementExecutionBadge}
                 {canRevertAiEdit && (
                     <button
                         className='theia-button secondary geoapp-log-button--compact'

@@ -30,7 +30,7 @@ export interface AiRewriteJob {
     /** Verbe employé dans « … : rien à traduire / corriger ». */
     verb: string;
     /** Transforme le texte ; `undefined` si le modèle n'a rien renvoyé d'exploitable. */
-    run: (sourceText: string) => Promise<string | undefined>;
+    run: (sourceText: string, subjectId?: string) => Promise<string | undefined>;
     /** Message affiché après le remplacement d'une zone unique. */
     successMessage: string;
     /** Sujet du garde-fou de longueur : « La traduction », « Le texte corrigé ». */

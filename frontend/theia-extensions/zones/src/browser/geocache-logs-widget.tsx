@@ -12,6 +12,7 @@ import { MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
+import { GeoAppAiExecutionBadge } from './geoapp-ai-execution-badge';
 import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 import { EmptyState, LoadingState } from './state-views';
 import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
@@ -484,6 +485,8 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
         this.addGlobalEventListeners();
 
         this.toDispose.push(this.detailsTracker.onDidChangeActive(() => this.handleActiveGeocacheChanged()));
+        this.toDispose.push(this.aiExecutionService.onDidStartExecution(() => this.update()));
+        this.toDispose.push(this.aiExecutionService.onDidFinishExecution(() => this.update()));
         this.toDispose.push(this.preferenceService.onPreferenceChanged(event => {
             if (event.preferenceName !== LOGS_PANEL_SYNC_MODE_PREF) {
                 return;
@@ -1122,6 +1125,7 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
         try {
             const execution = await this.aiExecutionService.beginTaskExecution('logs-analysis', {
                 operationId: `geoapp-logs-analysis-${geocacheId}-${Date.now()}`,
+                subjectId: `geocache-${geocacheId}`,
             });
 
             const [selection, geocacheDetails] = await Promise.all([
@@ -1331,6 +1335,13 @@ export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
                                 <i className={`fa ${this.isAnalyzing ? 'fa-spinner fa-spin' : 'fa-magic'}`} />
                                 {this.isAnalyzing ? 'Analyse...' : (this.analysis ? "Relancer l'analyse" : 'Analyser avec IA')}
                             </button>
+                            <GeoAppAiExecutionBadge
+                                label='Analyse'
+                                execution={this.aiExecutionService.getLatestExecution(
+                                    'logs-analysis',
+                                    `geocache-${this.geocacheId}`
+                                )}
+                            />
                             <button
                                 className='geoapp-logs-panel__button'
                                 onClick={() => void this.refreshLogs()}

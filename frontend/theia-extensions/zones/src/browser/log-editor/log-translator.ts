@@ -118,7 +118,8 @@ export async function translateLogWithAi(
     separator: string,
     addNotice: boolean,
     noticeText: string,
-    lexicon: readonly LexiconEntry[] = []
+    lexicon: readonly LexiconEntry[] = [],
+    subjectId?: string
 ): Promise<LogTranslationResult | undefined> {
     const source = buildTranslationSource(text, addNotice, noticeText);
     // La détection porte sur le texte réellement soumis, mention de traduction comprise : c'est
@@ -134,7 +135,8 @@ export async function translateLogWithAi(
         aiExecutionService,
         'log-translate',
         `${prompt}\n\nTEXTE :\n${source}`,
-        'geoapp-log-translator'
+        'geoapp-log-translator',
+        subjectId
     );
 
     if (!translated) {

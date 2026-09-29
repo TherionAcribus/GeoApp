@@ -137,7 +137,8 @@ export async function improveLogWithAi(
     text: string,
     mode: LogImprovementMode,
     patternNames: Set<string>,
-    lexicon: readonly LexiconEntry[] = []
+    lexicon: readonly LexiconEntry[] = [],
+    subjectId?: string
 ): Promise<LogImprovementResult | undefined> {
     const source = (text || '').trim();
     if (!source) {
@@ -151,7 +152,8 @@ export async function improveLogWithAi(
         aiExecutionService,
         'log-improve',
         `${prompt}\n\nTEXTE :\n${source}`,
-        'geoapp-log-improver'
+        'geoapp-log-improver',
+        subjectId
     );
 
     if (!improved) {

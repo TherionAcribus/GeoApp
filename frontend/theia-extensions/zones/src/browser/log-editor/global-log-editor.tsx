@@ -40,6 +40,8 @@ export interface GlobalLogEditorProps {
     /** Non vide quand la traduction est impossible : sert d'infobulle sur le bouton désactivé. */
     translateDisabledReason?: string;
     isTranslating: boolean;
+    /** Dernière exécution connue pour cette zone de texte. */
+    translationExecutionBadge?: React.ReactNode;
 
     // Correction IA
     improvementMode: LogImprovementMode;
@@ -51,6 +53,8 @@ export interface GlobalLogEditorProps {
     /** Non vide quand la correction est impossible : sert d'infobulle sur le bouton désactivé. */
     improveDisabledReason?: string;
     isImproving: boolean;
+    /** Dernière exécution connue pour cette zone de texte. */
+    improvementExecutionBadge?: React.ReactNode;
 
     /** Retour à l'original : une seule mémoire pour la traduction comme pour la correction. */
     canRevertAiEdit: boolean;
@@ -127,9 +131,9 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
         logDate, onLogDateChange, isLogDatePinned, onToggleLogDatePin,
         translationLanguages, logLanguage, onLogLanguageChange, isLogLanguagePinned, onToggleLogLanguagePin,
         isLanguageMenuOpen, onToggleLanguageMenu, onCloseLanguageMenu,
-        onTranslate, translateDisabledReason, isTranslating,
+        onTranslate, translateDisabledReason, isTranslating, translationExecutionBadge,
         improvementMode, isImprovementMenuOpen, onToggleImprovementMenu, onCloseImprovementMenu,
-        onSelectImprovementMode, onImprove, improveDisabledReason, isImproving,
+        onSelectImprovementMode, onImprove, improveDisabledReason, isImproving, improvementExecutionBadge,
         canRevertAiEdit, onRevertAiEdit,
         logType, onLogTypeChange, pendingAlreadyFoundCount, pendingAlreadyFoundCodes,
         useSameTextForAll, onToggleUseSameTextForAll, globalText, globalTextExcerpt, onApplyGlobalTextToAll,
@@ -289,6 +293,8 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             onSelectMode={onSelectImprovementMode}
                             onImprove={onImprove}
                         />
+                        {translationExecutionBadge}
+                        {improvementExecutionBadge}
                         {canRevertAiEdit && (
                             <button
                                 className='theia-button secondary geoapp-log-button--compact'
