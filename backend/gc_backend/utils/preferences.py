@@ -22,6 +22,26 @@ def get_preference_definition(key: str) -> Optional[Dict[str, Any]]:
     return schema.get('properties', {}).get(key)
 
 
+def is_sensitive(key: str) -> bool:
+    """Vrai si la préférence porte un secret (``x-sensitive`` dans le schéma)."""
+    definition = get_preference_definition(key)
+    return bool(definition and definition.get('x-sensitive'))
+
+
+def list_sensitive_keys() -> list[str]:
+    properties = load_preference_schema().get('properties', {})
+    return [key for key, definition in properties.items() if definition.get('x-sensitive')]
+
+
+def list_stored_keys() -> list[str]:
+    """Clés du schéma ayant réellement une ligne ``AppConfig`` (et non le défaut)."""
+    properties = load_preference_schema().get('properties', {})
+    if not properties:
+        return []
+    rows = AppConfig.query.filter(AppConfig.key.in_(list(properties.keys()))).all()
+    return sorted(row.key for row in rows)
+
+
 def list_preferences() -> Dict[str, Any]:
     properties = load_preference_schema().get('properties', {})
     preferences: Dict[str, Any] = {}
@@ -74,6 +94,24 @@ def set_preferences_bulk(values: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in values.items():
         updated[key] = set_preference_value(key, value)
     return updated
+
+
+def reset_preference_value(key: str) -> bool:
+    """
+    Supprime la valeur stockée d'une préférence : elle retombe sur le ``default``
+    du schéma (et suivra donc les évolutions de ce défaut).
+    Retourne True si une ligne ``AppConfig`` existait.
+    """
+    definition = get_preference_definition(key)
+    if not definition:
+        raise KeyError(f"Préférence inconnue: {key}")
+
+    entry = AppConfig.query.get(key)
+    if entry is None:
+        return False
+    db.session.delete(entry)
+    db.session.commit()
+    return True
 
 
 def _normalize_value(definition: Dict[str, Any], value: Any) -> Any:

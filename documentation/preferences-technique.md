@@ -153,16 +153,33 @@ Options supportées :
 Au démarrage :
 
 1. Le service lit `geoApp.backend.apiBaseUrl`.
-2. Il appelle `GET /api/preferences`.
-3. Il applique les valeurs backend connues dans `PreferenceService`.
-4. Il ignore les clés inconnues ou non backend.
+2. Il rejoue d'abord la file d'attente des écritures échouées (`localStorage`, clé
+   `geoApp.preferences.pendingSync.v1`) : un seul `PATCH /api/preferences` pour les
+   `set` (valeurs relues au moment de l'envoi), un `DELETE` par `reset`.
+3. Il appelle ensuite `GET /api/preferences` et applique les valeurs dans
+   `PreferenceService`, en ne retenant que :
+   - les clés `x-targets` contenant `backend` ;
+   - les clés présentes dans `storedKeys` (valeur réellement stockée par Flask, pas
+     un simple défaut de schéma — une clé jamais stockée n'écrase jamais la valeur
+     locale) ;
+   - en excluant les clés `x-sensitive` (renvoyées masquées) et les clés qui venaient
+     d'être rejouées vers le backend.
+
+Politique : **Theia est la source de vérité** ; Flask ne l'emporte au démarrage que
+pour une valeur qu'il a réellement stockée et qui n'est pas en attente d'envoi.
 
 À chaque changement local :
 
 1. Si la clé ne commence pas par `geoApp.`, elle est ignorée.
 2. Si la clé est `geoApp.backend.apiBaseUrl`, seul le client HTTP est reconfiguré.
 3. Si la clé n'a pas `backend` dans `x-targets`, elle reste locale.
-4. Sinon le service envoie `PUT /api/preferences/<key>` avec `{ value }`.
+4. Sinon le service lit `PreferenceService.inspect(key).globalValue` :
+   - valeur présente → `PUT /api/preferences/<key>` avec `{ value }` ;
+   - valeur absente (réinitialisation) → `DELETE /api/preferences/<key>`,
+     qui supprime la ligne `AppConfig` au lieu d'y copier le défaut.
+5. Sur erreur réseau, l'intention (`set`/`reset`) est empilée dans la file
+   `pendingSync` et sera rejouée au prochain démarrage. Sur erreur HTTP (400),
+   le toast affiche le `message` renvoyé par Flask.
 
 Le flag interne `applyingRemote` évite une boucle de synchronisation quand une valeur vient du backend.
 
@@ -172,11 +189,17 @@ L'API est exposée par `backend/gc_backend/blueprints/preferences.py`.
 
 Routes :
 
-- `GET /api/preferences` : retourne toutes les valeurs effectives.
+- `GET /api/preferences` : retourne toutes les valeurs effectives, `storedKeys`
+  (clés ayant une ligne `AppConfig`) et `sensitiveKeys`. Les valeurs des clés
+  `x-sensitive` sont remplacées par `null`.
 - `GET /api/preferences?includeSchema=true` : ajoute le schéma.
 - `GET /api/preferences/schema` : retourne le schéma.
-- `GET /api/preferences/<key>` : retourne valeur + définition.
-- `PUT /api/preferences/<key>` : modifie une préférence.
+- `GET /api/preferences/<key>` : retourne valeur + définition ; pour une clé
+  sensible, `value` est `null` et `defined` indique si une valeur est stockée.
+- `PUT /api/preferences/<key>` : modifie une préférence ; les valeurs sensibles
+  sont journalisées `<masquée>` dans les logs.
+- `DELETE /api/preferences/<key>` : supprime la ligne `AppConfig` (retour au
+  défaut du schéma).
 - `PATCH /api/preferences` : modification en lot.
 
 La logique métier est dans `backend/gc_backend/utils/preferences.py`.
@@ -185,10 +208,14 @@ Fonctions principales :
 
 - `load_preference_schema()` : charge le JSON partagé avec cache `lru_cache`.
 - `get_preference_definition(key)` : retourne la définition.
+- `is_sensitive(key)` / `list_sensitive_keys()` : clés `x-sensitive`.
+- `list_stored_keys()` : clés du schéma ayant une ligne `AppConfig`.
 - `list_preferences()` : retourne les valeurs persistées ou les defaults.
 - `get_preference_value(key)` : retourne une valeur effective.
-- `get_value_or_default(key, fallback=None)` : helper recommandé dans les modules backend.
+- `get_value_or_default(key, fallback=None)` : helper recommandé dans les modules
+  backend — **renvoie la vraie valeur, y compris pour les clés sensibles**.
 - `set_preference_value(key, value)` : valide, normalise, persiste dans `AppConfig`.
+- `reset_preference_value(key)` : supprime la ligne `AppConfig`.
 
 Les valeurs backend sont stockées dans `AppConfig` sous la clé complète `geoApp.*`, sérialisées en JSON.
 

@@ -20,6 +20,7 @@ export class GeoPreferenceStore {
 
     /** Le schéma est statique : ces structures sont calculées une seule fois. */
     private cachedDefinitions?: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
+    private cachedDefinitionsByKey?: Map<string, GeoPreferenceDefinition>;
     private cachedDefinitionsByCategory?: Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>>;
 
     constructor(
@@ -40,6 +41,15 @@ export class GeoPreferenceStore {
             }));
         }
         return this.cachedDefinitions;
+    }
+
+    getDefinition(key: string): GeoPreferenceDefinition | undefined {
+        if (!this.cachedDefinitionsByKey) {
+            this.cachedDefinitionsByKey = new Map(
+                this.definitions.map(entry => [entry.key, entry.definition])
+            );
+        }
+        return this.cachedDefinitionsByKey.get(key);
     }
 
     get definitionsByCategory(): Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>> {
@@ -68,6 +78,14 @@ export class GeoPreferenceStore {
 
     async setValue(key: string, value: unknown, scope: PreferenceScope = PreferenceScope.User): Promise<void> {
         await this.preferenceService.set(key, value, scope);
+    }
+
+    /**
+     * Retire la clé du scope : la préférence retombe sur le `default` du schéma
+     * (et suivra ses évolutions), au lieu de figer une copie de l'ancien défaut.
+     */
+    async reset(key: string, scope: PreferenceScope = PreferenceScope.User): Promise<void> {
+        await this.preferenceService.set(key, undefined, scope);
     }
 
     private handlePreferenceChange(event: PreferenceChange): void {

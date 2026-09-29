@@ -471,9 +471,8 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         if (!def) { return err(`Preference inconnue : "${args.key}".`); }
                         if (def['x-sensitive']) { return err(`Cette preference est sensible et ne peut pas etre modifiee par @Aide.`); }
                         if (!('default' in def)) { return err(`La preference "${args.key}" n'a pas de valeur par defaut connue.`); }
-                        const defaultValue = JSON.parse(JSON.stringify(def.default));
-                        await this.preferenceStore.setValue(args.key, defaultValue);
-                        return ok(`Preference "${args.key}" reinitialisee : ${JSON.stringify(defaultValue)}.`);
+                        await this.preferenceStore.reset(args.key);
+                        return ok(`Preference "${args.key}" reinitialisee : ${JSON.stringify(def.default)}.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

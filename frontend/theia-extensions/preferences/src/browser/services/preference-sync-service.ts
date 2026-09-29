@@ -8,15 +8,25 @@ import { GeoPreferenceStore } from '../geo-preference-store';
 import { PreferencesApiClient } from './preferences-api-client';
 import { GeoPreferenceDefinition } from '../geo-preferences-schema';
 
+/**
+ * Intention de synchronisation en attente pour une clé : `set` repousse la valeur
+ * courante, `reset` demande la suppression de la ligne `AppConfig` (DELETE).
+ */
+type PendingSyncIntent = 'set' | 'reset';
+type PendingSyncMap = Record<string, PendingSyncIntent>;
+
 @injectable()
 export class PreferenceSyncService implements FrontendApplicationContribution {
 
     private static readonly PREFERENCE_SET_TIMEOUT_MS = 5000;
+    /** Clé localStorage de la file d'attente des écritures à rejouer vers Flask. */
+    private static readonly PENDING_SYNC_STORAGE_KEY = 'geoApp.preferences.pendingSync.v1';
 
     private applyingRemote = false;
     private initializationTask: Promise<void> | undefined;
     private initializationScheduled = false;
     private readonly backendDefinitions: Map<string, GeoPreferenceDefinition>;
+    private readonly sensitiveKeys: Set<string>;
 
     /** Anti-spam : on n'affiche pas deux fois la même erreur de sync en moins de 5 s. */
     private lastSyncErrorAt = 0;
@@ -31,6 +41,11 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
             this.store.definitions
                 .filter(entry => entry.definition['x-targets']?.includes('backend'))
                 .map(entry => [entry.key, entry.definition])
+        );
+        this.sensitiveKeys = new Set(
+            this.store.definitions
+                .filter(entry => entry.definition['x-sensitive'])
+                .map(entry => entry.key)
         );
         this.preferenceService.onPreferenceChanged((event: PreferenceChange) => this.onPreferenceChanged(event));
     }
@@ -53,7 +68,18 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
             this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
-            const outcome = await this.pullFromBackend();
+
+            // Les écritures faites backend arrêté sont rejouées AVANT le pull : Theia
+            // est la source de vérité, Flask ne l'emporte que sur les valeurs qu'il a
+            // réellement stockées et qui ne sont pas en attente d'envoi.
+            const pendingKeys = new Set(Object.keys(this.loadPendingSync()));
+            const flushOutcome = await this.flushPendingSync();
+            if (flushOutcome === 'unreachable') {
+                console.warn(`[GeoPreferences] Backend injoignable, nouvel essai dans ${Math.max(delayMs, 2000) / 1000}s...`);
+                continue;
+            }
+
+            const outcome = await this.pullFromBackend(pendingKeys);
             if (outcome !== 'unreachable') {
                 return;
             }
@@ -89,10 +115,56 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
         setTimeout(task, 0);
     }
 
-    private async pullFromBackend(): Promise<'ok' | 'unreachable' | 'error'> {
-        let preferences: Record<string, unknown>;
+    /**
+     * Rejoue vers Flask les écritures en attente : un seul PATCH pour les `set`
+     * (les valeurs sont relues au moment de l'envoi — la dernière écriture gagne),
+     * puis un DELETE par `reset`. En cas d'échec, toute la file est conservée :
+     * les envois sont idempotents.
+     */
+    private async flushPendingSync(): Promise<'ok' | 'unreachable' | 'error'> {
+        const pending = this.loadPendingSync();
+        const keys = Object.keys(pending);
+        if (keys.length === 0) {
+            return 'ok';
+        }
+
+        const sets: Record<string, unknown> = {};
+        const resets: string[] = [];
+        for (const key of keys) {
+            if (pending[key] === 'reset') {
+                resets.push(key);
+            } else {
+                sets[key] = this.getCurrentValue(key);
+            }
+        }
+
         try {
-            preferences = await this.apiClient.fetchAll();
+            if (Object.keys(sets).length > 0) {
+                await this.apiClient.updateBulk(sets);
+            }
+            for (const key of resets) {
+                await this.apiClient.reset(key);
+            }
+            this.savePendingSync({});
+            console.info(`[GeoPreferences] ${keys.length} préférence(s) en attente synchronisée(s) vers le backend.`);
+            return 'ok';
+        } catch (error) {
+            if (this.isBackendUnreachable(error)) {
+                return 'unreachable';
+            }
+            console.error('[GeoPreferences] Could not flush pending preference changes', error);
+            return 'error';
+        }
+    }
+
+    private async pullFromBackend(excludedKeys: Set<string>): Promise<'ok' | 'unreachable' | 'error'> {
+        let preferences: Record<string, unknown>;
+        let storedKeys: Set<string>;
+        try {
+            const response = await this.apiClient.fetchAll();
+            preferences = response.preferences ?? {};
+            // Backend plus ancien sans `storedKeys` : repli sur l'ensemble des clés listées.
+            storedKeys = new Set(response.storedKeys ?? Object.keys(preferences));
         } catch (error) {
             if (this.isBackendUnreachable(error)) {
                 return 'unreachable';
@@ -107,6 +179,20 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
                     continue;
                 }
                 if (!this.backendDefinitions.has(key)) {
+                    continue;
+                }
+                // Les clés sensibles sont masquées côté backend : les appliquer
+                // écraserait le secret local par `null`. Theia les pousse, ne les lit jamais.
+                if (this.sensitiveKeys.has(key)) {
+                    continue;
+                }
+                // Les clés qui venaient d'être rejouées vers Flask ne sont pas ré-appliquées.
+                if (excludedKeys.has(key)) {
+                    continue;
+                }
+                // Une clé jamais stockée par Flask ne renvoie que son défaut de schéma :
+                // elle ne doit pas écraser une valeur locale saisie dans settings.json.
+                if (!storedKeys.has(key)) {
                     continue;
                 }
                 if (this.areValuesEqual(this.getCurrentValue(key), value)) {
@@ -148,42 +234,113 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
             return;
         }
 
-        const currentValue = this.getCurrentValue(event.preferenceName);
-        if (currentValue === undefined || currentValue === null) {
+        const key = event.preferenceName;
+        if (key === 'geoApp.backend.apiBaseUrl') {
+            this.apiClient.setBaseUrl(String(this.getCurrentValue(key) || 'http://localhost:8000'));
             return;
         }
 
-        if (event.preferenceName === 'geoApp.backend.apiBaseUrl') {
-            this.apiClient.setBaseUrl(String(currentValue || 'http://localhost:8000'));
+        if (!this.backendDefinitions.has(key)) {
             return;
         }
 
-        if (!this.backendDefinitions.has(event.preferenceName)) {
-            return;
-        }
+        // `set(key, undefined)` retire la clé du scope utilisateur : l'intention est alors
+        // un `reset` (DELETE côté Flask), pas un `set` de la valeur par défaut.
+        const intent: PendingSyncIntent = this.preferenceService.inspect(key)?.globalValue !== undefined ? 'set' : 'reset';
 
         try {
-            await this.apiClient.update(event.preferenceName, currentValue);
+            if (intent === 'set') {
+                await this.apiClient.update(key, this.getCurrentValue(key));
+            } else {
+                await this.apiClient.reset(key);
+            }
+            this.dequeuePendingSync(key);
         } catch (error) {
-            console.error(`[GeoPreferences] Failed to synchronize ${event.preferenceName}`, error);
-            this.notifySyncError(event.preferenceName);
+            console.error(`[GeoPreferences] Failed to synchronize ${key}`, error);
+            if (this.isBackendUnreachable(error)) {
+                this.enqueuePendingSync(key, intent);
+            }
+            this.notifySyncError(key, error);
         }
     }
 
-    private notifySyncError(preferenceName: string): void {
+    private notifySyncError(preferenceName: string, error: unknown): void {
         const now = Date.now();
         if (now - this.lastSyncErrorAt < 5000) {
             return;
         }
         this.lastSyncErrorAt = now;
+
+        const label = this.store.getDefinition(preferenceName)?.['x-ui']?.label ?? preferenceName;
+        const backendMessage = (error as { response?: { status?: number; data?: { message?: string } } })?.response?.data?.message;
+        if (backendMessage) {
+            this.messageService.error(`Valeur refusée par le backend pour « ${label} » : ${backendMessage}`);
+            return;
+        }
         this.messageService.error(
-            `Impossible d'enregistrer la préférence « ${preferenceName} » côté backend Flask. `
-            + 'La valeur reste appliquée localement ; vérifiez que le backend est démarré.'
+            `Impossible d'enregistrer la préférence « ${label} » côté backend Flask. `
+            + 'La valeur reste appliquée localement et sera envoyée au backend dès qu\'il sera joignable.'
         );
     }
 
+    // ── File d'attente des écritures échouées (persistée en localStorage) ──────
+
+    private loadPendingSync(): PendingSyncMap {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) {
+                return {};
+            }
+            const raw = window.localStorage.getItem(PreferenceSyncService.PENDING_SYNC_STORAGE_KEY);
+            if (!raw) {
+                return {};
+            }
+            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            if (!parsed || typeof parsed !== 'object') {
+                return {};
+            }
+            const result: PendingSyncMap = {};
+            for (const [key, intent] of Object.entries(parsed)) {
+                if (intent === 'set' || intent === 'reset') {
+                    result[key] = intent;
+                }
+            }
+            return result;
+        } catch {
+            return {};
+        }
+    }
+
+    private savePendingSync(pending: PendingSyncMap): void {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) {
+                return;
+            }
+            if (Object.keys(pending).length === 0) {
+                window.localStorage.removeItem(PreferenceSyncService.PENDING_SYNC_STORAGE_KEY);
+            } else {
+                window.localStorage.setItem(PreferenceSyncService.PENDING_SYNC_STORAGE_KEY, JSON.stringify(pending));
+            }
+        } catch {
+            // localStorage indisponible ou plein : la file reste seulement en mémoire.
+        }
+    }
+
+    private enqueuePendingSync(key: string, intent: PendingSyncIntent): void {
+        const pending = this.loadPendingSync();
+        pending[key] = intent;
+        this.savePendingSync(pending);
+    }
+
+    private dequeuePendingSync(key: string): void {
+        const pending = this.loadPendingSync();
+        if (key in pending) {
+            delete pending[key];
+            this.savePendingSync(pending);
+        }
+    }
+
     private getCurrentValue(preferenceName: string): unknown {
-        const definition = this.store.schema.properties?.[preferenceName] as GeoPreferenceDefinition | undefined;
+        const definition = this.store.getDefinition(preferenceName);
         const defaultValue = definition && 'default' in definition ? definition.default : undefined;
         return this.preferenceService.get(preferenceName, defaultValue);
     }

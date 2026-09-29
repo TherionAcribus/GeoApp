@@ -1381,8 +1381,9 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private async handleResetPreference(key: string, definition: GeoPreferenceDefinition): Promise<void> {
         this.textDrafts.delete(key);
         this.jsonErrors.delete(key);
-        const defaultValue = 'default' in definition ? this.cloneValue(definition.default) : undefined;
-        await this.store.setValue(key, defaultValue, PreferenceScope.User);
+        // Retirer la clé du scope utilisateur plutôt que d'y copier le défaut :
+        // une copie figerait l'ancien défaut si une mise à jour le changeait.
+        await this.store.reset(key, PreferenceScope.User);
     }
 
     private handleSearchChange(value: string): void {
