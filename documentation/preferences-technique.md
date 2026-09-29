@@ -126,10 +126,16 @@ Fonctionnalités :
 - sous-sections issues de `x-ui.section` ;
 - ouverture directe d'une catégorie, d'une clé ou d'une recherche : `revealPreference`/`revealCategory` lèvent les filtres qui masqueraient la cible (recherche incompatible effacée, avancées réaffichées, « Modifiées » désactivé si la cible ne l'est pas) et le défilement est différé jusqu'au rendu réel du DOM (`PendingRevealEffect`) ;
 - état vide : rappel de la requête active et bouton « Réinitialiser les filtres » ;
+- ligne normale : libellé (clé technique en info-bulle, « Copier la clé » au survol), description, contrôle — badges limités à « Avancé » et « Sensible » ; une préférence modifiée porte une barre verticale à gauche et un bouton `codicon-discard` (info-bulle « Revenir à la valeur par défaut (<défaut>) », rendu seulement si modifiée) ;
+- mode développeur (case en bas de la barre latérale, persistée) : réaffiche la clé, les cibles Theia/Flask, les `x-tags`, la valeur brute des enums et les filtres Theia/Flask ;
+- contrôles « compacts » (booléen, enum, nombre, texte, `select-from`) dans la colonne de droite ; contrôles « larges » (`lexicon`, `string-list`, tableau à cases, JSON) sous la description sur toute la largeur ;
+- champ sensible (`x-sensitive`) : mot de passe avec bouton œil (`codicon-eye`/`codicon-eye-closed`) et indicateur « Clé définie » / « Aucune clé » ;
+- champs numériques : bornes affichées (« 2 – 18 »), clamp avant écriture avec feedback temporaire (« Valeur ramenée à 18 (maximum) »), un `integer` refuse une saisie décimale ;
+- mise en page pilotée par des container queries (`container-type: inline-size` sur la racine, `@container` 900px/640px) : le point de rupture suit la largeur du panneau, pas celle de la fenêtre ;
 - édition directe selon le type : checkbox, select, input numérique, input texte, textarea JSON, liste de cases pour `array` + `items.enum` ;
 - bouton de réinitialisation : retire la clé du scope utilisateur (retour au `default`, qui suit les évolutions du schéma).
 
-État persisté (`storeState`) : `targetFilter` (réservé au futur mode développeur), `valueFilter`, `showAdvanced`, `expandedCategories`. Les anciens états contenant `searchQuery`, `complexityFilter` ou `selectedGuideId` sont tolérés à la restauration (`complexityFilter` est converti en `showAdvanced`).
+État persisté (`storeState`) : `targetFilter`, `valueFilter`, `showAdvanced`, `devMode`, `expandedCategories`. Les anciens états contenant `searchQuery`, `complexityFilter` ou `selectedGuideId` sont tolérés à la restauration (`complexityFilter` est converti en `showAdvanced`).
 
 Commande Theia :
 

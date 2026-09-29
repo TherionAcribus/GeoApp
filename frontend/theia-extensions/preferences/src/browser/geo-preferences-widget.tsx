@@ -131,14 +131,46 @@ function categoryLabel(category: string): string {
     return CATEGORY_LABELS.get(category) ?? category;
 }
 
-function enumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition): string {
+function enumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition, showRaw = false): string {
     const raw = String(option);
     const contextualLabel = definition?.['x-ui']?.enumLabels?.[raw];
     if (contextualLabel) {
-        return `${contextualLabel} (${raw})`;
+        return showRaw ? `${contextualLabel} (${raw})` : contextualLabel;
     }
     const label = ENUM_VALUE_LABELS[raw] ?? humanSegment(raw);
-    return label === raw ? raw : `${label} (${raw})`;
+    if (!showRaw || label === raw) {
+        return label;
+    }
+    return `${label} (${raw})`;
+}
+
+/**
+ * Contrôles « larges » : rendus sous la description sur toute la largeur de la ligne
+ * plutôt que dans la colonne étroite à droite. Tout le reste est « compact ».
+ */
+function isWideControl(definition: GeoPreferenceDefinition): boolean {
+    const widget = definition['x-ui']?.widget;
+    if (widget === 'lexicon' || widget === 'string-list') {
+        return true;
+    }
+    // `select-from` reste compact : c'est un menu déroulant comme les enums.
+    return definition.type === 'array' || definition.type === 'object';
+}
+
+/** Défaut lisible pour l'info-bulle du bouton de réinitialisation. */
+function defaultHint(definition: GeoPreferenceDefinition): string {
+    const value = definition.default;
+    if (typeof value === 'boolean') {
+        return value ? 'Activé' : 'Désactivé';
+    }
+    if (Array.isArray(definition.enum) && (typeof value === 'string' || typeof value === 'number')) {
+        return enumOptionLabel(value, definition);
+    }
+    if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
+        return 'vide';
+    }
+    const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return text.length > 60 ? `${text.slice(0, 57)}…` : text;
 }
 
 function arrayValue(value: unknown, fallback: unknown): Array<string | number> {
@@ -178,6 +210,49 @@ function stringListKey(entry: string): string {
  * Le champ de saisie tient son propre état : la préférence n'est écrite qu'à la validation,
  * et `React.memo` sur `PreferenceItem` reste efficace pendant la frappe.
  */
+/**
+ * Champ de saisie d'une valeur `x-sensitive` : mot de passe avec bouton œil pour
+ * révéler temporairement la valeur et indicateur « Clé définie » / « Aucune clé »
+ * qui ne révèle rien du secret.
+ */
+const SensitiveInput: React.FC<{
+    prefKey: string;
+    value: string;
+    draft: string | undefined;
+    onDraftChange: (value: string) => void;
+    onCommit: () => void;
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+}> = ({ prefKey, value, draft, onDraftChange, onCommit, onKeyDown }) => {
+    const [visible, setVisible] = React.useState(false);
+    const display = draft !== undefined ? draft : value;
+    const defined = display.trim() !== '';
+    return (
+        <div className='geo-preference-sensitive'>
+            <input
+                id={prefKey}
+                type={visible ? 'text' : 'password'}
+                value={display}
+                autoComplete='off'
+                onChange={event => onDraftChange(event.currentTarget.value)}
+                onBlur={onCommit}
+                onKeyDown={onKeyDown}
+            />
+            <button
+                type='button'
+                className='geo-preference-sensitive-toggle'
+                title={visible ? 'Masquer la valeur' : 'Afficher la valeur'}
+                aria-label={visible ? 'Masquer la valeur' : 'Afficher la valeur'}
+                onClick={() => setVisible(!visible)}
+            >
+                <span className={`codicon ${visible ? 'codicon-eye-closed' : 'codicon-eye'}`} />
+            </button>
+            <span className={`geo-preference-sensitive-status${defined ? ' set' : ''}`}>
+                {defined ? 'Clé définie' : 'Aucune clé'}
+            </span>
+        </div>
+    );
+};
+
 const StringListEditor: React.FC<{
     prefKey: string;
     entries: string[];
@@ -315,6 +390,10 @@ interface PreferenceItemProps {
     modified: boolean;
     highlighted: boolean;
     advanced: boolean;
+    /** Mode développeur : clé, cibles Theia/Flask et tags affichés, valeur brute des enums. */
+    devMode: boolean;
+    /** Message temporaire après clamp/refus d'une saisie numérique. */
+    numericFeedback: string | undefined;
     /** Options resolues pour un `widget: 'select-from'` ; `undefined` pour tous les autres rendus. */
     dynamicOptions: string[] | undefined;
     handlers: PreferenceItemHandlers;
@@ -325,12 +404,13 @@ interface PreferenceItemProps {
  * (valeur, brouillon, erreur JSON, surlignage…), pas à chaque frappe dans un autre champ.
  */
 const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemProps): React.ReactElement {
-    const { prefKey, definition, value, draft, hasJsonError, frozenJson, modified, highlighted, advanced, dynamicOptions, handlers } = props;
+    const { prefKey, definition, value, draft, hasJsonError, frozenJson, modified, highlighted, advanced, devMode, numericFeedback, dynamicOptions, handlers } = props;
     const description = definition['x-ui']?.shortDescription ?? definition.description;
     const label = definition['x-ui']?.label ?? definition.title ?? preferenceLabel(prefKey);
     const targets = definition['x-targets'] ?? ['frontend'];
     const backend = targets.includes('backend');
     const tags = definition['x-tags'] ?? [];
+    const wide = isWideControl(definition);
 
     const renderJson = (kind: 'array' | 'object'): React.ReactNode => {
         const jsonValue = formatJson(value, definition.default);
@@ -390,7 +470,7 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
                         enums numériques (geoApp.logs.initialFetchCount). */}
                     {(definition.enum as Array<string | number>).map(option => (
                         <option key={option} value={option}>
-                            {enumOptionLabel(option, definition)}
+                            {enumOptionLabel(option, definition, devMode)}
                         </option>
                     ))}
                 </select>
@@ -399,18 +479,30 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
 
         if (definition.type === 'number' || definition.type === 'integer') {
             const displayValue = draft !== undefined ? draft : String(value ?? definition.default ?? 0);
+            const bounds = [
+                definition.minimum !== undefined ? String(definition.minimum) : undefined,
+                definition.maximum !== undefined ? String(definition.maximum) : undefined
+            ].filter((bound): bound is string => bound !== undefined);
             return (
-                <input
-                    id={prefKey}
-                    type='number'
-                    value={displayValue}
-                    min={definition.minimum as number | undefined}
-                    max={definition.maximum as number | undefined}
-                    step={definition.type === 'integer' ? 1 : 0.1}
-                    onChange={event => handlers.onDraftChange(prefKey, event.currentTarget.value)}
-                    onBlur={() => handlers.onCommitNumeric(prefKey, definition)}
-                    onKeyDown={event => handlers.onDraftKeyDown(event)}
-                />
+                <div className='geo-preference-number'>
+                    <input
+                        id={prefKey}
+                        type='number'
+                        value={displayValue}
+                        min={definition.minimum as number | undefined}
+                        max={definition.maximum as number | undefined}
+                        step={definition.type === 'integer' ? 1 : 0.1}
+                        onChange={event => handlers.onDraftChange(prefKey, event.currentTarget.value)}
+                        onBlur={() => handlers.onCommitNumeric(prefKey, definition)}
+                        onKeyDown={event => handlers.onDraftKeyDown(event)}
+                    />
+                    {bounds.length > 0 && (
+                        <span className='geo-preference-bounds'>{bounds.join(' – ')}</span>
+                    )}
+                    {numericFeedback && (
+                        <p className='geo-preference-number-feedback' role='status'>{numericFeedback}</p>
+                    )}
+                </div>
             );
         }
 
@@ -449,7 +541,7 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
                                     checked={values.includes(option)}
                                     onChange={event => handlers.onArrayToggle(prefKey, option, event.currentTarget.checked, definition)}
                                 />
-                                <span>{enumOptionLabel(option, definition)}</span>
+                                <span>{enumOptionLabel(option, definition, devMode)}</span>
                             </label>
                         ))}
                     </div>
@@ -490,13 +582,25 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
             );
         }
 
+        if (definition['x-sensitive']) {
+            return (
+                <SensitiveInput
+                    prefKey={prefKey}
+                    value={String(value ?? definition.default ?? '')}
+                    draft={draft}
+                    onDraftChange={next => handlers.onDraftChange(prefKey, next)}
+                    onCommit={() => handlers.onCommitText(prefKey)}
+                    onKeyDown={event => handlers.onDraftKeyDown(event)}
+                />
+            );
+        }
+
         const textValue = draft !== undefined ? draft : String(value ?? definition.default ?? '');
         return (
             <input
                 id={prefKey}
-                type={definition['x-sensitive'] ? 'password' : 'text'}
+                type='text'
                 value={textValue}
-                autoComplete={definition['x-sensitive'] ? 'off' : undefined}
                 onChange={event => handlers.onDraftChange(prefKey, event.currentTarget.value)}
                 onBlur={() => handlers.onCommitText(prefKey)}
                 onKeyDown={event => handlers.onDraftKeyDown(event)}
@@ -504,45 +608,67 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
         );
     };
 
+    const resetButton = modified ? (
+        <button
+            className='theia-button secondary geo-preference-reset'
+            type='button'
+            onClick={() => handlers.onReset(prefKey, definition)}
+            title={`Revenir à la valeur par défaut (${defaultHint(definition)})`}
+            aria-label='Réinitialiser'
+        >
+            <span className='codicon codicon-discard' />
+        </button>
+    ) : undefined;
+
     return (
         <div
-            className={`geo-preference-item${modified ? ' modified' : ''}${highlighted ? ' highlighted' : ''}`}
+            className={`geo-preference-item${modified ? ' modified' : ''}${highlighted ? ' highlighted' : ''}${wide ? ' wide' : ''}`}
             data-geo-preference-key={prefKey}
         >
             <div className='geo-preference-main'>
                 <div className='geo-preference-title'>
-                    <label htmlFor={prefKey}>{label}</label>
-                    <code>{prefKey}</code>
+                    <label htmlFor={prefKey} title={prefKey}>{label}</label>
+                    <button
+                        className='geo-preference-copy-key'
+                        type='button'
+                        title='Copier la clé'
+                        aria-label={`Copier la clé ${prefKey}`}
+                        onClick={() => { void navigator.clipboard?.writeText(prefKey); }}
+                    >
+                        <span className='codicon codicon-copy' />
+                    </button>
+                    {devMode && <code>{prefKey}</code>}
                 </div>
                 <div className='geo-preference-control'>
-                    {renderControl()}
-                    <button
-                        className='theia-button secondary geo-preference-reset'
-                        type='button'
-                        disabled={!modified}
-                        onClick={() => handlers.onReset(prefKey, definition)}
-                        title={modified ? 'Revenir à la valeur par défaut' : 'Valeur par défaut déjà active'}
-                    >
-                        Réinitialiser
-                    </button>
+                    {!wide && renderControl()}
+                    {resetButton}
                 </div>
             </div>
             <div className='geo-preference-meta'>
                 {description && <p>{description}</p>}
-                <div className='geo-preference-tags'>
-                    <span className='geo-preference-tag'>{definition['x-category'] || 'général'}</span>
-                    {modified
-                        ? <span className='geo-preference-tag modified'>Modifiée</span>
-                        : <span className='geo-preference-tag default'>Défaut</span>}
-                    {backend && <span className='geo-preference-tag backend'>Flask</span>}
-                    {targets.includes('frontend') && <span className='geo-preference-tag frontend'>Theia</span>}
-                    {advanced && <span className='geo-preference-tag advanced'>Avancé</span>}
-                    {definition['x-sensitive'] && <span className='geo-preference-tag sensitive'>Sensible</span>}
-                    {tags.slice(0, 4).map(tag => (
-                        <span key={tag} className='geo-preference-tag muted'>{tag}</span>
-                    ))}
-                </div>
+                {(advanced || definition['x-sensitive'] || devMode) && (
+                    <div className='geo-preference-tags'>
+                        {advanced && <span className='geo-preference-tag advanced'>Avancé</span>}
+                        {definition['x-sensitive'] && <span className='geo-preference-tag sensitive'>Sensible</span>}
+                        {devMode && (
+                            <>
+                                <span className='geo-preference-tag'>{definition['x-category'] || 'général'}</span>
+                                {modified
+                                    ? <span className='geo-preference-tag modified'>Modifiée</span>
+                                    : <span className='geo-preference-tag default'>Défaut</span>}
+                                {backend && <span className='geo-preference-tag backend'>Flask</span>}
+                                {targets.includes('frontend') && <span className='geo-preference-tag frontend'>Theia</span>}
+                                {tags.map(tag => (
+                                    <span key={tag} className='geo-preference-tag muted'>{tag}</span>
+                                ))}
+                            </>
+                        )}
+                    </div>
+                )}
             </div>
+            {wide && (
+                <div className='geo-preference-wide'>{renderControl()}</div>
+            )}
         </div>
     );
 });
@@ -613,6 +739,8 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     protected valueFilter: GeoPreferenceValueFilter = 'all';
     /** Réglages avancés affichés par défaut (décision produit) ; décoché = masqués hors recherche. */
     protected showAdvanced = true;
+    /** Mode développeur : clés, cibles et tags par ligne, filtres Theia/Flask dans la barre d'outils. */
+    protected devMode = false;
     /** Défilement différé en attente, consommé par PendingRevealEffect après le rendu. */
     private pendingReveal?: PendingReveal;
     private revealToken = 0;
@@ -629,6 +757,9 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private readonly dynamicOptionsCache = new Map<string, { signature: string; options: string[] }>();
     /** Brouillons des champs texte/nombre en cours d'édition (commit au blur). */
     private readonly textDrafts = new Map<string, string>();
+    /** Feedback temporaire après clamp ou refus d'une saisie numérique. */
+    private readonly numericFeedback = new Map<string, string>();
+    private readonly numericFeedbackTimers = new Map<string, number>();
     /** Clés dont le dernier JSON saisi était invalide (feedback inline). */
     private readonly jsonErrors = new Set<string>();
     /** Valeur JSON figée pendant l'édition d'un textarea, pour éviter tout remount qui écraserait la saisie. */
@@ -711,6 +842,10 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             window.clearTimeout(this.highlightClearTimer);
             this.highlightClearTimer = undefined;
         }
+        for (const timer of this.numericFeedbackTimers.values()) {
+            window.clearTimeout(timer);
+        }
+        this.numericFeedbackTimers.clear();
         super.onBeforeDetach(msg);
     }
 
@@ -757,6 +892,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             targetFilter: this.targetFilter,
             valueFilter: this.valueFilter,
             showAdvanced: this.showAdvanced,
+            devMode: this.devMode,
             expandedCategories: Array.from(this.expandedCategories)
         };
     }
@@ -771,6 +907,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             complexityFilter: 'all' | 'simple' | 'advanced';
             selectedGuideId: string;
             showAdvanced: boolean;
+            devMode: boolean;
             expandedCategories: string[];
         }>;
         if (restored.targetFilter) {
@@ -783,6 +920,9 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             this.showAdvanced = restored.showAdvanced;
         } else if (restored.complexityFilter) {
             this.showAdvanced = restored.complexityFilter !== 'simple';
+        }
+        if (typeof restored.devMode === 'boolean') {
+            this.devMode = restored.devMode;
         }
         if (Array.isArray(restored.expandedCategories)) {
             this.expandedCategories = new Set(restored.expandedCategories);
@@ -959,6 +1099,32 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                             {hiddenAdvancedCount} réglages avancés masqués
                         </span>
                     )}
+                    {this.devMode && (
+                        <>
+                            <button
+                                className={`theia-button secondary geo-preferences-filter-button${this.targetFilter === 'frontend' ? ' active' : ''}`}
+                                type='button'
+                                aria-pressed={this.targetFilter === 'frontend'}
+                                onClick={() => {
+                                    this.targetFilter = this.targetFilter === 'frontend' ? 'all' : 'frontend';
+                                    this.update();
+                                }}
+                            >
+                                Theia
+                            </button>
+                            <button
+                                className={`theia-button secondary geo-preferences-filter-button${this.targetFilter === 'backend' ? ' active' : ''}`}
+                                type='button'
+                                aria-pressed={this.targetFilter === 'backend'}
+                                onClick={() => {
+                                    this.targetFilter = this.targetFilter === 'backend' ? 'all' : 'backend';
+                                    this.update();
+                                }}
+                            >
+                                Flask
+                            </button>
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -966,7 +1132,18 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                 <aside className='geo-preferences-sidebar'>
                     {this.buildSidebarGroups(sections).map(group => this.renderSidebarGroup(group))}
                     <div className='geo-preferences-sidebar-footer'>
-                        {visibleCount} / {totalCount} préférences affichées
+                        <div>{visibleCount} / {totalCount} préférences affichées</div>
+                        <label className='geo-preferences-dev-toggle'>
+                            <input
+                                type='checkbox'
+                                checked={this.devMode}
+                                onChange={event => {
+                                    this.devMode = event.currentTarget.checked;
+                                    this.update();
+                                }}
+                            />
+                            <span>Mode développeur</span>
+                        </label>
                     </div>
                 </aside>
                 <div className='geo-preferences-content'>
@@ -1224,6 +1401,8 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                 modified={this.isModified(key, definition)}
                 highlighted={this.highlightedPreferenceKey === key}
                 advanced={this.isAdvancedPreference(definition)}
+                devMode={this.devMode}
+                numericFeedback={this.numericFeedback.get(key)}
                 handlers={this.itemHandlers}
             />
         );
@@ -1266,15 +1445,42 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             this.update();
             return;
         }
-        const parsed = definition.type === 'integer'
-            ? parseInt(draft, 10)
-            : parseFloat(draft);
+        const trimmed = draft.trim();
+        // Un entier refuse une saisie décimale plutôt que de la tronquer en silence.
+        if (definition.type === 'integer' && !/^-?\d+$/.test(trimmed)) {
+            this.setNumericFeedback(key, 'Un nombre entier est attendu');
+            return;
+        }
+        let parsed = parseFloat(trimmed);
         if (Number.isNaN(parsed)) {
             // Saisie invalide (ex. « - ») : on rétablit l'affichage de la valeur courante.
             this.update();
             return;
         }
+        // Theia borne silencieusement à la lecture : on borne avant l'écriture et on
+        // le dit à l'utilisateur, sinon 500 serait enregistré et 18 affiché sans explication.
+        if (typeof definition.maximum === 'number' && parsed > definition.maximum) {
+            parsed = definition.maximum;
+            this.setNumericFeedback(key, `Valeur ramenée à ${definition.maximum} (maximum)`);
+        } else if (typeof definition.minimum === 'number' && parsed < definition.minimum) {
+            parsed = definition.minimum;
+            this.setNumericFeedback(key, `Valeur ramenée à ${definition.minimum} (minimum)`);
+        }
         await this.store.setValue(key, parsed, PreferenceScope.User);
+    }
+
+    private setNumericFeedback(key: string, message: string): void {
+        const existing = this.numericFeedbackTimers.get(key);
+        if (existing !== undefined) {
+            window.clearTimeout(existing);
+        }
+        this.numericFeedback.set(key, message);
+        this.numericFeedbackTimers.set(key, window.setTimeout(() => {
+            this.numericFeedbackTimers.delete(key);
+            this.numericFeedback.delete(key);
+            this.update();
+        }, 4000));
+        this.update();
     }
 
     private async handleSelectChange(key: string, rawValue: string, definition: GeoPreferenceDefinition): Promise<void> {
@@ -1355,6 +1561,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private async handleResetPreference(key: string, definition: GeoPreferenceDefinition): Promise<void> {
         this.textDrafts.delete(key);
         this.jsonErrors.delete(key);
+        this.numericFeedback.delete(key);
         // Retirer la clé du scope utilisateur plutôt que d'y copier le défaut :
         // une copie figerait l'ancien défaut si une mise à jour le changeait.
         await this.store.reset(key, PreferenceScope.User);

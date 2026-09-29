@@ -6,6 +6,8 @@
     flex-direction: column;
     gap: 12px;
     overflow: hidden;
+    /* Les points de rupture suivent la largeur du panneau, pas celle de la fenêtre. */
+    container-type: inline-size;
 }
 
 .geo-preferences-toolbar {
@@ -103,6 +105,18 @@
     border-top: 1px solid var(--theia-layout-color3);
     color: var(--theia-ui-font-color2);
     font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.geo-preferences-dev-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+    cursor: pointer;
 }
 
 .geo-preferences-sidebar-entry {
@@ -255,9 +269,15 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
-    padding: 10px 0;
+    padding: 10px 0 10px 8px;
     border-top: 1px solid var(--theia-layout-color3);
+    /* Gouttière réservée à l'indicateur « modifiée » : pas de décalage au changement d'état. */
+    border-left: 3px solid transparent;
     transition: background-color 0.7s ease, box-shadow 0.7s ease;
+}
+
+.geo-preference-item.modified {
+    border-left-color: var(--theia-charts-yellow, #8a6d1d);
 }
 
 .geo-preference-item:first-child {
@@ -279,18 +299,47 @@
     gap: 16px;
 }
 
+/* Contrôle « large » : la colonne de droite ne porte que le bouton de réinitialisation. */
+.geo-preference-item.wide .geo-preference-main {
+    grid-template-columns: minmax(220px, 1fr) auto;
+}
+
 .geo-preference-title {
     min-width: 0;
     display: flex;
-    flex-direction: column;
-    gap: 3px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 3px 6px;
 }
 
 .geo-preference-title label {
     font-weight: 600;
 }
 
+.geo-preference-copy-key {
+    flex: 0 0 auto;
+    padding: 0 4px;
+    border: none;
+    border-radius: 3px;
+    color: var(--theia-ui-font-color2);
+    background: transparent;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.geo-preference-item:hover .geo-preference-copy-key,
+.geo-preference-copy-key:focus-visible {
+    opacity: 1;
+}
+
+.geo-preference-copy-key:hover {
+    color: var(--theia-ui-font-color1);
+    background: var(--theia-list-hoverBackground);
+}
+
 .geo-preference-title code {
+    flex-basis: 100%;
     color: var(--theia-ui-font-color2);
     font-size: 11px;
     white-space: normal;
@@ -321,10 +370,84 @@
 
 .geo-preference-reset {
     flex: 0 0 auto;
+    padding: 2px 5px;
+    line-height: 16px;
 }
 
-.geo-preference-reset:disabled {
-    opacity: 0.45;
+/* Contrôle « large » : sous la description, toute la largeur de la ligne. */
+.geo-preference-wide {
+    margin-top: 2px;
+}
+
+.geo-preference-wide .geo-lexicon,
+.geo-preference-wide .geo-preference-string-list,
+.geo-preference-wide .geo-preference-json-wrapper,
+.geo-preference-wide .geo-preference-array,
+.geo-preference-wide .geo-preference-select-from {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.geo-preference-number {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.geo-preference-bounds {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+    white-space: nowrap;
+}
+
+.geo-preference-number-feedback {
+    flex-basis: 100%;
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geo-preference-sensitive {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.geo-preference-sensitive input {
+    flex: 1 1 auto;
+    min-width: 140px;
+}
+
+.geo-preference-sensitive-toggle {
+    flex: 0 0 auto;
+    padding: 2px 4px;
+    border: none;
+    border-radius: 3px;
+    color: var(--theia-ui-font-color2);
+    background: transparent;
+    cursor: pointer;
+}
+
+.geo-preference-sensitive-toggle:hover {
+    color: var(--theia-ui-font-color1);
+    background: var(--theia-list-hoverBackground);
+}
+
+.geo-preference-sensitive-status {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+    white-space: nowrap;
+}
+
+.geo-preference-sensitive-status.set {
+    color: var(--theia-charts-green, #2f855a);
 }
 
 .geo-preference-json {
@@ -780,7 +903,7 @@
     font-size: 11px;
 }
 
-@media (max-width: 900px) {
+@container (max-width: 900px) {
     .geo-preferences-layout {
         grid-template-columns: 1fr;
     }
@@ -788,8 +911,11 @@
     .geo-preferences-sidebar {
         max-height: 160px;
     }
+}
 
-    .geo-preference-main {
+@container (max-width: 640px) {
+    .geo-preference-main,
+    .geo-preference-item.wide .geo-preference-main {
         grid-template-columns: 1fr;
     }
 
