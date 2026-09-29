@@ -1,6 +1,9 @@
 import { getJsonOfResponse, isLanguageModelParsedResponse, getTextOfResponse } from '@theia/ai-core';
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
+import {
+    GeoAppAiExecutionService,
+    GeoAppAiOutputError,
+} from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 import { Formula } from '../common/types';
 import { FormulaSolverAiProfile, FormulaSolverTaskIdsByProfile } from './geoapp-formula-solver-agents';
 
@@ -104,21 +107,32 @@ export class FormulaSolverLLMService {
             .trim();
     }
 
-    private extractJsonObject(text: string): unknown {
+    private extractJsonObject(text: string): Record<string, unknown> {
         const trimmed = (text || '').trim();
         if (!trimmed) {
-            return undefined;
+            throw new GeoAppAiOutputError('empty-response', 'Formula Solver : réponse IA vide.', true);
         }
 
         // Essayer d'extraire le premier objet JSON complet
         const start = trimmed.indexOf('{');
         const end = trimmed.lastIndexOf('}');
         if (start === -1 || end === -1 || end <= start) {
-            return undefined;
+            throw new GeoAppAiOutputError('invalid-json', 'Formula Solver : la réponse IA ne contient pas d’objet JSON.', true);
         }
 
         const candidate = trimmed.slice(start, end + 1);
-        return JSON.parse(candidate);
+        try {
+            const parsed = JSON.parse(candidate) as unknown;
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                throw new GeoAppAiOutputError('schema-mismatch', 'Formula Solver : le JSON retourné n’est pas un objet.', true);
+            }
+            return parsed as Record<string, unknown>;
+        } catch (error) {
+            if (error instanceof GeoAppAiOutputError) {
+                throw error;
+            }
+            throw new GeoAppAiOutputError('invalid-json', 'Formula Solver : réponse JSON invalide.', true);
+        }
     }
 
     private limitTextForPrompt(text: string, maxChars: number = 9000): string {
@@ -172,27 +186,25 @@ Si aucune formule n'est trouvée, retourne {"formulas": []}`;
 
         console.log(`[FORMULA-SOLVER-LLM] 🎯 RÉPONSE BRUTE pour détection:`, response);
 
-        // Essayer de parser le JSON
-        try {
-            const parsed = this.extractJsonObject(response) as any;
-            const formulasRaw = parsed?.formulas ?? [];
-            console.log(`[FORMULA-SOLVER-LLM] 🎯 Formules trouvées:`, formulasRaw?.length || 0);
-
-            const formulas: Formula[] = (Array.isArray(formulasRaw) ? formulasRaw : []).map((f: any, index: number) => ({
-                id: String(f?.id || `ai_formula_${index + 1}`),
-                north: String(f?.north || ''),
-                east: String(f?.east || ''),
-                text_output: String(f?.text_output || `${f?.north || ''} ${f?.east || ''}`).trim(),
-                confidence: typeof f?.confidence === 'number' ? f.confidence : 0.7,
-                source: String(f?.source || 'ai')
-            })).filter((f: Formula) => Boolean(f.north) && Boolean(f.east));
-
-            return formulas;
-        } catch (parseError) {
-            console.error(`[FORMULA-SOLVER-LLM] 🎯 ERREUR PARSING JSON:`, parseError);
-            console.error(`[FORMULA-SOLVER-LLM] 🎯 Réponse qui n'a pas pu être parsée:`, response);
-            return [];
+        const parsed = this.extractJsonObject(response);
+        const formulasRaw = parsed.formulas;
+        if (!Array.isArray(formulasRaw)) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                'Formula Solver : le JSON retourné ne contient pas de tableau « formulas ».',
+                true
+            );
         }
+        console.log(`[FORMULA-SOLVER-LLM] 🎯 Formules trouvées:`, formulasRaw.length);
+
+        return formulasRaw.map((f: any, index: number) => ({
+            id: String(f?.id || `ai_formula_${index + 1}`),
+            north: String(f?.north || ''),
+            east: String(f?.east || ''),
+            text_output: String(f?.text_output || `${f?.north || ''} ${f?.east || ''}`).trim(),
+            confidence: typeof f?.confidence === 'number' ? f.confidence : 0.7,
+            source: String(f?.source || 'ai')
+        })).filter((f: Formula) => Boolean(f.north) && Boolean(f.east));
     }
 
     /**
@@ -229,12 +241,23 @@ INSTRUCTIONS:
 ${JSON.stringify(Object.fromEntries(variables.map(v => [v, ''])), null, 2)}`;
 
         const response = await this.callLLM(prompt, `extraction-questions-${variables.join('')}`, profile);
-        try {
-            const parsed = this.extractJsonObject(response) as any;
-            return (parsed && typeof parsed === 'object') ? parsed : {};
-        } catch {
-            return {};
+        const parsed = this.extractJsonObject(response);
+        const result: Record<string, string> = {};
+        let returnedKeys = 0;
+        for (const variable of variables) {
+            if (Object.prototype.hasOwnProperty.call(parsed, variable)) {
+                returnedKeys++;
+            }
+            result[variable] = String(parsed[variable] ?? '');
         }
+        if (variables.length > 0 && returnedKeys === 0) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                'Formula Solver : le JSON de questions ne contient aucune lettre demandée.',
+                true
+            );
+        }
+        return result;
     }
 
     /**
@@ -266,12 +289,23 @@ INSTRUCTIONS:
 ${JSON.stringify(exampleObject, null, 2)}`;
 
         const response = await this.callLLM(prompt, 'recherche-réponses', profile);
-        try {
-            const parsed = this.extractJsonObject(response) as any;
-            return (parsed && typeof parsed === 'object') ? parsed : {};
-        } catch {
-            return {};
+        const parsed = this.extractJsonObject(response);
+        const result: Record<string, string> = {};
+        let returnedKeys = 0;
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+                returnedKeys++;
+            }
+            result[key] = String(parsed[key] ?? '');
         }
+        if (keys.length > 0 && returnedKeys === 0) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                'Formula Solver : le JSON de réponses ne contient aucune lettre demandée.',
+                true
+            );
+        }
+        return result;
     }
 
     /**
@@ -326,11 +360,14 @@ INSTRUCTIONS:
 }`;
 
         const response = await this.callLLM(prompt, 'construction-contexte-reponses', profile);
-        const parsed = (this.extractJsonObject(response) as any) || {};
+        const parsed = this.extractJsonObject(response);
+        const perLetterRules = parsed.per_letter_rules && typeof parsed.per_letter_rules === 'object' && !Array.isArray(parsed.per_letter_rules)
+            ? Object.fromEntries(Object.entries(parsed.per_letter_rules).map(([key, value]) => [key, String(value)]))
+            : {};
         return {
             geocache_summary: String(parsed.geocache_summary || ''),
             global_rules: Array.isArray(parsed.global_rules) ? parsed.global_rules.map((v: any) => String(v)) : [],
-            per_letter_rules: (parsed.per_letter_rules && typeof parsed.per_letter_rules === 'object') ? parsed.per_letter_rules : {}
+            per_letter_rules: perLetterRules
         };
     }
 
@@ -390,13 +427,27 @@ INSTRUCTIONS IMPORTANTES:
 { "${params.letter}": "<réponse brute>", "valueType": "<value|checksum|reduced|length>", "explanation": "<explication courte de ton raisonnement et de la source de ta réponse>" }`;
 
         const response = await this.callLLM(prompt, `reponse-${params.letter}`, profile);
-        const parsed = (this.extractJsonObject(response) as any) || {};
-        const rawValueType = String(parsed?.valueType || 'value').toLowerCase().trim();
+        const parsed = this.extractJsonObject(response);
+        if (!Object.prototype.hasOwnProperty.call(parsed, params.letter)) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                `Formula Solver : la réponse JSON ne contient pas la lettre « ${params.letter} ».`,
+                true
+            );
+        }
+        const rawValueType = String(parsed.valueType ?? 'value').toLowerCase().trim();
         const validTypes = ['value', 'checksum', 'reduced', 'length'];
+        if (!validTypes.includes(rawValueType)) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                `Formula Solver : valueType « ${rawValueType} » non reconnu.`,
+                true
+            );
+        }
         return {
-            answer: String(parsed?.[params.letter] || ''),
-            explanation: String(parsed?.explanation || ''),
-            valueType: validTypes.includes(rawValueType) ? rawValueType : 'value'
+            answer: String(parsed[params.letter] ?? ''),
+            explanation: String(parsed.explanation ?? ''),
+            valueType: rawValueType
         };
     }
 

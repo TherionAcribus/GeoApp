@@ -1,7 +1,10 @@
 import * as assert from 'assert/strict';
 
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
-import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
+import {
+    GeoAppAiExecutionService,
+    GeoAppAiOutputError,
+} from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 import { GeoAppAiModelResolutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-model-resolution-service';
 import {
     GeoAppFormulaSolverFastAgentId,
@@ -30,12 +33,14 @@ class FakeLanguageModelRegistry {
 class FakeLanguageModelService {
     readonly calls: Array<{ model: unknown; request: { agentId?: string } }> = [];
 
+    constructor(private readonly response: unknown = {
+        parsed: { formulas: [] },
+        content: '{"formulas":[]}',
+    }) {}
+
     async sendRequest(model: unknown, request: { agentId?: string }): Promise<unknown> {
         this.calls.push({ model, request });
-        return {
-            parsed: { formulas: [] },
-            content: '{"formulas":[]}',
-        };
+        return this.response;
     }
 }
 
@@ -55,7 +60,8 @@ class FakePreferenceService {
 
 function makeService(
     model: { id: string; name?: string; vendor?: string } | undefined,
-    preferences: Record<string, unknown> = {}
+    preferences: Record<string, unknown> = {},
+    response?: unknown
 ): {
     service: FormulaSolverLLMService;
     registry: FakeLanguageModelRegistry;
@@ -63,7 +69,10 @@ function makeService(
 } {
     const service = new FormulaSolverLLMService();
     const registry = new FakeLanguageModelRegistry(model);
-    const llm = new FakeLanguageModelService();
+    const llm = new FakeLanguageModelService(response === undefined ? {
+        parsed: { formulas: [] },
+        content: '{"formulas":[]}',
+    } : response);
     const resolutionService = new GeoAppAiModelResolutionService();
     (resolutionService as any).preferenceService = new FakePreferenceService(preferences);
     (resolutionService as any).languageModelRegistry = registry;
@@ -133,12 +142,35 @@ async function testFastProfileKeepsNormalCloudBehavior(): Promise<void> {
     assert.equal(llm.calls.length, 1);
 }
 
+async function testInvalidJsonDoesNotBecomeAnEmptyFormulaList(): Promise<void> {
+    const { service } = makeService({ id: 'openai/gpt-4o-mini' }, {}, { text: 'réponse non structurée' });
+
+    await assert.rejects(
+        () => service.detectFormulasWithAI('texte', 'fast'),
+        (error: unknown) => error instanceof GeoAppAiOutputError && error.kind === 'invalid-json'
+    );
+}
+
+async function testInvalidSchemaDoesNotBecomeAnEmptyQuestionMap(): Promise<void> {
+    const { service } = makeService({ id: 'openai/gpt-4o-mini' }, {}, {
+        parsed: { unexpected: true },
+        content: '{"unexpected":true}',
+    });
+
+    await assert.rejects(
+        () => service.extractQuestionsWithAI('texte', ['A'], 'fast'),
+        (error: unknown) => error instanceof GeoAppAiOutputError && error.kind === 'schema-mismatch'
+    );
+}
+
 async function run(): Promise<void> {
     await testLocalOllamaModelIsAllowed();
     await testLocalCloudModelIsRejectedWithoutCall();
     await testLocalWithoutReadyModelIsRejectedWithoutCall();
     await testAllowlistedUnknownModelIsAllowed();
     await testFastProfileKeepsNormalCloudBehavior();
+    await testInvalidJsonDoesNotBecomeAnEmptyFormulaList();
+    await testInvalidSchemaDoesNotBecomeAnEmptyQuestionMap();
     // eslint-disable-next-line no-console
     console.log('formula-solver-local-model tests passed');
 }

@@ -10,7 +10,12 @@ import {
     isThinkingResponsePart,
     isToolCallResponsePart,
 } from '@theia/ai-core';
-import { GeoAppAiExecutionService, GeoAppAiTaskExecution } from './geoapp-ai-execution-service';
+import {
+    GeoAppAiExecutionService,
+    GeoAppAiOutputError,
+    GeoAppAiTaskExecution,
+    isGeoAppAiRetryableError,
+} from './geoapp-ai-execution-service';
 import {
     GeocacheDetailsService,
     UpdateTranslatedContentInput
@@ -344,18 +349,39 @@ export class GeocacheDetailsTranslationController {
                     return result;
                 }
                 // Reponse vide : transitoire, on retente si possible.
-                lastError = new Error('Traduction IA: reponse vide');
+                lastError = new GeoAppAiOutputError('empty-response', 'Traduction IA: reponse vide', true);
             } catch (error) {
                 if (isCancelled(error as Error | undefined)) {
+                    throw error;
+                }
+                if (!isGeoAppAiRetryableError(error)) {
                     throw error;
                 }
                 lastError = error;
             }
             if (attempt < GeocacheDetailsTranslationController.LLM_RETRY_COUNT) {
-                await new Promise(resolve => setTimeout(resolve, GeocacheDetailsTranslationController.LLM_RETRY_DELAY_MS));
+                await this.waitBeforeLlmRetry(cancellationToken);
             }
         }
         throw lastError instanceof Error ? lastError : new Error('Traduction IA : échec après retry');
+    }
+
+    private async waitBeforeLlmRetry(cancellationToken?: CancellationToken): Promise<void> {
+        if (cancellationToken?.isCancellationRequested) {
+            throw new CancellationError();
+        }
+        await new Promise<void>((resolve, reject) => {
+            let listener: { dispose(): unknown } | undefined;
+            const timeout = setTimeout(() => {
+                listener?.dispose();
+                resolve();
+            }, GeocacheDetailsTranslationController.LLM_RETRY_DELAY_MS);
+            listener = cancellationToken?.onCancellationRequested(() => {
+                clearTimeout(timeout);
+                listener?.dispose();
+                reject(new CancellationError());
+            });
+        });
     }
 
     /**
@@ -381,7 +407,7 @@ export class GeocacheDetailsTranslationController {
         const translatedChunks: string[] = [];
         for (let i = 0; i < chunks.length; i++) {
             if (cancellationToken?.isCancellationRequested) {
-                return '';
+                throw new CancellationError();
             }
             const chunkTranslated = await this.translateHtmlFragment(execution, chunks[i], `description-chunk-${i}`, cancellationToken);
             if (!chunkTranslated || this.detectTruncation(chunks[i], chunkTranslated)) {
@@ -522,8 +548,12 @@ export class GeocacheDetailsTranslationController {
             console.warn(`[GeocacheDetailsTranslationController] ${kind}: reponse exploitable vide `
                 + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls}, raw="${rawPreview}")`);
             if (readout.sawThinking && !readout.text.trim()) {
-                throw new Error("Traduction IA : le modèle n'a produit que du raisonnement, aucun texte "
-                    + '(reponse tronquee ou budget de tokens insuffisant ?)');
+                throw new GeoAppAiOutputError(
+                    'truncated-response',
+                    "Traduction IA : le modèle n'a produit que du raisonnement, aucun texte "
+                    + '(reponse tronquee ou budget de tokens insuffisant ?)',
+                    true
+                );
             }
         }
         return translatedHtml;
@@ -572,8 +602,16 @@ export class GeocacheDetailsTranslationController {
             cancellationToken,
         })).response;
         const parsed = await this.parseJsonResponse(response);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+            || !('hints_decoded' in parsed) && !('waypoints' in parsed)) {
+            throw new GeoAppAiOutputError(
+                'schema-mismatch',
+                'Traduction IA : réponse JSON sans champs « hints_decoded » ou « waypoints ».',
+                true
+            );
+        }
 
-        const translatedHints = this.sanitizeTranslatedHtml((parsed?.hints_decoded ?? '').toString());
+        const translatedHints = this.sanitizeTranslatedHtml((parsed.hints_decoded ?? '').toString());
         const translatedWaypoints = Array.isArray(parsed?.waypoints) ? parsed.waypoints : [];
 
         // On ne garde que les waypoints demandes (le modele peut en inventer ou en dupliquer)
@@ -615,7 +653,11 @@ export class GeocacheDetailsTranslationController {
             console.warn(`[GeocacheDetailsTranslationController] meta: reponse JSON vide `
                 + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls})`);
             if (readout.sawThinking) {
-                throw new Error("Traduction IA : le modèle n'a produit que du raisonnement, aucun JSON");
+                throw new GeoAppAiOutputError(
+                    'truncated-response',
+                    "Traduction IA : le modèle n'a produit que du raisonnement, aucun JSON",
+                    true
+                );
             }
         }
         return this.extractJson(readout.text);
@@ -644,7 +686,7 @@ export class GeocacheDetailsTranslationController {
                     // echec final ci-dessous
                 }
             }
-            throw new Error('Traduction IA: reponse JSON invalide');
+            throw new GeoAppAiOutputError('invalid-json', 'Traduction IA: reponse JSON invalide', true);
         }
     }
 
@@ -674,7 +716,7 @@ export class GeocacheDetailsTranslationController {
         if (response && typeof response === 'object' && Array.isArray(response.parts)) {
             return this.readStreamParts(response.parts);
         }
-        throw new Error('Traduction IA: type de reponse non supporte');
+        throw new GeoAppAiOutputError('unsupported-response', 'Traduction IA: type de reponse non supporte', false);
     }
 
     private async readStreamParts(parts: AsyncIterable<unknown> | Iterable<unknown>): Promise<{ text: string; sawThinking: boolean; sawToolCalls: boolean; partCount: number }> {

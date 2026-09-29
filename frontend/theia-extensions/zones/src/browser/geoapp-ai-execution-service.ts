@@ -52,6 +52,56 @@ export class GeoAppAiExecutionUnavailableError extends Error {
     }
 }
 
+export type GeoAppAiOutputErrorKind =
+    | 'empty-response'
+    | 'invalid-json'
+    | 'schema-mismatch'
+    | 'truncated-response'
+    | 'unsupported-response';
+
+export class GeoAppAiOutputError extends Error {
+    constructor(
+        readonly kind: GeoAppAiOutputErrorKind,
+        message: string,
+        readonly retryable = false
+    ) {
+        super(message);
+        this.name = 'GeoAppAiOutputError';
+    }
+}
+
+export function isGeoAppAiRetryableError(error: unknown): boolean {
+    if (!error || isCancelled(error as Error) || error instanceof Error && error.name === 'AbortError') {
+        return false;
+    }
+    if (error instanceof GeoAppAiOutputError) {
+        return error.retryable;
+    }
+    if (error instanceof GeoAppAiExecutionUnavailableError || error instanceof Error && error.name === 'GeoAppAiExecutionUnavailableError') {
+        return false;
+    }
+
+    const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown }; message?: unknown };
+    const status = Number(candidate.response?.status ?? candidate.status);
+    if (status === 408 || status === 409 || status === 425 || status === 429 || status >= 500) {
+        return true;
+    }
+    if (status >= 400 && status < 500) {
+        return false;
+    }
+
+    const code = typeof candidate.code === 'string' ? candidate.code : '';
+    if (/^(?:ECONNABORTED|ECONNRESET|ERR_NETWORK|ETIMEDOUT)$/i.test(code)) {
+        return true;
+    }
+    const message = typeof candidate.message === 'string' ? candidate.message : '';
+    if (/\b(?:400|401|403|404|422)\b/.test(message)) {
+        return false;
+    }
+    return /\b(?:408|409|425|429|5\d\d)\b/.test(message)
+        || /timeout|timed out|network|fetch failed|connection reset/i.test(message);
+}
+
 interface InternalTaskExecution {
     operationId: string;
     sessionId: string;
