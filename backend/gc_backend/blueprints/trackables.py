@@ -42,6 +42,11 @@ from ..services.geocaching_trackables import (
 bp = Blueprint('trackables', __name__, url_prefix='/api/trackables')
 logger = logging.getLogger(__name__)
 
+# Bornes de taille des champs d'un log autonome, vérifiées avant tout appel distant.
+_MAX_LOG_TEXT_LENGTH = 10_000
+_MAX_TRACKING_CODE_LENGTH = 64
+_MAX_GEOCACHE_CODE_LENGTH = 16
+
 
 def _error(code: str, message: str, status: int):
     return jsonify({'success': False, 'error': code, 'error_message': message}), status
@@ -250,7 +255,11 @@ def post_trackable_log(tb_code: str):
     - ``trackingCode`` : à défaut, celui connu en base (TB de mon inventaire, ou déjà
       retrouvé par son code de suivi). Obligatoire pour découvrir, retirer ou prendre.
     - ``geocacheCode`` : pour « Retiré de la cache » ; à défaut, la cache courante lue
-      sur la page de log du TB, comme c:geo.
+      sur la page de log du TB, comme c:geo. Une cache différente de la localisation
+      déclarée est refusée (``trackable_location_conflict``) sauf confirmation
+      explicite par ``locationConflictConfirmed: true``.
+    - la page de log du TB est toujours relue avant l'envoi : un ``logType`` absent
+      de ``allowed_log_type_ids`` est refusé sans toucher au site.
     """
     code = _valid_tb_code(tb_code)
     if not code:
@@ -267,6 +276,8 @@ def post_trackable_log(tb_code: str):
     text = data.get('text')
     if not isinstance(text, str) or not text.strip():
         return _error('missing_text', 'Le texte du log est requis.', 400)
+    if len(text) > _MAX_LOG_TEXT_LENGTH:
+        return _error('text_too_long', f'Le texte du log dépasse {_MAX_LOG_TEXT_LENGTH} caractères.', 400)
 
     raw_date = data.get('date')
     try:
@@ -274,7 +285,10 @@ def post_trackable_log(tb_code: str):
     except ValueError:
         return _error('invalid_date', 'date attendue au format YYYY-MM-DD.', 400)
 
-    tracking_code = normalize_code(data.get('trackingCode')) or trackable_store.get_tracking_code(code)
+    provided_tracking = normalize_code(data.get('trackingCode'))
+    if len(provided_tracking) > _MAX_TRACKING_CODE_LENGTH:
+        return _error('invalid_tracking_code', 'Le code de suivi fourni est invalide.', 400)
+    tracking_code = provided_tracking or trackable_store.get_tracking_code(code)
     if not tracking_code and log_type_id != 4:
         return _error(
             'missing_tracking_code',
@@ -283,14 +297,43 @@ def post_trackable_log(tb_code: str):
         )
 
     geocache_code = normalize_code(data.get('geocacheCode')) or None
-    if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE and not geocache_code:
-        geocache_code = GeocachingTrackablesClient().fetch_log_page_info(code).current_geocache_code
+    if geocache_code and (len(geocache_code) > _MAX_GEOCACHE_CODE_LENGTH or not geocache_code.startswith('GC')):
+        return _error('invalid_geocache', 'geocacheCode doit être un code de géocache (GC…).', 400)
+
+    # Préflight métier : la page de log du TB dit ce que le site autorise *à
+    # l'instant T* — types de log permis et cache courante. Le frontend ne fait
+    # pas foi.
+    info = GeocachingTrackablesClient().fetch_log_page_info(code)
+    if log_type_id not in info.allowed_log_type_ids:
+        return _error(
+            'trackable_action_not_allowed',
+            f'Le type de log « {TRACKABLE_LOG_TYPE_LABELS.get(log_type_id, log_type_id)} » '
+            'n’est pas autorisé pour ce trackable actuellement.',
+            400,
+        )
+
+    if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE:
+        if (geocache_code and info.current_geocache_code
+                and geocache_code != info.current_geocache_code
+                and not data.get('locationConflictConfirmed')):
+            return jsonify({
+                'success': False,
+                'error': 'trackable_location_conflict',
+                'error_message': (
+                    f'Ce trackable est déclaré dans {info.current_geocache_code}, pas dans '
+                    f'{geocache_code} : confirmez ou rafraîchissez sa fiche.'
+                ),
+                'current_geocache_code': info.current_geocache_code,
+                'current_geocache_name': info.current_geocache_name,
+            }), 409
         if not geocache_code:
-            return _error(
-                'missing_geocache',
-                "Impossible de savoir dans quelle cache se trouve ce trackable : précisez geocacheCode.",
-                400,
-            )
+            geocache_code = info.current_geocache_code
+            if not geocache_code:
+                return _error(
+                    'missing_geocache',
+                    "Impossible de savoir dans quelle cache se trouve ce trackable : précisez geocacheCode.",
+                    400,
+                )
 
     result = GeocachingSubmitLogsClient().submit_trackable_log(
         code,

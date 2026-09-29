@@ -129,6 +129,76 @@ def test_cache_log_rejects_invalid_trackables_before_sending(cache_log_client, a
     assert cache_log_client.sent == {}
 
 
+def test_cache_log_rejects_too_many_trackables(cache_log_client, app):
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [
+        {'code': f'TB{i:05X}', 'action': 'visit'} for i in range(501)
+    ])
+
+    assert response.status_code == 400
+    assert response.get_json()['error_code'] == 'INVALID_TRACKABLES'
+    assert cache_log_client.sent == {}
+
+
+# -------------------------------------------------- Règles métier du log
+
+@pytest.mark.parametrize('action', ['visit', 'drop', 'none'])
+def test_cache_log_refuses_any_trackable_action_on_dnf(cache_log_client, app, action):
+    trackable_store.save_my_inventory([_mine('TBAAA1')])
+    response = cache_log_client.post(f'/api/geocaches/{app.geocache_id}/logs/submit', json={
+        'text': 'Pas trouvé', 'date': '2026-09-29', 'logType': 'dnf',
+        'trackables': [{'code': 'TBAAA1', 'action': action}],
+    })
+
+    assert response.status_code == 400
+    assert response.get_json()['error_code'] == 'TRACKABLE_ACTION_NOT_ALLOWED'
+    assert cache_log_client.sent == {}
+
+
+def test_cache_log_refuses_drop_on_a_note(cache_log_client, app):
+    trackable_store.save_my_inventory([_mine('TBAAA1')])
+    response = cache_log_client.post(f'/api/geocaches/{app.geocache_id}/logs/submit', json={
+        'text': 'Une note', 'date': '2026-09-29', 'logType': 'note',
+        'trackables': [{'code': 'TBAAA1', 'action': 'drop'}],
+    })
+
+    assert response.status_code == 400
+    assert response.get_json()['error_code'] == 'TRACKABLE_ACTION_NOT_ALLOWED'
+    assert cache_log_client.sent == {}
+
+
+def test_cache_log_allows_visit_on_a_note(cache_log_client, app):
+    trackable_store.save_my_inventory([_mine('TBAAA1')])
+    response = cache_log_client.post(f'/api/geocaches/{app.geocache_id}/logs/submit', json={
+        'text': 'Une note', 'date': '2026-09-29', 'logType': 'note',
+        'trackables': [{'code': 'TBAAA1', 'action': 'visit'}],
+    })
+
+    assert response.status_code == 200
+    assert cache_log_client.sent['trackables'] == [('TBAAA1', 75)]
+
+
+@pytest.mark.parametrize('action', ['visit', 'drop'])
+def test_cache_log_requires_the_trackable_in_local_inventory(cache_log_client, app, action):
+    # TBAAA1 connu en base mais PAS en main (p. ex. déposé ailleurs).
+    trackable_store.save_cache_inventory('GC99999', [TrackableSummary(reference_code='TBAAA1')])
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [
+        {'code': 'TBAAA1', 'action': action},
+    ])
+
+    assert response.status_code == 409
+    assert response.get_json()['error_code'] == 'TRACKABLE_NOT_IN_INVENTORY'
+    assert cache_log_client.sent == {}
+
+
+def test_cache_log_none_does_not_require_inventory(cache_log_client, app):
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [
+        {'code': 'TBAAA9', 'action': 'none'},
+    ])
+
+    assert response.status_code == 200
+    assert cache_log_client.sent['trackables'] == []
+
+
 # ---------------------------------------------------------- /api/trackables
 
 class _FakeTrackablesClient:
@@ -371,7 +441,7 @@ def trackable_log_client(app, fake_network, monkeypatch):
             return sent.get('result', {'logReferenceCode': 'TL1ABC', 'ok': True})
 
     monkeypatch.setattr(trackables_bp, 'GeocachingSubmitLogsClient', lambda *a, **k: _RecordingSubmitClient())
-    fake_network(log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[13],
+    fake_network(log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4, 13, 19, 48],
                                                current_geocache_code='GC1E51'))
     client = app.test_client()
     client.sent = sent
@@ -437,6 +507,48 @@ def test_rejected_trackable_log_is_reported(trackable_log_client):
 
     assert response.status_code == 502
     assert response.get_json()['error_message'] == 'Nope'
+
+
+# --------------------------------------------- Règles métier du log autonome
+
+def test_log_type_not_allowed_for_this_trackable_is_refused(trackable_log_client):
+    # « Marqué manquant » (16) n'est pas dans les types autorisés de la page de log.
+    response = _post_tb_log(trackable_log_client, logType=16)
+
+    assert response.status_code == 400
+    assert response.get_json()['error'] == 'trackable_action_not_allowed'
+    assert 'tb_code' not in trackable_log_client.sent
+
+
+def test_retrieve_in_another_cache_is_a_location_conflict(trackable_log_client):
+    response = _post_tb_log(trackable_log_client, geocacheCode='GCOTHER')
+
+    assert response.status_code == 409
+    body = response.get_json()
+    assert body['error'] == 'trackable_location_conflict'
+    assert body['current_geocache_code'] == 'GC1E51'
+    assert 'tb_code' not in trackable_log_client.sent
+
+
+def test_retrieve_with_confirmed_conflict_is_sent(trackable_log_client):
+    trackable_store.save_cache_inventory('GC1E51', [TrackableSummary(reference_code='TBBAQ0Z')])
+    response = _post_tb_log(trackable_log_client, geocacheCode='GCOTHER', locationConflictConfirmed=True)
+
+    assert response.status_code == 200
+    assert trackable_log_client.sent['geocache_code'] == 'GCOTHER'
+
+
+@pytest.mark.parametrize('overrides, error', [
+    ({'text': 'x' * 10_001}, 'text_too_long'),
+    ({'trackingCode': 'X' * 65}, 'invalid_tracking_code'),
+    ({'geocacheCode': 'PASGC'}, 'invalid_geocache'),
+])
+def test_trackable_log_field_bounds(trackable_log_client, overrides, error):
+    response = _post_tb_log(trackable_log_client, **overrides)
+
+    assert response.status_code == 400
+    assert response.get_json()['error'] == error
+    assert 'tb_code' not in trackable_log_client.sent
 
 
 def test_inventory_is_refetched_when_older_than_max_age(app, fake_network):

@@ -122,6 +122,14 @@ def list_my_inventory() -> list[Trackable]:
     )
 
 
+def inventory_codes() -> set[str]:
+    """Codes publics des TBs actuellement marqués « en main » dans la base locale."""
+    return {
+        code for (code,) in
+        Trackable.query.with_entities(Trackable.reference_code).filter_by(in_my_inventory=True).all()
+    }
+
+
 def inventory_last_sync_at() -> Optional[str]:
     return AppConfig.get_value(INVENTORY_LAST_SYNC_KEY)
 

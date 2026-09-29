@@ -120,9 +120,14 @@ parallèle existe (`add_trackable_tables`).
                 {"code": "TBAAA3",  "action": "none"}]}
 ```
 
-- **Validation** (`_parse_trackable_actions`) : code public obligatoire, action
-  `visit`, `drop` ou `none`, un TB une seule fois. Sinon, 400 `INVALID_TRACKABLES`,
-  avant tout envoi.
+- **Validation de forme** (`_parse_trackable_actions`) : code public obligatoire,
+  action `visit`, `drop` ou `none`, un TB une seule fois, au plus 500 entrées.
+  Sinon, 400 `INVALID_TRACKABLES`, avant tout envoi.
+- **Validation métier** (`_validate_trackable_actions`) : hors « Found it » /
+  « Write note » aucune action TB n'est acceptée (un DNF ne porte jamais de TB) ;
+  « Déposé » demande une trouvaille ; « Visité »/« Déposé » demandent un TB encore
+  en inventaire local. Codes : 400 `TRACKABLE_ACTION_NOT_ALLOWED`,
+  409 `TRACKABLE_NOT_IN_INVENTORY` (à résoudre en rafraîchissant l'inventaire).
 - **Envoi** : `GeocachingSubmitLogsClient.submit_geocache_log(..., trackables=[(code, id)])`
   remplit le champ `trackables` du corps tRPC au format de c:geo,
   `[{"trackableCode": "TB…", "trackableLogTypeId": 75}]`. « Ne rien faire » n'est
@@ -147,8 +152,14 @@ parallèle existe (`add_trackable_tables`).
   plus `geocacheReferenceCode` pour « Retiré » (13) seulement.
 - **Code de suivi** : pris dans le corps, sinon celui connu en base. Il n'est
   facultatif que pour une note (4), comme chez c:geo.
+- **Préflight métier** : la page de log du TB est relue avant l'envoi. Un `logType`
+  absent de `allowed_log_type_ids` est refusé (400 `trackable_action_not_allowed`),
+  sans envoyer quoi que ce soit.
 - **Cache pour « Retiré »** : prise dans le corps, sinon lue comme cache courante
-  sur la page de log du TB.
+  sur la page de log du TB. Une cache fournie qui contredit la localisation
+  déclarée est refusée (409 `trackable_location_conflict`, avec la cache courante
+  dans la réponse) ; la repasser avec `locationConflictConfirmed: true` l'envoie
+  quand même — c'est la confirmation demandée.
 - **Après succès** : `apply_trackable_log` fait entrer un TB retiré ou pris dans
   mon inventaire et le sort de sa cache, puis garde le code de suivi accepté.
 - **Masquage du code de suivi** : la réponse de geocaching.com reprend le corps
@@ -168,7 +179,7 @@ Toutes les erreurs ont le format des routes amis,
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
 | `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
-| `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `invalid_date`, `missing_tracking_code`, `missing_geocache` ; 502 `submit_failed`, `submit_rejected` |
+| `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `text_too_long`, `invalid_date`, `missing_tracking_code`, `invalid_tracking_code`, `invalid_geocache`, `missing_geocache`, `trackable_action_not_allowed` ; 409 `trackable_location_conflict` ; 502 `submit_failed`, `submit_rejected` |
 
 ## 6. Éditeur de logs : section « Trackables »
 

@@ -352,6 +352,7 @@ _LOG_TYPE_LABELS = {2: 'Found it', 3: "Didn't find it", 4: 'Write note', 11: 'We
 # (Geocaching.com répond 422 « Cannot log FoundIt on Webcam geocaches ») mais
 # « Webcam Photo Taken », comme le fait c:geo (AbstractConnector.getPossibleLogTypes).
 _FOUND_LOG_TYPE_ID = 2
+_NOTE_LOG_TYPE_ID = 4
 _WEBCAM_LOG_TYPE_ID = 11
 _FIND_LOG_TYPE_IDS = (_FOUND_LOG_TYPE_ID, _WEBCAM_LOG_TYPE_ID)
 
@@ -500,6 +501,12 @@ _ALREADY_LOGGED_ERROR_CODES = frozenset({
 _ALREADY_LOGGED_HTTP_STATUS = 409
 
 
+#: Nombre maximal d'entrées `trackables` acceptées dans un log de cache.
+_MAX_TRACKABLE_ACTIONS_PER_LOG = 500
+#: Borne de taille d'un code saisi (un code public fait moins de 20 caractères).
+_MAX_TRACKABLE_CODE_LENGTH = 32
+
+
 def _parse_trackable_actions(raw):
     """
     Champ `trackables` du corps : ``[{code: "TBxxx", action: "visit"|"drop"|"none"}]``.
@@ -511,6 +518,8 @@ def _parse_trackable_actions(raw):
         return {}, None
     if not isinstance(raw, list):
         return None, 'Invalid trackables (expected array of {code, action})'
+    if len(raw) > _MAX_TRACKABLE_ACTIONS_PER_LOG:
+        return None, f'Too many trackables (max {_MAX_TRACKABLE_ACTIONS_PER_LOG})'
 
     actions: dict[str, str] = {}
     for entry in raw:
@@ -518,7 +527,7 @@ def _parse_trackable_actions(raw):
             return None, 'Invalid trackables (expected array of {code, action})'
         code = normalize_code(entry.get('code'))
         action = str(entry.get('action') or '').strip().lower()
-        if not is_public_code(code):
+        if len(code) > _MAX_TRACKABLE_CODE_LENGTH or not is_public_code(code):
             return None, f'Invalid trackable code: {code or "(vide)"}'
         if action not in trackable_store.CACHE_LOG_ACTIONS:
             return None, f'Invalid trackable action for {code}: {action or "(vide)"}'
@@ -526,6 +535,47 @@ def _parse_trackable_actions(raw):
             return None, f'Trackable listed twice: {code}'
         actions[code] = action
     return actions, None
+
+
+def _validate_trackable_actions(actions: dict, *, is_find_log: bool, log_type_id: int):
+    """
+    Règles métier du log de cache, garanties côté backend quel que soit le client.
+
+    Retourne (error_code, message, statut HTTP) ou None si tout est conforme :
+
+    - hors « Found it »/« Write note », aucune action TB (un DNF ne porte jamais de TB) ;
+    - « Déposé » n'est possible que sur une trouvaille (la cache du dépôt est celle
+      du log) ;
+    - « Visité »/« Déposé » visent un TB encore en inventaire local : sinon, c'est
+      une copie périmée qu'il faut rafraîchir plutôt qu'envoyer à l'aveugle.
+      (« Ne rien faire » n'est jamais envoyé au site et ne demande rien.)
+    """
+    if not actions:
+        return None
+    if not is_find_log and log_type_id != _NOTE_LOG_TYPE_ID:
+        return (
+            'TRACKABLE_ACTION_NOT_ALLOWED',
+            'Les trackables ne peuvent accompagner qu’un log « Found it » ou « Write note ».',
+            400,
+        )
+    held = None
+    for code, action in actions.items():
+        if action == 'drop' and not is_find_log:
+            return (
+                'TRACKABLE_ACTION_NOT_ALLOWED',
+                f'Déposer {code} n’est possible que sur un log « Found it ».',
+                400,
+            )
+        if action in ('visit', 'drop'):
+            if held is None:
+                held = trackable_store.inventory_codes()
+            if code not in held:
+                return (
+                    'TRACKABLE_NOT_IN_INVENTORY',
+                    f'{code} n’est pas dans votre inventaire local : rafraîchissez-le avant de loguer.',
+                    409,
+                )
+    return None
 
 
 def _looks_like_already_logged(result) -> bool:
@@ -637,6 +687,12 @@ def submit_geocache_log(geocache_id: int):
         trackable_actions, trackables_error = _parse_trackable_actions(data.get('trackables'))
         if trackables_error:
             return jsonify({'error': trackables_error, 'error_code': 'INVALID_TRACKABLES'}), 400
+        business_error = _validate_trackable_actions(
+            trackable_actions, is_find_log=is_find_log, log_type_id=resolved_log_type_id
+        )
+        if business_error:
+            code, message, status = business_error
+            return jsonify({'error': message, 'error_code': code}), status
 
         favorite = data.get('favorite')
         used_favorite_point = None
