@@ -5,6 +5,7 @@
  * pour la gestion des plugins.
  */
 
+import { Emitter } from '@theia/core';
 import { injectable, inject, optional } from '@theia/core/shared/inversify';
 import axios, { AxiosInstance } from 'axios';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
@@ -32,13 +33,22 @@ import {
     ResolutionWorkflowStepRunResponse
 } from '../../common/plugin-protocol';
 import { GeoAppAiScorerModelResolver } from './ai-scorer-model-resolver';
-import { GeoAppAiOperationRecorder } from '../../common/ai-model-contract';
+import { GeoAppAiExecutionRecord, GeoAppAiOperationRecorder } from '../../common/ai-model-contract';
 
 @injectable()
 export class PluginsServiceImpl implements IPluginsService {
     
     private client: AxiosInstance;
     private baseUrl: string;
+    private readonly aiExecutionEmitter = new Emitter<GeoAppAiExecutionRecord>();
+    readonly onDidUpdateAiExecution = this.aiExecutionEmitter.event;
+
+    private emitLatestAiExecution(taskId: string): void {
+        const execution = this.getLatestAiExecution(taskId);
+        if (execution) {
+            this.aiExecutionEmitter.fire(execution);
+        }
+    }
     
     constructor(
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
@@ -130,17 +140,30 @@ export class PluginsServiceImpl implements IPluginsService {
                 inputs
             }, { signal, timeout });
             const response = name === 'vision_ocr' && this.aiOperationRecorder
-                ? (await this.aiOperationRecorder.runOperation('ocr-backend-plugin', execute, {
+                ? (await this.aiOperationRecorder.runOperation('ocr-backend-plugin', async () => {
+                    this.emitLatestAiExecution('ocr-backend-plugin');
+                    return execute();
+                }, {
                     cancellationSignal: signal,
                 })).response
                 : await execute();
+            if (name === 'vision_ocr') {
+                this.emitLatestAiExecution('ocr-backend-plugin');
+            }
             
             return response.data;
             
         } catch (error) {
+            if (name === 'vision_ocr') {
+                this.emitLatestAiExecution('ocr-backend-plugin');
+            }
             console.error(`Erreur lors de l'exécution du plugin ${name}:`, error);
             throw new Error(`Échec de l'exécution du plugin ${name}: ${this.getErrorMessage(error)}`);
         }
+    }
+
+    getLatestAiExecution(taskId: string): GeoAppAiExecutionRecord | undefined {
+        return this.aiOperationRecorder?.getLatestExecution(taskId);
     }
     
     /**
@@ -335,7 +358,10 @@ export class PluginsServiceImpl implements IPluginsService {
                 signal: request.signal,
             });
             const response = this.aiOperationRecorder
-                ? (await this.aiOperationRecorder.runOperation('ai-scorer', execute, {
+                ? (await this.aiOperationRecorder.runOperation('ai-scorer', async () => {
+                    this.emitLatestAiExecution('ai-scorer');
+                    return execute();
+                }, {
                     cancellationSignal: request.signal,
                     backendExecution: {
                         provider: resolvedModel.provider,
@@ -355,8 +381,10 @@ export class PluginsServiceImpl implements IPluginsService {
                     },
                 })).response
                 : await execute();
+            this.emitLatestAiExecution('ai-scorer');
             return response.data;
         } catch (error) {
+            this.emitLatestAiExecution('ai-scorer');
             console.error('[PluginsService] Erreur AI scorer:', error);
             throw new Error(`AI Scorer: ${this.getErrorMessage(error)}`);
         }

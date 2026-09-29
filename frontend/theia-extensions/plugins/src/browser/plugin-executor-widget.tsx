@@ -184,6 +184,55 @@ interface ExecutorState {
  * Composant de spinner anime pour le scoring IA
  * Utilise React state pour animer la rotation (compatible Theia)
  */
+const AiExecutionBadge: React.FC<{ execution?: ReturnType<PluginsService['getLatestAiExecution']> }> = ({ execution }) => {
+    if (!execution) {
+        return null;
+    }
+    const statusLabel = {
+        running: 'en cours',
+        succeeded: 'succès',
+        failed: 'échec',
+        cancelled: 'annulée',
+    }[execution.status];
+    const model = execution.reportedModel || execution.resolution.displayModel || execution.resolution.resolvedModelId || 'modèle inconnu';
+    const provider = execution.reportedProvider || execution.resolution.provider;
+    const duration = typeof execution.durationMs === 'number'
+        ? `${(execution.durationMs / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`
+        : undefined;
+    const usage = execution.tokenUsage
+        ? `Tokens : ${execution.tokenUsage.inputTokens ?? '?'} entrée / ${execution.tokenUsage.outputTokens ?? '?'} sortie`
+        : undefined;
+    const color = execution.status === 'failed'
+        ? 'var(--theia-errorForeground, #f87171)'
+        : execution.status === 'cancelled'
+            ? 'var(--theia-charts-orange, #d18616)'
+            : execution.status === 'succeeded'
+                ? 'var(--theia-charts-green, #4ade80)'
+                : 'var(--theia-charts-blue, #3794ff)';
+    const title = [
+        `Tâche : ${execution.taskLabel}`,
+        `Statut : ${statusLabel}`,
+        provider ? `Fournisseur : ${provider}` : undefined,
+        `Modèle : ${model}`,
+        usage,
+        execution.errorCode ? `Code : ${execution.errorCode}` : undefined,
+        execution.errorMessage ? `Erreur : ${execution.errorMessage}` : undefined,
+    ].filter(Boolean).join('\n');
+    return (
+        <span style={{
+            border: `1px solid ${color}`,
+            borderRadius: '10px',
+            color,
+            display: 'inline-flex',
+            fontSize: '11px',
+            padding: '2px 8px',
+            whiteSpace: 'nowrap',
+        }} title={title} aria-label={title}>
+            AI Scorer · {statusLabel} · {model}{duration ? ` · ${duration}` : ''}
+        </span>
+    );
+};
+
 const AIScoringSpinner: React.FC = () => {
     const [rotation, setRotation] = React.useState(0);
 
@@ -637,6 +686,15 @@ const PluginExecutorComponent: React.FC<{
 
     // Contrôle du scoring IA
     const aiScoringAbortControllerRef = React.useRef<AbortController | null>(null);
+    const [, setAiExecutionVersion] = React.useState(0);
+
+    React.useEffect(() => {
+        const disposable = pluginsService.onDidUpdateAiExecution(() => {
+            setAiExecutionVersion(version => version + 1);
+        });
+        return () => disposable.dispose();
+    }, [pluginsService]);
+    const latestAiScorerExecution = pluginsService.getLatestAiExecution('ai-scorer');
 
     // Cleanup au unmount : abort tous les AbortControllers en vol pour
     // éviter les setState sur composant unmounted et les fuites mémoire
@@ -2515,6 +2573,12 @@ const PluginExecutorComponent: React.FC<{
                     >
                         Arrêter
                     </button>
+                </div>
+            )}
+
+            {latestAiScorerExecution && (
+                <div style={{ margin: '6px 0 10px' }}>
+                    <AiExecutionBadge execution={latestAiScorerExecution} />
                 </div>
             )}
 

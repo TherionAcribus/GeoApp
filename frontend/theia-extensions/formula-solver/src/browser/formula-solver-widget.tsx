@@ -12,7 +12,7 @@ import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-s
 import { FormulaSolverService } from './formula-solver-service';
 import { FormulaSolverPipeline, AnswersEngine } from './formula-solver-pipeline';
 import { AnswersMode, FormulaDetectionMethod, FormulaSolverStepConfig, QuestionsMethod } from './formula-solver-config';
-import { FormulaSolverAiProfile } from './geoapp-formula-solver-agents';
+import { FormulaSolverAiProfile, FormulaSolverTaskIdsByProfile } from './geoapp-formula-solver-agents';
 import { AnsweringContextCache, PreparedAnsweringContext } from './answering-context-cache';
 import { AnswerDetail } from './strategies/types';
 import { Formula, Question, LetterValue, FormulaSolverState } from '../common/types';
@@ -30,6 +30,7 @@ import {
     BruteForceComponent
 } from './components';
 import { EmptyState, LoadingState } from './state-views';
+import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 
 @injectable()
 export class FormulaSolverWidget extends ReactWidget {
@@ -62,6 +63,9 @@ export class FormulaSolverWidget extends ReactWidget {
 
     @inject(FormulaSolverPipeline)
     protected readonly pipeline!: FormulaSolverPipeline;
+
+    @inject(GeoAppAiExecutionService)
+    protected readonly aiExecutionService!: GeoAppAiExecutionService;
 
     @inject(AnsweringContextCache)
     protected readonly answeringContextCache!: AnsweringContextCache;
@@ -165,6 +169,8 @@ export class FormulaSolverWidget extends ReactWidget {
 
     protected questionsRequestId: number = 0;
 
+    private readonly aiExecutionDisposables: Array<{ dispose: () => void }> = [];
+
     @postConstruct()
     protected init(): void {
         this.id = FormulaSolverWidget.ID;
@@ -177,8 +183,25 @@ export class FormulaSolverWidget extends ReactWidget {
         // Charger l'index des sessions sauvegardées au démarrage
         this.savedSessionsIndex = FormulaSessionManager.listSessions();
 
+        const refreshForExecution = (execution: { taskId: string }): void => {
+            if (execution.taskId.startsWith('formula-')) {
+                this.update();
+            }
+        };
+        this.aiExecutionDisposables.push(
+            this.aiExecutionService.onDidStartExecution(refreshForExecution),
+            this.aiExecutionService.onDidFinishExecution(refreshForExecution)
+        );
+
         // Les préférences seront chargées de manière asynchrone dans onAfterAttach
         this.update();
+    }
+
+    dispose(): void {
+        for (const disposable of this.aiExecutionDisposables) {
+            disposable.dispose();
+        }
+        super.dispose();
     }
 
     protected onActivateRequest(msg: unknown): void {
@@ -2710,6 +2733,71 @@ export class FormulaSolverWidget extends ReactWidget {
         );
     }
 
+    protected getLatestFormulaExecution(stage: 'detection' | 'questions' | 'answers'): NonNullable<ReturnType<GeoAppAiExecutionService['getLatestExecution']>> | undefined {
+        const operationPrefixes: Record<typeof stage, string[]> = {
+            detection: ['formula-détection-formules-'],
+            questions: ['formula-extraction-questions-'],
+            answers: ['formula-recherche-réponses-', 'formula-construction-contexte-reponses-', 'formula-reponse-'],
+        };
+        const taskIds = new Set(Object.values(FormulaSolverTaskIdsByProfile));
+        return [...this.aiExecutionService.getRunningExecutions(), ...this.aiExecutionService.getRecentExecutions()]
+            .filter(execution => taskIds.has(execution.taskId) && operationPrefixes[stage].some(prefix => execution.operationId.startsWith(prefix)))
+            .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
+    }
+
+    protected renderAiExecutionBadge(label: string, execution?: NonNullable<ReturnType<GeoAppAiExecutionService['getLatestExecution']>>): React.ReactNode {
+        if (!execution) {
+            return null;
+        }
+        const statusLabel = {
+            running: 'en cours',
+            succeeded: 'succès',
+            failed: 'échec',
+            cancelled: 'annulée',
+        }[execution.status];
+        const model = execution.reportedModel || execution.resolution.displayModel || execution.resolution.resolvedModelId || 'modèle inconnu';
+        const provider = execution.reportedProvider || execution.resolution.provider;
+        const duration = typeof execution.durationMs === 'number'
+            ? `${(execution.durationMs / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`
+            : undefined;
+        const usage = execution.tokenUsage
+            ? `Tokens : ${execution.tokenUsage.inputTokens ?? '?'} entrée / ${execution.tokenUsage.outputTokens ?? '?'} sortie`
+            : undefined;
+        const title = [
+            `Tâche : ${execution.taskLabel}`,
+            `Statut : ${statusLabel}`,
+            provider ? `Fournisseur : ${provider}` : undefined,
+            `Modèle : ${model}`,
+            usage,
+            execution.errorCode ? `Code : ${execution.errorCode}` : undefined,
+            execution.errorMessage ? `Erreur : ${execution.errorMessage}` : undefined,
+        ].filter(Boolean).join('\n');
+        const color = execution.status === 'failed'
+            ? 'var(--theia-errorForeground, #f87171)'
+            : execution.status === 'cancelled'
+                ? 'var(--theia-charts-orange, #d18616)'
+                : execution.status === 'succeeded'
+                    ? 'var(--theia-charts-green, #4ade80)'
+                    : 'var(--theia-charts-blue, #3794ff)';
+        return (
+            <span
+                style={{
+                    border: `1px solid ${color}`,
+                    borderRadius: '10px',
+                    color,
+                    display: 'inline-flex',
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    whiteSpace: 'nowrap',
+                }}
+                title={title}
+                aria-label={title}
+            >
+                {label} · {statusLabel} · {model}{duration ? ` · ${duration}` : ''}
+            </span>
+        );
+    }
+
     protected renderDetectionStep(): React.ReactNode {
         return (
             <div id='formula-solver-step-detect' className='detection-step' style={{ marginBottom: '20px' }}>
@@ -2729,20 +2817,22 @@ export class FormulaSolverWidget extends ReactWidget {
                     onChange={e => this.updateState({ text: e.target.value })}
                     value={this.state.text || ''}
                 />
-                <button
-                    className="fs-btn--primary"
-                    style={{
-                        marginTop: '10px',
-                        padding: '8px 16px',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer'
-                    }}
-                    onClick={() => this.detectFormulasFromText(this.state.text || '')}
-                    disabled={this.state.loading}
-                >
-                    Détecter la formule
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+                    <button
+                        className="fs-btn--primary"
+                        style={{
+                            padding: '8px 16px',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                        }}
+                        onClick={() => this.detectFormulasFromText(this.state.text || '')}
+                        disabled={this.state.loading}
+                    >
+                        Détecter la formule
+                    </button>
+                    {this.renderAiExecutionBadge('Détection IA', this.getLatestFormulaExecution('detection'))}
+                </div>
 
                 <div className="fs-panel" style={{
                     marginTop: '12px',
@@ -2919,6 +3009,7 @@ export class FormulaSolverWidget extends ReactWidget {
                         >
                             Aide IA (questions)
                         </button>
+                        {this.renderAiExecutionBadge('Questions IA', this.getLatestFormulaExecution('questions'))}
 
                         <button
                             className="fs-btn fs-btn--outline"
@@ -2931,7 +3022,8 @@ export class FormulaSolverWidget extends ReactWidget {
                             {this.showAdvancedAnswerFields ? 'Masquer champs IA' : 'Afficher champs IA'}
                         </button>
 
-                        <div style={{ marginLeft: 'auto' }}>
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {this.renderAiExecutionBadge('Réponses IA', this.getLatestFormulaExecution('answers'))}
                             {this.renderSplitButton({
                                 id: 'answers-actions',
                                 label: 'Répondre',

@@ -1,6 +1,6 @@
 import * as assert from 'assert/strict';
 import { CancellationError, CancellationToken } from '@theia/core';
-import { GeoAppAiExecutionService } from '../geoapp-ai-execution-service';
+import { GeoAppAiExecutionService, GeoAppAiOutputError } from '../geoapp-ai-execution-service';
 import { GeoAppAiModelResolutionService } from '../geoapp-ai-model-resolution-service';
 
 interface FakeModel {
@@ -110,6 +110,10 @@ async function testSuccessfulExecutionKeepsResolutionSnapshot(): Promise<void> {
         assignedIdentifiers: {
             'geoapp-translate-description': 'openrouter/fast',
         },
+        response: {
+            text: 'ok',
+            usage: { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 2 },
+        },
     });
 
     const result = await executionService.sendTaskRequest('translate-description', {
@@ -120,6 +124,11 @@ async function testSuccessfulExecutionKeepsResolutionSnapshot(): Promise<void> {
     assert.equal(result.execution.resolution.requestedIdentifier, 'openrouter/fast');
     assert.equal(result.execution.resolution.resolvedModelId, 'openrouter/fast');
     assert.equal(result.execution.resolution.locality, 'remote');
+    assert.deepEqual(result.execution.tokenUsage, {
+        inputTokens: 7,
+        outputTokens: 3,
+        cacheReadInputTokens: 2,
+    });
     assert.equal(llm.requests.length, 1);
     assert.equal(llm.requests[0].request.agentId, 'geoapp-translate-description');
     assert.equal(registry.selections[0].identifier, 'openrouter/fast');
@@ -215,6 +224,87 @@ async function testCancellationDuringStreamIsRecordedOnce(): Promise<void> {
     assert.equal(history[0].attempt, 1);
 }
 
+async function testStreamUsageIsRecordedAfterCompletion(): Promise<void> {
+    async function* stream(): AsyncIterable<unknown> {
+        yield { content: 'partial ' };
+        yield { input_tokens: 11, output_tokens: 5 };
+        yield { content: 'done' };
+    }
+
+    const { executionService } = createServices({ response: { stream: stream() } });
+    const result = await executionService.sendTaskRequest('translate-description', {
+        messages: [{ actor: 'user', type: 'text', text: 'stream' }],
+    });
+
+    for await (const _part of (result.response as { stream: AsyncIterable<unknown> }).stream) {
+        // consume all stream parts
+    }
+
+    const latest = executionService.getLatestExecution('translate-description');
+    assert.equal(latest?.status, 'succeeded');
+    assert.deepEqual(latest?.tokenUsage, { inputTokens: 11, outputTokens: 5 });
+}
+
+async function testBackendOperationRecordsReportedModelAndUsage(): Promise<void> {
+    const { executionService } = createServices({});
+
+    const result = await executionService.runOperation('ai-scorer', async () => ({
+        data: {
+            status: 'ok',
+            provider: 'lmstudio',
+            model: 'requested-model',
+            reported_model: 'provider-model',
+            items: [0, 1].map(index => ({
+                metadata: {
+                    ai_scoring: {
+                        provider: 'lmstudio',
+                        model: 'requested-model',
+                        reported_model: 'provider-model',
+                        batch_index: 0,
+                        usage: { prompt_tokens: 42, completion_tokens: 8, total_tokens: 50 },
+                    },
+                },
+            })),
+        },
+    }), {
+        backendExecution: {
+            provider: 'lmstudio',
+            baseUrl: 'http://localhost:1234',
+            model: 'requested-model',
+        },
+    });
+
+    assert.equal(result.execution.status, 'succeeded');
+    assert.equal(result.execution.reportedProvider, 'lmstudio');
+    assert.equal(result.execution.reportedModel, 'provider-model');
+    assert.deepEqual(result.execution.tokenUsage, {
+        inputTokens: 42,
+        outputTokens: 8,
+        totalTokens: 50,
+    });
+}
+
+async function testOutputValidationKeepsBusinessErrorCode(): Promise<void> {
+    const { executionService } = createServices({});
+
+    await assert.rejects(
+        () => executionService.runOperation('ai-scorer', async () => {
+            throw new GeoAppAiOutputError('invalid-json', 'Réponse non JSON');
+        }, {
+            backendExecution: {
+                provider: 'lmstudio',
+                baseUrl: 'http://localhost:1234',
+                model: 'local-scorer',
+            },
+        }),
+        GeoAppAiOutputError
+    );
+
+    const latest = executionService.getLatestExecution('ai-scorer');
+    assert.equal(latest?.status, 'failed');
+    assert.equal(latest?.errorCode, 'invalid-json');
+}
+
 async function testBackendOperationUsesRuntimeSnapshotWithoutTheiaDispatch(): Promise<void> {
     const { executionService, llm } = createServices({});
 
@@ -270,6 +360,9 @@ async function run(): Promise<void> {
     await testStrictLocalResolutionDoesNotDispatchCloudModel();
     await testCancellationBeforeDispatchDoesNotCallProvider();
     await testCancellationDuringStreamIsRecordedOnce();
+    await testStreamUsageIsRecordedAfterCompletion();
+    await testBackendOperationRecordsReportedModelAndUsage();
+    await testOutputValidationKeepsBusinessErrorCode();
     await testBackendOperationUsesRuntimeSnapshotWithoutTheiaDispatch();
     await testProviderFailureIsRecordedAndSanitized();
     console.log('geoapp-ai-execution-service tests passed');

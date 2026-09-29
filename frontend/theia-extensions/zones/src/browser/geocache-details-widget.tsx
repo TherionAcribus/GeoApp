@@ -9,6 +9,7 @@ import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GridPuzzleWorkbenchContribution } from '@mysterai/theia-plugins/lib/browser/grid-puzzle-workbench-contribution';
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-commands';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import URI from '@theia/core/lib/common/uri';
@@ -163,6 +164,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isLogsSummaryLoading = false;
     private readonly geocacheChangeDisposable: { dispose: () => void };
     private readonly preferenceChangeDisposable: { dispose: () => void };
+    private readonly aiExecutionDisposables: Array<{ dispose: () => void }> = [];
 
     /**
      * Le scroll ne sert qu'à marquer l'onglet comme « consulté » (pin smart-replace) :
@@ -193,6 +195,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(GeoAppAiExecutionService) protected readonly aiExecutionService: GeoAppAiExecutionService,
+        @inject(PluginsService) protected readonly pluginsService: PluginsService,
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
@@ -231,6 +234,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 this.update();
             }
         });
+        const refreshForExecution = (execution: { taskId: string }): void => {
+            if (execution.taskId === 'translate-description' || execution.taskId === 'ocr-theia' || execution.taskId === 'ocr-backend-plugin') {
+                this.update();
+            }
+        };
+        this.aiExecutionDisposables.push(
+            this.aiExecutionService.onDidStartExecution(refreshForExecution),
+            this.aiExecutionService.onDidFinishExecution(refreshForExecution)
+        );
     }
 
     protected onAfterAttach(msg: any): void {
@@ -248,6 +260,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     dispose(): void {
         this.geocacheChangeDisposable.dispose();
         this.preferenceChangeDisposable.dispose();
+        for (const disposable of this.aiExecutionDisposables) {
+            disposable.dispose();
+        }
         super.dispose();
     }
 
@@ -1784,6 +1799,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     isTranslatingAll: this.isTranslatingAllContent,
                     onCancelTranslation: this.handleCancelTranslation,
                     translationProgress: this.translationProgress,
+                    latestTranslationExecution: this.aiExecutionService.getLatestExecution('translate-description'),
                     targetLanguage: this.preferencesController.getTranslationTargetLanguage(),
                     onOpenExternalUrl: this.openExternalLink,
                 }}
@@ -1811,6 +1827,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     messages: this.messages,
                     languageModelRegistry: this.languageModelRegistry,
                     aiExecutionService: this.aiExecutionService,
+                    pluginsService: this.pluginsService,
                 } : undefined}
                 waypointsEditorProps={{
                     waypoints: d?.waypoints,

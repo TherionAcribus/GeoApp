@@ -52,7 +52,7 @@ import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from '.
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
-import { GeoAppAiExecutionRecord, GeoAppAiModelResolution } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
+import { GeoAppAiExecutionRecord, GeoAppAiModelResolution, GeoAppAiTokenUsage } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -624,11 +624,43 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 {execution.resolution.displayModel && (
                     <div className='geoapp-chat-policy-muted'>{execution.resolution.displayModel}</div>
                 )}
+                {execution.reportedModel && execution.reportedModel !== execution.resolution.displayModel && (
+                    <div className='geoapp-chat-policy-muted'>Modèle rapporté : {execution.reportedModel}</div>
+                )}
+                {execution.reportedProvider && (
+                    <div className='geoapp-chat-policy-muted'>Fournisseur rapporté : {execution.reportedProvider}</div>
+                )}
+                {execution.tokenUsage && (
+                    <div className='geoapp-chat-policy-muted'>Tokens : {this.formatTokenUsage(execution.tokenUsage)}</div>
+                )}
+                {execution.errorCode && (
+                    <div className='geoapp-chat-policy-muted'>Code : {execution.errorCode}</div>
+                )}
                 {execution.errorMessage && (
                     <div className='geoapp-chat-policy-warn'>{execution.errorMessage}</div>
                 )}
             </div>
         );
+    }
+
+    protected formatTokenUsage(usage: GeoAppAiTokenUsage): string {
+        const parts: string[] = [];
+        if (usage.inputTokens !== undefined) {
+            parts.push(`${usage.inputTokens} entrée`);
+        }
+        if (usage.outputTokens !== undefined) {
+            parts.push(`${usage.outputTokens} sortie`);
+        }
+        if (usage.totalTokens !== undefined) {
+            parts.push(`${usage.totalTokens} total`);
+        }
+        if (usage.cacheReadInputTokens !== undefined) {
+            parts.push(`${usage.cacheReadInputTokens} cache lu`);
+        }
+        if (usage.cacheCreationInputTokens !== undefined) {
+            parts.push(`${usage.cacheCreationInputTokens} cache écrit`);
+        }
+        return parts.join(' · ') || 'inconnu';
     }
 
     protected renderPromptPackEditor(): React.ReactNode {

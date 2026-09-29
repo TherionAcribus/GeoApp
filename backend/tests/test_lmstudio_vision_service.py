@@ -8,6 +8,7 @@ from gc_backend.services.ocr.lmstudio_vision_service import (
     extract_text_from_openai_response,
     normalize_lmstudio_base_url,
     normalize_openai_compatible_base_url,
+    normalize_openai_usage,
 )
 
 
@@ -65,3 +66,22 @@ def test_extract_text_from_openai_response_simple():
         ]
     }
     assert extract_text_from_openai_response(data) == 'Hello world'
+
+
+def test_normalize_openai_usage_accepts_prompt_completion_fields():
+    assert normalize_openai_usage({
+        'usage': {
+            'prompt_tokens': 12,
+            'completion_tokens': 4,
+            'total_tokens': 16,
+        }
+    }) == {
+        'input_tokens': 12,
+        'output_tokens': 4,
+        'total_tokens': 16,
+    }
+
+
+def test_normalize_openai_usage_leaves_absent_values_unknown():
+    assert normalize_openai_usage({'usage': {'total_tokens': 20}}) == {'total_tokens': 20}
+    assert normalize_openai_usage({}) is None

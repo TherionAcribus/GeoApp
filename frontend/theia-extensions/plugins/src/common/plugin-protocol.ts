@@ -1,3 +1,6 @@
+import { Event } from '@theia/core/lib/common/event';
+import { GeoAppAiExecutionRecord } from './ai-model-contract';
+
 /**
  * Interfaces pour la gestion des plugins MysterAI.
  * 
@@ -603,6 +606,9 @@ export interface PluginResult {
     
     /** Résultats de l'exécution */
     results?: PluginResultItem[];
+
+    /** Nombre d'images analysées par les plugins vision/OCR. */
+    images_analyzed?: number;
     
     /** Sortie texte principale (compatibilité) */
     text_output?: string;
@@ -759,6 +765,9 @@ export const PluginsService = Symbol('PluginsService');
  * Interface du service de gestion des plugins.
  */
 export interface PluginsService {
+    /** Notifie quand une exécution IA de plugin/backend change dans le journal partagé. */
+    readonly onDidUpdateAiExecution: Event<GeoAppAiExecutionRecord>;
+
     /**
      * Récupère la liste des plugins.
      */
@@ -773,6 +782,11 @@ export interface PluginsService {
      * Exécute un plugin de manière synchrone.
      */
     executePlugin(name: string, inputs: PluginInputs, signal?: AbortSignal): Promise<PluginResult>;
+
+    /**
+     * Retourne la dernière exécution IA journalisée pour une tâche donnée.
+     */
+    getLatestAiExecution(taskId: string): GeoAppAiExecutionRecord | undefined;
 
     listPuzzleStates(geocacheId: number): Promise<PuzzleStateListResponse>;
     getPuzzleState(geocacheId: number, puzzleType?: string, stateKey?: string): Promise<PuzzleStateGetResponse>;

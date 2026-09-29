@@ -5705,12 +5705,33 @@ def ai_score_endpoint():
             plugin_name=plugin_name,
             timeout_sec=timeout_sec,
         )
+        reported_models = set()
+        usage_by_batch: dict = {}
+        for item in enriched:
+            metadata = item.get('metadata') if isinstance(item, dict) else None
+            scoring = metadata.get('ai_scoring') if isinstance(metadata, dict) else None
+            if not isinstance(scoring, dict):
+                continue
+            reported_model = scoring.get('reported_model')
+            if isinstance(reported_model, str) and reported_model.strip():
+                reported_models.add(reported_model.strip())
+            usage = scoring.get('usage')
+            batch_index = scoring.get('batch_index')
+            if isinstance(usage, dict):
+                usage_by_batch[str(batch_index or 0)] = usage
+        usage = {}
+        for key in ('input_tokens', 'output_tokens', 'total_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'):
+            if usage_by_batch and all(isinstance(part.get(key), int) for part in usage_by_batch.values()):
+                usage[key] = sum(part[key] for part in usage_by_batch.values())
         return jsonify({
             'status': 'ok',
             'items': enriched,
             'count': len(enriched),
             'provider': provider,
             'model': model,
+            'reported_model': next(iter(reported_models)) if len(reported_models) == 1 else None,
+            'reported_models': sorted(reported_models),
+            'usage': usage or None,
         }), 200
     except Exception as exc:
         logger.error('Erreur ai-score: %s', exc, exc_info=True)

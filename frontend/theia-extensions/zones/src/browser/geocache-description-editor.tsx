@@ -3,6 +3,7 @@ import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
+import { GeoAppAiExecutionRecord } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 import { handleMenuArrowKeys } from './context-menu';
 import { SectionCollapseToggle } from './geocache-section-collapse';
 import '../../src/browser/style/geocache-details-header.css';
@@ -21,6 +22,7 @@ export interface DescriptionEditorProps {
     isTranslatingAll: boolean;
     onCancelTranslation: () => void;
     translationProgress?: TranslationProgress;
+    latestTranslationExecution?: GeoAppAiExecutionRecord;
     targetLanguage: string;
     /** Ouverture des liens externes de la description (mini-browser ou fenêtre externe selon la préférence). */
     onOpenExternalUrl?: (url: string) => void;
@@ -207,6 +209,58 @@ const PhaseIndicator: React.FC<{ label: string; status: TranslationPhaseStatus }
     );
 };
 
+function formatDuration(durationMs?: number): string | undefined {
+    return typeof durationMs === 'number' ? `${(durationMs / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : undefined;
+}
+
+function formatUsage(record: GeoAppAiExecutionRecord): string | undefined {
+    const input = record.tokenUsage?.inputTokens;
+    const output = record.tokenUsage?.outputTokens;
+    if (input === undefined && output === undefined) {
+        return undefined;
+    }
+    return `${input ?? '?'} entrée / ${output ?? '?'} sortie`;
+}
+
+function ExecutionBadge({ execution }: { execution?: GeoAppAiExecutionRecord }): React.ReactElement | null {
+    if (!execution) {
+        return null;
+    }
+    const statusLabel = {
+        running: 'en cours',
+        succeeded: 'succès',
+        failed: 'échec',
+        cancelled: 'annulée',
+    }[execution.status];
+    const model = execution.reportedModel || execution.resolution.displayModel || execution.resolution.resolvedModelId || 'modèle inconnu';
+    const provider = execution.reportedProvider || execution.resolution.provider;
+    const duration = formatDuration(execution.durationMs);
+    const usage = formatUsage(execution);
+    const title = [
+        `Tâche : ${execution.taskLabel}`,
+        `Statut : ${statusLabel}`,
+        provider ? `Fournisseur : ${provider}` : undefined,
+        `Modèle : ${model}`,
+        usage ? `Tokens : ${usage}` : undefined,
+        execution.errorCode ? `Code : ${execution.errorCode}` : undefined,
+        execution.errorMessage ? `Erreur : ${execution.errorMessage}` : undefined,
+    ].filter(Boolean).join('\n');
+    const color = execution.status === 'failed'
+        ? 'var(--theia-errorForeground, #f87171)'
+        : execution.status === 'cancelled'
+            ? 'var(--theia-charts-orange, #d18616)'
+            : 'var(--theia-descriptionForeground, var(--theia-foreground))';
+    return (
+        <span
+            style={{ ...mutedChipStyle, border: `1px solid ${color}`, color, opacity: 1 }}
+            title={title}
+            aria-label={title}
+        >
+            IA · {statusLabel} · {model}{duration ? ` · ${duration}` : ''}
+        </span>
+    );
+}
+
 export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     geocacheData,
     geocacheId,
@@ -221,6 +275,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     isTranslatingAll,
     onCancelTranslation,
     translationProgress,
+    latestTranslationExecution,
     targetLanguage,
     onOpenExternalUrl,
     collapsed,
@@ -540,6 +595,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             </div>
                         )}
                     </div>
+                    <ExecutionBadge execution={latestTranslationExecution} />
 
                     {!isEditing ? (
                         <button

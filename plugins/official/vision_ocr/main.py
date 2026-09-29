@@ -127,6 +127,9 @@ class VisionOCRPlugin:
 
         findings: List[Dict[str, Any]] = []
         images_analyzed = 0
+        reported_models = set()
+        reported_providers = set()
+        usage_parts: List[Dict[str, int]] = []
 
         for url in image_urls:
             full_url = self._normalize_image_url(url)
@@ -149,6 +152,11 @@ class VisionOCRPlugin:
                 logger.warning("[vision_ocr] Vision OCR failed for {}: {}", full_url, exc)
                 continue
 
+            reported_models.add(ocr.reported_model or ocr.model)
+            reported_providers.add(ocr.provider)
+            if ocr.usage:
+                usage_parts.append(ocr.usage)
+
             text = (ocr.text or "").strip()
             try:
                 from gc_backend.services.ocr.lmstudio_vision_service import strip_thinking_blocks
@@ -170,6 +178,8 @@ class VisionOCRPlugin:
                     "metadata": {
                         "provider": ocr.provider,
                         "model": ocr.model,
+                        "reported_model": ocr.reported_model,
+                        "usage": ocr.usage,
                         "language": language,
                     },
                 }
@@ -180,14 +190,39 @@ class VisionOCRPlugin:
             if images_analyzed
             else "Aucune image analysée"
         )
+        usage = self._merge_usage(usage_parts)
 
         return {
             "status": "success",
             "summary": summary,
             "results": findings,
             "images_analyzed": images_analyzed,
+            "provider": provider,
+            "model": model,
+            "reported_provider": next(iter(reported_providers)) if len(reported_providers) == 1 else None,
+            "reported_model": next(iter(reported_models)) if len(reported_models) == 1 else None,
+            "reported_models": sorted(reported_models),
+            "usage": usage,
             "plugin_info": self._build_plugin_info(start),
         }
+
+    @staticmethod
+    def _merge_usage(usage_parts: List[Dict[str, int]]) -> Optional[Dict[str, int]]:
+        if not usage_parts:
+            return None
+        keys = (
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        )
+        merged = {
+            key: sum(int(part[key]) for part in usage_parts)
+            for key in keys
+            if all(isinstance(part.get(key), int) for part in usage_parts)
+        }
+        return merged or None
 
     @staticmethod
     def _build_plugin_info(start_time: float) -> Dict[str, Any]:

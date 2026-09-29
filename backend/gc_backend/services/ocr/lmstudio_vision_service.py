@@ -40,6 +40,29 @@ class VisionOcrResult:
     text: str
     provider: str
     model: str
+    reported_model: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
+
+
+def normalize_openai_usage(data: Dict[str, Any]) -> Optional[Dict[str, int]]:
+    """Normalize common OpenAI-compatible usage fields without inventing values."""
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    normalized = {
+        "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens")),
+        "output_tokens": usage.get("output_tokens", usage.get("completion_tokens")),
+        "total_tokens": usage.get("total_tokens"),
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+    }
+    result = {
+        key: int(value)
+        for key, value in normalized.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+    return result or None
 
 
 def strip_thinking_blocks(text: str) -> str:
@@ -215,4 +238,10 @@ def vision_ocr_via_openai_compatible(
     if not text:
         raise RuntimeError(f"{provider_label} returned an empty response")
 
-    return VisionOcrResult(text=text, provider=provider_label, model=str(model).strip())
+    return VisionOcrResult(
+        text=text,
+        provider=provider_label,
+        model=str(model).strip(),
+        reported_model=str(data.get("model")).strip() if isinstance(data.get("model"), str) else None,
+        usage=normalize_openai_usage(data),
+    )

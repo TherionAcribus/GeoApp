@@ -40,6 +40,14 @@ export interface GeoAppAiModelResolution {
 
 export type GeoAppAiExecutionStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+export interface GeoAppAiTokenUsage {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    cacheCreationInputTokens?: number;
+    cacheReadInputTokens?: number;
+}
+
 export interface GeoAppAiExecutionRecord {
     /** Identifiant unique de cet appel/tentative. */
     id: string;
@@ -56,7 +64,15 @@ export interface GeoAppAiExecutionRecord {
     startedAt: string;
     completedAt?: string;
     durationMs?: number;
+    /** Modèle réellement rapporté par la réponse, lorsque le fournisseur le retourne. */
+    reportedModel?: string;
+    /** Fournisseur rapporté par la réponse, utile pour les plugins backend. */
+    reportedProvider?: string;
+    /** Usage retourné par le fournisseur ; les champs absents restent inconnus. */
+    tokenUsage?: GeoAppAiTokenUsage;
     errorName?: string;
+    /** Code stable pour distinguer les erreurs métier, HTTP, annulation et validation de sortie. */
+    errorCode?: string;
     errorMessage?: string;
 }
 
@@ -102,4 +118,5 @@ export interface GeoAppAiOperationRecorder {
         operation: (context: GeoAppAiOperationContext) => Promise<T>,
         options?: GeoAppAiOperationOptions
     ): Promise<GeoAppAiExecutionResult<T>>;
+    getLatestExecution(taskId: string): GeoAppAiExecutionRecord | undefined;
 }

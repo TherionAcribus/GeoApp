@@ -20,12 +20,14 @@ import json
 import re
 import time
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import requests
 
 from ..services.ocr.lmstudio_vision_service import (
     normalize_openai_compatible_base_url,
+    normalize_openai_usage,
     extract_text_from_openai_response,
     strip_thinking_blocks,
 )
@@ -142,6 +144,15 @@ Pour chaque texte :
 # Appel LLM
 # ──────────────────────────────────────────────────────────────────────────────
 
+@dataclass(frozen=True)
+class OpenAiCompatibleCallResult:
+    """Text and provider metadata returned by one chat-completions call."""
+
+    text: str
+    reported_model: Optional[str]
+    usage: Optional[Dict[str, int]]
+
+
 def _build_chat_payload(model: str, user_message: str, max_tokens: int = 2048) -> Dict[str, Any]:
     return {
         "model": model,
@@ -163,8 +174,8 @@ def _call_openai_compatible(
     provider: str = "openai-compatible",
     timeout_sec: int = 60,
     max_tokens: int = 2048,
-) -> str:
-    """Appelle un endpoint OpenAI-compatible et retourne la réponse textuelle brute."""
+) -> OpenAiCompatibleCallResult:
+    """Appelle un endpoint OpenAI-compatible et retourne texte + métadonnées."""
     v1 = normalize_openai_compatible_base_url(
         base_url,
         "https://openrouter.ai/api/v1" if provider == "openrouter" else "http://localhost:1234",
@@ -198,7 +209,11 @@ def _call_openai_compatible(
     if not text:
         raise RuntimeError("[ai_scorer] Réponse vide du LLM")
     logger.debug("[ai_scorer] Réponse brute LLM (500 premiers chars): %s", text[:500])
-    return text
+    return OpenAiCompatibleCallResult(
+        text=text,
+        reported_model=str(data.get("model")).strip() if isinstance(data.get("model"), str) else None,
+        usage=normalize_openai_usage(data),
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -385,8 +400,10 @@ def ai_score_results(
         batch_max_tokens = min(8192, max(1024, 256 * len(batch) + 256))
 
         t0 = time.time()
+        llm_reported_model: Optional[str] = None
+        llm_usage: Optional[Dict[str, int]] = None
         try:
-            raw_response = _call_openai_compatible(
+            call_result = _call_openai_compatible(
                 user_message=user_message,
                 base_url=base_url,
                 model=model,
@@ -395,6 +412,9 @@ def ai_score_results(
                 timeout_sec=timeout_sec,
                 max_tokens=batch_max_tokens,
             )
+            raw_response = call_result.text
+            llm_reported_model = call_result.reported_model
+            llm_usage = call_result.usage
             elapsed_ms = round((time.time() - t0) * 1000, 1)
             ai_items = _parse_ai_response(raw_response, len(batch))
         except Exception as exc:
@@ -436,6 +456,9 @@ def ai_score_results(
                 "explanation": ai_item.get("explanation", ""),
                 "provider": provider,
                 "model": model,
+                "reported_model": llm_reported_model,
+                "usage": llm_usage,
+                "batch_index": batch_start,
                 "elapsed_ms": elapsed_ms,
                 "source": "ai_scorer",
             }

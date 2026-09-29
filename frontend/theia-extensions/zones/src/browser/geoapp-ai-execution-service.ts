@@ -7,8 +7,11 @@ import {
     LanguageModelResponse,
     LanguageModelService,
     LanguageModelStreamResponsePart,
+    UsageResponsePart,
     UserRequest,
     isLanguageModelStreamResponse,
+    isLanguageModelTextResponse,
+    isUsageResponsePart,
 } from '@theia/ai-core';
 import {
     GeoAppAiExecutionRecord,
@@ -18,6 +21,7 @@ import {
     GeoAppAiOperationRecorder,
     GeoAppAiModelResolution,
     GeoAppAiTaskDescriptor,
+    GeoAppAiTokenUsage,
 } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
 import { checkGeoAppLocalEndpoint } from './geoapp-local-model-guard';
@@ -217,6 +221,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 completedAt: completedAt.toISOString(),
                 durationMs: completedAt.getTime() - startedAt.getTime(),
                 errorName: error instanceof Error ? error.name : undefined,
+                errorCode: error === undefined ? undefined : this.errorCode(error),
                 errorMessage: error === undefined ? undefined : this.errorMessage(error),
             });
             this.executionHistory.unshift(finished);
@@ -243,6 +248,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 finish('cancelled', error);
                 throw error;
             }
+            this.applyBackendObservation(execution, response);
             return { execution: finish('succeeded') || execution, response };
         } catch (error) {
             finish(signal?.aborted || error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failed', error);
@@ -361,6 +367,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 completedAt: completedAt.toISOString(),
                 durationMs: completedAt.getTime() - startedAt.getTime(),
                 errorName: error instanceof Error ? error.name : undefined,
+                errorCode: error === undefined ? undefined : this.errorCode(error),
                 errorMessage: error === undefined ? undefined : this.errorMessage(error),
             });
             this.executionHistory.unshift(finished);
@@ -392,6 +399,9 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 throw new CancellationError();
             }
             if (!isLanguageModelStreamResponse(response)) {
+                if (isLanguageModelTextResponse(response) && response.usage) {
+                    execution.tokenUsage = this.toTokenUsage(response.usage);
+                }
                 const finished = finish('succeeded') || execution;
                 return { execution: finished, response };
             }
@@ -399,7 +409,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 execution,
                 response: {
                     ...response,
-                    stream: this.instrumentStream(response.stream, finish, cancellationToken),
+                    stream: this.instrumentStream(response.stream, execution, finish, cancellationToken),
                 },
             };
         } catch (error) {
@@ -410,6 +420,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
 
     protected async *instrumentStream(
         stream: AsyncIterable<LanguageModelStreamResponsePart>,
+        execution: GeoAppAiExecutionRecord,
         finish: (status: GeoAppAiExecutionRecord['status'], error?: unknown) => GeoAppAiExecutionRecord | undefined,
         cancellationToken?: CancellationToken
     ): AsyncIterable<LanguageModelStreamResponsePart> {
@@ -419,6 +430,9 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                     finish('cancelled', new CancellationError());
                     throw new CancellationError();
                 }
+                if (isUsageResponsePart(part)) {
+                    execution.tokenUsage = this.toTokenUsage(part);
+                }
                 yield part;
             }
             finish(cancellationToken?.isCancellationRequested ? 'cancelled' : 'succeeded');
@@ -426,6 +440,177 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             finish(cancellationToken?.isCancellationRequested || isCancelled(error) ? 'cancelled' : 'failed', error);
             throw error;
         }
+    }
+
+    protected applyBackendObservation(execution: GeoAppAiExecutionRecord, response: unknown): void {
+        const responseRecord = this.asRecord(response);
+        const data = this.asRecord(responseRecord?.data) || responseRecord;
+        if (!data) {
+            return;
+        }
+
+        const models = new Set<string>();
+        const providers = new Set<string>();
+        const usages: GeoAppAiTokenUsage[] = [];
+        const usageScopes = new Set<string>();
+        const topLevelUsage = this.normalizeTokenUsage(data.usage);
+        const visit = (value: unknown): void => {
+            const record = this.asRecord(value);
+            if (!record) {
+                return;
+            }
+            const reportedModel = this.stringValue(record.reported_model ?? record.reportedModel);
+            const model = this.stringValue(record.model);
+            if (reportedModel) {
+                models.add(reportedModel);
+            } else if (model) {
+                models.add(model);
+            }
+            const reportedProvider = this.stringValue(record.reported_provider ?? record.reportedProvider ?? record.provider);
+            if (reportedProvider) {
+                providers.add(reportedProvider);
+            }
+            if (record !== data) {
+                const usage = this.normalizeTokenUsage(record.usage);
+                const batchIndex = record.batch_index ?? record.batchIndex;
+                const usageScope = batchIndex === undefined ? undefined : `batch-${String(batchIndex)}`;
+                if (usage && (!usageScope || !usageScopes.has(usageScope))) {
+                    if (usageScope) {
+                        usageScopes.add(usageScope);
+                    }
+                    usages.push(usage);
+                }
+            }
+            for (const key of ['items', 'results']) {
+                const nested = record[key];
+                if (Array.isArray(nested)) {
+                    nested.forEach(visit);
+                }
+            }
+            visit(record.metadata);
+            visit(record.ai_scoring);
+        };
+        visit(data);
+
+        if (models.size) {
+            execution.reportedModel = [...models].join(', ');
+        }
+        if (providers.size) {
+            execution.reportedProvider = [...providers].join(', ');
+        }
+        const usage = topLevelUsage || this.mergeTokenUsages(usages);
+        if (usage) {
+            execution.tokenUsage = usage;
+        }
+    }
+
+    protected normalizeTokenUsage(value: unknown): GeoAppAiTokenUsage | undefined {
+        const usage = this.asRecord(value);
+        if (!usage) {
+            return undefined;
+        }
+        const normalized: GeoAppAiTokenUsage = {};
+        const inputTokens = this.numberValue(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens);
+        const outputTokens = this.numberValue(usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens);
+        const totalTokens = this.numberValue(usage.total_tokens ?? usage.totalTokens);
+        const cacheCreationInputTokens = this.numberValue(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens);
+        const cacheReadInputTokens = this.numberValue(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens);
+        if (inputTokens !== undefined) {
+            normalized.inputTokens = inputTokens;
+        }
+        if (outputTokens !== undefined) {
+            normalized.outputTokens = outputTokens;
+        }
+        if (totalTokens !== undefined) {
+            normalized.totalTokens = totalTokens;
+        }
+        if (cacheCreationInputTokens !== undefined) {
+            normalized.cacheCreationInputTokens = cacheCreationInputTokens;
+        }
+        if (cacheReadInputTokens !== undefined) {
+            normalized.cacheReadInputTokens = cacheReadInputTokens;
+        }
+        return Object.values(normalized).length ? normalized : undefined;
+    }
+
+    protected mergeTokenUsages(usages: GeoAppAiTokenUsage[]): GeoAppAiTokenUsage | undefined {
+        if (!usages.length) {
+            return undefined;
+        }
+        if (usages.length === 1) {
+            return usages[0];
+        }
+        const keys: Array<keyof GeoAppAiTokenUsage> = [
+            'inputTokens',
+            'outputTokens',
+            'totalTokens',
+            'cacheCreationInputTokens',
+            'cacheReadInputTokens',
+        ];
+        const merged: GeoAppAiTokenUsage = {};
+        for (const key of keys) {
+            if (usages.every(usage => usage[key] !== undefined)) {
+                merged[key] = usages.reduce((total, usage) => (total || 0) + (usage[key] || 0), 0);
+            }
+        }
+        return Object.values(merged).some(value => value !== undefined) ? merged : undefined;
+    }
+
+    protected toTokenUsage(usage: UsageResponsePart): GeoAppAiTokenUsage {
+        const tokenUsage: GeoAppAiTokenUsage = {
+            inputTokens: usage.input_tokens,
+            outputTokens: usage.output_tokens,
+        };
+        if (usage.cache_creation_input_tokens !== undefined) {
+            tokenUsage.cacheCreationInputTokens = usage.cache_creation_input_tokens;
+        }
+        if (usage.cache_read_input_tokens !== undefined) {
+            tokenUsage.cacheReadInputTokens = usage.cache_read_input_tokens;
+        }
+        return tokenUsage;
+    }
+
+    protected asRecord(value: unknown): Record<string, unknown> | undefined {
+        return value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : undefined;
+    }
+
+    protected stringValue(value: unknown): string | undefined {
+        return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    }
+
+    protected numberValue(value: unknown): number | undefined {
+        return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    }
+
+    protected errorCode(error: unknown): string {
+        if (error instanceof GeoAppAiOutputError || error instanceof Error && error.name === 'GeoAppAiOutputError') {
+            return this.safeErrorCode((error as GeoAppAiOutputError).kind);
+        }
+        if (error instanceof GeoAppAiExecutionUnavailableError || error instanceof Error && error.name === 'GeoAppAiExecutionUnavailableError') {
+            const resolution = (error as GeoAppAiExecutionUnavailableError).resolution;
+            return this.safeErrorCode(`resolution-${resolution?.status || 'unavailable'}`);
+        }
+        if (isCancelled(error as Error) || error instanceof Error && error.name === 'AbortError') {
+            return 'cancelled';
+        }
+        const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown }; message?: unknown };
+        const status = this.numberValue(candidate.response?.status ?? candidate.status);
+        if (status !== undefined) {
+            return `http-${status}`;
+        }
+        if (typeof candidate.code === 'string' && candidate.code.trim()) {
+            return this.safeErrorCode(candidate.code);
+        }
+        if (error instanceof Error && error.name) {
+            return this.safeErrorCode(error.name);
+        }
+        return 'unknown-error';
+    }
+
+    protected safeErrorCode(value: string): string {
+        return value.toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').slice(0, 80);
     }
 
     protected recordResolutionFailure(
@@ -450,6 +635,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             completedAt: now,
             durationMs: 0,
             errorName: error.name,
+            errorCode: this.errorCode(error),
             errorMessage: this.errorMessage(error),
         });
         this.executionHistory.unshift(record);

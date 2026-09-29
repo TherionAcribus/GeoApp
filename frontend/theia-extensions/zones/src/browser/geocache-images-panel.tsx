@@ -7,6 +7,8 @@ import { CancellationTokenSource, MessageService, isCancelled } from '@theia/cor
 import { ConfirmDialog, ConfirmSaveDialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
+import { GeoAppAiExecutionRecord } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
+import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
 import { SectionCollapseToggle } from './geocache-section-collapse';
@@ -60,6 +62,7 @@ export interface GeocacheImagesPanelProps {
     messages: MessageService;
     languageModelRegistry: LanguageModelRegistry;
     aiExecutionService: GeoAppAiExecutionService;
+    pluginsService: PluginsService;
     storageDefaultMode?: 'never' | 'prompt' | 'always';
     onConfirmStoreAll?: (options: { geocacheId: number; pendingCount: number }) => Promise<boolean>;
     thumbnailSize?: GalleryThumbnailSize;
@@ -81,6 +84,49 @@ export interface GeocacheImagesPanelProps {
     /** Section repliée (persisté en préférence par le widget parent). */
     collapsed?: boolean;
     onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
+}
+
+function formatOcrExecutionDuration(durationMs?: number): string | undefined {
+    return typeof durationMs === 'number' ? `${(durationMs / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s` : undefined;
+}
+
+function OcrExecutionBadge({ execution }: { execution?: GeoAppAiExecutionRecord }): React.ReactElement | null {
+    if (!execution) {
+        return null;
+    }
+    const statusLabel = {
+        running: 'en cours',
+        succeeded: 'succès',
+        failed: 'échec',
+        cancelled: 'annulée',
+    }[execution.status];
+    const tone = execution.status === 'succeeded'
+        ? 'success'
+        : execution.status === 'failed'
+            ? 'danger'
+            : execution.status === 'cancelled'
+                ? 'warning'
+                : 'info';
+    const model = execution.reportedModel || execution.resolution.displayModel || execution.resolution.resolvedModelId || 'modèle inconnu';
+    const provider = execution.reportedProvider || execution.resolution.provider;
+    const duration = formatOcrExecutionDuration(execution.durationMs);
+    const usage = execution.tokenUsage
+        ? `Tokens : ${execution.tokenUsage.inputTokens ?? '?'} entrée / ${execution.tokenUsage.outputTokens ?? '?'} sortie`
+        : undefined;
+    const title = [
+        `Tâche : ${execution.taskLabel}`,
+        `Statut : ${statusLabel}`,
+        provider ? `Fournisseur : ${provider}` : undefined,
+        `Modèle : ${model}`,
+        usage,
+        execution.errorCode ? `Code : ${execution.errorCode}` : undefined,
+        execution.errorMessage ? `Erreur : ${execution.errorMessage}` : undefined,
+    ].filter(Boolean).join('\n');
+    return (
+        <span className={`geoapp-images-badge geoapp-images-badge--${tone}`} title={title} aria-label={title}>
+            OCR IA · {statusLabel} · {model}{duration ? ` · ${duration}` : ''}
+        </span>
+    );
 }
 
 // ---- ThumbnailItem ----------------------------------------------------------
@@ -235,6 +281,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     messages,
     languageModelRegistry,
     aiExecutionService,
+    pluginsService,
     storageDefaultMode = 'prompt',
     onConfirmStoreAll,
     thumbnailSize = 'small',
@@ -268,6 +315,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [busyImageIds, setBusyImageIds] = React.useState<Record<number, true>>({});
     const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
     const [ocrTheiaModelLabel, setOcrTheiaModelLabel] = React.useState('agent geoapp-ocr');
+    const getLatestOcrExecution = React.useCallback((): GeoAppAiExecutionRecord | undefined => {
+        const executions = ['ocr-backend-plugin', 'ocr-theia']
+            .map(taskId => aiExecutionService.getLatestExecution(taskId))
+            .filter((execution): execution is GeoAppAiExecutionRecord => Boolean(execution));
+        return executions.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
+    }, [aiExecutionService]);
+    const [latestOcrExecution, setLatestOcrExecution] = React.useState<GeoAppAiExecutionRecord | undefined>(() => getLatestOcrExecution());
     const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
     const setBusyImage = React.useCallback((imageId: number, busy: boolean): void => {
         setBusyImageIds(prev => {
@@ -298,6 +352,20 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             delete ocrAbortControllersRef.current[imageId];
         }
     }, []);
+
+    React.useEffect(() => {
+        const refresh = (execution: GeoAppAiExecutionRecord): void => {
+            if (execution.taskId === 'ocr-backend-plugin' || execution.taskId === 'ocr-theia') {
+                setLatestOcrExecution(getLatestOcrExecution());
+            }
+        };
+        const startDisposable = aiExecutionService.onDidStartExecution(refresh);
+        const finishDisposable = aiExecutionService.onDidFinishExecution(refresh);
+        return () => {
+            startDisposable.dispose();
+            finishDisposable.dispose();
+        };
+    }, [aiExecutionService, getLatestOcrExecution]);
 
     const cancelOcrForImage = React.useCallback((imageId: number): void => {
         const controller = ocrAbortControllersRef.current[imageId];
@@ -1518,18 +1586,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 }
             }
 
-            const res = await fetch(`${backendBaseUrl}/api/plugins/${pluginName}/execute`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ inputs }),
-                signal: abortController.signal,
-            });
-            if (!res.ok) {
-                throw new Error(await readResponseError(res));
-            }
-
-            const result = await res.json() as any;
+            const result = await pluginsService.executePlugin(pluginName, inputs, abortController.signal);
             const text = stripThinkingBlocks(extractTextFromPluginResult(result));
             if (!text.trim()) {
                 console.warn('[GeocacheImagesPanel] OCR returned empty text', {
@@ -2598,6 +2655,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-whole-word' />
                                         OCR
                                     </button>
+                                    <OcrExecutionBadge execution={latestOcrExecution} />
                                     <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void decodeQrFromImage(selectedImage.id); }} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-key' />
                                         QR
