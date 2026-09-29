@@ -182,8 +182,10 @@ Sous le tableau des géocaches, une section repliable :
   grisé par l'envoi : c'est après un lot qu'on en a besoin.
 - **Barre d'outils** :
   - un filtre (code, nom, type ; sans accents ni casse), affiché à partir de 9 TBs ;
-  - « Tout mettre à » (Ne rien faire / Visité), appliqué aux TBs affichés quand le
-    filtre est actif.
+  - « Tout mettre à » (Ne rien faire / Visité / Déposé), appliqué aux TBs affichés
+    quand le filtre est actif. Un dépôt groupé envoie chaque TB dans la dernière
+    géocache trouvée du lot, modifiable ensuite ligne par ligne. L'option est grisée
+    tant qu'aucune géocache du lot n'est en « Found it ».
 - **Une ligne par TB**, dans cet ordre :
   - trois boutons Rien / Visité / Déposé, **en tête de ligne**, collés au nom ;
   - l'icône, le nom et le code (lien vers la fiche du site) ;

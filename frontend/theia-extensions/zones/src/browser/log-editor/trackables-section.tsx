@@ -128,6 +128,14 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                                 <option value='' disabled>…</option>
                                 <option value='none'>{TRACKABLE_ACTION_LABELS.none}</option>
                                 <option value='visit'>{TRACKABLE_ACTION_LABELS.visit}</option>
+                                {/* Dépôt groupé : chacun part dans la dernière cache trouvée, modifiable ligne par ligne. */}
+                                <option value='drop' disabled={dropCandidates.length === 0}>
+                                    {dropCandidates.length === 0
+                                        ? `${TRACKABLE_ACTION_LABELS.drop} (aucune cache en « Found it »)`
+                                        : dropCandidates.length === 1
+                                            ? `${TRACKABLE_ACTION_LABELS.drop} dans ${dropCandidates[0].gc_code}`
+                                            : `${TRACKABLE_ACTION_LABELS.drop} (dans ${dropCandidates[dropCandidates.length - 1].gc_code} par défaut)`}
+                                </option>
                             </select>
                         </label>
                     </div>
