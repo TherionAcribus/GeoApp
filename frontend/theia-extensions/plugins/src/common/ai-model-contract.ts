@@ -53,6 +53,8 @@ export interface GeoAppAiExecutionRecord {
     id: string;
     /** Identifiant commun aux appels appartenant à la même opération métier. */
     operationId: string;
+    /** Élément métier auquel se rapporte l'exécution, par exemple une géocache ou une image. */
+    subjectId?: string;
     requestId: string;
     sessionId: string;
     taskId: string;
@@ -83,6 +85,7 @@ export interface GeoAppAiExecutionResult<TResponse = unknown> {
 
 export interface GeoAppAiOperationContext {
     operationId: string;
+    subjectId?: string;
     sessionId: string;
     task: Readonly<GeoAppAiTaskDescriptor>;
     resolution: Readonly<GeoAppAiModelResolution>;
@@ -101,6 +104,8 @@ export interface GeoAppAiBackendExecutionModel {
 
 export interface GeoAppAiOperationOptions {
     operationId?: string;
+    /** Élément métier concerné ; permet d'afficher l'exécution près de son action d'origine. */
+    subjectId?: string;
     sessionId?: string;
     requestId?: string;
     /** Instantané fourni par un adaptateur qui a déjà résolu la configuration d'exécution. */
@@ -118,5 +123,5 @@ export interface GeoAppAiOperationRecorder {
         operation: (context: GeoAppAiOperationContext) => Promise<T>,
         options?: GeoAppAiOperationOptions
     ): Promise<GeoAppAiExecutionResult<T>>;
-    getLatestExecution(taskId: string): GeoAppAiExecutionRecord | undefined;
+    getLatestExecution(taskId: string, subjectId?: string): GeoAppAiExecutionRecord | undefined;
 }

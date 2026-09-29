@@ -1799,7 +1799,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     isTranslatingAll: this.isTranslatingAllContent,
                     onCancelTranslation: this.handleCancelTranslation,
                     translationProgress: this.translationProgress,
-                    latestTranslationExecution: this.aiExecutionService.getLatestExecution('translate-description'),
+                    latestTranslationExecution: this.geocacheId
+                        ? this.aiExecutionService.getLatestExecution('translate-description', `geocache-${this.geocacheId}`)
+                        : undefined,
                     targetLanguage: this.preferencesController.getTranslationTargetLanguage(),
                     onOpenExternalUrl: this.openExternalLink,
                 }}

@@ -315,13 +315,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [busyImageIds, setBusyImageIds] = React.useState<Record<number, true>>({});
     const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
     const [ocrTheiaModelLabel, setOcrTheiaModelLabel] = React.useState('agent geoapp-ocr');
-    const getLatestOcrExecution = React.useCallback((): GeoAppAiExecutionRecord | undefined => {
+    const getLatestOcrExecution = React.useCallback((imageId: number): GeoAppAiExecutionRecord | undefined => {
+        const subjectId = `image-${imageId}`;
         const executions = ['ocr-backend-plugin', 'ocr-theia']
-            .map(taskId => aiExecutionService.getLatestExecution(taskId))
+            .map(taskId => aiExecutionService.getLatestExecution(taskId, subjectId))
             .filter((execution): execution is GeoAppAiExecutionRecord => Boolean(execution));
         return executions.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
     }, [aiExecutionService]);
-    const [latestOcrExecution, setLatestOcrExecution] = React.useState<GeoAppAiExecutionRecord | undefined>(() => getLatestOcrExecution());
+    const [, setOcrExecutionVersion] = React.useState(0);
     const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
     const setBusyImage = React.useCallback((imageId: number, busy: boolean): void => {
         setBusyImageIds(prev => {
@@ -356,7 +357,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     React.useEffect(() => {
         const refresh = (execution: GeoAppAiExecutionRecord): void => {
             if (execution.taskId === 'ocr-backend-plugin' || execution.taskId === 'ocr-theia') {
-                setLatestOcrExecution(getLatestOcrExecution());
+                setOcrExecutionVersion(version => version + 1);
             }
         };
         const startDisposable = aiExecutionService.onDidStartExecution(refresh);
@@ -365,7 +366,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             startDisposable.dispose();
             finishDisposable.dispose();
         };
-    }, [aiExecutionService, getLatestOcrExecution]);
+    }, [aiExecutionService]);
 
     const cancelOcrForImage = React.useCallback((imageId: number): void => {
         const controller = ocrAbortControllersRef.current[imageId];
@@ -1479,6 +1480,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
             const execution = await aiExecutionService.beginTaskExecution('ocr-theia', {
                 operationId: `geoapp-ocr-${imageId}-${Date.now()}`,
+                subjectId: `image-${imageId}`,
             });
             const prompt = 'Transcris précisément le texte visible sur cette image sans interprétation ni correction orthographique. Respecte les retours à la ligne.';
             const response = (await execution.sendRequest({
@@ -1572,6 +1574,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
             const inputs: Record<string, any> = {
                 geocache_id: geocacheId,
+                aiExecutionSubjectId: `image-${imageId}`,
                 images: [{ url: imageUrlForPlugin }],
                 language: (ocrDefaultLanguage || 'auto').toString(),
             };
@@ -2655,7 +2658,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-whole-word' />
                                         OCR
                                     </button>
-                                    <OcrExecutionBadge execution={latestOcrExecution} />
+                                    <OcrExecutionBadge execution={getLatestOcrExecution(selectedImage.id)} />
                                     <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void decodeQrFromImage(selectedImage.id); }} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-key' />
                                         QR

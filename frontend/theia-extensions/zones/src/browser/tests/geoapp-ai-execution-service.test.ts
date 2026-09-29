@@ -329,6 +329,61 @@ async function testBackendOperationUsesRuntimeSnapshotWithoutTheiaDispatch(): Pr
     assert.equal(llm.requests.length, 0);
 }
 
+async function testExecutionsCanBeScopedBySubject(): Promise<void> {
+    const { executionService } = createServices({});
+
+    const first = await executionService.beginTaskExecution('translate-description', {
+        operationId: 'translation-1',
+        subjectId: 'geocache-1',
+    });
+    await first.sendRequest({ messages: [{ actor: 'user', type: 'text', text: 'one' }] });
+
+    const second = await executionService.beginTaskExecution('translate-description', {
+        operationId: 'translation-2',
+        subjectId: 'geocache-2',
+    });
+    await second.sendRequest({ messages: [{ actor: 'user', type: 'text', text: 'two' }] });
+
+    assert.equal(
+        executionService.getLatestExecution('translate-description', 'geocache-1')?.operationId,
+        'translation-1'
+    );
+    assert.equal(
+        executionService.getLatestExecution('translate-description', 'geocache-2')?.operationId,
+        'translation-2'
+    );
+    assert.equal(
+        executionService.getLatestExecution('translate-description', 'geocache-3'),
+        undefined
+    );
+}
+
+async function testBackendOperationKeepsSubjectInContextAndRecord(): Promise<void> {
+    const { executionService } = createServices({});
+
+    const result = await executionService.runOperation('ocr-backend-plugin', async context => {
+        assert.equal(context.subjectId, 'image-42');
+        return { status: 'ok' };
+    }, {
+        subjectId: 'image-42',
+        backendExecution: {
+            provider: 'lmstudio',
+            baseUrl: 'http://localhost:1234',
+            model: 'vision-local',
+        },
+    });
+
+    assert.equal(result.execution.subjectId, 'image-42');
+    assert.equal(
+        executionService.getLatestExecution('ocr-backend-plugin', 'image-42')?.id,
+        result.execution.id
+    );
+    assert.equal(
+        executionService.getLatestExecution('ocr-backend-plugin', 'image-43'),
+        undefined
+    );
+}
+
 async function testProviderFailureIsRecordedAndSanitized(): Promise<void> {
     class FailingLlm {
         async sendRequest(): Promise<never> {
@@ -364,6 +419,8 @@ async function run(): Promise<void> {
     await testBackendOperationRecordsReportedModelAndUsage();
     await testOutputValidationKeepsBusinessErrorCode();
     await testBackendOperationUsesRuntimeSnapshotWithoutTheiaDispatch();
+    await testExecutionsCanBeScopedBySubject();
+    await testBackendOperationKeepsSubjectInContextAndRecord();
     await testProviderFailureIsRecordedAndSanitized();
     console.log('geoapp-ai-execution-service tests passed');
 }

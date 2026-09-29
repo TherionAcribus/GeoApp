@@ -136,8 +136,13 @@ export class PluginsServiceImpl implements IPluginsService {
     async executePlugin(name: string, inputs: PluginInputs, signal?: AbortSignal): Promise<PluginResult> {
         try {
             const timeout = this.getPluginExecutionTimeout(name, inputs);
+            const pluginInputs = { ...inputs };
+            const subjectId = typeof pluginInputs.aiExecutionSubjectId === 'string'
+                ? pluginInputs.aiExecutionSubjectId
+                : undefined;
+            delete pluginInputs.aiExecutionSubjectId;
             const execute = () => this.client.post(`/api/plugins/${name}/execute`, {
-                inputs
+                inputs: pluginInputs
             }, { signal, timeout });
             const response = name === 'vision_ocr' && this.aiOperationRecorder
                 ? (await this.aiOperationRecorder.runOperation('ocr-backend-plugin', async () => {
@@ -145,6 +150,7 @@ export class PluginsServiceImpl implements IPluginsService {
                     return execute();
                 }, {
                     cancellationSignal: signal,
+                    subjectId,
                 })).response
                 : await execute();
             if (name === 'vision_ocr') {
@@ -162,8 +168,8 @@ export class PluginsServiceImpl implements IPluginsService {
         }
     }
 
-    getLatestAiExecution(taskId: string): GeoAppAiExecutionRecord | undefined {
-        return this.aiOperationRecorder?.getLatestExecution(taskId);
+    getLatestAiExecution(taskId: string, subjectId?: string): GeoAppAiExecutionRecord | undefined {
+        return this.aiOperationRecorder?.getLatestExecution(taskId, subjectId);
     }
     
     /**

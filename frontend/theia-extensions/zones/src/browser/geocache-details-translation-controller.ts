@@ -120,7 +120,7 @@ export class GeocacheDetailsTranslationController {
         cancellationToken?: CancellationToken,
         onProgress?: TranslationProgressCallback
     ): Promise<void> {
-        const execution = await this.selectTranslationLanguageModel();
+        const execution = await this.selectTranslationLanguageModel(`geocache-${geocacheId}`);
         onProgress?.({ description: 'pending', hints: 'skipped', waypoints: 'skipped' });
         const translatedHtml = await this.translateHtmlWithChunking(execution, sourceHtml, cancellationToken);
         if (!translatedHtml) {
@@ -140,7 +140,7 @@ export class GeocacheDetailsTranslationController {
         cancellationToken?: CancellationToken,
         onProgress?: TranslationProgressCallback
     ): Promise<TranslateAllContentResult> {
-        const execution = await this.selectTranslationLanguageModel();
+        const execution = await this.selectTranslationLanguageModel(`geocache-${input.geocacheId}`);
 
         const description = (input.descriptionHtml || '').trim();
         const sourceHints = (input.hintsDecoded || '').trim();
@@ -690,9 +690,10 @@ export class GeocacheDetailsTranslationController {
         }
     }
 
-    private async selectTranslationLanguageModel(): Promise<GeoAppAiTaskExecution> {
+    private async selectTranslationLanguageModel(subjectId: string): Promise<GeoAppAiTaskExecution> {
         return this.aiExecutionService.beginTaskExecution('translate-description', {
-            operationId: `geoapp-translate-${Date.now()}`,
+            operationId: `geoapp-translate-${subjectId}-${Date.now()}`,
+            subjectId,
         });
     }
 

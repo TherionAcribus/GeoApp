@@ -36,6 +36,7 @@ export type GeoAppAiExecutionRequestInput = Omit<UserRequest, 'agentId' | 'reque
 
 export interface GeoAppAiTaskExecution {
     readonly operationId: string;
+    readonly subjectId?: string;
     readonly sessionId: string;
     readonly task: Readonly<GeoAppAiTaskDescriptor>;
     readonly resolution: Readonly<GeoAppAiModelResolution>;
@@ -108,6 +109,7 @@ export function isGeoAppAiRetryableError(error: unknown): boolean {
 
 interface InternalTaskExecution {
     operationId: string;
+    subjectId?: string;
     sessionId: string;
     task: GeoAppAiTaskDescriptor;
     resolution: GeoAppAiModelResolution;
@@ -147,9 +149,11 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             : [...this.executionHistory];
     }
 
-    getLatestExecution(taskId: string): GeoAppAiExecutionRecord | undefined {
-        return [...this.activeExecutions.values()].find(record => record.taskId === taskId)
-            ?? this.executionHistory.find(execution => execution.taskId === taskId);
+    getLatestExecution(taskId: string, subjectId?: string): GeoAppAiExecutionRecord | undefined {
+        const matches = (record: GeoAppAiExecutionRecord): boolean =>
+            record.taskId === taskId && (subjectId === undefined || record.subjectId === subjectId);
+        return [...this.activeExecutions.values()].find(matches)
+            ?? this.executionHistory.find(matches);
     }
 
     async runOperation<T>(
@@ -162,6 +166,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
             throw new Error(`Tâche IA inconnue : ${taskId}`);
         }
         const operationId = options.operationId || this.newId(`geoapp-${task.id}`);
+        const subjectId = options.subjectId;
         const sessionId = options.sessionId || `${operationId}-session`;
         let resolution = options.resolution || await this.modelResolutionService.resolveTask(task);
         const backendExecution = options.backendExecution;
@@ -188,7 +193,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         }
         if (resolution.status !== 'ready' || !resolution.resolvedModelId) {
             const error = new GeoAppAiExecutionUnavailableError(task, resolution);
-            this.recordResolutionFailure(task, resolution, operationId, sessionId, error);
+            this.recordResolutionFailure(task, resolution, operationId, sessionId, error, subjectId);
             throw error;
         }
 
@@ -196,6 +201,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         const execution: GeoAppAiExecutionRecord = {
             id: this.newId(`${task.id}-exec`),
             operationId,
+            subjectId,
             requestId: options.requestId || `${operationId}-request-1`,
             sessionId,
             taskId: task.id,
@@ -239,6 +245,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         try {
             const response = await operation({
                 operationId,
+                subjectId,
                 sessionId,
                 task: Object.freeze({ ...task }),
                 resolution: execution.resolution,
@@ -258,7 +265,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
 
     async beginTaskExecution(
         taskId: string,
-        options: { operationId?: string; sessionId?: string } = {}
+        options: { operationId?: string; subjectId?: string; sessionId?: string } = {}
     ): Promise<GeoAppAiTaskExecution> {
         const task = this.modelResolutionService.getTasks().find(candidate => candidate.id === taskId);
         if (!task) {
@@ -269,11 +276,12 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         }
 
         const operationId = options.operationId || this.newId(`geoapp-${task.id}`);
+        const subjectId = options.subjectId;
         const sessionId = options.sessionId || `${operationId}-session`;
         let resolution = await this.modelResolutionService.resolveTask(task);
         if (resolution.status !== 'ready' || !resolution.resolvedModelId) {
             const error = new GeoAppAiExecutionUnavailableError(task, resolution);
-            this.recordResolutionFailure(task, resolution, operationId, sessionId, error);
+            this.recordResolutionFailure(task, resolution, operationId, sessionId, error, subjectId);
             throw error;
         }
 
@@ -296,12 +304,13 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 };
             }
             const error = new GeoAppAiExecutionUnavailableError(task, resolution);
-            this.recordResolutionFailure(task, resolution, operationId, sessionId, error);
+            this.recordResolutionFailure(task, resolution, operationId, sessionId, error, subjectId);
             throw error;
         }
 
         const context: InternalTaskExecution = {
             operationId,
+            subjectId,
             sessionId,
             task,
             resolution: this.freezeResolution(resolution),
@@ -311,6 +320,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
 
         return {
             operationId,
+            subjectId,
             sessionId,
             task: Object.freeze({ ...task }),
             resolution: context.resolution,
@@ -321,10 +331,11 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
     async sendTaskRequest(
         taskId: string,
         request: GeoAppAiExecutionRequestInput,
-        options: GeoAppAiExecutionRequestOptions & { operationId?: string } = {}
+        options: GeoAppAiExecutionRequestOptions & { operationId?: string; subjectId?: string } = {}
     ): Promise<GeoAppAiExecutionResult<LanguageModelResponse>> {
         const execution = await this.beginTaskExecution(taskId, {
             operationId: options.operationId,
+            subjectId: options.subjectId,
             sessionId: options.sessionId,
         });
         return execution.sendRequest(request, options);
@@ -342,6 +353,7 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         const execution: GeoAppAiExecutionRecord = {
             id: this.newId(`${context.task.id}-exec`),
             operationId: context.operationId,
+            subjectId: context.subjectId,
             requestId,
             sessionId,
             taskId: context.task.id,
@@ -618,12 +630,14 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         resolution: GeoAppAiModelResolution,
         operationId: string,
         sessionId: string,
-        error: Error
+        error: Error,
+        subjectId?: string
     ): void {
         const now = new Date().toISOString();
         const record = this.freezeExecution({
             id: this.newId(`${task.id}-resolution`),
             operationId,
+            subjectId,
             requestId: `${operationId}-resolution`,
             sessionId,
             taskId: task.id,
