@@ -605,6 +605,55 @@
         "offline"
       ]
     },
+    "geoApp.ai.modelCapabilities": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "vision": {
+            "type": "boolean"
+          },
+          "structured-output": {
+            "type": "boolean"
+          },
+          "tools": {
+            "type": "boolean"
+          },
+          "web": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "title": "IA - capacités déclarées des modèles",
+      "description": "Capacités explicites par identifiant de modèle exact ou préfixe terminé par * (ex. ollama/*). Utilisé lorsque les métadonnées Theia ou du fournisseur ne déclarent pas la vision, les sorties structurées, les outils ou l'accès Web. Une valeur false bloque une capacité requise avant l'exécution.",
+      "x-ui": {
+        "section": "Profils",
+        "label": "Capacités déclarées des modèles",
+        "advanced": true,
+        "order": 16,
+        "keywords": [
+          "modele",
+          "vision",
+          "ocr",
+          "json",
+          "outils",
+          "web"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "formula-solver",
+        "geoapp",
+        "ocr",
+        "capabilities"
+      ]
+    },
     "geoApp.chat.defaultProfile": {
       "type": "string",
       "enum": [

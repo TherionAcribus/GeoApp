@@ -3,7 +3,14 @@ import { GeoAppAiModelResolutionService } from '../geoapp-ai-model-resolution-se
 
 interface ResolutionServices {
     preferences?: Record<string, unknown>;
-    models?: Record<string, { id: string; name?: string; vendor?: string } | undefined>;
+    models?: Record<string, {
+        id: string;
+        name?: string;
+        vendor?: string;
+        capabilities?: Record<string, unknown>;
+        model?: string;
+        url?: string;
+    } | undefined>;
     assignedIdentifiers?: Record<string, string>;
     scorer?: {
         provider: string;
@@ -33,7 +40,10 @@ function createService(services: ResolutionServices): GeoAppAiModelResolutionSer
     (service as any).aiSettingsService = {
         getAgentSettings: async (agentId: string) => ({
             languageModelRequirements: services.assignedIdentifiers?.[agentId]
-                ? [{ purpose: 'chat', identifier: services.assignedIdentifiers[agentId] }]
+                ? ['chat', 'formula-solving', 'vision-ocr'].map(purpose => ({
+                    purpose,
+                    identifier: services.assignedIdentifiers![agentId],
+                }))
                 : undefined,
         }),
     };
@@ -112,6 +122,9 @@ async function testVisionBackendUsesTaskPreferences(): Promise<void> {
             'geoApp.ocr.visionProvider': 'lmstudio',
             'geoApp.ocr.lmstudio.baseUrl': 'http://127.0.0.1:1234',
             'geoApp.ocr.lmstudio.model': 'vision-local',
+            'geoApp.ai.modelCapabilities': {
+                'vision-local': { vision: true },
+            },
         },
     });
 
@@ -122,6 +135,58 @@ async function testVisionBackendUsesTaskPreferences(): Promise<void> {
     assert.equal(resolved.transport, 'chat-completions');
     assert.equal(resolved.locality, 'local');
     assert.equal(resolved.status, 'ready');
+}
+
+async function testVisionBackendRejectsDeclaredNonVisionModel(): Promise<void> {
+    const service = createService({
+        preferences: {
+            'geoApp.ocr.visionProvider': 'lmstudio',
+            'geoApp.ocr.lmstudio.baseUrl': 'http://127.0.0.1:1234',
+            'geoApp.ocr.lmstudio.model': 'text-only',
+            'geoApp.ai.modelCapabilities': {
+                'text-only': { vision: false },
+            },
+        },
+    });
+
+    const resolved = await service.resolveTask(task(service, 'ocr-backend-plugin'));
+    assert.equal(resolved.status, 'unsupported');
+    assert.equal(resolved.capabilityChecks?.[0].capability, 'vision');
+    assert.equal(resolved.capabilityChecks?.[0].status, 'unsupported');
+    assert.match(resolved.diagnostics.join('\n'), /Capacité requise vision non supportée/);
+}
+
+async function testTheiaVisionTaskRejectsDeclaredNonVisionModel(): Promise<void> {
+    const service = createService({
+        assignedIdentifiers: {
+            'geoapp-ocr': 'default/vision',
+        },
+        models: {
+            'default/vision': { id: 'default/vision', vendor: 'Ollama', capabilities: { imageInput: false } },
+        },
+    });
+
+    const resolved = await service.resolveTask(task(service, 'ocr-theia'));
+    assert.equal(resolved.status, 'unsupported');
+    assert.equal(resolved.capabilityChecks?.[0].required, true);
+    assert.match(resolved.diagnostics.join('\n'), /vision non supportée/);
+}
+
+async function testOptionalStructuredOutputIsAdvisoryOnly(): Promise<void> {
+    const service = createService({
+        assignedIdentifiers: {
+            'geoapp-formula-solver-fast': 'default/universal',
+        },
+        models: {
+            'default/universal': { id: 'default/universal', vendor: 'OpenAI', capabilities: { structuredOutput: false } },
+        },
+    });
+
+    const resolved = await service.resolveTask(task(service, 'formula-fast'));
+    assert.equal(resolved.status, 'ready');
+    assert.equal(resolved.capabilityChecks?.[0].capability, 'structured-output');
+    assert.equal(resolved.capabilityChecks?.[0].required, false);
+    assert.match(resolved.diagnostics.join('\n'), /diagnostic non bloquant/);
 }
 
 async function testAiScorerKeepsTheiaAndBackendModelIdentity(): Promise<void> {
@@ -151,6 +216,9 @@ async function main(): Promise<void> {
     await testStrictLocalModelCompatibility();
     await testStrictLocalRejectsCloudModel();
     await testVisionBackendUsesTaskPreferences();
+    await testVisionBackendRejectsDeclaredNonVisionModel();
+    await testTheiaVisionTaskRejectsDeclaredNonVisionModel();
+    await testOptionalStructuredOutputIsAdvisoryOnly();
     await testAiScorerKeepsTheiaAndBackendModelIdentity();
     console.log('geoapp-ai-model-resolution-service tests passed');
 }

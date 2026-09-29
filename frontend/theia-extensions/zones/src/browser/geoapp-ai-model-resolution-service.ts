@@ -8,7 +8,10 @@ import {
     LanguageModelRegistry,
 } from '@theia/ai-core';
 import {
+    GeoAppAiCapabilityCheck,
+    GeoAppAiCapabilityStatus,
     GeoAppAiExecutionPath,
+    GeoAppAiModelCapability,
     GeoAppAiModelResolution,
     GeoAppAiModelSource,
     GeoAppAiTaskDescriptor,
@@ -29,22 +32,35 @@ export const GEOAPP_AI_TASKS: GeoAppAiTaskDescriptor[] = [
     { id: 'chat-local', label: 'GeoApp Chat (Local)', agentId: 'geoapp-chat-local', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model', requiresLocalModel: true },
     { id: 'chat-fast', label: 'GeoApp Chat (Fast)', agentId: 'geoapp-chat-fast', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
     { id: 'chat-strong', label: 'GeoApp Chat (Strong)', agentId: 'geoapp-chat-strong', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
-    { id: 'chat-web', label: 'GeoApp Chat (Web)', agentId: 'geoapp-chat-web', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
+    { id: 'chat-web', label: 'GeoApp Chat (Web)', agentId: 'geoapp-chat-web', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model', optionalCapabilities: ['web'] },
     { id: 'earthcoach', label: 'EarthCoach', agentId: 'earthcoach', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
     { id: 'aide', label: '@Aide', agentId: 'geoapp-doc-aide', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
-    { id: 'formula-local', label: 'Formula Solver (Local)', agentId: 'geoapp-formula-solver-local', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', requiresLocalModel: true },
-    { id: 'formula-fast', label: 'Formula Solver (Fast)', agentId: 'geoapp-formula-solver-fast', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model' },
-    { id: 'formula-strong', label: 'Formula Solver (Strong)', agentId: 'geoapp-formula-solver-strong', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model' },
-    { id: 'formula-web', label: 'Formula Solver (Web)', agentId: 'geoapp-formula-solver-web', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model' },
+    { id: 'formula-local', label: 'Formula Solver (Local)', agentId: 'geoapp-formula-solver-local', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', requiresLocalModel: true, optionalCapabilities: ['structured-output'] },
+    { id: 'formula-fast', label: 'Formula Solver (Fast)', agentId: 'geoapp-formula-solver-fast', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', optionalCapabilities: ['structured-output'] },
+    { id: 'formula-strong', label: 'Formula Solver (Strong)', agentId: 'geoapp-formula-solver-strong', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', optionalCapabilities: ['structured-output'] },
+    { id: 'formula-web', label: 'Formula Solver (Web)', agentId: 'geoapp-formula-solver-web', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', optionalCapabilities: ['structured-output', 'web'] },
     { id: 'outing-analysis', label: 'Analyse de sortie', agentId: 'geoapp-outing-analyzer', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
-    { id: 'ocr-theia', label: 'OCR galerie via Theia', agentId: 'geoapp-ocr', purpose: 'vision-ocr', kind: 'internal', executionPath: 'theia-language-model' },
-    { id: 'ocr-backend-plugin', label: 'OCR plugin vision_ocr', kind: 'backend', executionPath: 'backend-plugin' },
+    { id: 'ocr-theia', label: 'OCR galerie via Theia', agentId: 'geoapp-ocr', purpose: 'vision-ocr', kind: 'internal', executionPath: 'theia-language-model', requiredCapabilities: ['vision'] },
+    { id: 'ocr-backend-plugin', label: 'OCR plugin vision_ocr', kind: 'backend', executionPath: 'backend-plugin', requiredCapabilities: ['vision'] },
     { id: 'translate-description', label: 'Traduction descriptions', agentId: 'geoapp-translate-description', purpose: 'chat', kind: 'internal', executionPath: 'theia-language-model' },
     { id: 'logs-analysis', label: 'Analyse des logs', agentId: 'geoapp-logs-analyzer', purpose: 'chat', kind: 'internal', executionPath: 'theia-language-model' },
     { id: 'log-improve', label: 'Correction de logs', agentId: 'geoapp-log-improver', purpose: 'chat', kind: 'internal', executionPath: 'theia-language-model' },
     { id: 'log-translate', label: 'Traduction de logs', agentId: 'geoapp-log-translator', purpose: 'chat', kind: 'internal', executionPath: 'theia-language-model' },
-    { id: 'ai-scorer', label: 'AI Scorer (plugins)', agentId: GEOAPP_AI_SCORER_AGENT_ID, purpose: 'chat', kind: 'internal', executionPath: 'backend-plugin' },
+    { id: 'ai-scorer', label: 'AI Scorer (plugins)', agentId: GEOAPP_AI_SCORER_AGENT_ID, purpose: 'chat', kind: 'internal', executionPath: 'backend-plugin', optionalCapabilities: ['structured-output'] },
 ];
+
+const GEOAPP_MODEL_CAPABILITIES_PREF = 'geoApp.ai.modelCapabilities';
+
+type GeoAppModelCapabilityOverrides = Record<string, Partial<Record<GeoAppAiModelCapability, boolean>>>;
+
+type GeoAppCapabilityMap = Partial<Record<GeoAppAiModelCapability, boolean>>;
+
+interface GeoAppModelCapabilityCandidate {
+    identifiers: Array<string | undefined>;
+    provider?: string;
+    baseUrl?: string;
+    rawModel?: unknown;
+}
 
 const OPENROUTER_SLOT_PREFS: Record<string, string> = {
     'openrouter/fast': 'geoApp.ai.openRouter.model.fast',
@@ -74,15 +90,21 @@ export class GeoAppAiModelResolutionService {
     @inject(GeoAppAiScorerModelResolver) @optional()
     protected readonly aiScorerModelResolver: GeoAppAiScorerModelResolver | undefined;
 
+    protected readonly capabilityProbeCache = new Map<string, Promise<GeoAppCapabilityMap | undefined>>();
+
     @postConstruct()
     protected init(): void {
-        this.languageModelRegistry?.onChange(() => this.onDidChangeEmitter.fire());
+        this.languageModelRegistry?.onChange(() => {
+            this.capabilityProbeCache.clear();
+            this.onDidChangeEmitter.fire();
+        });
         this.preferenceService.onPreferenceChanged(event => {
             const preference = event.preferenceName || '';
             if (preference.startsWith('geoApp.ai.')
                 || preference.startsWith('geoApp.aiScorer.')
                 || preference.startsWith('geoApp.ocr.')
                 || preference.startsWith('ai-features.')) {
+                this.capabilityProbeCache.clear();
                 this.onDidChangeEmitter.fire();
             }
         });
@@ -184,13 +206,23 @@ export class GeoAppAiModelResolutionService {
         }
 
         const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+        const blockingDiagnostics: string[] = [];
         if (task.requiresLocalModel && localCheck.status !== 'local') {
-            diagnostics.push(`Non compatible local/offline : ${localCheck.reason}.`);
+            blockingDiagnostics.push(`Non compatible local/offline : ${localCheck.reason}.`);
         }
         const backingPreference = OPENROUTER_SLOT_PREFS[model.id];
         const backingModel = backingPreference
             ? this.preferenceService.get<string>(backingPreference, '')
             : undefined;
+        const provider = this.inferProvider(model.id, model.vendor);
+        const capabilityChecks = await this.inspectModelCapabilities(task, {
+            identifiers: [model.id, this.readModelProperty(model, 'model'), backingModel],
+            provider,
+            baseUrl: this.readModelProperty(model, 'url'),
+            rawModel: model,
+        });
+        const advisoryDiagnostics: string[] = [];
+        const capabilityStatus = this.applyCapabilityChecks(capabilityChecks, blockingDiagnostics, advisoryDiagnostics);
 
         return {
             ...base,
@@ -200,15 +232,16 @@ export class GeoAppAiModelResolutionService {
             resolvedModelId: model.id,
             displayModel: model.name && model.name !== model.id ? `${model.name} · ${model.id}` : model.id,
             vendor: model.vendor,
-            provider: this.inferProvider(model.id, model.vendor),
+            provider,
             transport: 'theia-managed',
             backingModel: backingModel || undefined,
             backingPreference,
             source,
             sourceLabel,
             locality: localCheck.status,
-            status: diagnostics.length ? 'incompatible' : 'ready',
-            diagnostics,
+            status: capabilityStatus || (blockingDiagnostics.length ? 'incompatible' : 'ready'),
+            diagnostics: [...diagnostics, ...blockingDiagnostics, ...advisoryDiagnostics],
+            capabilityChecks,
         };
     }
 
@@ -229,6 +262,18 @@ export class GeoAppAiModelResolutionService {
                 ? 'remote'
                 : checkGeoAppLocalEndpoint(runtime.base_url).status;
             const resolved = runtime.theiaModelId || runtime.model;
+            const theiaModel = runtime.theiaModelId && this.languageModelRegistry?.getLanguageModel
+                ? await this.languageModelRegistry.getLanguageModel(runtime.theiaModelId).catch(() => undefined)
+                : undefined;
+            const capabilityChecks = await this.inspectModelCapabilities(task, {
+                identifiers: [runtime.theiaModelId, runtime.model],
+                provider: runtime.provider,
+                baseUrl: runtime.base_url,
+                rawModel: theiaModel,
+            }, { probe: false });
+            const advisoryDiagnostics: string[] = [];
+            const blockingDiagnostics: string[] = [];
+            this.applyCapabilityChecks(capabilityChecks, blockingDiagnostics, advisoryDiagnostics);
             return {
                 ...base,
                 agentId: task.agentId,
@@ -245,7 +290,10 @@ export class GeoAppAiModelResolutionService {
                 sourceLabel: runtime.sourceLabel,
                 locality,
                 status: runtime.model ? 'ready' : 'unconfigured',
-                diagnostics: runtime.model ? [] : ['Aucun modèle backend configuré pour le scoring.'],
+                diagnostics: runtime.model
+                    ? advisoryDiagnostics
+                    : ['Aucun modèle backend configuré pour le scoring.', ...advisoryDiagnostics],
+                capabilityChecks,
             };
         } catch (error) {
             return {
@@ -261,7 +309,7 @@ export class GeoAppAiModelResolutionService {
         }
     }
 
-    protected resolveVisionBackendTask(task: GeoAppAiTaskDescriptor): GeoAppAiModelResolution {
+    protected async resolveVisionBackendTask(task: GeoAppAiTaskDescriptor): Promise<GeoAppAiModelResolution> {
         const provider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio') === 'openrouter'
             ? 'openrouter'
             : 'lmstudio';
@@ -272,6 +320,17 @@ export class GeoAppAiModelResolutionService {
             ? this.preferenceService.get<string>('geoApp.ai.openRouter.baseUrl', 'https://openrouter.ai/api/v1')
             : this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234');
         const locality = provider === 'openrouter' ? 'remote' : checkGeoAppLocalEndpoint(baseUrl).status;
+        const capabilityChecks = await this.inspectModelCapabilities(task, {
+            identifiers: [model],
+            provider,
+            baseUrl,
+        });
+        const blockingDiagnostics: string[] = [];
+        const advisoryDiagnostics: string[] = [];
+        const capabilityStatus = this.applyCapabilityChecks(capabilityChecks, blockingDiagnostics, advisoryDiagnostics);
+        const diagnostics = model
+            ? [...blockingDiagnostics, ...advisoryDiagnostics]
+            : ['Aucun modèle configuré pour le plugin vision_ocr.', ...blockingDiagnostics, ...advisoryDiagnostics];
         return {
             ...this.baseResolution(task, 'backend-plugin'),
             resolvedModelId: model || undefined,
@@ -283,8 +342,9 @@ export class GeoAppAiModelResolutionService {
             source: 'task-preference',
             sourceLabel: 'préférences geoApp.ocr.*',
             locality,
-            status: model ? 'ready' : 'unconfigured',
-            diagnostics: model ? [] : ['Aucun modèle configuré pour le plugin vision_ocr.'],
+            status: model ? capabilityStatus || 'ready' : 'unconfigured',
+            diagnostics,
+            capabilityChecks,
         };
     }
 
@@ -292,7 +352,7 @@ export class GeoAppAiModelResolutionService {
         task: GeoAppAiTaskDescriptor,
         executionPath: GeoAppAiExecutionPath
     ): Pick<GeoAppAiModelResolution,
-        'taskId' | 'taskLabel' | 'kind' | 'executionPath' | 'source' | 'sourceLabel' | 'locality' | 'status' | 'diagnostics' | 'requiresLocalModel'> {
+        'taskId' | 'taskLabel' | 'kind' | 'executionPath' | 'source' | 'sourceLabel' | 'locality' | 'status' | 'diagnostics' | 'requiresLocalModel' | 'requiredCapabilities' | 'optionalCapabilities'> {
         return {
             taskId: task.id,
             taskLabel: task.label,
@@ -304,7 +364,406 @@ export class GeoAppAiModelResolutionService {
             status: 'unavailable',
             diagnostics: [],
             requiresLocalModel: task.requiresLocalModel,
+            requiredCapabilities: task.requiredCapabilities,
+            optionalCapabilities: task.optionalCapabilities,
         };
+    }
+
+    async evaluateTaskCapabilities(
+        task: GeoAppAiTaskDescriptor,
+        candidate: {
+            identifiers: Array<string | undefined>;
+            provider?: string;
+            baseUrl?: string;
+            rawModel?: unknown;
+        },
+        options: { probe?: boolean } = {}
+    ): Promise<{
+        capabilityChecks: GeoAppAiCapabilityCheck[];
+        diagnostics: string[];
+        status?: 'unsupported';
+    }> {
+        const capabilityChecks = await this.inspectModelCapabilities(task, candidate, options);
+        const blockingDiagnostics: string[] = [];
+        const advisoryDiagnostics: string[] = [];
+        const status = this.applyCapabilityChecks(capabilityChecks, blockingDiagnostics, advisoryDiagnostics);
+        return {
+            capabilityChecks,
+            diagnostics: [...blockingDiagnostics, ...advisoryDiagnostics],
+            status,
+        };
+    }
+
+    protected async inspectModelCapabilities(
+        task: GeoAppAiTaskDescriptor,
+        candidate: GeoAppModelCapabilityCandidate,
+        options: { probe?: boolean } = {}
+    ): Promise<GeoAppAiCapabilityCheck[]> {
+        const expected = [...(task.requiredCapabilities || []), ...(task.optionalCapabilities || [])]
+            .filter((capability, index, all) => all.indexOf(capability) === index);
+        if (!expected.length) {
+            return [];
+        }
+
+        const declared = this.readDeclaredCapabilities(candidate.rawModel);
+        const overrides = this.getCapabilityOverrides(candidate.identifiers);
+        const missing = expected.filter(capability =>
+            overrides[capability] === undefined && declared[capability] === undefined
+        );
+        const providerDeclared = options.probe === false || !missing.length
+            ? undefined
+            : await this.probeModelCapabilities(candidate);
+        const checks = new Map<GeoAppAiModelCapability, GeoAppAiCapabilityCheck>();
+        for (const capability of expected) {
+            const required = Boolean(task.requiredCapabilities?.includes(capability));
+            const override = overrides[capability];
+            const modelValue = declared[capability];
+            const providerValue = providerDeclared?.[capability];
+            const value = override ?? modelValue ?? providerValue;
+            checks.set(capability, {
+                capability,
+                required,
+                status: value === undefined ? 'unknown' : value ? 'supported' : 'unsupported',
+                source: override !== undefined
+                    ? 'preference'
+                    : modelValue !== undefined
+                        ? 'model'
+                        : providerValue !== undefined
+                            ? 'provider'
+                            : 'unverified',
+                detail: override !== undefined
+                    ? GEOAPP_MODEL_CAPABILITIES_PREF
+                    : modelValue !== undefined
+                        ? 'métadonnées du modèle'
+                        : providerValue !== undefined
+                            ? 'métadonnées du fournisseur'
+                            : 'aucune métadonnée fiable',
+            });
+        }
+        return [...checks.values()];
+    }
+
+    protected applyCapabilityChecks(
+        checks: readonly GeoAppAiCapabilityCheck[],
+        blockingDiagnostics: string[],
+        advisoryDiagnostics: string[]
+    ): 'unsupported' | undefined {
+        let incompatible = false;
+        for (const check of checks) {
+            if (check.status === 'supported') {
+                continue;
+            }
+            const label = this.capabilityLabel(check.capability);
+            const state = check.status === 'unsupported' ? 'non supportée' : 'non vérifiée';
+            const detail = check.detail ? ` (${check.detail})` : '';
+            if (check.required) {
+                incompatible = true;
+                blockingDiagnostics.push(`Capacité requise ${label} ${state}${detail}.`);
+            } else {
+                advisoryDiagnostics.push(`Capacité ${label} ${state}${detail} ; diagnostic non bloquant.`);
+            }
+        }
+        return incompatible ? 'unsupported' : undefined;
+    }
+
+    protected readDeclaredCapabilities(rawModel: unknown): GeoAppCapabilityMap {
+        const model = this.asRecord(rawModel);
+        if (!model) {
+            return {};
+        }
+        const capabilities = model.capabilities;
+        const capabilityRecord = this.asRecord(capabilities);
+        const capabilityNames = new Set(
+            Array.isArray(capabilities)
+                ? capabilities.filter((value): value is string => typeof value === 'string').map(value => value.toLowerCase())
+                : []
+        );
+        const declared: GeoAppCapabilityMap = {};
+        const vision = this.booleanValue(
+            capabilityRecord?.imageInput
+            ?? capabilityRecord?.vision
+            ?? model.supportsVision
+            ?? model.supportsImageInput
+            ?? model.supportsImages
+            ?? model.vision
+        );
+        const modalities = [
+            capabilityRecord?.input_modalities,
+            capabilityRecord?.inputModalities,
+            model.input_modalities,
+            model.inputModalities,
+            this.asRecord(model.architecture)?.input_modalities,
+            this.asRecord(model.architecture)?.inputModalities,
+            this.asRecord(model.architecture)?.modality,
+        ];
+        const tools = this.booleanValue(
+            capabilityRecord?.toolCalling
+            ?? capabilityRecord?.tools
+            ?? model.supportsTools
+            ?? model.supportsToolCalling
+            ?? model.toolCalling
+        );
+        const structuredOutput = this.booleanValue(
+            capabilityRecord?.structuredOutput
+            ?? capabilityRecord?.json
+            ?? model.supportsStructuredOutput
+            ?? model.supportsJsonSchema
+            ?? model.structuredOutput
+        );
+        const serverTools = Array.isArray(model.serverTools)
+            ? model.serverTools.map(tool => this.asRecord(tool)?.id).filter((id): id is string => typeof id === 'string')
+            : [];
+        const web = this.booleanValue(
+            capabilityRecord?.web
+            ?? capabilityRecord?.webSearch
+            ?? model.supportsWebSearch
+            ?? model.supportsWeb
+        );
+
+        if (vision !== undefined || capabilityNames.has('vision') || capabilityNames.has('image')) {
+            declared.vision = vision ?? true;
+        }
+        if (vision === undefined && modalities.some(value => this.stringListContains(value, 'image'))) {
+            declared.vision = true;
+        }
+        if (tools !== undefined || capabilityNames.has('tools') || capabilityNames.has('tool-calling')) {
+            declared.tools = tools ?? true;
+        }
+        if (structuredOutput !== undefined
+            || capabilityNames.has('structured-output')
+            || capabilityNames.has('json-schema')
+            || capabilityNames.has('json')) {
+            declared['structured-output'] = structuredOutput ?? true;
+        }
+        if (web !== undefined
+            || capabilityNames.has('web')
+            || capabilityNames.has('web-search')
+            || serverTools.some(id => /web|search|fetch|browser/i.test(id))) {
+            declared.web = web ?? true;
+        }
+        return declared;
+    }
+
+    protected getCapabilityOverrides(identifiers: readonly (string | undefined)[]): GeoAppCapabilityMap {
+        const configured = this.asRecord(this.preferenceService.get(GEOAPP_MODEL_CAPABILITIES_PREF, {}));
+        if (!configured) {
+            return {};
+        }
+        const normalized = identifiers
+            .filter((identifier): identifier is string => typeof identifier === 'string' && Boolean(identifier.trim()))
+            .map(identifier => identifier.trim().toLowerCase());
+        const merged: GeoAppCapabilityMap = {};
+        for (const [pattern, entry] of Object.entries(configured).sort((a, b) => a[0].length - b[0].length)) {
+            const normalizedPattern = pattern.trim().toLowerCase();
+            const matches = normalizedPattern.endsWith('*')
+                ? normalized.some(identifier => identifier.startsWith(normalizedPattern.slice(0, -1)))
+                : normalized.includes(normalizedPattern);
+            if (!matches) {
+                continue;
+            }
+            const entryRecord = this.asRecord(entry);
+            if (!entryRecord) {
+                continue;
+            }
+            for (const capability of ['vision', 'structured-output', 'tools', 'web'] as GeoAppAiModelCapability[]) {
+                const value = this.booleanValue(entryRecord[capability]);
+                if (value !== undefined) {
+                    merged[capability] = value;
+                }
+            }
+        }
+        return merged;
+    }
+
+    protected async probeModelCapabilities(candidate: GeoAppModelCapabilityCandidate): Promise<GeoAppCapabilityMap | undefined> {
+        const identifiers = candidate.identifiers.filter((identifier): identifier is string => Boolean(identifier?.trim()));
+        const ollamaIdentifier = identifiers.find(identifier => identifier.toLowerCase().startsWith('ollama/'));
+        if (candidate.provider === 'ollama' || ollamaIdentifier) {
+            const model = this.readModelProperty(candidate.rawModel, 'model')
+                || ollamaIdentifier?.replace(/^ollama\//i, '')
+                || identifiers[0];
+            const host = this.preferenceService.get<string>('ai-features.ollama.ollamaHost', 'http://localhost:11434');
+            return this.cachedCapabilityProbe(`ollama:${host}:${model}`, async () => {
+                const payload = await this.fetchJson(`${host.replace(/\/+$/, '')}/api/show`, {
+                    method: 'POST',
+                    body: JSON.stringify({ model }),
+                });
+                return this.readOllamaCapabilities(payload);
+            });
+        }
+
+        const baseUrl = candidate.baseUrl
+            || this.readModelProperty(candidate.rawModel, 'url')
+            || (candidate.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : undefined)
+            || (candidate.provider === 'lmstudio' ? this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234') : undefined);
+        const model = this.readModelProperty(candidate.rawModel, 'model') || identifiers[identifiers.length - 1];
+        if (!baseUrl || !model) {
+            return undefined;
+        }
+        return this.cachedCapabilityProbe(`openai-compatible:${baseUrl}:${model}`, async () => {
+            const endpoint = `${this.normalizeModelsEndpoint(baseUrl)}/models`;
+            const payload = await this.fetchJson(endpoint);
+            return this.readOpenAiCompatibleCapabilities(payload, model);
+        });
+    }
+
+    protected cachedCapabilityProbe(key: string, probe: () => Promise<GeoAppCapabilityMap | undefined>): Promise<GeoAppCapabilityMap | undefined> {
+        const cached = this.capabilityProbeCache.get(key);
+        if (cached) {
+            return cached;
+        }
+        const pending = probe().catch(() => undefined);
+        this.capabilityProbeCache.set(key, pending);
+        return pending;
+    }
+
+    protected readOllamaCapabilities(payload: unknown): GeoAppCapabilityMap | undefined {
+        const capabilities = this.asRecord(payload)?.capabilities;
+        if (!Array.isArray(capabilities)) {
+            return undefined;
+        }
+        const names = new Set(capabilities.filter((value): value is string => typeof value === 'string').map(value => value.toLowerCase()));
+        return {
+            vision: names.has('vision'),
+            tools: names.has('tools'),
+        };
+    }
+
+    protected readOpenAiCompatibleCapabilities(payload: unknown, modelId: string): GeoAppCapabilityMap | undefined {
+        const entries = this.asRecord(payload)?.data;
+        if (!Array.isArray(entries)) {
+            return undefined;
+        }
+        const normalizedId = modelId.toLowerCase();
+        const entry = entries
+            .map(value => this.asRecord(value))
+            .find(candidate => this.stringValue(candidate?.id)?.toLowerCase() === normalizedId);
+        if (!entry) {
+            return undefined;
+        }
+        const declared: GeoAppCapabilityMap = {};
+        const architecture = this.asRecord(entry.architecture);
+        const modality = this.stringValue(architecture?.modality || entry.modality);
+        const inputModalities = [
+            architecture?.input_modalities,
+            architecture?.inputModalities,
+            entry.input_modalities,
+            entry.inputModalities,
+        ];
+        const supportedParameters = this.stringSet(entry.supported_parameters ?? entry.supportedParameters);
+        const capabilities = this.stringSet(entry.capabilities);
+        const explicitVision = this.booleanValue(entry.supports_vision ?? entry.supportsVision ?? entry.vision);
+        const modelKind = [entry.type, entry.model_type, entry.modelType, entry.compatibility_type, entry.compatibilityType]
+            .map(value => this.stringValue(value)?.toLowerCase())
+            .find(Boolean);
+        if (explicitVision !== undefined) {
+            declared.vision = explicitVision;
+        } else if (modelKind === 'llm') {
+            declared.vision = false;
+        } else if (modelKind?.includes('vlm') || modelKind?.includes('vision') || modelKind?.includes('image')) {
+            declared.vision = true;
+        } else if (inputModalities.some(Array.isArray)) {
+            declared.vision = inputModalities.some(value => this.stringListContains(value, 'image'));
+        } else if (inputModalities.some(value => this.stringListContains(value, 'image'))) {
+            declared.vision = true;
+        } else if (modality && !modality.toLowerCase().includes('image')) {
+            declared.vision = false;
+        } else if (modality && modality.toLowerCase().includes('image')) {
+            declared.vision = true;
+        }
+        if (capabilities.has('vision') || capabilities.has('image')) {
+            declared.vision = true;
+        }
+        if (supportedParameters.has('tools') || supportedParameters.has('tool_choice') || capabilities.has('tools')) {
+            declared.tools = true;
+        }
+        if (supportedParameters.has('response_format')
+            || supportedParameters.has('structured_outputs')
+            || supportedParameters.has('structured-output')
+            || capabilities.has('structured-output')
+            || capabilities.has('json-schema')) {
+            declared['structured-output'] = true;
+        }
+        if (supportedParameters.has('web_search')
+            || supportedParameters.has('web-search')
+            || capabilities.has('web')
+            || capabilities.has('web-search')) {
+            declared.web = true;
+        }
+        return Object.keys(declared).length ? declared : undefined;
+    }
+
+    protected normalizeModelsEndpoint(baseUrl: string): string {
+        const withoutCompletions = baseUrl.trim().replace(/\/chat\/completions\/?$/i, '').replace(/\/+$/, '');
+        if (/\/models$/i.test(withoutCompletions)) {
+            return withoutCompletions.replace(/\/models$/i, '');
+        }
+        return /\/v\d+$/i.test(withoutCompletions) ? withoutCompletions : `${withoutCompletions}/v1`;
+    }
+
+    protected async fetchJson(url: string, init: RequestInit = {}): Promise<unknown> {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1500);
+        try {
+            const headers = new Headers(init.headers);
+            headers.set('Accept', 'application/json');
+            if (init.body) {
+                headers.set('Content-Type', 'application/json');
+            }
+            const response = await fetch(url, {
+                ...init,
+                signal: controller.signal,
+                headers,
+            });
+            if (!response.ok) {
+                return undefined;
+            }
+            return response.json();
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    protected readModelProperty(model: unknown, key: string): string | undefined {
+        return this.stringValue(this.asRecord(model)?.[key]);
+    }
+
+    protected stringListContains(value: unknown, expected: string): boolean {
+        const values = Array.isArray(value) ? value : [value];
+        return values.some(item => this.stringValue(item)?.toLowerCase().includes(expected.toLowerCase()));
+    }
+
+    protected stringSet(value: unknown): Set<string> {
+        if (!Array.isArray(value)) {
+            return new Set();
+        }
+        return new Set(value.filter((item): item is string => typeof item === 'string').map(item => item.toLowerCase()));
+    }
+
+    protected asRecord(value: unknown): Record<string, unknown> | undefined {
+        return value !== null && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : undefined;
+    }
+
+    protected stringValue(value: unknown): string | undefined {
+        return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+    }
+
+    protected booleanValue(value: unknown): boolean | undefined {
+        if (typeof value === 'boolean') {
+            return value;
+        }
+        return typeof value === 'number' ? value > 0 : undefined;
+    }
+
+    protected capabilityLabel(capability: GeoAppAiModelCapability): string {
+        switch (capability) {
+            case 'vision': return 'vision';
+            case 'structured-output': return 'sortie structurée';
+            case 'tools': return 'appels d’outils';
+            case 'web': return 'accès Web';
+        }
     }
 
     protected getAgentRequirement(agentId: string, purpose: string): { identifier?: string } | undefined {

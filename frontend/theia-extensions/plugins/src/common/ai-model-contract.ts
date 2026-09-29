@@ -4,6 +4,17 @@ export type GeoAppAiModelSource = 'operation' | 'session' | 'agent' | 'task-pref
 export type GeoAppAiModelLocality = 'local' | 'remote' | 'unknown';
 export type GeoAppAiModelStatus = 'ready' | 'unavailable' | 'incompatible' | 'unsupported' | 'unconfigured';
 export type GeoAppAiModelTransport = 'theia-managed' | 'chat-completions' | 'responses-api' | 'unknown';
+export type GeoAppAiModelCapability = 'vision' | 'structured-output' | 'tools' | 'web';
+export type GeoAppAiCapabilityStatus = 'supported' | 'unsupported' | 'unknown';
+export type GeoAppAiCapabilitySource = 'model' | 'preference' | 'provider' | 'unverified';
+
+export interface GeoAppAiCapabilityCheck {
+    capability: GeoAppAiModelCapability;
+    required: boolean;
+    status: GeoAppAiCapabilityStatus;
+    source: GeoAppAiCapabilitySource;
+    detail?: string;
+}
 
 export interface GeoAppAiTaskDescriptor {
     id: string;
@@ -13,6 +24,10 @@ export interface GeoAppAiTaskDescriptor {
     kind: GeoAppAiTaskKind;
     executionPath: GeoAppAiExecutionPath;
     requiresLocalModel?: boolean;
+    /** Capacités indispensables : une valeur inconnue ou non supportée bloque l'exécution. */
+    requiredCapabilities?: GeoAppAiModelCapability[];
+    /** Capacités souhaitées : leur absence produit un diagnostic non bloquant. */
+    optionalCapabilities?: GeoAppAiModelCapability[];
 }
 
 export interface GeoAppAiModelResolution {
@@ -36,6 +51,9 @@ export interface GeoAppAiModelResolution {
     status: GeoAppAiModelStatus;
     diagnostics: string[];
     requiresLocalModel?: boolean;
+    requiredCapabilities?: GeoAppAiModelCapability[];
+    optionalCapabilities?: GeoAppAiModelCapability[];
+    capabilityChecks?: GeoAppAiCapabilityCheck[];
 }
 
 export type GeoAppAiExecutionStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';

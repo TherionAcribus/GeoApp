@@ -176,19 +176,46 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
                 : backendExecution.baseUrl
                     ? checkGeoAppLocalEndpoint(backendExecution.baseUrl).status
                     : resolution.locality;
+            const backendModelId = backendExecution.resolvedModelId || backendExecution.model;
+            const capabilityEvaluation = backendModelId
+                ? await this.modelResolutionService.evaluateTaskCapabilities(task, {
+                    identifiers: [backendExecution.resolvedModelId, backendExecution.model, backendExecution.requestedIdentifier],
+                    provider: backendExecution.provider,
+                    baseUrl: backendExecution.baseUrl,
+                })
+                : undefined;
+            const capabilityChecks = capabilityEvaluation?.capabilityChecks || resolution.capabilityChecks;
+            const capabilityIncompatible = Boolean(capabilityChecks?.some(check =>
+                check.required && check.status !== 'supported'
+            ));
+            const previousDiagnostics = resolution.diagnostics.filter(diagnostic =>
+                !/^Capacité /i.test(diagnostic)
+                && !/Aucun modèle configuré|n’est pas disponible|n’est pas exécutable/i.test(diagnostic)
+            );
+            const diagnostics = capabilityEvaluation
+                ? [...previousDiagnostics, ...capabilityEvaluation.diagnostics]
+                : capabilityIncompatible
+                    ? resolution.diagnostics
+                    : previousDiagnostics;
+            const provider = backendExecution.provider || resolution.provider;
             resolution = {
                 ...resolution,
                 requestedIdentifier: backendExecution.requestedIdentifier || resolution.requestedIdentifier,
-                resolvedModelId: backendExecution.resolvedModelId || backendExecution.model || backendExecution.provider,
-                displayModel: backendExecution.displayModel || resolution.displayModel,
-                provider: backendExecution.provider || resolution.provider,
+                resolvedModelId: backendModelId || backendExecution.provider,
+                displayModel: backendExecution.displayModel
+                    || (backendModelId ? `${provider || 'backend'}/${backendModelId}` : resolution.displayModel),
+                provider,
                 transport: 'chat-completions',
                 backingModel: backendExecution.model || resolution.backingModel,
                 source: backendExecution.source || resolution.source,
                 sourceLabel: backendExecution.sourceLabel || resolution.sourceLabel,
                 locality,
-                status: 'ready',
-                diagnostics: backendExecution.model || backendExecution.resolvedModelId ? [] : ['Le modèle effectif sera déterminé par le backend.'],
+                status: capabilityIncompatible ? 'unsupported' : 'ready',
+                diagnostics: [
+                    ...diagnostics,
+                    ...(backendModelId ? [] : ['Le modèle effectif sera déterminé par le backend.']),
+                ],
+                capabilityChecks,
             };
         }
         if (resolution.status !== 'ready' || !resolution.resolvedModelId) {
@@ -661,6 +688,11 @@ export class GeoAppAiExecutionService implements GeoAppAiOperationRecorder {
         return Object.freeze({
             ...resolution,
             diagnostics: Object.freeze([...resolution.diagnostics]),
+            requiredCapabilities: resolution.requiredCapabilities && Object.freeze([...resolution.requiredCapabilities]),
+            optionalCapabilities: resolution.optionalCapabilities && Object.freeze([...resolution.optionalCapabilities]),
+            capabilityChecks: resolution.capabilityChecks && Object.freeze(
+                resolution.capabilityChecks.map(check => Object.freeze({ ...check }))
+            ),
         }) as GeoAppAiModelResolution;
     }
 

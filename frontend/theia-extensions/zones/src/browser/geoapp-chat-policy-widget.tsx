@@ -52,7 +52,12 @@ import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from '.
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
-import { GeoAppAiExecutionRecord, GeoAppAiModelResolution, GeoAppAiTokenUsage } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
+import {
+    GeoAppAiCapabilityCheck,
+    GeoAppAiExecutionRecord,
+    GeoAppAiModelResolution,
+    GeoAppAiTokenUsage
+} from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'Général' },
@@ -538,6 +543,14 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                                         <div className={statusClass}>
                                             {resolution ? `${this.formatModelLocality(resolution)} · ${this.formatModelStatus(resolution)}` : '—'}
                                         </div>
+                                        {resolution?.capabilityChecks?.map(check => (
+                                            <div
+                                                key={check.capability}
+                                                className={check.status === 'supported' ? 'geoapp-chat-policy-muted' : 'geoapp-chat-policy-warn'}
+                                            >
+                                                {this.formatCapabilityCheck(check)}
+                                            </div>
+                                        ))}
                                     </td>
                                     <td>{this.formatLastExecution(lastExecution)}</td>
                                 </tr>
@@ -604,6 +617,16 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             case 'unsupported': return 'non pris en charge';
             default: return 'indisponible';
         }
+    }
+
+    protected formatCapabilityCheck(check: GeoAppAiCapabilityCheck): string {
+        const label = check.capability === 'structured-output' ? 'sortie structurée' : check.capability;
+        const status = check.status === 'supported'
+            ? 'supportée'
+            : check.status === 'unsupported'
+                ? 'non supportée'
+                : 'non vérifiée';
+        return `${check.required ? 'Requis' : 'Option'} · ${label} : ${status}`;
     }
 
     protected formatLastExecution(execution: GeoAppAiExecutionRecord | undefined): React.ReactNode {

@@ -7,6 +7,9 @@ interface FakeModel {
     id: string;
     name?: string;
     vendor?: string;
+    capabilities?: Record<string, unknown>;
+    model?: string;
+    url?: string;
 }
 
 class FakeLanguageModelRegistry {
@@ -29,7 +32,12 @@ class FakeLanguageModelRegistry {
 }
 
 class FakePreferenceService {
+    constructor(private readonly values: Record<string, unknown> = {}) {}
+
     get<T>(key: string, fallback: T): T {
+        if (key in this.values) {
+            return this.values[key] as T;
+        }
         return key === 'ai-features.ollama.ollamaHost' ? 'http://localhost:11434' as T : fallback;
     }
 
@@ -53,6 +61,7 @@ function createServices(options: {
     models?: Record<string, FakeModel | undefined>;
     response?: unknown;
     assignedIdentifiers?: Record<string, string>;
+    preferences?: Record<string, unknown>;
 }): {
     executionService: GeoAppAiExecutionService;
     registry: FakeLanguageModelRegistry;
@@ -63,7 +72,7 @@ function createServices(options: {
     });
     const llm = new FakeLanguageModelService(options.response);
     const resolutionService = new GeoAppAiModelResolutionService();
-    (resolutionService as any).preferenceService = new FakePreferenceService();
+    (resolutionService as any).preferenceService = new FakePreferenceService(options.preferences);
     (resolutionService as any).languageModelRegistry = registry;
     if (options.assignedIdentifiers) {
         (resolutionService as any).aiSettingsService = {
@@ -180,6 +189,53 @@ async function testStrictLocalResolutionDoesNotDispatchCloudModel(): Promise<voi
     );
     assert.equal(llm.requests.length, 0);
     assert.equal(executionService.getLatestExecution('formula-local')?.status, 'failed');
+}
+
+async function testRequiredVisionCapabilityDoesNotDispatch(): Promise<void> {
+    const { executionService, llm } = createServices({
+        models: {
+            'default/universal': { id: 'ollama/text-only', vendor: 'Ollama', capabilities: { imageInput: false } },
+        },
+    });
+
+    await assert.rejects(
+        () => executionService.beginTaskExecution('ocr-theia'),
+        /vision non supportée/i
+    );
+    assert.equal(llm.requests.length, 0);
+    assert.equal(executionService.getLatestExecution('ocr-theia')?.status, 'failed');
+    assert.equal(executionService.getLatestExecution('ocr-theia')?.errorCode, 'resolution-unsupported');
+}
+
+async function testBackendOverrideCannotBypassRequiredCapability(): Promise<void> {
+    let called = false;
+    const { executionService } = createServices({
+        preferences: {
+            'geoApp.ocr.visionProvider': 'lmstudio',
+            'geoApp.ocr.lmstudio.baseUrl': 'http://localhost:1234',
+            'geoApp.ocr.lmstudio.model': 'text-only',
+            'geoApp.ai.modelCapabilities': {
+                'text-only': { vision: false },
+            },
+        },
+    });
+
+    await assert.rejects(
+        () => executionService.runOperation('ocr-backend-plugin', async () => {
+            called = true;
+            return { status: 'ok' };
+        }, {
+            backendExecution: {
+                provider: 'lmstudio',
+                baseUrl: 'http://localhost:1234',
+                model: 'text-only',
+            },
+        }),
+        /vision non supportée/i
+    );
+
+    assert.equal(called, false);
+    assert.equal(executionService.getLatestExecution('ocr-backend-plugin')?.status, 'failed');
 }
 
 async function testCancellationBeforeDispatchDoesNotCallProvider(): Promise<void> {
@@ -359,7 +415,13 @@ async function testExecutionsCanBeScopedBySubject(): Promise<void> {
 }
 
 async function testBackendOperationKeepsSubjectInContextAndRecord(): Promise<void> {
-    const { executionService } = createServices({});
+    const { executionService } = createServices({
+        preferences: {
+            'geoApp.ai.modelCapabilities': {
+                'vision-local': { vision: true },
+            },
+        },
+    });
 
     const result = await executionService.runOperation('ocr-backend-plugin', async context => {
         assert.equal(context.subjectId, 'image-42');
@@ -413,6 +475,8 @@ async function run(): Promise<void> {
     await testSharedOperationKeepsModelSnapshotAndAttempts();
     await testUnavailableResolutionDoesNotDispatch();
     await testStrictLocalResolutionDoesNotDispatchCloudModel();
+    await testRequiredVisionCapabilityDoesNotDispatch();
+    await testBackendOverrideCannotBypassRequiredCapability();
     await testCancellationBeforeDispatchDoesNotCallProvider();
     await testCancellationDuringStreamIsRecordedOnce();
     await testStreamUsageIsRecordedAfterCompletion();
