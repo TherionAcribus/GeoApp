@@ -1044,6 +1044,28 @@
     font-weight: 600;
 }
 
+.geoapp-chat-policy-model-assignment {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 360px;
+}
+
+.geoapp-chat-policy-model-assignment select {
+    min-width: 0;
+    max-width: 280px;
+    height: 26px;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border);
+}
+
+.geoapp-chat-policy-model-assignment button {
+    flex-shrink: 0;
+    min-height: 24px;
+    padding: 2px 8px;
+}
+
 .geoapp-chat-policy-warn {
     color: var(--theia-editorWarning-foreground, var(--theia-errorForeground));
 }

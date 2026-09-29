@@ -50,12 +50,13 @@ import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills'
 import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { GEOAPP_CHAT_POLICY_DEFAULTS, GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
-import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
+import { GeoAppAiModelChoice, GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import {
     GeoAppAiCapabilityCheck,
     GeoAppAiExecutionRecord,
     GeoAppAiModelResolution,
+    GeoAppAiTaskDescriptor,
     GeoAppAiTokenUsage
 } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 
@@ -191,6 +192,8 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected agentModelsLoading = false;
     protected agentModelsLoaded = false;
     protected agentModelsGeneration = 0;
+    protected modelChoices: GeoAppAiModelChoice[] = [];
+    protected modelAssignmentUpdating = new Set<string>();
     protected activeTab: GeoAppChatPolicyTab = 'general';
 
     @inject(SkillService) @optional()
@@ -487,7 +490,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <div className='geoapp-chat-policy-agents-head'>
                     <div>
                         <h3>Modèles par tâche</h3>
-                        <p>Choix configuré, modèle effectivement résolu et chemin d’exécution. L’OCR distingue l’appel Theia du plugin backend vision_ocr.</p>
+                        <p>Affectation par tâche, modèle effectivement résolu et chemin d’exécution. Les choix sont validés avant sauvegarde ; l’OCR distingue l’appel Theia du plugin backend vision_ocr.</p>
                     </div>
                     <button className='theia-button secondary' type='button' onClick={() => this.refreshAgentModels()}>
                         Rafraîchir
@@ -523,7 +526,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                                     </td>
                                     <td>{task.kind === 'chat' ? 'Chat' : task.kind === 'backend' ? 'Backend' : 'Interne'}</td>
                                     <td>
-                                        {resolution?.requestedIdentifier || resolution?.backingPreference || '—'}
+                                        {this.renderModelAssignment(task, resolution)}
                                         {resolution?.sourceLabel && <div className='geoapp-chat-policy-muted'>{resolution.sourceLabel}</div>}
                                     </td>
                                     <td>
@@ -562,6 +565,81 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         );
     }
 
+    protected renderModelAssignment(task: GeoAppAiTaskDescriptor, resolution: GeoAppAiModelResolution | undefined): React.ReactNode {
+        if (!task.agentId || !task.purpose) {
+            return resolution?.requestedIdentifier || resolution?.backingPreference || '—';
+        }
+        const current = resolution?.requestedIdentifier || '';
+        const updating = this.modelAssignmentUpdating.has(task.id);
+        const hasCurrent = current && this.modelChoices.some(choice => choice.id === current);
+        return (
+            <div className='geoapp-chat-policy-model-assignment'>
+                <select
+                    value={current}
+                    disabled={updating || !this.aiModelResolutionService}
+                    aria-label={`Modèle pour ${task.label}`}
+                    title='Modèle ou alias utilisé pour cette tâche'
+                    onChange={event => { void this.assignTaskModel(task, event.currentTarget.value); }}
+                >
+                    {current && !hasCurrent && <option value={current}>{current} · actuel</option>}
+                    {!current && <option value=''>Sélectionner…</option>}
+                    {this.modelChoices.map(choice => (
+                        <option key={choice.id} value={choice.id} disabled={choice.ready === false}>
+                            {choice.kind === 'alias' ? 'Alias' : 'Modèle'} · {choice.label}{choice.ready === false ? ' · indisponible' : ''}
+                        </option>
+                    ))}
+                </select>
+                {resolution?.source === 'agent' && (
+                    <button
+                        className='theia-button secondary'
+                        type='button'
+                        disabled={updating}
+                        title={`Revenir au modèle par défaut pour ${task.label}`}
+                        onClick={() => { void this.resetTaskModel(task); }}
+                    >
+                        Défaut
+                    </button>
+                )}
+            </div>
+        );
+    }
+
+    protected async assignTaskModel(task: GeoAppAiTaskDescriptor, identifier: string): Promise<void> {
+        if (!identifier || !this.aiModelResolutionService) {
+            return;
+        }
+        this.modelAssignmentUpdating.add(task.id);
+        this.update();
+        try {
+            const resolution = await this.aiModelResolutionService.setTaskModel(task.id, identifier);
+            this.agentModels.set(task.id, resolution);
+            this.messages.info(`${task.label} utilisera ${resolution.displayModel || identifier}.`);
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        } finally {
+            this.modelAssignmentUpdating.delete(task.id);
+            this.update();
+        }
+    }
+
+    protected async resetTaskModel(task: GeoAppAiTaskDescriptor): Promise<void> {
+        if (!this.aiModelResolutionService) {
+            return;
+        }
+        this.modelAssignmentUpdating.add(task.id);
+        this.update();
+        try {
+            const resolution = await this.aiModelResolutionService.resetTaskModel(task.id);
+            this.agentModels.set(task.id, resolution);
+            this.messages.info(`${task.label} : modèle par défaut rétabli.`);
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        } finally {
+            this.modelAssignmentUpdating.delete(task.id);
+            this.update();
+        }
+    }
+
     protected refreshAgentModels(): void {
         this.agentModelsLoaded = false;
         this.agentModels = new Map();
@@ -576,11 +654,15 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         const generation = ++this.agentModelsGeneration;
         this.agentModelsLoading = true;
         try {
-            const resolved = await this.aiModelResolutionService.resolveAll();
+            const [resolved, choices] = await Promise.all([
+                this.aiModelResolutionService.resolveAll(),
+                this.aiModelResolutionService.getModelChoices(),
+            ]);
             if (generation !== this.agentModelsGeneration) {
                 return;
             }
             this.agentModels = new Map(resolved.map(resolution => [resolution.taskId, resolution]));
+            this.modelChoices = choices;
             this.agentModelsLoaded = true;
         } catch (error) {
             console.error('[GeoAppChatPolicyWidget] model resolution error', error);

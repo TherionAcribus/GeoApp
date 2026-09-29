@@ -5,7 +5,9 @@ import {
     AgentService,
     AISettingsService,
     LanguageModel,
+    LanguageModelAliasRegistry,
     LanguageModelRegistry,
+    LanguageModelRequirement,
 } from '@theia/ai-core';
 import {
     GeoAppAiCapabilityCheck,
@@ -62,6 +64,15 @@ interface GeoAppModelCapabilityCandidate {
     rawModel?: unknown;
 }
 
+export interface GeoAppAiModelChoice {
+    id: string;
+    label: string;
+    kind: 'model' | 'alias';
+    vendor?: string;
+    ready?: boolean;
+    targetModelIds?: string[];
+}
+
 const OPENROUTER_SLOT_PREFS: Record<string, string> = {
     'openrouter/fast': 'geoApp.ai.openRouter.model.fast',
     'openrouter/strong': 'geoApp.ai.openRouter.model.strong',
@@ -84,6 +95,9 @@ export class GeoAppAiModelResolutionService {
     @inject(AISettingsService) @optional()
     protected readonly aiSettingsService: AISettingsService | undefined;
 
+    @inject(LanguageModelAliasRegistry) @optional()
+    protected readonly languageModelAliasRegistry: LanguageModelAliasRegistry | undefined;
+
     @inject(AgentService) @optional()
     protected readonly agentService: AgentService | undefined;
 
@@ -98,6 +112,11 @@ export class GeoAppAiModelResolutionService {
             this.capabilityProbeCache.clear();
             this.onDidChangeEmitter.fire();
         });
+        this.aiSettingsService?.onDidChange(() => {
+            this.capabilityProbeCache.clear();
+            this.onDidChangeEmitter.fire();
+        });
+        this.languageModelAliasRegistry?.onDidChange(() => this.onDidChangeEmitter.fire());
         this.preferenceService.onPreferenceChanged(event => {
             const preference = event.preferenceName || '';
             if (preference.startsWith('geoApp.ai.')
@@ -134,6 +153,129 @@ export class GeoAppAiModelResolutionService {
             return this.resolveVisionBackendTask(task);
         }
         return this.resolveTheiaTask(task);
+    }
+
+    async getModelChoices(): Promise<GeoAppAiModelChoice[]> {
+        const models = await this.languageModelRegistry?.getLanguageModels() ?? [];
+        await this.languageModelAliasRegistry?.ready;
+        const aliases = this.languageModelAliasRegistry?.getAliases() ?? [];
+        const modelById = new Map(models.map(model => [model.id, model]));
+        const choices: GeoAppAiModelChoice[] = [
+            ...aliases.map(alias => {
+                const targetModelIds = this.languageModelAliasRegistry?.resolveAlias(alias.id) ?? alias.defaultModelIds;
+                const selected = targetModelIds.map(id => modelById.get(id)).find(model => model && model.status?.status !== 'unavailable');
+                return {
+                    id: alias.id,
+                    label: alias.description || alias.id,
+                    kind: 'alias' as const,
+                    ready: Boolean(selected),
+                    targetModelIds,
+                };
+            }),
+            ...models.map(model => ({
+                id: model.id,
+                label: model.name && model.name !== model.id ? `${model.name} · ${model.id}` : model.id,
+                kind: 'model' as const,
+                vendor: model.vendor,
+                ready: model.status?.status !== 'unavailable',
+            })),
+        ];
+        return choices.sort((left, right) =>
+            Number(right.ready ?? false) - Number(left.ready ?? false)
+            || left.kind.localeCompare(right.kind)
+            || left.id.localeCompare(right.id)
+        );
+    }
+
+    async setTaskModel(taskId: string, identifier: string): Promise<GeoAppAiModelResolution> {
+        const task = this.getTaskOrThrow(taskId);
+        this.assertTaskAssignable(task);
+        const normalizedIdentifier = identifier.trim();
+        const selected = await this.resolveModelForIdentifier(normalizedIdentifier);
+        if (!selected) {
+            throw new Error(`Aucun modèle prêt ne correspond à « ${normalizedIdentifier} ».`);
+        }
+        await this.assertTaskModelCompatible(task, selected.model, normalizedIdentifier);
+        await this.updateAgentModelRequirement(task, normalizedIdentifier);
+        return this.resolveTask(task);
+    }
+
+    async resetTaskModel(taskId: string): Promise<GeoAppAiModelResolution> {
+        const task = this.getTaskOrThrow(taskId);
+        this.assertTaskAssignable(task);
+        await this.updateAgentModelRequirement(task, undefined);
+        return this.resolveTask(task);
+    }
+
+    protected getTaskOrThrow(taskId: string): GeoAppAiTaskDescriptor {
+        const task = GEOAPP_AI_TASKS.find(candidate => candidate.id === taskId);
+        if (!task) {
+            throw new Error(`Tâche IA inconnue : ${taskId}`);
+        }
+        return task;
+    }
+
+    protected assertTaskAssignable(task: GeoAppAiTaskDescriptor): void {
+        if (!task.agentId || !task.purpose) {
+            throw new Error(`La tâche « ${task.label} » n’est pas pilotée par une affectation d’agent Theia.`);
+        }
+        if (!this.aiSettingsService || !this.languageModelRegistry) {
+            throw new Error('Le service Theia d’affectation des modèles est indisponible.');
+        }
+    }
+
+    protected async updateAgentModelRequirement(task: GeoAppAiTaskDescriptor, identifier: string | undefined): Promise<void> {
+        const current = await this.aiSettingsService!.getAgentSettings(task.agentId!)
+            .then(settings => settings?.languageModelRequirements ?? []);
+        const next: LanguageModelRequirement[] = current
+            .filter(requirement => requirement.purpose !== task.purpose)
+            .map(requirement => ({ ...requirement }));
+        if (identifier) {
+            next.push({ purpose: task.purpose!, identifier });
+        }
+        await this.aiSettingsService!.updateAgentSettings(task.agentId!, {
+            languageModelRequirements: next.length ? next : undefined,
+        });
+        this.capabilityProbeCache.clear();
+        this.onDidChangeEmitter.fire();
+    }
+
+    protected async resolveModelForIdentifier(identifier: string): Promise<{ model: LanguageModel; targetModelIds: string[] } | undefined> {
+        if (!identifier || !this.languageModelRegistry) {
+            return undefined;
+        }
+        await this.languageModelAliasRegistry?.ready;
+        const aliasTargets = this.languageModelAliasRegistry?.resolveAlias(identifier);
+        const targetModelIds = aliasTargets ?? [identifier];
+        for (const targetId of targetModelIds) {
+            const model = await this.languageModelRegistry.getLanguageModel(targetId);
+            if (model && model.status?.status !== 'unavailable') {
+                return { model, targetModelIds };
+            }
+        }
+        return undefined;
+    }
+
+    protected async assertTaskModelCompatible(task: GeoAppAiTaskDescriptor, model: LanguageModel, identifier: string): Promise<void> {
+        if (task.requiresLocalModel) {
+            const localCheck = checkGeoAppLocalModel(model, this.getLocalModelPreferences());
+            if (localCheck.status !== 'local') {
+                throw new Error(`Non compatible local/offline : ${localCheck.reason}.`);
+            }
+        }
+        const backingPreference = OPENROUTER_SLOT_PREFS[model.id];
+        const backingModel = backingPreference
+            ? this.preferenceService.get<string>(backingPreference, '')
+            : undefined;
+        const evaluation = await this.evaluateTaskCapabilities(task, {
+            identifiers: [identifier, model.id, this.readModelProperty(model, 'model'), backingModel],
+            provider: this.inferProvider(model.id, model.vendor),
+            baseUrl: this.readModelProperty(model, 'url'),
+            rawModel: model,
+        });
+        if (evaluation.status === 'unsupported') {
+            throw new Error(evaluation.diagnostics.join(' ') || 'Le modèle ne satisfait pas les capacités requises.');
+        }
     }
 
     protected async resolveTheiaTask(task: GeoAppAiTaskDescriptor): Promise<GeoAppAiModelResolution> {

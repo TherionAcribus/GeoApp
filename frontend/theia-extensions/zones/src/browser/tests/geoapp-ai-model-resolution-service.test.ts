@@ -10,7 +10,9 @@ interface ResolutionServices {
         capabilities?: Record<string, unknown>;
         model?: string;
         url?: string;
+        status?: { status: 'ready' | 'unavailable'; message?: string };
     } | undefined>;
+    aliases?: Record<string, string[]>;
     assignedIdentifiers?: Record<string, string>;
     scorer?: {
         provider: string;
@@ -33,20 +35,43 @@ function createService(services: ResolutionServices): GeoAppAiModelResolutionSer
         onPreferenceChanged: () => ({ dispose: () => undefined }),
     };
     (service as any).languageModelRegistry = {
-        selectLanguageModel: async (request: { identifier?: string }) =>
-            services.models?.[request.identifier || ''],
+        getLanguageModels: async () => Object.values(services.models ?? {}).filter(Boolean),
+        getLanguageModel: async (identifier: string) =>
+            Object.values(services.models ?? {}).find(model => model?.id === identifier),
+        selectLanguageModel: async (request: { identifier?: string }) => {
+            const identifier = request.identifier || '';
+            const target = services.aliases?.[identifier]?.find(candidate => services.models?.[candidate]) || identifier;
+            return services.models?.[target];
+        },
         onChange: () => ({ dispose: () => undefined }),
     };
+    const requirementsByAgent = new Map<string, Array<{ purpose: string; identifier: string }>>();
+    for (const [agentId, identifier] of Object.entries(services.assignedIdentifiers ?? {})) {
+        const purposes = agentId === 'geoapp-ocr'
+            ? ['vision-ocr']
+            : agentId.startsWith('geoapp-formula-solver')
+                ? ['formula-solving']
+                : ['chat'];
+        requirementsByAgent.set(agentId, purposes.map(purpose => ({ purpose, identifier })));
+    }
+    const updates: Array<{ agentId: string; settings: { languageModelRequirements?: Array<{ purpose: string; identifier: string }> } }> = [];
     (service as any).aiSettingsService = {
         getAgentSettings: async (agentId: string) => ({
-            languageModelRequirements: services.assignedIdentifiers?.[agentId]
-                ? ['chat', 'formula-solving', 'vision-ocr'].map(purpose => ({
-                    purpose,
-                    identifier: services.assignedIdentifiers![agentId],
-                }))
-                : undefined,
+            languageModelRequirements: requirementsByAgent.get(agentId),
         }),
+        updateAgentSettings: async (agentId: string, settings: { languageModelRequirements?: Array<{ purpose: string; identifier: string }> }) => {
+            updates.push({ agentId, settings });
+            requirementsByAgent.set(agentId, settings.languageModelRequirements ?? []);
+        },
+        onDidChange: () => ({ dispose: () => undefined }),
     };
+    (service as any).languageModelAliasRegistry = {
+        ready: Promise.resolve(),
+        getAliases: () => Object.entries(services.aliases ?? {}).map(([id, defaultModelIds]) => ({ id, defaultModelIds })),
+        resolveAlias: (id: string) => services.aliases?.[id],
+        onDidChange: () => ({ dispose: () => undefined }),
+    };
+    (service as any).__agentUpdates = updates;
     if (services.scorer) {
         (service as any).aiScorerModelResolver = {
             resolveForRequest: async () => services.scorer,
@@ -189,6 +214,89 @@ async function testOptionalStructuredOutputIsAdvisoryOnly(): Promise<void> {
     assert.match(resolved.diagnostics.join('\n'), /diagnostic non bloquant/);
 }
 
+async function testTaskModelAssignmentAcceptsReadyAliasAndPersistsPurpose(): Promise<void> {
+    const service = createService({
+        aliases: {
+            'geoapp/vision': ['ollama/vision'],
+        },
+        models: {
+            'ollama/vision': { id: 'ollama/vision', vendor: 'Ollama', capabilities: { imageInput: true } },
+        },
+    });
+
+    const resolved = await service.setTaskModel('ocr-theia', 'geoapp/vision');
+    const updates = (service as any).__agentUpdates as Array<{ agentId: string; settings: { languageModelRequirements?: Array<{ purpose: string; identifier: string }> } }>;
+
+    assert.equal(resolved.status, 'ready');
+    assert.equal(resolved.requestedIdentifier, 'geoapp/vision');
+    assert.equal(resolved.resolvedModelId, 'ollama/vision');
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].agentId, 'geoapp-ocr');
+    assert.deepEqual(updates[0].settings.languageModelRequirements, [
+        { purpose: 'vision-ocr', identifier: 'geoapp/vision' },
+    ]);
+}
+
+async function testTaskModelResetRestoresDefaultRequirement(): Promise<void> {
+    const service = createService({
+        assignedIdentifiers: {
+            'geoapp-chat-fast': 'ollama/custom',
+        },
+        models: {
+            'ollama/custom': { id: 'ollama/custom', vendor: 'Ollama' },
+            'default/universal': { id: 'ollama/default', vendor: 'Ollama' },
+        },
+    });
+
+    const resolved = await service.resetTaskModel('chat-fast');
+    const updates = (service as any).__agentUpdates as Array<{ settings: { languageModelRequirements?: unknown[] } }>;
+
+    assert.equal(resolved.status, 'ready');
+    assert.equal(resolved.source, 'default');
+    assert.equal(resolved.requestedIdentifier, 'default/universal');
+    assert.equal(updates[0].settings.languageModelRequirements, undefined);
+}
+
+async function testTaskModelAssignmentRejectsIncompatibleModelsBeforePersisting(): Promise<void> {
+    const service = createService({
+        models: {
+            'openai/gpt-4o': { id: 'openai/gpt-4o', vendor: 'OpenAI' },
+            'ollama/text-only': { id: 'ollama/text-only', vendor: 'Ollama', capabilities: { imageInput: false } },
+        },
+    });
+
+    await assert.rejects(
+        () => service.setTaskModel('chat-local', 'openai/gpt-4o'),
+        /Non compatible local\/offline/
+    );
+    await assert.rejects(
+        () => service.setTaskModel('ocr-theia', 'ollama/text-only'),
+        /vision non supportée/i
+    );
+    assert.equal(((service as any).__agentUpdates as unknown[]).length, 0);
+}
+
+async function testModelChoicesExposeModelsAndAliases(): Promise<void> {
+    const service = createService({
+        aliases: {
+            'default/universal': ['ollama/default'],
+        },
+        models: {
+            'ollama/default': { id: 'ollama/default', vendor: 'Ollama' },
+            'ollama/offline': { id: 'ollama/offline', vendor: 'Ollama', status: { status: 'unavailable' } },
+        },
+    });
+
+    const choices = await service.getModelChoices();
+    const alias = choices.find(choice => choice.id === 'default/universal');
+    const unavailable = choices.find(choice => choice.id === 'ollama/offline');
+
+    assert.equal(alias?.kind, 'alias');
+    assert.equal(alias?.ready, true);
+    assert.deepEqual(alias?.targetModelIds, ['ollama/default']);
+    assert.equal(unavailable?.ready, false);
+}
+
 async function testAiScorerKeepsTheiaAndBackendModelIdentity(): Promise<void> {
     const service = createService({
         scorer: {
@@ -219,6 +327,10 @@ async function main(): Promise<void> {
     await testVisionBackendRejectsDeclaredNonVisionModel();
     await testTheiaVisionTaskRejectsDeclaredNonVisionModel();
     await testOptionalStructuredOutputIsAdvisoryOnly();
+    await testTaskModelAssignmentAcceptsReadyAliasAndPersistsPurpose();
+    await testTaskModelResetRestoresDefaultRequirement();
+    await testTaskModelAssignmentRejectsIncompatibleModelsBeforePersisting();
+    await testModelChoicesExposeModelsAndAliases();
     await testAiScorerKeepsTheiaAndBackendModelIdentity();
     console.log('geoapp-ai-model-resolution-service tests passed');
 }
