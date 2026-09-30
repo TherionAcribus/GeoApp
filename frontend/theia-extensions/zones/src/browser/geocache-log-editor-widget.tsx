@@ -129,6 +129,7 @@ import {
 import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
 import { TrackablesSection } from './log-editor/trackables-section';
+import { GeocacheTrackablesSection } from './geocache-trackables-section';
 import {
     InventoryTrackable,
     PlannedDrop,
@@ -407,6 +408,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * signifie que le contenu accepté n'est plus le contenu courant → reconfirmation.
      */
     protected trackablesRevision = 0;
+    /**
+     * « TBs dans cette cache » du lot (actions autonomes, hors champ `trackables`
+     * du log) : cache du lot choisie dans le sélecteur, repli de la section.
+     */
+    protected cacheTrackablesGcCode: string | undefined;
+    protected cacheTrackablesCollapsed = false;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -2457,6 +2464,51 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * « Trackables dans cette cache » du lot 4 : relevé des TBs annoncés dans
+     * une cache du lot, avec les actions autonomes « Retirer » / « Découvrir »
+     * du widget Trackables — jamais mélangées au champ `trackables` du log de
+     * cache (les actions visité/déposé restent dans la section ci-dessus).
+     */
+    protected renderCacheTrackablesBlock(): React.ReactNode {
+        const gcCodes = this.geocaches.filter(gc => !!gc.gc_code);
+        if (gcCodes.length === 0) {
+            return undefined;
+        }
+        const selected = gcCodes.some(gc => gc.gc_code === this.cacheTrackablesGcCode)
+            ? this.cacheTrackablesGcCode!
+            : gcCodes[0].gc_code!;
+        return (
+            <div className='geoapp-log-cache-trackables'>
+                <label className='geoapp-log-cache-trackables__picker'>
+                    Trackables présents dans
+                    <select
+                        className='theia-select'
+                        value={selected}
+                        aria-label='Choisir la cache dont afficher les trackables'
+                        onChange={e => { this.cacheTrackablesGcCode = e.currentTarget.value; this.update(); }}
+                    >
+                        {gcCodes.map(gc => (
+                            <option key={gc.gc_code} value={gc.gc_code}>
+                                {gc.gc_code} — {gc.name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <GeocacheTrackablesSection
+                    key={selected}
+                    gcCode={selected}
+                    apiBaseUrl={this.backendBaseUrl}
+                    collapsed={this.cacheTrackablesCollapsed}
+                    onSectionCollapsedChange={(_sectionId, collapsed) => {
+                        this.cacheTrackablesCollapsed = collapsed;
+                        this.update();
+                    }}
+                />
+            </div>
+        );
+    }
+
     protected async submitLogsToGeocaching(): Promise<void> {
         if (this.isSubmitting || this.isConfirmingSubmit) {
             return;
@@ -3550,6 +3602,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
                 {!this.isLoading && this.geocaches.length > 0
                     && this.renderTrackablesSection(this.isSubmitting || allSubmitted)}
+                {!this.isLoading && this.renderCacheTrackablesBlock()}
 
                 {allSubmitted && (
                     <div className='geoapp-log-editor__all-submitted'>

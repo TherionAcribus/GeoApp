@@ -423,8 +423,12 @@ dans `geocache-details-view.tsx` :
 - **Actions** : « Retirer » / « Découvrir » par ligne ouvrent le widget
   Trackables prérempli (`open-trackables` → `TrackablesWidget.setContext`,
   onglet « Loguer » avec le code TB et la cache d'origine — l'élément entre
-  directement dans la file de la § 6.5). « TBs dans cette cache » dans
-  l'éditeur de logs reste à faire.
+  directement dans la file de la § 6.5).
+- **Éditeur de logs** : sous la section inventaire, « Trackables présents
+  dans » + sélecteur des caches du lot réutilise `GeocacheTrackablesSection`
+  pour la cache choisie — mêmes relevés, mêmes actions. Ces actions restent
+  autonomes : elles ne passent jamais par le champ `trackables` de
+  `createGeocacheLog` (les actions visité/déposé de la section, si).
 
 ### 6.5 Widget « Trackables » (lot 5)
 

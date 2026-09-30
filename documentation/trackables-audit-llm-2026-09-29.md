@@ -499,10 +499,10 @@ Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_t
 | P2-06 Panneaux étroits | Fait | Grille + `container-type` ; reste la vérification visuelle manuelle (320–1200 px, zoom, thèmes) |
 | P2-07 Clavier/annonces/masse | Fait | Roving tabindex + flèches, `role="alert"`/`status`, annulation d'action de masse, filtres rapides |
 | P2-08 Instantané confirmation | Fait | `TrackableSubmitSnapshot` gelé, `trackablesRevision`, reconfirmation sur mutation |
-| Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée + boutons Retirer/Découvrir → widget prérempli ; « TBs dans cette cache » de l'éditeur reste à faire |
+| Lot 4 — section fiche cache | Fait | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée + boutons Retirer/Découvrir → widget prérempli ; même section réutilisée dans l'éditeur via un sélecteur de cache du lot |
 | Lot 5 — coquille + inventaire | Fait | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel |
 | Lot 5.2 — onglet Loguer/Découvrir | Fait | `trackables-log-queue.ts` (pur) : collage multi-codes, dédoublonnage, lookup POST, types via `log-info`, file séquentielle avec `operationId`, états `pending→…→confirmed/rejected/unknown`, persistance sans codes de suivi, champ masqué + affichage temporaire |
 | Lot 5.3 — onglet Fiche | Fait | Détail assaini (DOMPurify côté client en plus du backend), méta complète, image, logs paginés 10/page, `parse_warnings` et dates incertaines affichés, code de suivi résolu par POST lookup |
 | File de découvertes en masse | Fait | Sur la file 5.2 : « Type pour tous les prêts » limité aux types autorisés par élément, doublons écartés à l'analyse, bilan copiable + export CSV sans secrets ; concurrence 1 et états conformes |
 
-Reste : lot 4 restant dans l'éditeur (« TBs dans cette cache »), lot 6 — et la validation visuelle P2-06.
+Reste : lot 6 (file persistante d'actions différées) — et la validation visuelle P2-06.

@@ -1597,3 +1597,24 @@
 .geoapp-log-trackables__notice {
     color: var(--theia-editorWarning-foreground);
 }
+
+/* « Trackables dans cette cache » du lot : sélecteur de cache + section réutilisée. */
+.geoapp-log-cache-trackables {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.geoapp-log-cache-trackables__picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.geoapp-log-cache-trackables__picker .theia-select {
+    max-width: 320px;
+    font-weight: 400;
+}
