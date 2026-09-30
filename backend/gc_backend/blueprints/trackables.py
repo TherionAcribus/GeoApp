@@ -45,6 +45,7 @@ from ..services.geocaching_trackables import (
     GeocachingTrackablesClient,
     TrackableError,
     TrackableNotFoundError,
+    TrackablePartialResultError,
     is_public_code,
     normalize_code,
 )
@@ -83,6 +84,9 @@ def _network_errors(func):
             return _error('not_authenticated', str(exc), 401)
         except TrackableNotFoundError as exc:
             return _error('not_found', str(exc), 404)
+        except TrackablePartialResultError as exc:
+            logger.warning('Trackables: %s', exc)
+            return _error('partial_result', str(exc), 502)
         except TrackableError as exc:
             logger.warning('Trackables: %s', exc)
             return _error('fetch_failed', str(exc), 502)
@@ -291,6 +295,38 @@ def get_geocache_inventory(gc_code: str):
     })
 
 
+# ------------------------------------------------------- Cache court (fiche)
+#
+# `GET /<TB>` coûte deux appels distants séquentiels (JSON + page HTML) et
+# `GET /<TB>/log-info` un : ils sont rejoués identiques pendant
+# _DETAIL_CACHE_TTL_SECONDS. La session `requests` n'est pas garantie sûre en
+# concurrence — on garde le séquentiel et on coalesce par `_sync_lock` ; un
+# `?refresh=1` explicite force la relecture.
+_DETAIL_CACHE_TTL_SECONDS = 300
+_DETAIL_CACHE_MAX_ENTRIES = 2000
+_detail_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _detail_cache_get(key: str):
+    entry = _detail_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, payload = entry
+    if monotonic() > expires_at:
+        _detail_cache.pop(key, None)
+        return None
+    return payload
+
+
+def _detail_cache_put(key: str, payload: dict) -> None:
+    if len(_detail_cache) >= _DETAIL_CACHE_MAX_ENTRIES:
+        # Nettoyage opportuniste des entrées expirées avant de grossir encore.
+        now = monotonic()
+        for k in [k for k, (exp, _) in _detail_cache.items() if exp < now]:
+            _detail_cache.pop(k, None)
+    _detail_cache[key] = (monotonic() + _DETAIL_CACHE_TTL_SECONDS, payload)
+
+
 # ------------------------------------------------------------------- Un TB
 
 def _lookup(code: str):
@@ -351,16 +387,24 @@ def get_trackable(tb_code: str):
     if not code:
         return _error('invalid_code', f'Code de trackable invalide : {normalize_code(tb_code)}', 400)
 
-    client = GeocachingTrackablesClient()
-    summary = client.fetch_trackable(code)
-    details = client.fetch_details(code)
-    row, _ = trackable_store.upsert_trackable(summary)
-    db.session.commit()
-    return jsonify({
-        'success': True,
-        'trackable': row.to_dict(),
-        'details': details.to_dict(),
-    })
+    key = f'trackable:{code}'
+    with _sync_lock(key):
+        payload = None if _wants_refresh() else _detail_cache_get(key)
+        if payload is None:
+            client = GeocachingTrackablesClient()
+            # `requests.Session` n'est pas garanti sûr en concurrence : les deux
+            # lectures restent séquentielles — le cache court absorbe les appels.
+            summary = client.fetch_trackable(code)
+            details = client.fetch_details(code)
+            row, _ = trackable_store.upsert_trackable(summary)
+            db.session.commit()
+            payload = {
+                'success': True,
+                'trackable': row.to_dict(),
+                'details': details.to_dict(),
+            }
+            _detail_cache_put(key, payload)
+    return jsonify(payload)
 
 
 @bp.get('/<tb_code>/log-info')
@@ -370,11 +414,18 @@ def get_trackable_log_info(tb_code: str):
     if not code:
         return _error('invalid_code', f'Code de trackable invalide : {normalize_code(tb_code)}', 400)
 
-    info = GeocachingTrackablesClient().fetch_log_page_info(code)
+    key = f'loginfo:{code}'
+    with _sync_lock(key):
+        info_data = None if _wants_refresh() else _detail_cache_get(key)
+        if info_data is None:
+            info_data = GeocachingTrackablesClient().fetch_log_page_info(code).to_dict()
+            _detail_cache_put(key, info_data)
+    # `has_tracking_code` dépend de la base locale (lookup, inventaire) : il est
+    # toujours relu, jamais mis en cache.
     row = Trackable.query.filter_by(reference_code=code).one_or_none()
     return jsonify({
         'success': True,
-        **info.to_dict(),
+        **info_data,
         'has_tracking_code': bool(row and row.tracking_code),
     })
 

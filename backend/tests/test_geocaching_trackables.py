@@ -10,14 +10,31 @@ from gc_backend.database import db
 from gc_backend.models import GeocacheTrackable, Trackable
 from gc_backend.services import trackable_store
 from gc_backend.services.geocaching_friends import NotAuthenticatedError
+from gc_backend.services import geocaching_trackables
 from gc_backend.services.geocaching_trackables import (
+    GET_TIMEOUT,
     PAGE_SIZE,
     GeocachingTrackablesClient,
     TrackableError,
     TrackableNotFoundError,
+    TrackablePartialResultError,
     TrackableSummary,
     is_public_code,
 )
+
+
+@pytest.fixture(autouse=True)
+def _instant_retries(monkeypatch):
+    """Les délais de backoff entre essais sont neutralisés dans toute la suite."""
+    monkeypatch.setattr(geocaching_trackables, '_sleep', lambda seconds: None)
+
+
+@pytest.fixture
+def recorded_sleeps(monkeypatch):
+    """Idem, mais en mémorisant les durées demandées."""
+    calls: list[float] = []
+    monkeypatch.setattr(geocaching_trackables, '_sleep', calls.append)
+    return calls
 
 
 # ------------------------------------------------------------------ Fixtures
@@ -148,10 +165,12 @@ NOT_FOUND_PAGE = '<title>Geocaching &gt; Trackable Item Details</title><span cla
 
 
 class FakeResponse:
-    def __init__(self, status_code: int = 200, payload=None, text: str | None = None):
+    def __init__(self, status_code: int = 200, payload=None, text: str | None = None,
+                 headers: dict | None = None):
         self.status_code = status_code
         self._payload = payload
         self.text = text if text is not None else json.dumps(payload)
+        self.headers = headers or {}
 
     def json(self):
         if self._payload is None:
@@ -165,9 +184,11 @@ class FakeSession:
     def __init__(self, routes: dict):
         self.routes = routes
         self.calls: list[tuple[str, dict | None]] = []
+        self.timeouts: list = []
 
     def get(self, url, params=None, headers=None, timeout=None):
         self.calls.append((url, params))
+        self.timeouts.append(timeout)
         for prefix, handler in self.routes.items():
             if url.startswith(prefix):
                 return handler(url, params) if callable(handler) else handler
@@ -426,6 +447,75 @@ def test_lookup_unknown_public_code_names_the_code():
     session = FakeSession({DETAILS: FakeResponse(text=NOT_FOUND_PAGE)})
     with pytest.raises(TrackableNotFoundError, match='TB1234'):
         GeocachingTrackablesClient(session).lookup('TB1234')
+
+
+# --------------------------------------------------------------- P2-04 réseau
+
+def test_get_requests_use_split_connect_read_timeouts():
+    session = FakeSession({INVENTORY: FakeResponse(payload=[])})
+
+    GeocachingTrackablesClient(session).fetch_my_inventory()
+
+    assert session.timeouts == [GET_TIMEOUT]
+
+
+def test_retryable_status_respects_retry_after(recorded_sleeps):
+    """Un 429 est rejoué après le `Retry-After` annoncé (plafonné)."""
+    responses = iter([
+        FakeResponse(status_code=429, text='', headers={'Retry-After': '2'}),
+        FakeResponse(payload=[]),
+    ])
+    session = FakeSession({INVENTORY: lambda url, params: next(responses)})
+
+    items = GeocachingTrackablesClient(session).fetch_my_inventory()
+
+    assert items == []
+    assert len(session.calls) == 2
+    assert recorded_sleeps == [2.0]
+
+
+def test_retryable_status_uses_bounded_backoff_with_jitter(recorded_sleeps):
+    """Sans `Retry-After`, backoff exponentiel borné ; échec après les essais."""
+    session = FakeSession({INVENTORY: lambda url, p: FakeResponse(status_code=503, text='')})
+
+    with pytest.raises(TrackableError, match='503'):
+        GeocachingTrackablesClient(session).fetch_my_inventory()
+
+    assert len(session.calls) == 3          # 1 essai + 2 rejouages
+    assert len(recorded_sleeps) == 2
+    # Backoff exponentiel borné (0.5 s puis 1 s) + jitter ≤ 50 %.
+    assert 0.5 <= recorded_sleeps[0] <= 0.75
+    assert 1.0 <= recorded_sleeps[1] <= 1.5
+
+
+def test_non_retryable_status_is_not_retried():
+    session = FakeSession({INVENTORY: FakeResponse(status_code=404, text='')})
+
+    with pytest.raises(TrackableError):
+        GeocachingTrackablesClient(session).fetch_my_inventory()
+
+    assert len(session.calls) == 1
+
+
+def test_cache_inventory_rejects_truncated_total():
+    """`total` annonce plus que reçu : relevé refusé au lieu d'être enregistré."""
+    payload = {'total': 3, 'data': [_cache_item('TBBAQ0Z'), _cache_item('TBBB111')]}
+    session = FakeSession({CACHE_INVENTORY: FakeResponse(payload=payload)})
+
+    with pytest.raises(TrackablePartialResultError, match='2 TB'):
+        GeocachingTrackablesClient(session).fetch_cache_inventory('GC1E51')
+
+
+def test_pagination_beyond_max_pages_is_partial_result(monkeypatch):
+    """MAX_PAGES pages pleines sans page courte : erreur explicite, pas de silence."""
+    monkeypatch.setattr(geocaching_trackables, 'MAX_PAGES', 2)
+    monkeypatch.setattr(geocaching_trackables, 'PAGE_SIZE', 1)
+    session = FakeSession({CACHE_INVENTORY: FakeResponse(payload={'total': 99, 'data': [_cache_item()]})})
+
+    with pytest.raises(TrackablePartialResultError, match='tronqué'):
+        GeocachingTrackablesClient(session).fetch_cache_inventory('GC1E51')
+
+    assert len(session.calls) == 2
 
 
 def test_network_error_redacts_the_tracking_code():

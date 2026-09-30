@@ -71,13 +71,23 @@ supérieur à 12 impose jour/mois, un second supérieur à 12 impose mois/jour. 
 défaut, c'est mois/jour, sauf avec le séparateur « . ». La date brute reste
 disponible (`log_date_raw`).
 
+**Réseau.** Toutes les requêtes du client sont des GET idempotents : timeouts
+distincts `(connexion 10 s, lecture 30 s)` ; un 429/5xx est rejoué au plus deux
+fois, en respectant `Retry-After` (plafonné à 30 s) sinon backoff exponentiel
+borné avec jitter (0,5 s → 1 s). Un POST n'est jamais rejoué automatiquement —
+un résultat ambigu après coupure est traité par § 5.2. La pagination s'arrête
+sur une page courte, au plus `MAX_PAGES` (20) pages : au-delà, ou quand le
+`total` de l'inventaire d'une cache dépasse ce qui a été reçu, le relevé est
+refusé par `TrackablePartialResultError` au lieu d'être enregistré amputé.
+
 **Erreurs.**
 
 | Situation | Exception |
 |---|---|
 | 401 ou 403 | `NotAuthenticatedError` (celle du module amis) |
 | Code inconnu, ou 404 sur la fiche JSON | `TrackableNotFoundError` |
-| 429, autre code HTTP, réponse non-JSON | `TrackableError` |
+| Relevé tronqué (pagination ou `total`) | `TrackablePartialResultError` |
+| 429 (après essais), autre code HTTP, réponse non-JSON | `TrackableError` |
 
 **Types de log.** `TrackableLogType` reprend les `gcApiId` de c:geo, avec les
 libellés français dans `TRACKABLE_LOG_TYPE_LABELS`.
@@ -243,8 +253,8 @@ d'une cache — extensible à la fiche et à log-info) :
   explicite confirme un inventaire réellement vide.
 | `POST /lookup` | Corps `{"code": "…"}` : code public ou code de suivi, qui ne passe donc jamais dans une URL ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 400 `invalid_code`, 404 `not_found` |
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
-| `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
-| `GET /<TB>/log-info` | Types autorisés, cache courante, `has_tracking_code` | |
+| `GET /<TB>[?refresh=1]` | `trackable` (base mise à jour) + `details` (fiche HTML, logs). Réponse en cache 5 min (les deux lectures restent séquentielles — la session n'est pas garantie sûre en concurrence ; le verrou `_sync_lock` coalesce les appels) ; `refresh=1` relit le site | 502 `partial_result` si le relevé distant est tronqué |
+| `GET /<TB>/log-info[?refresh=1]` | Types autorisés, cache courante (cache 5 min), `has_tracking_code` toujours relu en base | |
 | `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `text_too_long`, `invalid_date`, `missing_tracking_code`, `invalid_tracking_code`, `invalid_geocache`, `missing_geocache`, `trackable_action_not_allowed`, `invalid_operation_id` ; 409 `trackable_location_conflict`, `operation_in_flight` ; 502 `submit_failed` (+ `reconciled: absent` si relu), `submit_rejected`, `network_failed_before_response`, `unknown_remote_outcome` |
 
 ## 6. Éditeur de logs : section « Trackables »

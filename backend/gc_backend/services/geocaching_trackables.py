@@ -27,10 +27,13 @@ from __future__ import annotations
 
 import html as html_lib
 import json
+import email.utils
 import logging
+import random
 import re
+import time
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import requests
@@ -52,6 +55,15 @@ TRACKABLE_DETAILS_URL = f'{WEBSITE_URL}/track/details.aspx'
 PAGE_SIZE = 1000
 # Garde-fou contre une pagination qui ne s'arrêterait pas (réponse identique en boucle).
 MAX_PAGES = 20
+
+# Réseau (P2-04) : timeouts connexion/lecture distincts ; les GET seuls sont
+# rejoués — un POST ambigu n'est jamais réessayé automatiquement (P1-05).
+GET_TIMEOUT = (10, 30)          # (connexion, lecture) en secondes
+_GET_MAX_RETRIES = 2            # 3 tentatives au total
+_RETRYABLE_STATUS = (429, 500, 502, 503, 504)
+_RETRY_AFTER_MAX_SECONDS = 30.0
+_BACKOFF_BASE_SECONDS = 0.5
+_BACKOFF_MAX_SECONDS = 8.0
 
 
 class TrackableLogType:
@@ -103,12 +115,42 @@ class TrackableNotFoundError(TrackableError):
     """Code inconnu de Geocaching.com (ni code public, ni code de suivi)."""
 
 
+class TrackablePartialResultError(TrackableError):
+    """Relevé incomplet : pagination interrompue ou `total` non atteint."""
+
+
 def normalize_code(code: Any) -> str:
     return str(code or '').strip().upper()
 
 
 def is_public_code(code: Any) -> bool:
     return bool(TB_CODE_RE.match(normalize_code(code)))
+
+
+def _sleep(seconds: float) -> None:
+    """Attente entre deux essais — fonction séparée pour être neutralisée en test."""
+    time.sleep(seconds)
+
+
+def _retry_delay(response: requests.Response, attempt: int) -> float:
+    """
+    Délai avant le prochain essai d'un GET : `Retry-After` s'il est exploitable
+    (secondes ou date HTTP, plafonné), sinon backoff exponentiel borné avec jitter.
+    """
+    retry_after = response.headers.get('Retry-After')
+    if retry_after:
+        try:
+            return min(float(retry_after), _RETRY_AFTER_MAX_SECONDS)
+        except ValueError:
+            try:
+                target = email.utils.parsedate_to_datetime(retry_after)
+            except (TypeError, ValueError):
+                target = None
+            if target is not None:
+                delay = (target - datetime.now(timezone.utc)).total_seconds()
+                return min(max(delay, 0.0), _RETRY_AFTER_MAX_SECONDS)
+    delay = min(_BACKOFF_BASE_SECONDS * (2 ** attempt), _BACKOFF_MAX_SECONDS)
+    return delay + random.uniform(0, delay / 2)
 
 
 # ------------------------------------------------------------------ Modèles
@@ -248,6 +290,12 @@ class GeocachingTrackablesClient:
             items.extend(s for s in (self.parse_summary(raw) for raw in payload) if s)
             if len(payload) < PAGE_SIZE:
                 break
+        else:
+            # Toutes les pages étaient pleines : le relevé est possiblement
+            # tronqué — erreur explicite plutôt qu'un inventaire amputé en silence.
+            raise TrackablePartialResultError(
+                f"Inventaire tronqué : {MAX_PAGES} pages de {PAGE_SIZE} lues sans page finale."
+            )
         return items
 
     def fetch_cache_inventory(self, gc_code: str) -> list[TrackableSummary]:
@@ -255,6 +303,8 @@ class GeocachingTrackablesClient:
         gc_code = normalize_code(gc_code)
         url = CACHE_INVENTORY_URL.format(gc_code=gc_code)
         items: list[TrackableSummary] = []
+        fetched = 0
+        total: Optional[int] = None
         for page in range(MAX_PAGES):
             payload = self._get_json(
                 url,
@@ -264,9 +314,23 @@ class GeocachingTrackablesClient:
             if not isinstance(payload, dict):
                 raise TrackableError(f"Format de réponse inattendu pour l'inventaire de {gc_code}")
             data = payload.get('data') or []
+            fetched += len(data)
+            raw_total = payload.get('total')
+            if total is None and isinstance(raw_total, int) and not isinstance(raw_total, bool):
+                total = raw_total
             items.extend(s for s in (self.parse_summary(raw) for raw in data) if s)
             if len(data) < PAGE_SIZE:
                 break
+        else:
+            raise TrackablePartialResultError(
+                f"Inventaire de {gc_code} tronqué : {MAX_PAGES} pages de {PAGE_SIZE} sans page finale."
+            )
+        # Le serveur annonce `total` : moins de lignes reçues = relevé tronqué
+        # ou plafond serveur — on refuse de l'enregistrer comme complet.
+        if total is not None and fetched < total:
+            raise TrackablePartialResultError(
+                f"Inventaire de {gc_code} tronqué : {fetched} TB(s) reçus sur {total} annoncés."
+            )
         return items
 
     # --------------------------------------------------------------- Un TB
@@ -327,15 +391,30 @@ class GeocachingTrackablesClient:
 
     def _request(self, url: str, *, what: str, params: Optional[dict] = None,
                  headers: Optional[dict] = None, not_found_message: Optional[str] = None) -> requests.Response:
-        try:
-            response = self.session.get(url, params=params, headers=headers, timeout=60)
-        except requests.RequestException as exc:
-            # Une exception `requests` cite l'URL appelée, query string comprise ;
-            # pour `details.aspx?tracker=` elle contiendrait le code de suivi.
-            raise TrackableError(
-                f'Erreur réseau vers geocaching.com pour {what} '
-                f'({type(exc).__name__} : {_sanitize_request_error(exc)})'
-            ) from exc
+        # Toutes les requêtes de ce client sont des GET : idempotentes, elles
+        # peuvent être rejouées — jamais un POST (résultat distant ambigu).
+        for attempt in range(_GET_MAX_RETRIES + 1):
+            try:
+                response = self.session.get(
+                    url, params=params, headers=headers, timeout=GET_TIMEOUT
+                )
+            except requests.RequestException as exc:
+                # Une exception `requests` cite l'URL appelée, query string comprise ;
+                # pour `details.aspx?tracker=` elle contiendrait le code de suivi.
+                raise TrackableError(
+                    f'Erreur réseau vers geocaching.com pour {what} '
+                    f'({type(exc).__name__} : {_sanitize_request_error(exc)})'
+                ) from exc
+
+            if response.status_code in _RETRYABLE_STATUS and attempt < _GET_MAX_RETRIES:
+                delay = _retry_delay(response, attempt)
+                logger.info(
+                    'Trackables: HTTP %s pour %s — nouvel essai dans %.1f s',
+                    response.status_code, what, delay,
+                )
+                _sleep(delay)
+                continue
+            break
 
         if response.status_code in (401, 403):
             raise NotAuthenticatedError(

@@ -18,6 +18,7 @@ from gc_backend.models import Trackable, Zone
 from gc_backend.services import trackable_store
 from gc_backend.services.geocaching_friends import NotAuthenticatedError
 from gc_backend.services.geocaching_submit_logs import LogSubmitNetworkError
+from gc_backend.services import geocaching_trackables
 from gc_backend.services.geocaching_trackables import (
     GeocachingTrackablesClient,
     TrackableDetails,
@@ -25,8 +26,23 @@ from gc_backend.services.geocaching_trackables import (
     TrackableLogEntry,
     TrackableLogPageInfo,
     TrackableNotFoundError,
+    TrackablePartialResultError,
     TrackableSummary,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_detail_cache():
+    """Le cache court des fiches est au niveau module : purgé entre deux tests."""
+    trackables_bp._detail_cache.clear()
+    yield
+    trackables_bp._detail_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _instant_retries(monkeypatch):
+    """Pas de vraie attente de backoff entre les essais des GET (P2-04)."""
+    monkeypatch.setattr(geocaching_trackables, '_sleep', lambda seconds: None)
 
 
 @pytest.fixture
@@ -425,6 +441,7 @@ def test_lookup_failures_never_leak_the_tracking_code(app, monkeypatch, caplog, 
             self.status_code = status_code
             self.text = text
             self._payload = payload
+            self.headers = {}
 
         def json(self):
             if self._payload is None:
@@ -483,6 +500,65 @@ def test_trackable_details_and_log_info(app, fake_network):
     assert [t['id'] for t in info['allowed_log_types']] == [4, 48, 13, 19]
     assert info['has_tracking_code'] is False
     assert client.get('/api/trackables/AB12CD/log-info').status_code == 400
+
+
+# ------------------------------------------------------- P2-04 : réseau/cache
+
+def test_trackable_details_are_cached_with_explicit_refresh(app, fake_network):
+    """La fiche coûte deux appels distants : le cache court les rejoue ; refresh force."""
+    fake = fake_network(
+        trackable=TrackableSummary(reference_code='TBBAQ0Z', name='30 LIRE'),
+        details=TrackableDetails(reference_code='TBBAQ0Z', goal_html='<p>Voyager</p>'),
+    )
+    client = app.test_client()
+
+    client.get('/api/trackables/TBBAQ0Z')
+    client.get('/api/trackables/TBBAQ0Z')
+    assert len([c for c in fake.calls if c[0] == 'trackable']) == 1
+    assert len([c for c in fake.calls if c[0] == 'details']) == 1
+
+    client.get('/api/trackables/TBBAQ0Z?refresh=1')
+    assert len([c for c in fake.calls if c[0] == 'trackable']) == 2
+    assert len([c for c in fake.calls if c[0] == 'details']) == 2
+
+
+def test_trackable_detail_cache_expires(app, fake_network, monkeypatch):
+    clock = {'t': 1000.0}
+    monkeypatch.setattr(trackables_bp, 'monotonic', lambda: clock['t'])
+    fake = fake_network(
+        trackable=TrackableSummary(reference_code='TBBAQ0Z'),
+        details=TrackableDetails(reference_code='TBBAQ0Z'),
+    )
+    client = app.test_client()
+
+    client.get('/api/trackables/TBBAQ0Z')
+    clock['t'] += trackables_bp._DETAIL_CACHE_TTL_SECONDS + 1
+    client.get('/api/trackables/TBBAQ0Z')
+
+    assert len([c for c in fake.calls if c[0] == 'trackable']) == 2
+
+
+def test_log_info_is_cached_but_tracking_code_stays_fresh(app, fake_network):
+    """Le volet distant de log-info est en cache ; `has_tracking_code` est relu en base."""
+    fake = fake_network(
+        lookup=TrackableSummary(reference_code='TBBAQ0Z', tracking_code='SECRET1'),
+        log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4]),
+    )
+    client = app.test_client()
+
+    assert client.get('/api/trackables/TBBAQ0Z/log-info').get_json()['has_tracking_code'] is False
+    client.post('/api/trackables/lookup', json={'code': 'SECRET1'})
+    body = client.get('/api/trackables/TBBAQ0Z/log-info').get_json()
+
+    assert body['has_tracking_code'] is True
+    assert len([c for c in fake.calls if c[0] == 'log_info']) == 1
+
+
+def test_trackable_route_maps_partial_result(app, fake_network):
+    fake_network(trackable=TrackablePartialResultError('inventaire tronqué'))
+    response = app.test_client().get('/api/trackables/TBBAQ0Z')
+    assert response.status_code == 502
+    assert response.get_json()['error'] == 'partial_result'
 
 
 # ------------------------------------------------------- Log de TB autonome
