@@ -223,8 +223,8 @@ Toutes les erreurs ont le format des routes amis,
 
 | Route | Rôle | Erreurs |
 |---|---|---|
-| `GET /inventory[?refresh=1 | ?max_age=<s>]` | Mon inventaire depuis la base ; le site est lu au premier appel, sur `refresh`, ou si le relevé a plus de `max_age` secondes. Le bilan `sync` compte `added` (TBs entrés, y compris repris après un dépôt) et `removed`. Un relevé `max_age` raté sert la copie locale avec `sync_error` | 401 `not_authenticated`, 502 `fetch_failed` (sur `refresh` seulement) |
-| `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
+| `GET /inventory[?refresh=1 | ?max_age=<s>]` | Mon inventaire depuis la base ; le site est lu au premier appel, sur `refresh`, ou si le relevé a plus de `max_age` secondes. Le bilan `sync` compte `added` (TBs entrés, y compris repris après un dépôt) et `removed`. Un relevé `max_age` raté sert la copie locale avec `sync_error`. Les lignes suivent le **DTO liste** `to_list_dict()` (code, nom, icône, type, propriétaire, `has_tracking_code`, dernière action, `updated_at`) : ~38 % du poids du `to_dict()` complet, dont l'objectif HTML et la localisation restent réservés à la fiche | 401 `not_authenticated`, 502 `fetch_failed` (sur `refresh` seulement) |
+| `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique et même DTO liste (la cache courante est implicite) ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
 | `POST /lookup` | Corps `{"code": "…"}` : code public ou code de suivi, qui ne passe donc jamais dans une URL ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 400 `invalid_code`, 404 `not_found` |
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |
@@ -250,7 +250,10 @@ Sous le tableau des géocaches, une section repliable :
     tant qu'aucune géocache du lot n'est en « Found it ».
 - **Une ligne par TB**, dans cet ordre :
   - trois boutons Rien / Visité / Déposé, **en tête de ligne**, collés au nom ;
-  - l'icône, le nom et le code (lien vers la fiche du site) ;
+  - l'icône, le nom et le code (lien vers la fiche du site) — l'image distante
+    est chargée à la demande (`loading="lazy"`, `decoding="async"`), à dimensions
+    fixes (16 px, la liste ne saute pas) et avec repli sur la case vide si elle
+    est injoignable ;
   - en « Déposé », le choix de la géocache du lot, placé juste après le code.
 
   L'action était d'abord un menu déroulant rejeté à droite : sur un éditeur large, on

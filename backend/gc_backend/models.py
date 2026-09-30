@@ -369,6 +369,25 @@ class Trackable(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    def to_list_dict(self) -> dict:
+        """
+        Version « liste » : juste ce qu'il faut pour afficher, filtrer et trier
+        une ligne d'inventaire. Les champs riches (objectif HTML, localisation,
+        distances, drapeaux…) restent dans ``to_dict()``, réservé à la fiche.
+        """
+        return {
+            'reference_code': self.reference_code,
+            'name': self.name,
+            'icon_url': self.icon_url,
+            'type_id': self.type_id,
+            'type_name': self.type_name,
+            # Filtrable côté liste (code, nom, type, propriétaire).
+            'owner_username': self.owner_username,
+            'has_tracking_code': bool(self.tracking_code),
+            'last_cache_log_action': self.last_cache_log_action,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
     def to_dict(self) -> dict:
         return {
             'reference_code': self.reference_code,

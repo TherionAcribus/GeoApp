@@ -66,16 +66,22 @@ export const TRACKABLE_AUTO_VISIT_PREF = 'geoApp.logs.trackableAutoVisit';
  */
 export const TRACKABLE_VISIT_WARNING_THRESHOLD = 100;
 
-/** Un TB de mon inventaire, tel que le renvoie `GET /api/trackables/inventory`. */
+/**
+ * Un TB de mon inventaire, tel que le renvoie `GET /api/trackables/inventory`.
+ *
+ * DTO « liste » volontairement minimal (P2-02) : les champs riches — objectif
+ * HTML, localisation, distances — ne viennent que de la fiche `GET /<TB>`.
+ */
 export interface InventoryTrackable {
     reference_code: string;
     name?: string | null;
     icon_url?: string | null;
+    type_id?: number | null;
     type_name?: string | null;
     owner_username?: string | null;
-    goal_html?: string | null;
     has_tracking_code?: boolean;
     last_cache_log_action?: string | null;
+    updated_at?: string | null;
 }
 
 /** Choix de l'utilisateur pour le lot. */

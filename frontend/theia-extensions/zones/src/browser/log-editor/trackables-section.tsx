@@ -202,9 +202,7 @@ const TrackableRow: React.FC<{
                     );
                 })}
             </div>
-            {trackable.icon_url
-                ? <img className='geoapp-log-trackables__icon' src={trackable.icon_url} alt='' />
-                : <span className='geoapp-log-trackables__icon' />}
+            <TrackableIcon url={trackable.icon_url} />
             <div className='geoapp-log-trackables__label'>
                 <span className='geoapp-log-trackables__name' title={trackable.type_name ?? undefined}>
                     {trackable.name || trackable.reference_code}
@@ -241,6 +239,30 @@ const TrackableRow: React.FC<{
                 </span>
             )}
         </div>
+    );
+};
+
+/**
+ * Icône distante d'une ligne : chargée à la demande (`lazy`), décodée hors
+ * thread, dimensions fixes pour ne pas faire sauter la liste, et repli sur la
+ * case vide si l'image est injoignable.
+ */
+const TrackableIcon: React.FC<{ url: string | null | undefined }> = ({ url }) => {
+    const [failed, setFailed] = React.useState(false);
+    if (!url || failed) {
+        return <span className='geoapp-log-trackables__icon' />;
+    }
+    return (
+        <img
+            className='geoapp-log-trackables__icon'
+            src={url}
+            alt=''
+            loading='lazy'
+            decoding='async'
+            width={16}
+            height={16}
+            onError={() => setFailed(true)}
+        />
     );
 };
 

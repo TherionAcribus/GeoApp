@@ -49,9 +49,9 @@ def app():
         db.drop_all()
 
 
-def _mine(code: str, tracking: str = 'SECRET1', name: str | None = None) -> TrackableSummary:
+def _mine(code: str, tracking: str = 'SECRET1', name: str | None = None, **kwargs) -> TrackableSummary:
     return TrackableSummary(reference_code=code, name=name or f'TB {code}', tracking_code=tracking,
-                            owner_username='AngeEtDemon')
+                            owner_username='AngeEtDemon', **kwargs)
 
 
 # ------------------------------------------------------ Log de cache + TBs
@@ -291,8 +291,57 @@ def test_geocache_inventory(app, fake_network):
     assert body['gc_code'] == 'GC1E51'
     assert body['refreshed'] is True
     assert [t['reference_code'] for t in body['trackables']] == ['TBBAQ0Z']
-    assert body['trackables'][0]['current_geocache_code'] == 'GC1E51'
     assert client.get('/api/trackables/geocache/NOPE').status_code == 400
+
+
+# Champs du DTO « liste » (P2-02) : rien d'autre ne doit fuiter — ni le code de
+# suivi, ni l'objectif HTML, ni la localisation ; la fiche GET /<TB> garde tout.
+LIST_DTO_KEYS = {
+    'reference_code', 'name', 'icon_url', 'type_id', 'type_name',
+    'owner_username', 'has_tracking_code', 'last_cache_log_action', 'updated_at',
+}
+
+
+@pytest.mark.parametrize('size', [70, 1000])
+def test_inventory_list_dto_is_minimal(app, fake_network, size):
+    """La liste ne sérialise que le DTO allégé — la taille reste bornée."""
+    items = [
+        _mine(
+            f'TB{i:05d}',
+            name=f'Trackable {i}',
+            tracking='SECRET1',
+            goal_html='<p>Objectif détaillé avec <strong>balises</strong> et texte long.</p>' * 3,
+        )
+        for i in range(size)
+    ]
+    fake_network(inventory=items)
+    client = app.test_client()
+
+    response = client.get('/api/trackables/inventory')
+    body = response.get_json()
+
+    assert len(body['trackables']) == size
+    for item in body['trackables']:
+        assert set(item) == LIST_DTO_KEYS
+        assert item['has_tracking_code'] is True
+    assert 'SECRET1' not in response.get_data(as_text=True)
+    # Ordre de grandeur : le DTO complet embarque goal_html, localisation,
+    # distances… — la liste doit rester bien en dessous.
+    full_size = len(json.dumps([row.to_dict() for row in trackable_store.list_my_inventory()]))
+    assert len(response.get_data()) < full_size // 2
+
+
+def test_geocache_inventory_list_dto_is_minimal(app, fake_network):
+    fake_network(cache=[TrackableSummary(
+        reference_code='TBBAQ0Z', name='30 LIRE', tracking_code='SECRET1',
+        goal_html='<p>x</p>',
+    )])
+    client = app.test_client()
+
+    body = client.get('/api/trackables/geocache/gc1e51').get_json()
+
+    assert set(body['trackables'][0]) == LIST_DTO_KEYS
+    assert 'SECRET1' not in json.dumps(body)
 
 
 def test_lookup_post_keeps_tracking_code_server_side(app, fake_network):

@@ -142,7 +142,9 @@ def get_inventory():
     rows = trackable_store.list_my_inventory()
     return jsonify({
         'success': True,
-        'trackables': [row.to_dict() for row in rows],
+        # DTO allégé : la section liste n'a besoin ni de l'objectif HTML ni de la
+        # localisation ; la fiche (GET /<TB>) garde le DTO complet.
+        'trackables': [row.to_list_dict() for row in rows],
         'total': len(rows),
         'last_sync_at': trackable_store.inventory_last_sync_at(),
         'sync': report,
@@ -167,7 +169,9 @@ def get_geocache_inventory(gc_code: str):
     return jsonify({
         'success': True,
         'gc_code': gc_code,
-        'trackables': [row.to_dict() for row in rows],
+        # La cache courante est implicite (= gc_code) : DTO liste, pas de champ
+        # riche (cf. /inventory).
+        'trackables': [row.to_list_dict() for row in rows],
         'total': len(rows),
         'synced_at': trackable_store.cache_inventory_synced_at(gc_code),
         'refreshed': refreshed,
