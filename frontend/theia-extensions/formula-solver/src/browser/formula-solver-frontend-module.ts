@@ -56,8 +56,10 @@ export default new ContainerModule(bind => {
     bind(BackendWebSearchAnswering).toSelf().inSingletonScope();
     bind(FormulaSolverPipeline).toSelf().inSingletonScope();
     
-    // Widget
-    bind(FormulaSolverWidget).toSelf().inSingletonScope();
+    // Widget — pas de inSingletonScope() : la fermeture dispose le widget et
+    // un singleton recyclerait l'instance disposée à la réouverture (onglet
+    // noir). Le WidgetManager dédoublonne déjà par factoryId.
+    bind(FormulaSolverWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: FormulaSolverWidget.ID,
         createWidget: () => ctx.container.get<FormulaSolverWidget>(FormulaSolverWidget)

@@ -7,10 +7,18 @@ import { ZonesCommands } from './zones-command-contribution';
 export class ZonesMenuContribution implements MenuContribution {
 
     registerMenus(menus: MenuModelRegistry): void {
-        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+        // Préférences et Connexion vivent dans le menu Réglages natif
+        // (spec barres latérales §4.4) — plus dans le bas de l'Activity Bar.
+        menus.registerMenuAction(CommonMenus.MANAGE_GENERAL, {
             commandId: 'geo-preferences:open',
-            label: 'Preferences GeoApp',
-            order: '0'
+            label: 'Préférences GeoApp',
+            order: '80'
+        });
+
+        menus.registerMenuAction(CommonMenus.MANAGE_GENERAL, {
+            commandId: ZonesCommands.OPEN_AUTH.id,
+            label: 'Connexion Geocaching.com',
+            order: '81'
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {

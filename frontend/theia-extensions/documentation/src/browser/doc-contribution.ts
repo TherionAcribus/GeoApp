@@ -8,13 +8,10 @@ import {
 import {
     ApplicationShell,
     CommonMenus,
-    FrontendApplicationContribution,
     KeybindingContribution,
     KeybindingRegistry,
     WidgetManager,
 } from '@theia/core/lib/browser';
-import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
-import { SidebarBottomMenuWidget } from '@theia/core/lib/browser/shell/sidebar-bottom-menu-widget';
 import { CommandService } from '@theia/core';
 import { DOC_WIDGET_ID, DOC_WIDGET_LABEL } from './doc-widget';
 
@@ -29,10 +26,8 @@ export namespace GeoAppDocCommands {
     };
 }
 
-export const GEOAPP_DOC_SIDEBAR_MENU = ['geoapp-doc-sidebar-menu'];
-
 @injectable()
-export class DocContribution implements CommandContribution, MenuContribution, KeybindingContribution, FrontendApplicationContribution {
+export class DocContribution implements CommandContribution, MenuContribution, KeybindingContribution {
 
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
@@ -40,13 +35,8 @@ export class DocContribution implements CommandContribution, MenuContribution, K
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
 
-    @inject(FrontendApplicationStateService)
-    protected readonly stateService: FrontendApplicationStateService;
-
     @inject(CommandService)
     protected readonly commandService: CommandService;
-
-    protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
 
     // Identifiants Theia (et non VS Code) du widget de chat IA.
     private static readonly CHAT_VIEW_WIDGET_ID = 'chat-view-widget';
@@ -72,12 +62,6 @@ export class DocContribution implements CommandContribution, MenuContribution, K
             label: 'Demander à @Aide',
             order: '1',
         });
-
-        menus.registerMenuAction(GEOAPP_DOC_SIDEBAR_MENU, {
-            commandId: GeoAppDocCommands.OPEN.id,
-            label: 'Ouvrir la documentation',
-            order: '0',
-        });
     }
 
     registerKeybindings(registry: KeybindingRegistry): void {
@@ -87,49 +71,12 @@ export class DocContribution implements CommandContribution, MenuContribution, K
         });
     }
 
-    onStart(): void {
-        this.scheduleSidebarSetup();
-    }
-
-    protected scheduleSidebarSetup(): void {
-        // Attendre que le shell soit prêt plutôt que des délais fixes : sur une
-        // machine lente, un setTimeout à durée figée peut expirer avant que la
-        // sidebar existe et l'icône n'apparaît alors jamais.
-        this.stateService.reachedState('ready').then(() => this.trySetupSidebar());
-    }
-
-    protected trySetupSidebar(attempt: number = 0): void {
-        this.findSidebarBottomMenu();
-        if (this.sidebarBottomMenu) {
-            this.addDocSidebarIcon();
-            return;
-        }
-        if (attempt >= 20) {
-            console.warn('[GeoAppDoc] Menu bas de sidebar introuvable après 20 tentatives, abandon');
-            return;
-        }
-        setTimeout(() => this.trySetupSidebar(attempt + 1), 500);
-    }
-
-    protected findSidebarBottomMenu(): void {
-        const leftPanel = (this.shell as any).leftPanelHandler;
-        if (leftPanel?.bottomMenu) {
-            this.sidebarBottomMenu = leftPanel.bottomMenu;
-        }
-    }
-
-    protected addDocSidebarIcon(): void {
-        if (!this.sidebarBottomMenu) {
-            return;
-        }
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-doc-sidebar-menu',
-            iconClass: 'codicon codicon-book',
-            title: 'Documentation GeoApp (Shift+F1)',
-            menuPath: GEOAPP_DOC_SIDEBAR_MENU,
-            order: 2,
-        });
-    }
+    /**
+     * L'icône bas de la barre latérale a été retirée (spec barres latérales
+     * §4.4) : la documentation reste accessible par le menu Aide, `Shift+F1`
+     * et la palette de commandes — et peut être épinglée à la barre d'outils
+     * dynamique par l'utilisateur.
+     */
 
     private async openDocWidget(): Promise<void> {
         const widget = await this.widgetManager.getOrCreateWidget(DOC_WIDGET_ID);

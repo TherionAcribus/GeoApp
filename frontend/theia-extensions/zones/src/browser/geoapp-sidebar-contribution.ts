@@ -1,19 +1,27 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
-import { FrontendApplicationContribution } from '@theia/core/lib/browser';
-import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
-import { SidebarBottomMenuWidget } from '@theia/core/lib/browser/shell/sidebar-bottom-menu-widget';
+import { FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
 import { MenuModelRegistry, MenuContribution } from '@theia/core/lib/common';
 import { ApplicationShell } from '@theia/core/lib/browser';
-import { SidebarMenu } from '@theia/core/lib/browser/shell/sidebar-menu-widget';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 
-export const GEOAPP_PREFERENCES_MENU = ['geoapp-preferences-menu'];
 export const GEOAPP_AUTH_MENU = ['geoapp-auth-menu'];
-export const GEOAPP_FRIENDS_MENU = ['geoapp-friends-menu'];
-export const GEOAPP_TRACKABLES_MENU = ['geoapp-trackables-menu'];
 
+/**
+ * Icône « Connexion Geocaching.com » en bas de la barre latérale gauche — seul
+ * raccourci conservé : l'authentification GeoApp n'est pas un
+ * `AuthenticationProvider` Theia, son état (connecté/déconnecté) doit rester
+ * visible en permanence. Préférences, Amis, Trackables et Documentation
+ * vivent dans les menus/commandes, pas dans l'Activity Bar (spec §2.6, §4.4).
+ *
+ * Installation via l'API publique `leftPanelHandler.addBottomMenu` une fois le
+ * shell initialisé — plus de polling ni de cast `(shell as any)`.
+ */
 @injectable()
 export class GeoAppSidebarContribution implements FrontendApplicationContribution, MenuContribution {
+
+    /** Rang distinct des rangs natifs Theia (Réglages/Comptes occupent 0–2). */
+    protected static readonly AUTH_MENU_ORDER = 100;
+    protected static readonly AUTH_MENU_ID = 'geoapp-auth-menu';
 
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
@@ -21,10 +29,6 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
 
-    @inject(FrontendApplicationStateService)
-    protected readonly stateService: FrontendApplicationStateService;
-
-    protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
     protected isConnected = false;
     protected authPollingStarted = false;
 
@@ -45,76 +49,36 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     };
 
     registerMenus(menus: MenuModelRegistry): void {
-        menus.registerMenuAction(GEOAPP_PREFERENCES_MENU, {
-            commandId: 'geo-preferences:open',
-            label: 'Ouvrir les préférences GeoApp',
-            order: '0'
-        });
-
-        menus.registerMenuAction(GEOAPP_PREFERENCES_MENU, {
-            commandId: 'geoapp.chat.policy.open',
-            label: 'Policy Chat IA',
-            order: '1'
-        });
-
         menus.registerMenuAction(GEOAPP_AUTH_MENU, {
             commandId: 'geoapp.auth.open',
             label: 'Gérer la connexion',
             order: '0'
         });
-
-        // Les amis ont leur propre entrée : rangés dans le menu du compte, à
-        // côté de « Gérer la connexion », ils passaient inaperçus.
-        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
-            commandId: 'geoapp.friends.open',
-            label: 'Mes amis',
-            order: '0'
-        });
-
-        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
-            commandId: 'geoapp.friends.activity.open',
-            label: 'Activité des amis',
-            order: '1'
-        });
-
-        menus.registerMenuAction(GEOAPP_FRIENDS_MENU, {
-            commandId: 'geoapp.friends.todo.open',
-            label: 'Caches à faire',
-            order: '2'
-        });
-
-        // L'icône de la sidebar mène directement au widget : un seul item de
-        // menu, pas un sous-menu — la « découvrabilité » est le but.
-        menus.registerMenuAction(GEOAPP_TRACKABLES_MENU, {
-            commandId: 'geoapp.trackables.open',
-            label: 'Ouvrir les trackables',
-            order: '0'
-        });
     }
 
-    onStart(): void {
-        this.scheduleSidebarSetup();
+    onStart(_app: FrontendApplication): void {
+        // `initialized` est public et résout quand les panneaux latéraux
+        // existent — exactement le moment où addBottomMenu peut être appelé.
+        void this.shell.initialized.then(() => this.addAuthMenu());
         this.startAuthPolling();
     }
 
-    protected scheduleSidebarSetup(): void {
-        // Attendre que le shell soit prêt plutôt que des délais fixes : sur une
-        // machine lente, un setTimeout à durée figée peut expirer avant que la
-        // sidebar existe et les menus n'apparaissent alors jamais.
-        this.stateService.reachedState('ready').then(() => this.trySetupSidebar());
+    protected addAuthMenu(): void {
+        this.shell.leftPanelHandler.addBottomMenu({
+            id: GeoAppSidebarContribution.AUTH_MENU_ID,
+            iconClass: this.getAuthIconClass(),
+            title: this.getAuthTitle(),
+            menuPath: GEOAPP_AUTH_MENU,
+            order: GeoAppSidebarContribution.AUTH_MENU_ORDER
+        });
     }
 
-    protected trySetupSidebar(attempt: number = 0): void {
-        this.findSidebarBottomMenu();
-        if (this.sidebarBottomMenu) {
-            this.addGeoAppMenus();
-            return;
-        }
-        if (attempt >= 20) {
-            console.warn('[GeoAppSidebar] Menu bas de sidebar introuvable après 20 tentatives, abandon');
-            return;
-        }
-        setTimeout(() => this.trySetupSidebar(attempt + 1), 500);
+    protected getAuthIconClass(): string {
+        return this.isConnected ? 'codicon codicon-account' : 'codicon codicon-debug-disconnect';
+    }
+
+    protected getAuthTitle(): string {
+        return this.isConnected ? 'Connecté à Geocaching.com' : 'Non connecté - Cliquez pour vous connecter';
     }
 
     protected startAuthPolling(): void {
@@ -125,66 +89,6 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
         this.authPollingStarted = true;
         setTimeout(() => void this.checkAuthStatus(), 1500);
         setInterval(() => void this.checkAuthStatus(), 60000);
-    }
-
-    protected findSidebarBottomMenu(): void {
-        const leftPanel = (this.shell as any).leftPanelHandler;
-        const rightPanel = (this.shell as any).rightPanelHandler;
-
-        if (leftPanel?.bottomMenu) {
-            this.sidebarBottomMenu = leftPanel.bottomMenu;
-            return;
-        }
-
-        if (rightPanel?.bottomMenu) {
-            this.sidebarBottomMenu = rightPanel.bottomMenu;
-        }
-    }
-
-    protected addGeoAppMenus(): void {
-        if (!this.sidebarBottomMenu) {
-            return;
-        }
-
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-preferences-menu',
-            iconClass: 'fa fa-sliders',
-            title: 'Préférences GeoApp',
-            menuPath: GEOAPP_PREFERENCES_MENU,
-            order: 0
-        });
-
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-friends-menu',
-            iconClass: 'codicon codicon-organization',
-            title: 'Amis Geocaching.com',
-            menuPath: GEOAPP_FRIENDS_MENU,
-            order: 1
-        });
-
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-trackables-menu',
-            iconClass: 'fa fa-bug',
-            title: 'Trackables Geocaching.com',
-            menuPath: GEOAPP_TRACKABLES_MENU,
-            order: 1.5
-        });
-
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-auth-menu',
-            iconClass: this.getAuthIconClass(),
-            title: this.getAuthTitle(),
-            menuPath: GEOAPP_AUTH_MENU,
-            order: 2
-        });
-    }
-
-    protected getAuthIconClass(): string {
-        return this.isConnected ? 'codicon codicon-account' : 'codicon codicon-debug-disconnect';
-    }
-
-    protected getAuthTitle(): string {
-        return this.isConnected ? 'Connecté à Geocaching.com' : 'Non connecté - Cliquez pour vous connecter';
     }
 
     protected async checkAuthStatus(): Promise<void> {
@@ -220,17 +124,13 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     }
 
     protected updateAuthIcon(): void {
-        if (!this.sidebarBottomMenu) {
-            return;
-        }
-
-        this.sidebarBottomMenu.removeMenu('geoapp-auth-menu');
-        this.sidebarBottomMenu.addMenu({
-            id: 'geoapp-auth-menu',
-            iconClass: this.getAuthIconClass(),
-            title: this.getAuthTitle(),
-            menuPath: GEOAPP_AUTH_MENU,
-            order: 2
+        // Différé après l'initialisation : un changement d'état très tôt au
+        // démarrage s'applique quand même, une seule fois le panneau prêt.
+        // Même id et même rang : le retrait/ajout conserve la position de
+        // l'icône et ne déplace jamais les autres éléments du menu.
+        void this.shell.initialized.then(() => {
+            this.shell.leftPanelHandler.removeBottomMenu(GeoAppSidebarContribution.AUTH_MENU_ID);
+            this.addAuthMenu();
         });
     }
 }

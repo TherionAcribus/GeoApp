@@ -3,13 +3,17 @@
 > Spécification technique destinée au LLM qui implémentera les changements.
 > État du dépôt audité : 30 septembre 2026, Eclipse Theia `1.76.0`.
 >
-> **Avancement** : lot 1 (P0) implémenté — registre `sidebar/geoapp-sidebar-views.ts`,
+> **Avancement** : lots 1 (P0) et 2 (P1) implémentés — registre `sidebar/geoapp-sidebar-views.ts`,
 > défauts créés dans `initializeLayout` (`GeoAppSidebarDefaultsContribution`,
 > migration Plugins isolée dans `GeoAppLegacyPluginsMigrationContribution`),
 > auto-sauvegarde installée après `onDidInitializeLayout`, `hiddenDefaultWidgets.v1`
 > supprimé, Cartes fermable avec commande `geoapp.mapManager.open`, forçage
 > Formula Solver supprimé. Test : `geoapp-sidebar-views.test.ts`.
-> Reste : lots 2 (menu inférieur), 3 (dialogue de personnalisation), 4
+> Lot 2 : `GeoAppSidebarContribution` ne garde que l'icône Connexion via
+> l'API publique `leftPanelHandler.addBottomMenu/removeBottomMenu` (rang 100)
+> après `shell.initialized` ; icônes Préférences/Amis/Trackables/Documentation
+> retirées ; Préférences + Connexion déplacées dans `CommonMenus.MANAGE_GENERAL`.
+> Reste : lots 3 (dialogue de personnalisation), 4
 > (homogénéisation + tests), 5 (perspectives, optionnel) et la validation
 > manuelle §9.
 > Le document couvre le shell frontend uniquement. Il ne demande aucune modification backend.

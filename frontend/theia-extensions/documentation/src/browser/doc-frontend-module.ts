@@ -27,7 +27,10 @@ export default new ContainerModule(bind => {
     bind(DocActionToolsManager).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(DocActionToolsManager);
 
-    bind(DocWidget).toSelf().inSingletonScope();
+    // Pas de inSingletonScope() : le WidgetManager dédoublonne par factoryId
+    // et la fermeture dispose le widget — un singleton recyclerait une
+    // instance disposée à la réouverture (onglet noir).
+    bind(DocWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: DocWidget.ID,
         createWidget: () => ctx.container.get(DocWidget),
@@ -37,7 +40,6 @@ export default new ContainerModule(bind => {
     bind(CommandContribution).toService(DocContribution);
     bind(MenuContribution).toService(DocContribution);
     bind(KeybindingContribution).toService(DocContribution);
-    bind(FrontendApplicationContribution).toService(DocContribution);
 
     bind(GeoAppDocAgent).toSelf().inSingletonScope();
     bind(ChatAgent).toService(GeoAppDocAgent);
