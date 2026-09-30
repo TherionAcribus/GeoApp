@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 import requests
@@ -547,6 +548,90 @@ def test_network_error_keeps_details_without_query_string():
     client = GeocachingTrackablesClient(FailingSession())
     with pytest.raises(TrackableError, match='refused'):
         client.fetch_my_inventory()
+
+
+# ------------------------------------------------- P2-05 : parseurs observables
+
+def _details_page_with_dates(*dates: str) -> str:
+    """Fiche minimale anonymisée, avec des dates de logs au format voulu."""
+    rows = ''.join(
+        '<tr class="Data BorderTop"><th>'
+        f'<img src="/images/logtypes/14.png" title="Dropped Off" />&nbsp;{date}</th></tr>'
+        '<tr class="Data BorderBottom"><td colspan="4"><div class="TrackLogText"><p>x</p></div></td></tr>'
+        for date in dates
+    )
+    return f'<span class="CoordInfoCode">TB1234</span><table>{rows}</table>'
+
+
+def test_details_page_marks_unparseable_sections():
+    """Code trouvé mais nom/localisation/logs absents : la dérive est signalée."""
+    details = GeocachingTrackablesClient.parse_details_page('<span class="CoordInfoCode">TB1234</span>')
+
+    assert details.reference_code == 'TB1234'
+    assert set(details.parse_warnings) == {'name', 'location', 'logs'}
+
+
+def test_fetch_details_logs_completeness_without_html(caplog):
+    session = FakeSession({DETAILS: FakeResponse(text='<span class="CoordInfoCode">TB1234</span>')})
+
+    with caplog.at_level(logging.WARNING):
+        details = GeocachingTrackablesClient(session).fetch_details('TB1234')
+
+    assert 'partiellement parsée' in caplog.text
+    assert 'name' in caplog.text and 'logs' in caplog.text
+    assert '<span' not in caplog.text          # le diagnostic ne journalise pas de HTML
+
+
+def test_log_page_warns_when_next_data_or_log_types_missing():
+    info = GeocachingTrackablesClient.parse_log_page('TB1234', _log_page([], None))
+    assert info.parse_warnings == ['logTypes']
+
+    info = GeocachingTrackablesClient.parse_log_page('TB1234', '<html>rien à voir</html>')
+    assert 'next_data' in info.parse_warnings
+    assert 'logTypes' in info.parse_warnings
+
+
+def test_log_dates_stay_raw_and_flagged_when_ambiguous():
+    """05/06/2026 seul ne dit pas si c'est mai ou juin : date estimée + raw + marqueur."""
+    logs = GeocachingTrackablesClient.parse_details_page(
+        _details_page_with_dates('05/06/2026', '07/08/2026')
+    ).logs
+
+    assert [log.log_date for log in logs] == ['2026-05-06', '2026-07-08']
+    assert all(log.log_date_ambiguous for log in logs)
+    assert [log.log_date_raw for log in logs] == ['05/06/2026', '07/08/2026']
+
+
+def test_log_dates_dotted_european_format_is_decisive():
+    """Fixture format de compte européen : « 05.06.2026 » = 5 juin, sans ambiguïté."""
+    (log,) = GeocachingTrackablesClient.parse_details_page(
+        _details_page_with_dates('05.06.2026')
+    ).logs
+
+    assert log.log_date == '2026-06-05'
+    assert log.log_date_ambiguous is False
+
+
+def test_log_dates_decisive_page_marks_nothing():
+    """Un log « 07/13/2026 » prouve le format mois/jour pour toute la page."""
+    logs = GeocachingTrackablesClient.parse_details_page(
+        _details_page_with_dates('07/13/2026', '05/06/2026')
+    ).logs
+
+    assert [log.log_date for log in logs] == ['2026-07-13', '2026-05-06']
+    assert all(not log.log_date_ambiguous for log in logs)
+
+
+def test_unparseable_inventory_items_are_counted_in_logs(caplog):
+    session = FakeSession({INVENTORY: FakeResponse(
+        payload=[_inventory_item(), {'name': 'sans code'}]
+    )})
+
+    with caplog.at_level(logging.WARNING):
+        items = GeocachingTrackablesClient(session).fetch_my_inventory()
+
+    assert [i.reference_code for i in items] == ['TB6Q3ER']
+    assert '1 élément(s) non parsables' in caplog.text
 
 
 def test_fetch_log_page_info_and_details():

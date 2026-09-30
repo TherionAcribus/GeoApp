@@ -200,6 +200,8 @@ class TrackableLogPageInfo:
     current_geocache_name: str | None = None
     name: str | None = None
     owner_username: str | None = None
+    # Marqueurs de complétude (P2-05) : gabarit dérivé — champs attendus absents.
+    parse_warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -223,6 +225,9 @@ class TrackableLogEntry:
     geocache_code: str | None
     geocache_name: str | None
     text_html: str | None
+    # Vrai si la page ne permettait pas de trancher jour/mois : `log_date` est
+    # alors une meilleure estimation, `log_date_raw` reste la valeur probante.
+    log_date_ambiguous: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -248,6 +253,9 @@ class TrackableDetails:
     distance_km: float | None = None
     is_locked: bool = False
     logs: list[TrackableLogEntry] = field(default_factory=list)
+    # Marqueurs de complétude (P2-05) : 'name', 'location', 'logs'… quand le
+    # gabarit de la fiche a dérivé et que le code a été trouvé sans eux.
+    parse_warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -287,7 +295,14 @@ class GeocachingTrackablesClient:
             )
             if not isinstance(payload, list):
                 raise TrackableError("Format de réponse inattendu pour l'inventaire des trackables")
-            items.extend(s for s in (self.parse_summary(raw) for raw in payload) if s)
+            parsed = [s for s in (self.parse_summary(raw) for raw in payload) if s]
+            if len(parsed) < len(payload):
+                # Diagnostic sans contenu : combien d'éléments ont été ignorés.
+                logger.warning(
+                    "Trackables: %d élément(s) non parsables ignorés dans l'inventaire",
+                    len(payload) - len(parsed),
+                )
+            items.extend(parsed)
             if len(payload) < PAGE_SIZE:
                 break
         else:
@@ -318,7 +333,13 @@ class GeocachingTrackablesClient:
             raw_total = payload.get('total')
             if total is None and isinstance(raw_total, int) and not isinstance(raw_total, bool):
                 total = raw_total
-            items.extend(s for s in (self.parse_summary(raw) for raw in data) if s)
+            parsed = [s for s in (self.parse_summary(raw) for raw in data) if s]
+            if len(parsed) < len(data):
+                logger.warning(
+                    "Trackables: %d élément(s) non parsables ignorés dans l'inventaire de %s",
+                    len(data) - len(parsed), gc_code,
+                )
+            items.extend(parsed)
             if len(data) < PAGE_SIZE:
                 break
         else:
@@ -376,7 +397,14 @@ class GeocachingTrackablesClient:
         """Types de log autorisés et cache courante, lus sur la page de log du TB."""
         tb_code = normalize_code(tb_code)
         response = self._request(TRACKABLE_LOG_PAGE_URL.format(tb_code=tb_code), what=f'la page de log de {tb_code}')
-        return self.parse_log_page(tb_code, response.text)
+        info = self.parse_log_page(tb_code, response.text)
+        if info.parse_warnings:
+            # Diagnostic sans HTML ni secret : le code est public, la page reste locale.
+            logger.warning(
+                'Trackables: page de log de %s partiellement parsée (%s)',
+                tb_code, ', '.join(info.parse_warnings),
+            )
+        return info
 
     def fetch_details(self, tb_code: str) -> TrackableDetails:
         """La fiche HTML d'un TB : objectif, origine, localisation, logs de la première page."""
@@ -385,6 +413,11 @@ class GeocachingTrackablesClient:
         details = self.parse_details_page(page)
         if details is None:
             raise TrackableNotFoundError(f'Trackable {tb_code} introuvable sur Geocaching.com.')
+        if details.parse_warnings:
+            logger.warning(
+                'Trackables: fiche de %s partiellement parsée (%s)',
+                tb_code, ', '.join(details.parse_warnings),
+            )
         return details
 
     # ---------------------------------------------------------------- Réseau
@@ -526,8 +559,11 @@ class GeocachingTrackablesClient:
             info.current_geocache_name = _as_str(current.get('name'))
             info.name = _as_str(loggable.get('name'))
             info.owner_username = _as_str(owner.get('userName'))
+            if not info.allowed_log_type_ids:
+                info.parse_warnings.append('logTypes')
             return info
 
+        info.parse_warnings.append('next_data')          # JSON Next.js absent : repli regex
         types = cls._search(r'"logTypes":\[([^\]]*)\]', page)
         if types:
             info.allowed_log_type_ids = [int(v) for v in re.findall(r'"value":\s*(\d+)', types)]
@@ -539,6 +575,8 @@ class GeocachingTrackablesClient:
                 data = {}
             info.current_geocache_code = _as_str(data.get('referenceCode'))
             info.current_geocache_name = _as_str(data.get('name'))
+        if not info.allowed_log_type_ids:
+            info.parse_warnings.append('logTypes')
         return info
 
     @staticmethod
@@ -601,6 +639,15 @@ class GeocachingTrackablesClient:
 
         details.is_locked = bool(re.search(r'<a id="ctl00_ContentBody_LogLink"[^(]*\(locked\)</a>', page))
         details.logs = cls.parse_details_logs(page)
+
+        # Complétude : le code du TB a été trouvé — si nom, localisation ou logs
+        # manquent, le gabarit de la fiche a probablement dérivé.
+        if details.name is None:
+            details.parse_warnings.append('name')
+        if location is None:
+            details.parse_warnings.append('location')
+        if not details.logs:
+            details.parse_warnings.append('logs')
         return details
 
     @classmethod
@@ -639,9 +686,13 @@ class GeocachingTrackablesClient:
                 text_html=sanitize_html_fragment((text or '').strip() or None),
             ))
 
-        day_first = _guess_day_first(raw_dates)
+        day_first, decisive = _date_order(raw_dates)
         for entry in entries:
             entry.log_date = _parse_numeric_date(entry.log_date_raw, day_first)
+            match = _NUMERIC_DATE_RE.match(entry.log_date_raw or '')
+            entry.log_date_ambiguous = bool(
+                entry.log_date and not decisive and match and len(match.group(1)) != 4
+            )
         return entries
 
     @staticmethod
@@ -703,12 +754,18 @@ def _inner_html(value: Optional[str]) -> Optional[str]:
 _NUMERIC_DATE_RE = re.compile(r'^(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})$')
 
 
-def _guess_day_first(raw_dates: list[str]) -> bool:
+def _date_order(raw_dates: list[str]) -> tuple[bool, bool]:
     """
-    La fiche affiche les dates au format du compte (MM/dd/yyyy, dd/MM/yyyy, dd.MM.yyyy…),
-    que la page ne déclare pas. On tranche sur l'ensemble des logs : un premier nombre
-    supérieur à 12 impose jour/mois, un second supérieur à 12 impose mois/jour.
-    À défaut, le format par défaut du site (mois en premier), sauf séparateur « . ».
+    Ordre jour/mois des dates de la page : ``(jour_d'abord, décidable)``.
+
+    La fiche affiche les dates au format du compte (MM/dd/yyyy, dd/MM/yyyy,
+    dd.MM.yyyy…), que la page ne déclare pas. On tranche sur l'ensemble des logs :
+    un premier nombre > 12 impose jour/mois, un second > 12 impose mois/jour.
+    À défaut d'indice probant — toutes les dates ambiguës (05/06, 06/05…) —,
+    l'ordre est *estimé* (mois d'abord, sauf séparateur « . » européen) et
+    ``décidable`` est faux : l'appelant marque alors ``log_date_ambiguous`` et
+    ``log_date_raw`` reste la valeur probante. On n'invente pas une date
+    non numérique : elle reste ``log_date = None``.
     """
     dotted = False
     for raw in raw_dates:
@@ -718,10 +775,10 @@ def _guess_day_first(raw_dates: list[str]) -> bool:
         dotted = dotted or '.' in raw
         first, second = int(match.group(1)), int(match.group(2))
         if first > 12:
-            return True
+            return True, True
         if second > 12:
-            return False
-    return dotted
+            return False, True
+    return dotted, dotted
 
 
 def _parse_numeric_date(raw: Optional[str], day_first: bool) -> Optional[str]:

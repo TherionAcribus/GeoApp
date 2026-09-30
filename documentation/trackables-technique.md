@@ -66,10 +66,20 @@ commencer par « TB ». Un code inconnu renvoie une page au même gabarit, avec 
 
 **Dates des logs de la fiche.** Elles sont affichées au format de date du compte
 (`MM/dd/yyyy` par défaut, `dd/MM/yyyy`, `dd.MM.yyyy`…), que la page ne déclare pas.
-`_guess_day_first` tranche sur l'ensemble des logs de la page : un premier nombre
-supérieur à 12 impose jour/mois, un second supérieur à 12 impose mois/jour. À
-défaut, c'est mois/jour, sauf avec le séparateur « . ». La date brute reste
-disponible (`log_date_raw`).
+`_date_order` tranche sur l'ensemble des logs de la page : un premier nombre
+supérieur à 12 impose jour/mois, un second supérieur à 12 impose mois/jour ;
+le séparateur « . » est aussi probant (format européen). Sans indice, la date
+est *estimée* mois/jour et marquée `log_date_ambiguous` — la date brute reste
+probante (`log_date_raw`) ; une date non numérique n'est jamais inventée
+(`log_date` reste nul).
+
+**Observabilité des parseurs** (P2-05). Les parseurs restent des fonctions pures
+sur fixtures ; ils remplissent `parse_warnings` quand le gabarit a dérivé :
+`name`, `location`, `logs` pour la fiche (code trouvé sans eux), `next_data` et
+`logTypes` pour la page de log. `fetch_details` et `fetch_log_page_info`
+journalisent un warning « partiellement parsée » — code public et marqueurs
+seulement, jamais de HTML ni de code de suivi. Les éléments d'inventaire non
+parsables sont comptés dans les logs (pas leur contenu).
 
 **Réseau.** Toutes les requêtes du client sont des GET idempotents : timeouts
 distincts `(connexion 10 s, lecture 30 s)` ; un 429/5xx est rejoué au plus deux
