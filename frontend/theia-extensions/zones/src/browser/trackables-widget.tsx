@@ -33,6 +33,8 @@ import {
     TRACKABLE_LOG_TYPE_FALLBACK_LABELS,
     TRACKABLE_QUEUE_STORAGE_VERSION,
     TrackableQueueItem,
+    applyQueueLogType,
+    buildTrackableQueueCsv,
     buildTrackableQueueReport,
     defaultTrackableLogType,
     isLikelyPublicCode,
@@ -451,6 +453,8 @@ export class TrackablesWidget extends ReactWidget {
         }
         if (codes.length === 0) {
             this.messages.warn('Aucun code reconnu dans le collage.');
+        } else if (codes.length - fresh.length > 0) {
+            this.messages.info(`${codes.length - fresh.length} code(s) déjà dans la file ignoré(s).`);
         }
         this.update();
         void this.preflightQueue();
@@ -696,6 +700,30 @@ export class TrackablesWidget extends ReactWidget {
             .catch(() => this.messages.warn('Copie impossible dans le presse-papiers.'));
     }
 
+    /** Export CSV du bilan — codes publics seulement (`buildTrackableQueueCsv`). */
+    protected exportQueueCsv(): void {
+        const blob = new Blob([buildTrackableQueueCsv(this.queue)], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'trackables-queue.csv';
+        anchor.click();
+        URL.revokeObjectURL(url);
+    }
+
+    /** « Tout mettre à » de la file : applique un type aux éléments prêts qui le permettent. */
+    protected applyQueueLogType(logTypeId: number): void {
+        const { items, updated, skipped } = applyQueueLogType(this.queue, logTypeId);
+        this.queue = items;
+        this.persistQueue();
+        const label = TRACKABLE_LOG_TYPE_FALLBACK_LABELS[logTypeId] ?? `type ${logTypeId}`;
+        this.messages.info(
+            `${updated} élément(s) mis à « ${label} »`
+            + (skipped > 0 ? ` — ${skipped} ignoré(s), type non proposé pour eux.` : '.'),
+        );
+        this.update();
+    }
+
     protected render(): React.ReactNode {
         return (
             <div className='geoapp-trackables-widget'>
@@ -809,6 +837,17 @@ export class TrackablesWidget extends ReactWidget {
         const counts = trackableQueueCounts(this.queue);
         const busy = this.queueRunning || this.queuePreflighting;
         const sendable = this.queue.some(item => item.status === 'ready');
+        // « Tout mettre à » : union des types que le site propose aux prêts.
+        const massLogTypes = new Map<number, string>();
+        for (const item of this.queue) {
+            if (item.status === 'ready' && item.allowed_log_types) {
+                for (const t of item.allowed_log_types) {
+                    if (!massLogTypes.has(t.id)) {
+                        massLogTypes.set(t.id, t.label || TRACKABLE_LOG_TYPE_FALLBACK_LABELS[t.id] || `Type ${t.id}`);
+                    }
+                }
+            }
+        }
         return (
             <div className='geoapp-trackables-widget__panel' role='tabpanel'>
                 {this.pendingLogContext && (
@@ -858,6 +897,14 @@ export class TrackablesWidget extends ReactWidget {
                             <button
                                 type='button'
                                 className='theia-button secondary'
+                                onClick={() => this.exportQueueCsv()}
+                                title='Exporter le bilan en CSV (codes publics uniquement)'
+                            >
+                                Exporter CSV
+                            </button>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
                                 onClick={() => this.clearQueue()}
                             >
                                 Vider la file
@@ -896,6 +943,28 @@ export class TrackablesWidget extends ReactWidget {
                                     }}
                                 />
                             </label>
+                            {massLogTypes.size > 0 && (
+                                <label className='geoapp-trackables-widget__label'>
+                                    Type pour tous les prêts
+                                    <select
+                                        className='theia-select'
+                                        value=''
+                                        disabled={this.queueRunning}
+                                        aria-label='Appliquer un type de log à tous les éléments prêts'
+                                        onChange={e => {
+                                            const id = Number(e.currentTarget.value);
+                                            if (id) {
+                                                this.applyQueueLogType(id);
+                                            }
+                                        }}
+                                    >
+                                        <option value=''>Choisir…</option>
+                                        {[...massLogTypes.entries()].map(([id, label]) => (
+                                            <option key={id} value={id}>{label}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
                         </div>
                         <div className='geoapp-trackables-widget__toolbar'>
                             {this.queueRunning ? (

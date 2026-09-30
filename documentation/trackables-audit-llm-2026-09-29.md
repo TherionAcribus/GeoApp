@@ -503,5 +503,6 @@ Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_t
 | Lot 5 — coquille + inventaire | Fait | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel |
 | Lot 5.2 — onglet Loguer/Découvrir | Fait | `trackables-log-queue.ts` (pur) : collage multi-codes, dédoublonnage, lookup POST, types via `log-info`, file séquentielle avec `operationId`, états `pending→…→confirmed/rejected/unknown`, persistance sans codes de suivi, champ masqué + affichage temporaire |
 | Lot 5.3 — onglet Fiche | Fait | Détail assaini (DOMPurify côté client en plus du backend), méta complète, image, logs paginés 10/page, `parse_warnings` et dates incertaines affichés, code de suivi résolu par POST lookup |
+| File de découvertes en masse | Fait | Sur la file 5.2 : « Type pour tous les prêts » limité aux types autorisés par élément, doublons écartés à l'analyse, bilan copiable + export CSV sans secrets ; concurrence 1 et états conformes |
 
-Reste : file de découvertes en masse (étendre la file 5.2 : export CSV du bilan — déjà copiable — et préflight groupé), lot 4 restant dans l'éditeur (« TBs dans cette cache »), lot 6 — et la validation visuelle P2-06.
+Reste : lot 4 restant dans l'éditeur (« TBs dans cette cache »), lot 6 — et la validation visuelle P2-06.

@@ -9,6 +9,8 @@
 import * as assert from 'assert/strict';
 import {
     TRACKABLE_LOG_TYPE_IDS,
+    applyQueueLogType,
+    buildTrackableQueueCsv,
     buildTrackableQueueReport,
     defaultTrackableLogType,
     isLikelyPublicCode,
@@ -177,6 +179,42 @@ function testBuildTrackableQueueReportNoSecrets(): void {
     assert.equal(report.includes('(code non résolu)'), true);
 }
 
+function testBuildTrackableQueueCsv(): void {
+    const csv = buildTrackableQueueCsv([
+        item({
+            key: 'a', inputCode: 'SECRET9', reference_code: 'TB5XYZ',
+            name: 'Un "nom", avec; virgule', status: 'confirmed',
+            logTypeId: TRACKABLE_LOG_TYPE_IDS.DISCOVERED, geocacheCode: 'GC123',
+        }),
+        item({ key: 'b', inputCode: 'TOPKEY1', status: 'rejected', statusDetail: 'Refusé\nlà' }),
+    ]);
+    const lines = csv.split('\n');
+    assert.equal(lines[0], 'reference_code;name;status;status_detail;log_type;geocache;trackable_url');
+    assert.equal(lines[1], 'TB5XYZ;"Un ""nom"", avec; virgule";confirmed;;Découvert;GC123;');
+    // Le détail multi-lignes est protégé par les guillemets (il coupe le split
+    // naïf mais reste un seul champ CSV) ; le code de suivi n'apparaît jamais.
+    assert.equal(lines[2], ';;rejected;"Refusé');
+    assert.ok(csv.includes('"Refusé\nlà"'));
+    assert.equal(csv.includes('SECRET9'), false);
+    assert.equal(csv.includes('TOPKEY1'), false);
+}
+
+function testApplyQueueLogType(): void {
+    const result = applyQueueLogType([
+        item({ key: 'a', status: 'ready', allowed_log_types: [{ id: 4, label: '' }, { id: 48, label: '' }] }),
+        item({ key: 'b', status: 'ready', allowed_log_types: [{ id: 4, label: '' }] }),
+        item({ key: 'c', status: 'confirmed' }),
+        item({ key: 'd', status: 'ready' }), // allowed_log_types inconnu : ignoré
+    ], TRACKABLE_LOG_TYPE_IDS.DISCOVERED);
+    assert.equal(result.updated, 1);
+    assert.equal(result.skipped, 1);
+    assert.equal(result.items[0].logTypeId, TRACKABLE_LOG_TYPE_IDS.DISCOVERED);
+    assert.equal(result.items[1].logTypeId, undefined);
+    assert.equal(result.items[2].status, 'confirmed');
+    // Les objets non modifiés restent identiques (copie superficielle du tableau).
+    assert.equal(result.items[3].key, 'd');
+}
+
 /* -------------------------------- run ----------------------------------- */
 
 function run(): void {
@@ -188,6 +226,8 @@ function run(): void {
     testSanitizeQueueForStorage();
     testRestoreQueueFromStorage();
     testBuildTrackableQueueReportNoSecrets();
+    testBuildTrackableQueueCsv();
+    testApplyQueueLogType();
     console.log('trackables-log-queue tests passed');
 }
 

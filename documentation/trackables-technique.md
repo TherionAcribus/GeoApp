@@ -465,6 +465,12 @@ Trois onglets :
     `unknown`, lien « Vérifier sur Geocaching.com », jamais de renvoi à
     l'aveugle. La persistance (localStorage, versionnée) restaure les envois
     interrompus en « à vérifier » et les préflights en attente.
+  - **Lot** : « Type pour tous les prêts » (`applyQueueLogType`) n'applique le
+    choix qu'aux éléments dont `allowed_log_types` le contient — les autres
+    sont comptés, pas forcés. Les codes déjà présents sont écartés à l'analyse
+    (« N code(s) déjà dans la file ignoré(s) »). « Copier le bilan » et
+    « Exporter CSV » (`buildTrackableQueueCsv`, séparateur `;`, échappement
+    RFC 4180) ne produisent que des codes publics.
 - **Fiche** : `GET /api/trackables/<TB>` (cache court 5 min côté backend,
   `refresh=1` pour forcer). La saisie accepte un code public ou un code de
   suivi — celui-ci est d'abord résolu par `POST /lookup` (jamais en URL) ;

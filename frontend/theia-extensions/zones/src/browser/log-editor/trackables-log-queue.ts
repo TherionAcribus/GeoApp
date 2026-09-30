@@ -321,3 +321,53 @@ export function buildTrackableQueueReport(items: readonly TrackableQueueItem[]):
     }
     return lines.join('\n');
 }
+
+/**
+ * Bilan CSV de la file — même règle de secret que le rapport : la saisie brute
+ * (`inputCode`) et tout code de suivi n'y figurent jamais. Séparateur « ; »
+ * (locale française d'Excel), champs contenant « ; », « " » ou retour échappés.
+ */
+export function buildTrackableQueueCsv(items: readonly TrackableQueueItem[]): string {
+    const esc = (value: unknown): string => {
+        const s = value == null ? '' : String(value);
+        return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = 'reference_code;name;status;status_detail;log_type;geocache;trackable_url';
+    const rows = items.map(item => [
+        item.reference_code ?? '',
+        item.name ?? '',
+        item.status,
+        item.statusDetail ?? '',
+        item.logTypeId != null
+            ? (TRACKABLE_LOG_TYPE_FALLBACK_LABELS[item.logTypeId] ?? String(item.logTypeId))
+            : '',
+        item.geocacheCode ?? '',
+        item.trackable_url ?? '',
+    ].map(esc).join(';'));
+    return [header, ...rows].join('\n');
+}
+
+/**
+ * « Tout mettre à » de la file : applique un type de log à tous les éléments
+ * prêts dont la liste autorisée le contient. Les autres sont ignorés — comptés
+ * dans `skipped` — car le site ne le propose pas pour eux (le backend revalide).
+ */
+export function applyQueueLogType(
+    items: readonly TrackableQueueItem[],
+    logTypeId: number,
+): { items: TrackableQueueItem[]; updated: number; skipped: number } {
+    let updated = 0;
+    let skipped = 0;
+    const next = items.map(item => {
+        if (item.status !== 'ready' || !item.allowed_log_types) {
+            return item;
+        }
+        if (!item.allowed_log_types.some(t => t.id === logTypeId)) {
+            skipped += 1;
+            return item;
+        }
+        updated += 1;
+        return { ...item, logTypeId };
+    });
+    return { items: next, updated, skipped };
+}
