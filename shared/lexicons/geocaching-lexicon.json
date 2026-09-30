@@ -1,6 +1,6 @@
 {
   "$comment": "Lexique géocaching intégré, utilisé par les moteurs IA de GeoApp (traduction de logs, génération de logs, traduction de listings). Les entrées personnelles vivent dans la préférence geoApp.logs.translation.lexicon et surchargent celles-ci terme par terme. Voir documentation/lexique-geocaching-technique.md.",
-  "version": 1,
+  "version": 2,
   "entries": [
     {
       "term": "DNF",
@@ -44,13 +44,17 @@
     },
     {
       "term": "TB",
-      "aliases": ["Travel Bug"],
+      "aliases": [
+        "Travel Bug"
+      ],
       "gloss": "Travel Bug : objet traçable de Groundspeak qui voyage de cache en cache (marque déposée)",
       "policy": "keep"
     },
     {
       "term": "CITO",
-      "aliases": ["Cache In Trash Out"],
+      "aliases": [
+        "Cache In Trash Out"
+      ],
       "gloss": "Cache In Trash Out : ramassage des déchets pendant la sortie",
       "policy": "keep"
     },
@@ -116,13 +120,18 @@
     },
     {
       "term": "muggle",
-      "aliases": ["geomuggle"],
+      "aliases": [
+        "geomuggle"
+      ],
       "gloss": "personne qui ne pratique pas le géocaching et dont il faut se méfier près de la cache",
       "policy": "keep"
     },
     {
       "term": "cache",
-      "aliases": ["géocache", "geocache"],
+      "aliases": [
+        "géocache",
+        "geocache"
+      ],
       "gloss": "la géocache elle-même : ni une cachette au sens courant, ni une mémoire cache informatique",
       "policy": "keep"
     },
@@ -133,7 +142,9 @@
     },
     {
       "term": "logbook",
-      "aliases": ["log book"],
+      "aliases": [
+        "log book"
+      ],
       "gloss": "le carnet papier à signer dans la boîte",
       "policy": "keep"
     },
@@ -150,11 +161,17 @@
     {
       "term": "trackable",
       "gloss": "objet suivi par un code, qui voyage de cache en cache",
-      "policy": "keep"
+      "policy": "keep",
+      "aliases": [
+        "trackables",
+        "objet traçable"
+      ]
     },
     {
       "term": "geocoin",
-      "aliases": ["géocoin"],
+      "aliases": [
+        "géocoin"
+      ],
       "gloss": "pièce de collection traçable",
       "policy": "keep"
     },
@@ -185,19 +202,27 @@
     },
     {
       "term": "Adventure Lab",
-      "aliases": ["AdventureLab", "lab cache"],
+      "aliases": [
+        "AdventureLab",
+        "lab cache"
+      ],
       "gloss": "parcours officiel joué depuis l'application Adventure Lab",
       "policy": "keep"
     },
     {
       "term": "Letterbox",
-      "aliases": ["Letterbox Hybrid"],
+      "aliases": [
+        "Letterbox Hybrid"
+      ],
       "gloss": "type de cache officiel associant géocaching et letterboxing, avec un tampon à encrer",
       "policy": "keep"
     },
     {
       "term": "Mystery",
-      "aliases": ["mystery cache", "cache mystère"],
+      "aliases": [
+        "mystery cache",
+        "cache mystère"
+      ],
       "gloss": "type de cache officiel dont les coordonnées publiées sont fausses et se déduisent d'une énigme",
       "policy": "keep"
     },
@@ -223,7 +248,10 @@
     },
     {
       "term": "PAT",
-      "aliases": ["P.A.T.", "premier à trouver"],
+      "aliases": [
+        "P.A.T.",
+        "premier à trouver"
+      ],
       "gloss": "Premier À Trouver : le premier géocacheur à avoir trouvé la cache",
       "policy": "map",
       "translations": {
@@ -302,7 +330,10 @@
     },
     {
       "term": "géocacheur",
-      "aliases": ["géocacheuse", "geocacheur"],
+      "aliases": [
+        "géocacheuse",
+        "geocacheur"
+      ],
       "gloss": "une personne qui pratique le géocaching",
       "policy": "map",
       "translations": {
@@ -326,6 +357,34 @@
         "nl": "favorietpunt",
         "it": "punto preferito"
       }
+    },
+    {
+      "term": "TB hotel",
+      "aliases": [
+        "TB Hotel",
+        "hôtel à TBs",
+        "hotel à TBs"
+      ],
+      "gloss": "cache pensée pour déposer et échanger des trackables",
+      "policy": "keep"
+    },
+    {
+      "term": "code de suivi",
+      "aliases": [
+        "tracking code",
+        "code de traçage"
+      ],
+      "gloss": "code gravé sur le trackable, secret : il autorise les logs « découvert », « retiré », « déposé » — ne jamais le publier",
+      "policy": "keep"
+    },
+    {
+      "term": "dip",
+      "aliases": [
+        "dipped",
+        "tremper"
+      ],
+      "gloss": "action « visité » sur un trackable : il passe par la cache sans y rester",
+      "policy": "keep"
     }
   ]
 }

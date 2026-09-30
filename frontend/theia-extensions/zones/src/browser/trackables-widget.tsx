@@ -1226,16 +1226,20 @@ export class TrackablesWidget extends ReactWidget {
                                 <><dt>Lâché le</dt><dd>{formatIsoDateTimeFr(details.released_at)}</dd></>
                             )}
                             {details.origin && <><dt>Origine</dt><dd>{details.origin}</dd></>}
-                            {(details.location_name || details.location_geocache_code) && (
+                            {details.location_kind && (
                                 <><dt>Position</dt><dd>
-                                    {TRACKABLE_LOCATION_KIND_LABELS[details.location_kind ?? ''] ?? ''}{' '}
-                                    {details.location_geocache_code ? (
-                                        <a href={geocacheUrl(details.location_geocache_code)}
-                                            target='_blank' rel='noopener noreferrer'>
-                                            {details.location_geocache_code}
-                                        </a>
-                                    ) : undefined}
-                                    {details.location_name ? ` ${details.location_name}` : ''}
+                                    {details.location_kind === 'unknown' && !details.location_name
+                                        ? 'Inconnue'
+                                        : <>
+                                            {TRACKABLE_LOCATION_KIND_LABELS[details.location_kind] ?? ''}{' '}
+                                            {details.location_geocache_code ? (
+                                                <a href={geocacheUrl(details.location_geocache_code)}
+                                                    target='_blank' rel='noopener noreferrer'>
+                                                    {details.location_geocache_code}
+                                                </a>
+                                            ) : undefined}
+                                            {details.location_name ? ` ${details.location_name}` : ''}
+                                        </>}
                                 </dd></>
                             )}
                             {details.distance_km != null && (
