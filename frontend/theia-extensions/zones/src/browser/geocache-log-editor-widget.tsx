@@ -2253,7 +2253,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
                 dropTargets,
             };
-            if (typeof body.sync_error === 'string' && body.sync_error) {
+            if (body.empty_remote_guarded === true) {
+                // Le site a renvoyé un relevé vide alors que la copie locale ne l'était pas :
+                // troncation probable — la liste locale est conservée, « Rafraîchir » confirme.
+                this.trackablesNotice =
+                    'Geocaching.com renvoie un inventaire vide : la liste locale est conservée. '
+                    + 'Si votre inventaire est réellement vide, cliquez « Rafraîchir » pour confirmer.';
+            } else if (typeof body.sync_error === 'string' && body.sync_error) {
                 this.trackablesNotice = `Relecture sur Geocaching.com impossible (${body.sync_error}) : liste locale affichée.`;
             }
             if (mode === 'refresh') {

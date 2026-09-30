@@ -224,7 +224,23 @@ Toutes les erreurs ont le format des routes amis,
 | Route | Rôle | Erreurs |
 |---|---|---|
 | `GET /inventory[?refresh=1 | ?max_age=<s>]` | Mon inventaire depuis la base ; le site est lu au premier appel, sur `refresh`, ou si le relevé a plus de `max_age` secondes. Le bilan `sync` compte `added` (TBs entrés, y compris repris après un dépôt) et `removed`. Un relevé `max_age` raté sert la copie locale avec `sync_error`. Les lignes suivent le **DTO liste** `to_list_dict()` (code, nom, icône, type, propriétaire, `has_tracking_code`, dernière action, `updated_at`) : ~38 % du poids du `to_dict()` complet, dont l'objectif HTML et la localisation restent réservés à la fiche | 401 `not_authenticated`, 502 `fetch_failed` (sur `refresh` seulement) |
-| `GET /geocache/<GC>[?refresh=1]` | TBs d'une cache, même logique et même DTO liste (la cache courante est implicite) ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
+| `GET /geocache/<GC>[?refresh=1 | ?max_age=<s>]` | TBs d'une cache, même politique de fraîcheur et même DTO liste (la cache courante est implicite) ; date du relevé dans `AppConfig` | 400 si le code n'est pas un GC |
+
+**Politique de fraîcheur commune** (`_sync_resource`, inventaire et inventaire
+d'une cache — extensible à la fiche et à log-info) :
+
+- `max_age` borné : flottant fini ≥ 0 ; négatif, infini ou illisible est ignoré —
+  il ne force jamais une relecture à chaque appel. Sans `max_age`, seul
+  `refresh=1` (ou l'absence totale de relevé) relit le site ;
+- `stale` : vrai quand la copie servie est plus vieille que le `max_age` demandé
+  ou qu'un relevé vide a été écarté ; `sync_error` porte la cause d'un repli ;
+- **single-flight** : un verrou par ressource — deux appels périmés concurrents
+  déclenchent un seul relevé distant, le second relit la date fraîche sous le
+  verrou et sert la même copie ;
+- **garde-fou « relevé vide »** : un relevé automatique qui revient vide alors
+  que la copie locale ne l'est pas est écarté (`empty_remote_guarded`, `stale`,
+  `sync_error`) — troncation ou plafond serveur probable ; un `refresh=1`
+  explicite confirme un inventaire réellement vide.
 | `POST /lookup` | Corps `{"code": "…"}` : code public ou code de suivi, qui ne passe donc jamais dans une URL ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 400 `invalid_code`, 404 `not_found` |
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
 | `GET /<TB>` | `trackable` (base mise à jour) + `details` (fiche HTML, logs) | |

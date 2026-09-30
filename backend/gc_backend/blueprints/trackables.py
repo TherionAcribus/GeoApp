@@ -18,17 +18,19 @@ from __future__ import annotations
 
 import html as html_lib
 import logging
+import math
 import re
 import threading
+from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Optional
+from typing import Callable, Optional
 
 from flask import Blueprint, jsonify, request
 
 from ..database import db
-from ..models import Trackable
+from ..models import GeocacheTrackable, Trackable
 from ..services import trackable_store
 from ..services.geocaching_auth import get_auth_service
 from ..services.geocaching_friends import NotAuthenticatedError
@@ -91,21 +93,117 @@ def _wants_refresh() -> bool:
     return str(request.args.get('refresh', '')).strip().lower() in ('1', 'true', 'yes')
 
 
-def _is_stale(last_sync_at, max_age_arg) -> bool:
-    """
-    Vrai si le relevé date de plus de ``max_age`` secondes. Sans ``max_age`` (ou s'il est
-    illisible), la copie locale n'est jamais périmée : seul ``refresh`` force la relecture.
-    """
-    if max_age_arg is None or last_sync_at is None:
+# ---------------------------------------------------------------- Fraîcheur
+#
+# Politique commune des copies locales (P2-03) — inventaire personnel,
+# inventaire d'une cache, et réutilisable par la fiche/log-info (P2-04) :
+#
+# - `max_age` borné : un flottant fini >= 0 ; négatif, infini ou illisible est
+#   ignoré (copie jamais périmée) — il ne doit pas forcer un rafraîchissement à
+#   chaque appel ;
+# - single-flight : un verrou par ressource ; un appel concurrent attend le
+#   premier puis relit la date de relevé — si celui-ci vient de synchroniser,
+#   aucun second appel distant ne part ;
+# - garde-fou « relevé vide » : un relevé *automatique* qui revient vide alors
+#   que la copie locale ne l'est pas est écarté (réponse tronquée ou plafond
+#   serveur probable) ; seul un `refresh=1` explicite confirme un vrai vide.
+
+def _parse_max_age(arg) -> Optional[float]:
+    """``max_age`` exploitable en secondes, ou ``None`` = copie jamais périmée."""
+    if arg is None:
+        return None
+    try:
+        value = float(arg)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
+
+
+def _is_stale(last_sync_at, max_age: Optional[float]) -> bool:
+    """Vrai si le relevé date de plus de ``max_age`` secondes (déjà validé)."""
+    if max_age is None or last_sync_at is None:
         return False
     try:
-        max_age = float(max_age_arg)
         synced = datetime.fromisoformat(last_sync_at)
     except (TypeError, ValueError):
         return False
     if synced.tzinfo is None:
         synced = synced.replace(tzinfo=timezone.utc)
     return (datetime.now(timezone.utc) - synced).total_seconds() > max_age
+
+
+@dataclass
+class _SyncOutcome:
+    """Bilan d'une tentative de rafraîchissement d'une copie locale."""
+    attempted: bool = False       # un appel distant a été fait
+    applied: bool = False         # le relevé a été enregistré
+    report: object = None         # rapport renvoyé par `apply` (inventaire : sync report)
+    sync_error: Optional[str] = None
+    # Relevé distant vide écarté : la copie locale non vide a été conservée.
+    empty_remote_guarded: bool = False
+
+
+# Un verrou par ressource synchronisée ('inventory', 'cache:<GC>', …).
+_sync_locks: dict[str, threading.Lock] = {}
+_sync_locks_guard = threading.Lock()
+
+
+def _sync_lock(resource: str) -> threading.Lock:
+    with _sync_locks_guard:
+        return _sync_locks.setdefault(resource, threading.Lock())
+
+
+def _sync_resource(
+    resource: str,
+    *,
+    force_refresh: bool,
+    max_age: Optional[float],
+    synced_at: Callable[[], Optional[str]],
+    local_count: Callable[[], int],
+    fetch: Callable[[], object],
+    apply: Callable[[object], object],
+) -> _SyncOutcome:
+    """
+    Synchronise une copie locale selon la politique commune, sous verrou.
+
+    - ``synced_at``/``local_count`` sont relus *dans* le verrou : un appel
+      coalescé voit la date que le premier vient d'écrire et ne re-fetch pas ;
+    - un relevé part si ``force_refresh``, si la ressource n'a jamais été relevée,
+      ou si le relevé est périmé (``max_age``) ;
+    - erreurs distantes : remontées quand il n'y a rien de local à servir
+      (premier relevé ou refresh explicite), sinon la copie est servie avec
+      ``sync_error`` ;
+    - relevé automatique vide alors que la copie locale ne l'est pas : écarté
+      (`empty_remote_guarded`), la copie est conservée.
+    """
+    outcome = _SyncOutcome()
+    with _sync_lock(resource):
+        last_sync = synced_at()
+        # Rien à servir localement si le site échoue : l'erreur remonte.
+        must_raise = force_refresh or last_sync is None
+        if not (must_raise or _is_stale(last_sync, max_age)):
+            return outcome
+        outcome.attempted = True
+        try:
+            items = list(fetch())
+        except (NotAuthenticatedError, TrackableError) as exc:
+            if must_raise:
+                raise
+            logger.warning('Trackables: relevé automatique de %s impossible : %s', resource, exc)
+            outcome.sync_error = str(exc)
+            return outcome
+        if not must_raise and not items and local_count() > 0:
+            outcome.empty_remote_guarded = True
+            outcome.sync_error = 'le site renvoie une liste vide'
+            logger.warning(
+                'Trackables: relevé de %s vide alors que la copie locale est non vide — conservée '
+                '(rafraîchissement explicite requis pour confirmer).', resource)
+            return outcome
+        outcome.report = apply(items)
+        outcome.applied = True
+    return outcome
 
 
 def _valid_tb_code(tb_code: str):
@@ -123,22 +221,21 @@ def get_inventory():
     ou si le relevé a plus de ``max_age`` secondes, le site est interrogé d'office.
 
     Un relevé automatique (``max_age``) qui échoue ne cache pas la copie locale : elle
-    est servie avec ``sync_error``. Un ``refresh`` explicite, lui, remonte l'erreur.
+    est servie avec ``sync_error`` et ``stale``. Un ``refresh`` explicite, lui, remonte
+    l'erreur. Politique commune : voir ``_sync_resource``.
     """
-    report = None
-    sync_error = None
-    last_sync_at = trackable_store.inventory_last_sync_at()
-    explicit = _wants_refresh() or last_sync_at is None
-    if explicit or _is_stale(last_sync_at, request.args.get('max_age')):
-        try:
-            items = GeocachingTrackablesClient().fetch_my_inventory()
-            report = trackable_store.save_my_inventory(items).to_dict()
-        except (NotAuthenticatedError, TrackableError) as exc:
-            if explicit:
-                raise
-            logger.warning("Trackables: relevé automatique de l'inventaire impossible : %s", exc)
-            sync_error = str(exc)
+    max_age = _parse_max_age(request.args.get('max_age'))
+    outcome = _sync_resource(
+        'inventory',
+        force_refresh=_wants_refresh(),
+        max_age=max_age,
+        synced_at=trackable_store.inventory_last_sync_at,
+        local_count=lambda: Trackable.query.filter_by(in_my_inventory=True).count(),
+        fetch=lambda: GeocachingTrackablesClient().fetch_my_inventory(),
+        apply=lambda items: trackable_store.save_my_inventory(items).to_dict(),
+    )
 
+    synced_at = trackable_store.inventory_last_sync_at()
     rows = trackable_store.list_my_inventory()
     return jsonify({
         'success': True,
@@ -146,25 +243,38 @@ def get_inventory():
         # localisation ; la fiche (GET /<TB>) garde le DTO complet.
         'trackables': [row.to_list_dict() for row in rows],
         'total': len(rows),
-        'last_sync_at': trackable_store.inventory_last_sync_at(),
-        'sync': report,
-        'sync_error': sync_error,
+        'last_sync_at': synced_at,
+        'stale': outcome.empty_remote_guarded or _is_stale(synced_at, max_age),
+        'sync': outcome.report,
+        'sync_error': outcome.sync_error,
+        'empty_remote_guarded': outcome.empty_remote_guarded,
     })
 
 
 @bp.get('/geocache/<gc_code>')
 @_network_errors
 def get_geocache_inventory(gc_code: str):
+    """
+    TBs déclarés dans une cache. Même politique que ``/inventory`` : ``refresh``,
+    ``max_age``, repli local avec ``sync_error``/``stale`` et garde-fou sur un
+    relevé automatique vide.
+    """
     gc_code = normalize_code(gc_code)
     if not gc_code.startswith('GC'):
         return _error('invalid_code', f'Code de géocache invalide : {gc_code}', 400)
 
-    refreshed = False
-    if _wants_refresh() or trackable_store.cache_inventory_synced_at(gc_code) is None:
-        items = GeocachingTrackablesClient().fetch_cache_inventory(gc_code)
-        trackable_store.save_cache_inventory(gc_code, items)
-        refreshed = True
+    max_age = _parse_max_age(request.args.get('max_age'))
+    outcome = _sync_resource(
+        f'cache:{gc_code}',
+        force_refresh=_wants_refresh(),
+        max_age=max_age,
+        synced_at=lambda: trackable_store.cache_inventory_synced_at(gc_code),
+        local_count=lambda: GeocacheTrackable.query.filter_by(gc_code=gc_code).count(),
+        fetch=lambda: GeocachingTrackablesClient().fetch_cache_inventory(gc_code),
+        apply=lambda items: trackable_store.save_cache_inventory(gc_code, items),
+    )
 
+    synced_at = trackable_store.cache_inventory_synced_at(gc_code)
     rows = trackable_store.list_cache_inventory(gc_code)
     return jsonify({
         'success': True,
@@ -173,8 +283,11 @@ def get_geocache_inventory(gc_code: str):
         # riche (cf. /inventory).
         'trackables': [row.to_list_dict() for row in rows],
         'total': len(rows),
-        'synced_at': trackable_store.cache_inventory_synced_at(gc_code),
-        'refreshed': refreshed,
+        'synced_at': synced_at,
+        'stale': outcome.empty_remote_guarded or _is_stale(synced_at, max_age),
+        'refreshed': outcome.applied,
+        'sync_error': outcome.sync_error,
+        'empty_remote_guarded': outcome.empty_remote_guarded,
     })
 
 

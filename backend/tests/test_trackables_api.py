@@ -794,5 +794,141 @@ def test_automatic_refresh_failure_still_serves_local_copy(app, fake_network):
     body = response.get_json()
     assert [t['reference_code'] for t in body['trackables']] == ['TBAAA1']
     assert 'HTTP 429' in body['sync_error']
+    assert body['stale'] is True
     # Un rafraîchissement explicite, lui, signale l'échec.
     assert client.get('/api/trackables/inventory?refresh=1').status_code == 502
+
+
+# ------------------------------------------------------- P2-03 : fraîcheur
+
+def _age_last_sync(hours: float = 1.0):
+    """Vieillit la date de relevé de l'inventaire pour déclencher un auto-refresh."""
+    from datetime import datetime, timedelta, timezone
+
+    from gc_backend.models import AppConfig
+
+    old = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    AppConfig.set_value(trackable_store.INVENTORY_LAST_SYNC_KEY, old)
+    db.session.commit()
+
+
+@pytest.mark.parametrize('max_age', ['-5', 'abc', 'nan', 'inf', '-inf'])
+def test_invalid_max_age_never_forces_a_refresh(app, fake_network, max_age):
+    """max_age négatif, non fini ou illisible : ignoré, jamais de relecture forcée."""
+    fake = fake_network(inventory=[_mine('TBAAA1')])
+    client = app.test_client()
+    client.get('/api/trackables/inventory')
+    assert len(fake.calls) == 1
+
+    _age_last_sync()
+    body = client.get(f'/api/trackables/inventory?max_age={max_age}').get_json()
+
+    assert len(fake.calls) == 1            # pas de second appel distant
+    assert body['sync'] is None
+    assert body['stale'] is False
+    assert [t['reference_code'] for t in body['trackables']] == ['TBAAA1']
+
+
+def test_automatic_empty_remote_inventory_is_guarded(app, fake_network):
+    """Un relevé automatique vide alors que la copie locale est pleine : écarté."""
+    fake = fake_network(inventory=[_mine('TBAAA1'), _mine('TBAAA2')])
+    client = app.test_client()
+    client.get('/api/trackables/inventory')
+    _age_last_sync()
+
+    fake.behaviour['inventory'] = []       # le site répond un relevé vide
+    body = client.get('/api/trackables/inventory?max_age=60').get_json()
+
+    assert len(fake.calls) == 2            # la relecture a bien été tentée
+    assert body['empty_remote_guarded'] is True
+    assert body['stale'] is True
+    assert body['sync_error']
+    assert [t['reference_code'] for t in body['trackables']] == ['TBAAA1', 'TBAAA2']
+
+    # La copie locale n'a pas été remplacée.
+    assert {t.reference_code for t in trackable_store.list_my_inventory()} == {'TBAAA1', 'TBAAA2'}
+
+    # Un refresh explicite, lui, confirme l'inventaire vide.
+    body = client.get('/api/trackables/inventory?refresh=1').get_json()
+    assert body['trackables'] == []
+    assert trackable_store.list_my_inventory() == []
+
+
+def test_cache_inventory_freshness_policy(app, fake_network):
+    """La route cache applique la même politique : max_age, stale, sync_error."""
+    fake = fake_network(cache=[TrackableSummary(reference_code='TBBAQ0Z')])
+    client = app.test_client()
+
+    body = client.get('/api/trackables/geocache/GC1E51?max_age=60').get_json()
+    assert body['refreshed'] is True and body['stale'] is False
+    assert len(fake.calls) == 1
+
+    # Relevé récent : pas de relecture.
+    body = client.get('/api/trackables/geocache/GC1E51?max_age=60').get_json()
+    assert body['refreshed'] is False
+    assert len(fake.calls) == 1
+
+    # Relevé périmé + site en échec : copie locale servie avec sync_error/stale.
+    from datetime import datetime, timedelta, timezone
+
+    from gc_backend.models import AppConfig
+    old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    AppConfig.set_value('trackables.cache.GC1E51.synced_at', old)
+    db.session.commit()
+
+    fake.behaviour['cache'] = TrackableError('HTTP 429')
+    body = client.get('/api/trackables/geocache/GC1E51?max_age=60').get_json()
+    assert body['refreshed'] is False
+    assert body['stale'] is True
+    assert 'HTTP 429' in body['sync_error']
+    assert [t['reference_code'] for t in body['trackables']] == ['TBBAQ0Z']
+
+    # Relevé automatique vide : écarté ; refresh explicite : appliqué.
+    fake.behaviour['cache'] = []
+    body = client.get('/api/trackables/geocache/GC1E51?max_age=60').get_json()
+    assert body['empty_remote_guarded'] is True
+    assert [t['reference_code'] for t in body['trackables']] == ['TBBAQ0Z']
+
+    body = client.get('/api/trackables/geocache/GC1E51?refresh=1').get_json()
+    assert body['trackables'] == [] and body['refreshed'] is True
+
+
+def test_concurrent_stale_refreshes_coalesce(app, monkeypatch):
+    """Deux appels concurrents périmés : un seul appel distant (single-flight)."""
+    import threading
+    import time
+
+    class _SlowFake(_FakeTrackablesClient):
+        def fetch_my_inventory(self):
+            time.sleep(0.25)
+            return super().fetch_my_inventory()
+
+    fake = _SlowFake(inventory=[_mine('TBAAA1')])
+    monkeypatch.setattr(trackables_bp, 'GeocachingTrackablesClient', lambda *a, **k: fake)
+
+    client = app.test_client()
+    client.get('/api/trackables/inventory')   # premier relevé
+    assert len(fake.calls) == 1
+    _age_last_sync()
+
+    bodies, errors = [], []
+
+    def call():
+        try:
+            c = app.test_client()
+            bodies.append(c.get('/api/trackables/inventory?max_age=60').get_json())
+        except Exception as exc:              # pragma: no cover - diagnostic
+            errors.append(exc)
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert not errors
+    # Le second appel a attendu le premier puis a vu le relevé frais : un seul fetch.
+    assert len([c for c in fake.calls if c[0] == 'inventory']) == 2   # 1 initial + 1 refresh
+    for body in bodies:
+        assert body['success'] is True
+        assert [t['reference_code'] for t in body['trackables']] == ['TBAAA1']
