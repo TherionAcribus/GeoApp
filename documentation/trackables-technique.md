@@ -297,6 +297,24 @@ Sous le tableau des géocaches, une section repliable :
   à gauche et cible à droite de la seconde. Jamais de scroll horizontal ; le code
   public n'est jamais tronqué. L'en-tête met la date du relevé et « Rafraîchir »
   à la ligne si nécessaire (`flex-wrap`).
+- **Clavier et lecteurs d'écran** : le groupe Rien/Visité/Déposé suit le patron
+  `radiogroup` — un seul bouton atteignable par Tab (roving tabindex sur le bouton
+  coché), flèches et Home/End déplacent choix et focus, `:focus-visible` marque
+  le bouton actif. L'erreur bloquante porte `role="alert"` ; notices, bilan
+  d'action de masse, progression et résultats de relevé sont annoncés via
+  `role="status"`/`aria-live="polite"` (région masquée dédiée).
+- **Actions de masse** : « Tout mettre à » affiche le nombre de lignes modifiées
+  et un bouton **Annuler** qui restaure le choix précédent de chaque ligne ;
+  l'annulation n'est plus proposée dès qu'un autre choix (individuel ou collectif)
+  suit.
+- **Filtres rapides** : puces `Tous / Rien / Visités / Déposés / En erreur`
+  (« En erreur » = dépôts au résultat `uncertain`, marqués d'un badge « dépôt à
+  vérifier » sur leur ligne), combinables avec le filtre texte ; un compteur
+  « N sur M » apparaît dès qu'un filtre est actif.
+- **Relevé pendant un lot** : « Rafraîchir » reste disponible même après la
+  confirmation, mais un relevé arrivé pendant la confirmation ou l'envoi est
+  **mis en attente** et appliqué à la fin — appliquer en plein vol recalculerait
+  la sélection sous le plan figé.
 
   L'action était d'abord un menu déroulant rejeté à droite : sur un éditeur large, on
   ne voyait plus à quel TB il appartenait.

@@ -140,6 +140,7 @@ import {
     TrackableDropTracker,
     TrackableHistoryRecord,
     TrackablePayloadEntry,
+    TrackableQuickFilter,
     TrackableSelection,
     buildTrackableBatchPlan,
     buildTrackableDropOutcomeLines,
@@ -383,6 +384,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected trackablesNotice: string | undefined;
     protected trackablesLastSyncAt: string | null | undefined;
     protected trackablesFilter = '';
+    protected trackablesQuickFilter: TrackableQuickFilter = 'all';
+    /**
+     * Dernière action de masse, annulable : état précédent des lignes touchées
+     * (`undefined` = la ligne n'avait pas de choix explicite). Effacé dès qu'un
+     * choix individuel ou un autre « tout mettre à » suit.
+     */
+    protected trackablesBulkUndo: {
+        count: number;
+        action: TrackableAction;
+        previous: Record<string, TrackableAction | undefined>;
+    } | undefined;
+    /**
+     * Relevé d'inventaire arrivé pendant une confirmation ou un envoi : appliquer
+     * en plein lot recalculerait la sélection sous le plan figé — il est mis en
+     * attente et appliqué à la fin.
+     */
+    protected pendingTrackableInventory: { inventory: InventoryTrackable[]; lastSyncAt: string | null } | undefined;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -1068,6 +1086,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheImages = {};
         this.trackableSelection = { actions: {}, dropTargets: {} };
         this.trackablesFilter = '';
+        this.trackablesQuickFilter = 'all';
+        this.trackablesBulkUndo = undefined;
         this.releaseUnusedPreviewUrls();
 
         if (params.title) {
@@ -2240,27 +2260,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 ? body.trackables.filter((tb: unknown): tb is InventoryTrackable =>
                     !!tb && typeof (tb as InventoryTrackable).reference_code === 'string')
                 : [];
-            const codes = new Set(inventory.map(tb => tb.reference_code));
-            const dropTargets: Record<string, number> = {};
-            for (const [code, target] of Object.entries(this.trackableSelection.dropTargets)) {
-                if (codes.has(code)) {
-                    dropTargets[code] = target;
-                }
-            }
-            this.trackableInventory = inventory;
-            this.trackablesLastSyncAt = typeof body.last_sync_at === 'string' ? body.last_sync_at : null;
-            this.trackableSelection = {
-                actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
-                dropTargets,
-            };
-            if (body.empty_remote_guarded === true) {
-                // Le site a renvoyé un relevé vide alors que la copie locale ne l'était pas :
-                // troncation probable — la liste locale est conservée, « Rafraîchir » confirme.
+            if (this.isSubmitting || this.isConfirmingSubmit) {
+                // Le plan de dépôts est figé pour le lot en cours : appliquer un
+                // nouvel inventaire maintenant recalculerait la sélection sous ses
+                // pieds. Le relevé est gardé en attente, appliqué à la fin.
+                this.pendingTrackableInventory = {
+                    inventory,
+                    lastSyncAt: typeof body.last_sync_at === 'string' ? body.last_sync_at : null,
+                };
                 this.trackablesNotice =
-                    'Geocaching.com renvoie un inventaire vide : la liste locale est conservée. '
-                    + 'Si votre inventaire est réellement vide, cliquez « Rafraîchir » pour confirmer.';
-            } else if (typeof body.sync_error === 'string' && body.sync_error) {
-                this.trackablesNotice = `Relecture sur Geocaching.com impossible (${body.sync_error}) : liste locale affichée.`;
+                    'Nouvel inventaire reçu pendant l’envoi : il sera appliqué à la fin du lot.';
+            } else {
+                this.applyTrackableInventory(inventory, body);
             }
             if (mode === 'refresh') {
                 this.messages.info(describeInventorySync(body.sync));
@@ -2274,11 +2285,56 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
+    /** Applique un relevé d'inventaire : fusion des choix conservés et notices de synchro. */
+    protected applyTrackableInventory(inventory: InventoryTrackable[], body: {
+        last_sync_at?: unknown;
+        empty_remote_guarded?: unknown;
+        sync_error?: unknown;
+    }): void {
+        const codes = new Set(inventory.map(tb => tb.reference_code));
+        const dropTargets: Record<string, number> = {};
+        for (const [code, target] of Object.entries(this.trackableSelection.dropTargets)) {
+            if (codes.has(code)) {
+                dropTargets[code] = target;
+            }
+        }
+        this.trackableInventory = inventory;
+        this.trackablesLastSyncAt = typeof body.last_sync_at === 'string' ? body.last_sync_at : null;
+        this.trackableSelection = {
+            actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
+            dropTargets,
+        };
+        if (body.empty_remote_guarded === true) {
+            // Le site a renvoyé un relevé vide alors que la copie locale ne l'était pas :
+            // troncation probable — la liste locale est conservée, « Rafraîchir » confirme.
+            this.trackablesNotice =
+                'Geocaching.com renvoie un inventaire vide : la liste locale est conservée. '
+                + 'Si votre inventaire est réellement vide, cliquez « Rafraîchir » pour confirmer.';
+        } else if (typeof body.sync_error === 'string' && body.sync_error) {
+            this.trackablesNotice = `Relecture sur Geocaching.com impossible (${body.sync_error}) : liste locale affichée.`;
+        }
+    }
+
+    /** Relecture arrivée pendant confirmation/envoi : appliquée une fois le plan du lot terminé. */
+    protected flushPendingTrackableInventory(): void {
+        const pending = this.pendingTrackableInventory;
+        if (!pending || this.isSubmitting || this.isConfirmingSubmit) {
+            return;
+        }
+        this.pendingTrackableInventory = undefined;
+        this.applyTrackableInventory(pending.inventory, { last_sync_at: pending.lastSyncAt });
+        this.trackablesNotice = 'Inventaire reçu pendant l’envoi appliqué.';
+        this.update();
+    }
+
     protected setTrackableAction(code: string, action: TrackableAction): void {
         this.trackableSelection = {
             ...this.trackableSelection,
             actions: { ...this.trackableSelection.actions, [code]: action },
         };
+        // Un choix individuel qui suit une action de masse serait écrasé par
+        // « Annuler » : la proposition d'annulation ne vaut plus.
+        this.trackablesBulkUndo = undefined;
         // Un « Déposé » choisi à nouveau efface le résultat d'un envoi précédent :
         // l'utilisateur redemande explicitement le dépôt après vérification.
         if (action === 'drop' && code in this.trackableDropResults) {
@@ -2290,11 +2346,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected setTrackableActions(action: TrackableAction, codes: string[]): void {
+        const previous: Record<string, TrackableAction | undefined> = {};
         const actions = { ...this.trackableSelection.actions };
         for (const code of codes) {
+            previous[code] = this.trackableSelection.actions[code];
             actions[code] = action;
         }
         this.trackableSelection = { ...this.trackableSelection, actions };
+        this.trackablesBulkUndo = codes.length > 0
+            ? { count: codes.length, action, previous }
+            : undefined;
         // Même règle que setTrackableAction : un « Déposé » collectif redemande
         // explicitement le dépôt — le résultat précédent est effacé.
         if (action === 'drop') {
@@ -2304,6 +2365,25 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
             this.trackableDropResults = next;
         }
+        this.update();
+    }
+
+    /** Annule la dernière action de masse : chaque ligne reprend son choix précédent. */
+    protected undoTrackableBulk(): void {
+        const undo = this.trackablesBulkUndo;
+        if (!undo) {
+            return;
+        }
+        this.trackablesBulkUndo = undefined;
+        const actions = { ...this.trackableSelection.actions };
+        for (const [code, prev] of Object.entries(undo.previous)) {
+            if (prev === undefined) {
+                delete actions[code];
+            } else {
+                actions[code] = prev;
+            }
+        }
+        this.trackableSelection = { ...this.trackableSelection, actions };
         this.update();
     }
 
@@ -2329,6 +2409,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 inventory={this.trackableInventory}
                 actions={selection.actions}
                 dropTargets={dropTargets}
+                dropResults={this.trackableDropResults}
                 dropCandidates={dropTargetCandidates(ctx)}
                 summary={summarizeTrackableSelection(this.trackableInventory, selection, ctx)}
                 isOpen={this.isTrackablesOpen}
@@ -2337,11 +2418,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 notice={this.trackablesNotice}
                 lastSyncAt={this.trackablesLastSyncAt}
                 filter={this.trackablesFilter}
+                quickFilter={this.trackablesQuickFilter}
+                bulkChange={this.trackablesBulkUndo
+                    ? { count: this.trackablesBulkUndo.count, action: this.trackablesBulkUndo.action }
+                    : undefined}
                 disabled={disabled}
                 onToggleOpen={() => { this.isTrackablesOpen = !this.isTrackablesOpen; this.update(); }}
                 onFilterChange={value => { this.trackablesFilter = value; this.update(); }}
+                onQuickFilterChange={value => { this.trackablesQuickFilter = value; this.update(); }}
                 onActionChange={(code, action) => this.setTrackableAction(code, action)}
                 onSetAll={(action, codes) => this.setTrackableActions(action, codes)}
+                onUndoBulk={() => this.undoTrackableBulk()}
                 onDropTargetChange={(code, id) => this.setTrackableDropTarget(code, id)}
                 onRefresh={() => { void this.loadTrackableInventory('refresh'); }}
             />
@@ -2399,6 +2486,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isConfirmingSubmit = false;
         }
         if (!confirmed) {
+            // Un relevé arrivé pendant la confirmation reprend son cours normal.
+            this.flushPendingTrackableInventory();
             return;
         }
 
@@ -2640,6 +2729,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isSubmitting = false;
             this.stopRequested = false;
             this.submitProgress = undefined;
+            // Relevé gardé en attente pendant le lot : appliqué sur l'état final.
+            this.flushPendingTrackableInventory();
             this.update();
         }
 

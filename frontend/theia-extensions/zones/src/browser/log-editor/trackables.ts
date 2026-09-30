@@ -357,6 +357,33 @@ export function filterTrackables(inventory: InventoryTrackable[], query: string)
         .some(value => normalizeForSearch(value ?? '').includes(needle)));
 }
 
+/** Filtres rapides par état : action choisie, ou dépôt dont le résultat reste à vérifier. */
+export type TrackableQuickFilter = 'all' | 'none' | 'visit' | 'drop' | 'error';
+
+export const TRACKABLE_QUICK_FILTERS: readonly { value: TrackableQuickFilter; label: string }[] = [
+    { value: 'all', label: 'Tous' },
+    { value: 'none', label: 'Rien' },
+    { value: 'visit', label: 'Visités' },
+    { value: 'drop', label: 'Déposés' },
+    { value: 'error', label: 'En erreur' },
+];
+
+/** « En erreur » : un dépôt dont la réconciliation n'a pas tranché (« uncertain »). */
+export function quickFilterTrackables(
+    inventory: InventoryTrackable[],
+    quickFilter: TrackableQuickFilter,
+    actions: Record<string, TrackableAction>,
+    dropResults: Record<string, TrackableDropResult>
+): InventoryTrackable[] {
+    if (quickFilter === 'all') {
+        return inventory;
+    }
+    if (quickFilter === 'error') {
+        return inventory.filter(tb => dropResults[tb.reference_code] === 'uncertain');
+    }
+    return inventory.filter(tb => (actions[tb.reference_code] ?? 'none') === quickFilter);
+}
+
 function normalizeForSearch(value: string): string {
     return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }

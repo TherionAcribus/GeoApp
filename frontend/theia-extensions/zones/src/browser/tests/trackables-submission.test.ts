@@ -21,6 +21,7 @@ import {
     describeTrackablesForGeocache,
     filterTrackables,
     hasTrackableChoices,
+    quickFilterTrackables,
     resolveDropTarget,
     sanitizeTrackableDropResults,
     sanitizeTrackableSelection,
@@ -330,6 +331,21 @@ function testInventorySyncMessage(): void {
     );
 }
 
+function testQuickFiltersByActionAndError(): void {
+    const actions = { TBVISIT: 'visit' as const, TBDROP: 'drop' as const };
+    const codes = (list: InventoryTrackable[]): string[] => list.map(tb => tb.reference_code);
+    assert.deepEqual(codes(quickFilterTrackables(INVENTORY, 'all', actions, {})), ['TBVISIT', 'TBDROP', 'TBIDLE']);
+    assert.deepEqual(codes(quickFilterTrackables(INVENTORY, 'none', actions, {})), ['TBIDLE']);
+    assert.deepEqual(codes(quickFilterTrackables(INVENTORY, 'visit', actions, {})), ['TBVISIT']);
+    assert.deepEqual(codes(quickFilterTrackables(INVENTORY, 'drop', actions, {})), ['TBDROP']);
+    // « En erreur » : dépôts au résultat incertain, quel que soit l'état du choix courant.
+    assert.deepEqual(codes(quickFilterTrackables(INVENTORY, 'error', actions, {})), []);
+    assert.deepEqual(
+        codes(quickFilterTrackables(INVENTORY, 'error', actions, { TBDROP: 'uncertain', TBVISIT: 'confirmed' })),
+        ['TBDROP']
+    );
+}
+
 testInventorySyncMessage();
 testDefaultsFollowLastActionThenPreference();
 testWithDefaultActionsKeepsUserChoicesAndDropsUnknownCodes();
@@ -352,5 +368,6 @@ testDropOutcomeLinesDistinguishStates();
 testDropResultsNeutralizeARestoredDrop();
 testOverridesOnlyStoreDeviations();
 testOverridesReapplyOverFreshDefaults();
+testQuickFiltersByActionAndError();
 
 console.log('trackables-submission tests passed');

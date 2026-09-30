@@ -12,9 +12,13 @@ import { formatIsoDateTimeFr } from './helpers';
 import {
     InventoryTrackable,
     TRACKABLE_ACTION_LABELS,
+    TRACKABLE_QUICK_FILTERS,
     TrackableAction,
+    TrackableDropResult,
+    TrackableQuickFilter,
     TrackableSelectionSummary,
     filterTrackables,
+    quickFilterTrackables,
     trackableUrl,
 } from './trackables';
 import { GeocacheListItem } from './types';
@@ -24,6 +28,8 @@ export interface TrackablesSectionProps {
     actions: Record<string, TrackableAction>;
     /** Cible de dépôt effective par TB (déjà résolue par le widget). */
     dropTargets: Record<string, number | undefined>;
+    /** Résultat des dépôts déjà partis (confirmed/uncertain) : filtre « En erreur » et badge. */
+    dropResults: Record<string, TrackableDropResult>;
     /** Géocaches du lot qui peuvent recevoir un dépôt. */
     dropCandidates: GeocacheListItem[];
     summary: TrackableSelectionSummary;
@@ -34,11 +40,16 @@ export interface TrackablesSectionProps {
     notice?: string;
     lastSyncAt?: string | null;
     filter: string;
+    quickFilter: TrackableQuickFilter;
+    /** Bilan de la dernière action de masse, annulable tant qu'aucun autre choix n'a suivi. */
+    bulkChange?: { count: number; action: TrackableAction };
     disabled: boolean;
     onToggleOpen: () => void;
     onFilterChange: (value: string) => void;
+    onQuickFilterChange: (value: TrackableQuickFilter) => void;
     onActionChange: (code: string, action: TrackableAction) => void;
     onSetAll: (action: TrackableAction, codes: string[]) => void;
+    onUndoBulk: () => void;
     onDropTargetChange: (code: string, geocacheId: number) => void;
     onRefresh: () => void;
 }
@@ -58,11 +69,12 @@ const FILTER_THRESHOLD = 8;
 
 export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
     const {
-        inventory, actions, dropTargets, dropCandidates, summary, isOpen, isLoading, error, notice,
-        lastSyncAt, filter, disabled,
+        inventory, actions, dropTargets, dropResults, dropCandidates, summary, isOpen, isLoading, error, notice,
+        lastSyncAt, filter, quickFilter, bulkChange, disabled,
     } = props;
-    const visible = filterTrackables(inventory, filter);
+    const visible = filterTrackables(quickFilterTrackables(inventory, quickFilter, actions, dropResults), filter);
     const headline = buildHeadline(inventory.length, summary, isLoading);
+    const isFiltered = quickFilter !== 'all' || filter.trim() !== '';
 
     return (
         <div className='geoapp-log-trackables'>
@@ -93,8 +105,28 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                 </button>
             </div>
 
-            {error && <div className='geoapp-log-trackables__error'>{error}</div>}
-            {!error && notice && <div className='geoapp-log-trackables__notice'>{notice}</div>}
+            {/* Bloquant : alerte immédiate. Le reste est annoncé poliment. */}
+            {error && <div className='geoapp-log-trackables__error' role='alert'>{error}</div>}
+            {!error && notice && <div className='geoapp-log-trackables__notice' role='status'>{notice}</div>}
+            {!error && bulkChange && (
+                <div className='geoapp-log-trackables__notice geoapp-log-trackables__notice--bulk' role='status'>
+                    <span>
+                        {bulkChange.count} ligne{bulkChange.count > 1 ? 's' : ''} mise{bulkChange.count > 1 ? 's' : ''}
+                        {' '}à « {TRACKABLE_ACTION_LABELS[bulkChange.action]} »
+                    </span>
+                    <button
+                        type='button'
+                        className='theia-button secondary geoapp-log-button--small'
+                        onClick={props.onUndoBulk}
+                    >
+                        Annuler
+                    </button>
+                </div>
+            )}
+            {/* Région live : le relevé en cours puis le bilan annoncent synchro et résultat. */}
+            <span className='geoapp-visually-hidden' role='status'>
+                {isLoading ? 'Relecture de l’inventaire en cours…' : headline}
+            </span>
 
             {isOpen && !error && inventory.length === 0 && !isLoading && (
                 <div className='geoapp-log-trackables__empty'>Aucun trackable dans votre inventaire.</div>
@@ -103,17 +135,37 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
             {isOpen && inventory.length > 0 && (
                 <>
                     <div className='geoapp-log-trackables__toolbar'>
+                        <div className='geoapp-log-trackables__quick-filters' role='group' aria-label='Filtres rapides'>
+                            {TRACKABLE_QUICK_FILTERS.map(qf => (
+                                <button
+                                    key={qf.value}
+                                    type='button'
+                                    className={'geoapp-log-trackables__chip'
+                                        + (quickFilter === qf.value ? ' is-active' : '')}
+                                    aria-pressed={quickFilter === qf.value}
+                                    onClick={() => props.onQuickFilterChange(qf.value)}
+                                >
+                                    {qf.label}
+                                </button>
+                            ))}
+                            {isFiltered && (
+                                <span className='geoapp-log-trackables__count' aria-live='polite'>
+                                    {visible.length} sur {inventory.length}
+                                </span>
+                            )}
+                        </div>
                         {inventory.length > FILTER_THRESHOLD && (
                             <input
                                 className='theia-input geoapp-log-trackables__filter'
                                 type='search'
                                 placeholder='Filtrer (code, nom, type)…'
+                                aria-label='Filtrer les trackables'
                                 value={filter}
                                 onChange={e => props.onFilterChange(e.currentTarget.value)}
                             />
                         )}
                         <label className='geoapp-log-trackables__set-all'>
-                            {filter ? `Mettre les ${visible.length} affichés à` : 'Tout mettre à'}
+                            {isFiltered ? `Mettre les ${visible.length} affichés à` : 'Tout mettre à'}
                             <select
                                 className='theia-select'
                                 value=''
@@ -146,6 +198,7 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                                 key={tb.reference_code}
                                 trackable={tb}
                                 action={actions[tb.reference_code] ?? 'none'}
+                                dropResult={dropResults[tb.reference_code]}
                                 dropTarget={dropTargets[tb.reference_code]}
                                 dropCandidates={dropCandidates}
                                 disabled={disabled}
@@ -154,7 +207,7 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                             />
                         ))}
                         {visible.length === 0 && (
-                            <div className='geoapp-log-trackables__empty'>Aucun trackable ne correspond au filtre.</div>
+                            <div className='geoapp-log-trackables__empty'>Aucun trackable ne correspond aux filtres.</div>
                         )}
                     </div>
                 </>
@@ -166,21 +219,55 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
 const TrackableRow: React.FC<{
     trackable: InventoryTrackable;
     action: TrackableAction;
+    dropResult: TrackableDropResult | undefined;
     dropTarget: number | undefined;
     dropCandidates: GeocacheListItem[];
     disabled: boolean;
     onActionChange: (action: TrackableAction) => void;
     onDropTargetChange: (geocacheId: number) => void;
-}> = ({ trackable, action, dropTarget, dropCandidates, disabled, onActionChange, onDropTargetChange }) => {
+}> = ({ trackable, action, dropResult, dropTarget, dropCandidates, disabled, onActionChange, onDropTargetChange }) => {
     const canDrop = dropCandidates.length > 0;
     const label = trackable.name || trackable.reference_code;
+    /**
+     * Clavier attendu d'un groupe radio : les flèches (et Home/End) déplacent le
+     * choix *et* le focus, un seul bouton du groupe est atteignable par Tab
+     * (roving tabindex sur le bouton coché).
+     */
+    const onActionsKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+        const enabled = TRACKABLE_ACTION_ORDER.filter(v => !(v === 'drop' && !canDrop && action !== 'drop'));
+        const current = enabled.indexOf(action);
+        let next: TrackableAction | undefined;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            next = enabled[(current + 1) % enabled.length];
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            next = enabled[(current - 1 + enabled.length) % enabled.length];
+        } else if (e.key === 'Home') {
+            next = enabled[0];
+        } else if (e.key === 'End') {
+            next = enabled[enabled.length - 1];
+        } else {
+            return;
+        }
+        e.preventDefault();
+        if (next !== action) {
+            onActionChange(next);
+        }
+        // Les boutons survivent au re-rendu (même key React) : le focus peut être
+        // déplacé tout de suite, le roving tabindex suivra.
+        e.currentTarget.querySelector<HTMLElement>(`[data-action="${next}"]`)?.focus();
+    };
     return (
         <div className={`geoapp-log-trackables__row geoapp-log-trackables__row--${action}`} role='listitem'>
             {/*
               L'action est en tête de ligne, collée au nom : un menu déroulant rejeté à droite
               d'une ligne large ne se rattachait plus à son TB à l'œil.
             */}
-            <div className='geoapp-log-trackables__actions' role='radiogroup' aria-label={`Action pour ${label}`}>
+            <div
+                className='geoapp-log-trackables__actions'
+                role='radiogroup'
+                aria-label={`Action pour ${label}`}
+                onKeyDown={onActionsKeyDown}
+            >
                 {TRACKABLE_ACTION_ORDER.map(value => {
                     const unavailable = value === 'drop' && !canDrop && action !== 'drop';
                     return (
@@ -189,6 +276,8 @@ const TrackableRow: React.FC<{
                             type='button'
                             role='radio'
                             aria-checked={action === value}
+                            data-action={value}
+                            tabIndex={disabled || unavailable ? undefined : (action === value ? 0 : -1)}
                             className={`geoapp-log-trackables__action-btn geoapp-log-trackables__action-btn--${value}`
                                 + (action === value ? ' is-active' : '')}
                             disabled={disabled || unavailable}
@@ -220,6 +309,14 @@ const TrackableRow: React.FC<{
                 >
                     {trackable.reference_code}
                 </a>
+                {dropResult === 'uncertain' && (
+                    <span
+                        className='geoapp-log-trackables__row-badge'
+                        title='Le site n’a pas confirmé ce dépôt : vérifiez la fiche du trackable sur Geocaching.com'
+                    >
+                        dépôt à vérifier
+                    </span>
+                )}
             </div>
             {action === 'drop' && dropCandidates.length > 1 && (
                 <select
