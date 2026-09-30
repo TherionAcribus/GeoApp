@@ -440,7 +440,9 @@ dans `geocache-details-view.tsx` :
 ### 6.5 Widget « Trackables » (lot 5)
 
 `trackables-widget.tsx` — `ReactWidget` singleton (`geoapp-trackables-widget`),
-commande `geoapp.trackables.open` (palette) et événement `open-trackables`
+commande `geoapp.trackables.open` (palette, menu **Affichage → Vues**, icône
+`fa-bug` du menu bas de la barre latérale gauche — même mécanique que les menus
+Préférences/Amis/Connexion) et événement `open-trackables`
 (`{ tab, trackableCode, action, geocacheCode }`), ouvert en zone `main`.
 Trois onglets :
 

@@ -10,6 +10,7 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 export const GEOAPP_PREFERENCES_MENU = ['geoapp-preferences-menu'];
 export const GEOAPP_AUTH_MENU = ['geoapp-auth-menu'];
 export const GEOAPP_FRIENDS_MENU = ['geoapp-friends-menu'];
+export const GEOAPP_TRACKABLES_MENU = ['geoapp-trackables-menu'];
 
 @injectable()
 export class GeoAppSidebarContribution implements FrontendApplicationContribution, MenuContribution {
@@ -81,6 +82,14 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             label: 'Caches à faire',
             order: '2'
         });
+
+        // L'icône de la sidebar mène directement au widget : un seul item de
+        // menu, pas un sous-menu — la « découvrabilité » est le but.
+        menus.registerMenuAction(GEOAPP_TRACKABLES_MENU, {
+            commandId: 'geoapp.trackables.open',
+            label: 'Ouvrir les trackables',
+            order: '0'
+        });
     }
 
     onStart(): void {
@@ -151,6 +160,14 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             title: 'Amis Geocaching.com',
             menuPath: GEOAPP_FRIENDS_MENU,
             order: 1
+        });
+
+        this.sidebarBottomMenu.addMenu({
+            id: 'geoapp-trackables-menu',
+            iconClass: 'fa fa-bug',
+            title: 'Trackables Geocaching.com',
+            menuPath: GEOAPP_TRACKABLES_MENU,
+            order: 1.5
         });
 
         this.sidebarBottomMenu.addMenu({
