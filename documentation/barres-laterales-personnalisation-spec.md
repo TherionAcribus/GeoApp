@@ -3,7 +3,7 @@
 > Spécification technique destinée au LLM qui implémentera les changements.
 > État du dépôt audité : 30 septembre 2026, Eclipse Theia `1.76.0`.
 >
-> **Avancement** : lots 1 (P0) et 2 (P1) implémentés — registre `sidebar/geoapp-sidebar-views.ts`,
+> **Avancement** : lots 1 (P0), 2 (P1) et 3 (P1) implémentés — registre `sidebar/geoapp-sidebar-views.ts`,
 > défauts créés dans `initializeLayout` (`GeoAppSidebarDefaultsContribution`,
 > migration Plugins isolée dans `GeoAppLegacyPluginsMigrationContribution`),
 > auto-sauvegarde installée après `onDidInitializeLayout`, `hiddenDefaultWidgets.v1`
@@ -13,9 +13,17 @@
 > l'API publique `leftPanelHandler.addBottomMenu/removeBottomMenu` (rang 100)
 > après `shell.initialized` ; icônes Préférences/Amis/Trackables/Documentation
 > retirées ; Préférences + Connexion déplacées dans `CommonMenus.MANAGE_GENERAL`.
-> Reste : lots 3 (dialogue de personnalisation), 4
-> (homogénéisation + tests), 5 (perspectives, optionnel) et la validation
-> manuelle §9.
+> Lot 3 : `sidebar/geoapp-sidebar-controller.ts` (états lus depuis le shell,
+> show/hide/reset sérialisés, `requestSave` après chaque action),
+> `geoapp-sidebar-customization-dialog.tsx` (`ReactDialog`, groupes
+> gauche/droite/autre/masquées, reset confirmé par `ConfirmDialog`),
+> `geoapp-sidebar-customization-contribution.ts` (`geoapp.sidebar.customize`
+> dans `Affichage > Apparence`, `MANAGE_GENERAL`, `SHELL_TABBAR_CONTEXT_MENU`
+> filtré aux panneaux latéraux ; `geoapp.sidebar.reset` en palette),
+> fonctions pures `geoapp-sidebar-view-state.ts` testées par
+> `geoapp-sidebar-controller.test.ts`, styles `style/geoapp-sidebar-customization.css`.
+> Reste : lots 4 (homogénéisation + tests), 5 (perspectives, optionnel) et la
+> validation manuelle §9.
 > Le document couvre le shell frontend uniquement. Il ne demande aucune modification backend.
 
 ## 1. Objectif

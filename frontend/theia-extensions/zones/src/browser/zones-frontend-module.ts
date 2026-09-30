@@ -72,6 +72,13 @@ import {
     GeoAppSidebarDefaultsContribution,
     GeoAppLegacyPluginsMigrationContribution,
 } from './sidebar/geoapp-sidebar-defaults-contribution';
+import { GeoAppSidebarController } from './sidebar/geoapp-sidebar-controller';
+import {
+    GeoAppSidebarCustomizationDialog,
+    GeoAppSidebarCustomizationDialogProps,
+} from './sidebar/geoapp-sidebar-customization-dialog';
+import { GeoAppSidebarCustomizationContribution } from './sidebar/geoapp-sidebar-customization-contribution';
+import '../../src/browser/style/geoapp-sidebar-customization.css';
 import { LayoutAutoSaveContribution } from './layout-auto-save-contribution';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 import { BackendApiClient } from './backend-api-client';
@@ -281,6 +288,18 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(GeoAppSidebarDefaultsContribution);
     bind(GeoAppLegacyPluginsMigrationContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppLegacyPluginsMigrationContribution);
+
+    // Dialogue « Personnaliser les barres latérales » : contrôleur singleton
+    // (façade du registre), dialog réutilisable (AbstractDialog détache sans
+    // disposer), commandes geoapp.sidebar.customize / geoapp.sidebar.reset.
+    bind(GeoAppSidebarController).toSelf().inSingletonScope();
+    bind(GeoAppSidebarCustomizationDialogProps).toConstantValue({
+        title: 'Personnaliser les barres latérales',
+    });
+    bind(GeoAppSidebarCustomizationDialog).toSelf().inSingletonScope();
+    bind(GeoAppSidebarCustomizationContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(GeoAppSidebarCustomizationContribution);
+    bind(MenuContribution).toService(GeoAppSidebarCustomizationContribution);
 
     bind(LayoutAutoSaveContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(LayoutAutoSaveContribution);
