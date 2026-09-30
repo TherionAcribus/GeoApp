@@ -20,6 +20,7 @@ import { MessageService } from '@theia/core';
 import DOMPurify from '@theia/core/shared/dompurify';
 import '../../src/browser/style/trackables-widget.css';
 import { formatIsoDateTimeFr } from './log-editor/helpers';
+import { TrackablesTable } from './trackables-table';
 import {
     InventoryTrackable,
     describeInventorySync,
@@ -802,27 +803,23 @@ export class TrackablesWidget extends ReactWidget {
                                 {visible.length} sur {inv.trackables.length}
                             </div>
                         )}
-                        <div className='geoapp-trackables-widget__list' role='list'>
-                            {visible.map(tb => (
-                                <TrackableInventoryRow
-                                    key={tb.reference_code}
-                                    trackable={tb}
-                                    onShowDetail={code => {
-                                        this.pendingDetailCode = code;
-                                        this.showTab('detail');
-                                    }}
-                                    onLog={code => {
-                                        this.pendingLogContext = { code, action: 'log' };
-                                        this.showTab('log');
-                                    }}
-                                />
-                            ))}
-                            {visible.length === 0 && (
-                                <div className='geoapp-trackables-widget__empty'>
-                                    Aucun trackable ne correspond à la recherche.
-                                </div>
-                            )}
-                        </div>
+                        {visible.length === 0 ? (
+                            <div className='geoapp-trackables-widget__empty'>
+                                Aucun trackable ne correspond à la recherche.
+                            </div>
+                        ) : (
+                            <TrackablesTable
+                                trackables={visible}
+                                onShowDetail={code => {
+                                    this.pendingDetailCode = code;
+                                    this.showTab('detail');
+                                }}
+                                onLog={code => {
+                                    this.pendingLogContext = { code, action: 'log' };
+                                    this.showTab('log');
+                                }}
+                            />
+                        )}
                     </>
                 )}
             </div>
@@ -1416,65 +1413,3 @@ const SanitizedHtml: React.FC<{
     />
 );
 
-/** Ligne d'inventaire : identité compacte + actions « Fiche » et « Loguer ». */
-const TrackableInventoryRow: React.FC<{
-    trackable: InventoryTrackable;
-    onShowDetail: (code: string) => void;
-    onLog: (code: string) => void;
-}> = ({ trackable, onShowDetail, onLog }) => {
-    const [iconFailed, setIconFailed] = React.useState(false);
-    return (
-        <div className='geoapp-trackables-widget__row' role='listitem'>
-            {trackable.icon_url && !iconFailed ? (
-                <img
-                    className='geoapp-trackables-widget__icon'
-                    src={trackable.icon_url}
-                    alt=''
-                    loading='lazy'
-                    decoding='async'
-                    width={16}
-                    height={16}
-                    onError={() => setIconFailed(true)}
-                />
-            ) : (
-                <span className='geoapp-trackables-widget__icon' />
-            )}
-            <span
-                className='geoapp-trackables-widget__name'
-                title={[trackable.name, trackable.type_name].filter(Boolean).join(' — ') || undefined}
-            >
-                {trackable.name || trackable.reference_code}
-            </span>
-            <a
-                className='geoapp-trackables-widget__code'
-                href={trackableUrl(trackable.reference_code)}
-                target='_blank'
-                rel='noopener noreferrer'
-                title='Ouvrir la fiche sur Geocaching.com'
-            >
-                {trackable.reference_code}
-            </a>
-            <span className='geoapp-trackables-widget__meta'>
-                {[trackable.type_name, trackable.owner_username].filter(Boolean).join(' · ')}
-            </span>
-            <span className='geoapp-trackables-widget__row-actions'>
-                <button
-                    type='button'
-                    className='theia-button secondary'
-                    title='Ouvrir la fiche dans l’onglet Fiche'
-                    onClick={() => onShowDetail(trackable.reference_code)}
-                >
-                    Fiche
-                </button>
-                <button
-                    type='button'
-                    className='theia-button secondary'
-                    title='Loguer ce trackable (onglet Loguer)'
-                    onClick={() => onLog(trackable.reference_code)}
-                >
-                    Loguer
-                </button>
-            </span>
-        </div>
-    );
-};

@@ -88,6 +88,18 @@
     opacity: 0.7;
 }
 
+/* Le tableau virtualisé prend la hauteur restante du panneau et porte le scroll. */
+.geoapp-trackables-widget__table-scroll {
+    min-height: 160px;
+    min-width: 0;
+}
+
+.geoapp-trackables-widget__table-scroll .geoapp-gc-table__cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .geoapp-trackables-widget__list {
     display: flex;
     flex-direction: column;

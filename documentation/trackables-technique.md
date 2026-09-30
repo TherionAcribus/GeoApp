@@ -440,8 +440,11 @@ Trois onglets :
 - **Inventaire** : `GET /api/trackables/inventory` (même politique `max_age` /
   `refresh` / `stale` / `sync_error` / `empty_remote_guarded`), recherche
   accent-insensible (`filterTrackables`), compteur filtré, date du relevé,
-  « Rafraîchir », actions par ligne « Fiche » et « Loguer » (préremplissage des
-  onglets correspondants).
+  « Rafraîchir ». La liste est un vrai tableau TanStack (`trackables-table.tsx`,
+  même techno que le tableau des zones) : colonnes triables (icône, nom, code,
+  type, propriétaire, actions « Fiche »/« Loguer »), `aria-sort`, et la fenêtre
+  de virtualisation partagée `virtualized-table-window.ts` — un inventaire de
+  plusieurs milliers de TBs ne rend que les lignes visibles.
 - **Loguer / Découvrir** : file d'envoi autonome dont la logique pure vit dans
   `log-editor/trackables-log-queue.ts` (sans dépendance React/Theia) :
   - **Collage libre** (`parseTrackableCodeTokens`) : codes publics `TB…`, URLs
@@ -565,7 +568,9 @@ liens HTTPS et URLs relatives (vers `geocaching.com`) conservés.
 - Frontend : `log-editor/trackables.ts` (logique), `log-editor/trackables-section.tsx`
   (section), intégration dans `geocache-log-editor-widget.tsx`
   (`loadTrackableInventory`, `renderTrackablesSection`, `trackablePlan`)
-- Widget : `trackables-widget.tsx`, `log-editor/trackables-log-queue.ts` (file
+- Widget : `trackables-widget.tsx`, `trackables-table.tsx` (inventaire
+  TanStack), `virtualized-table-window.ts` (fenêtre partagée avec
+  `geocaches-table.tsx`), `log-editor/trackables-log-queue.ts` (file
   « Loguer / Découvrir » pure), `geocache-trackables-section.tsx` (fiche cache)
 - Modèles : `Trackable`, `GeocacheTrackable` dans `backend/gc_backend/models.py`
 - Migration : `backend/migrations/versions/add_trackable_tables.py`

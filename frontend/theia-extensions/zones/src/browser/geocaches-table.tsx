@@ -35,6 +35,7 @@ import {
     normalizeSearchText,
 } from './geocache-filter-shared';
 import type { DistanceOrigin } from './geocache-distance-origin-store';
+import { VIRTUAL_ROW_HEIGHT, useRowVirtualizer } from './virtualized-table-window';
 
 import '../../src/browser/style/geocaches-table.css';
 // Les badges de sortie sont définis avec le panneau : la table doit les habiller même
@@ -523,75 +524,11 @@ function matchesClause(geocache: Geocache, clause: TokenFilter, extraAccessors?:
 
 
 /**
- * Hauteur de ligne estimée (px) utilisée pour la virtualisation.
- * Le contenu des cellules est sur une seule ligne (nowrap/ellipsis), donc une
- * hauteur fixe est fiable. La même constante sert pour les espaceurs et la
- * hauteur imposée aux lignes afin d'éviter toute dérive du scroll.
+ * Hauteur de ligne estimée (px) utilisée pour la virtualisation —
+ * `VIRTUAL_ROW_HEIGHT` vient de `virtualized-table-window.ts`, partagé avec le
+ * tableau des trackables. Le contenu des cellules est sur une seule ligne
+ * (nowrap/ellipsis), donc une hauteur fixe est fiable.
  */
-const VIRTUAL_ROW_HEIGHT = 34;
-const VIRTUAL_OVERSCAN = 8;
-
-interface VirtualWindow {
-    startIndex: number;
-    endIndex: number;
-    paddingTop: number;
-    paddingBottom: number;
-}
-
-/**
- * Virtualisation maison (windowing) : ne rend que les lignes visibles + un
- * overscan, en conservant la hauteur totale via deux lignes espaceurs.
- * Évite d'ajouter une dépendance externe (@tanstack/react-virtual).
- */
-function useRowVirtualizer(rowCount: number, scrollRef: React.RefObject<HTMLElement>): VirtualWindow {
-    const [scrollTop, setScrollTop] = React.useState(0);
-    const [viewportHeight, setViewportHeight] = React.useState(0);
-
-    React.useEffect(() => {
-        const el = scrollRef.current;
-        if (!el) {
-            return;
-        }
-
-        let frame = 0;
-        const sync = (): void => {
-            setScrollTop(el.scrollTop);
-            setViewportHeight(el.clientHeight);
-        };
-        const onScroll = (): void => {
-            if (frame) {
-                return;
-            }
-            frame = window.requestAnimationFrame(() => {
-                frame = 0;
-                sync();
-            });
-        };
-
-        sync();
-        el.addEventListener('scroll', onScroll, { passive: true });
-        const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : undefined;
-        resizeObserver?.observe(el);
-
-        return () => {
-            if (frame) {
-                window.cancelAnimationFrame(frame);
-            }
-            el.removeEventListener('scroll', onScroll);
-            resizeObserver?.disconnect();
-        };
-    }, [scrollRef]);
-
-    const totalHeight = rowCount * VIRTUAL_ROW_HEIGHT;
-    const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN);
-    const rowsInViewport = viewportHeight > 0 ? Math.ceil(viewportHeight / VIRTUAL_ROW_HEIGHT) : 0;
-    const visibleCount = rowsInViewport + VIRTUAL_OVERSCAN * 2;
-    const endIndex = Math.min(rowCount, startIndex + visibleCount);
-    const paddingTop = startIndex * VIRTUAL_ROW_HEIGHT;
-    const paddingBottom = Math.max(0, totalHeight - endIndex * VIRTUAL_ROW_HEIGHT);
-
-    return { startIndex, endIndex, paddingTop, paddingBottom };
-}
 
 /**
  * Case à cocher « tout sélectionner » du header.
