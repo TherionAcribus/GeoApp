@@ -3,9 +3,9 @@
  * Enregistre les commandes, menus et bindings
  */
 
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
-import { AbstractViewContribution, ApplicationShell, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
+import { AbstractViewContribution } from '@theia/core/lib/browser';
 import { FormulaSolverWidget } from './formula-solver-widget';
 import {
     FormulaSolverCommand,
@@ -24,13 +24,7 @@ export {
 @injectable()
 export class FormulaSolverContribution
     extends AbstractViewContribution<FormulaSolverWidget>
-    implements FrontendApplicationContribution, CommandContribution, MenuContribution, TabBarToolbarContribution {
-
-    @inject(ApplicationShell)
-    protected readonly shell!: ApplicationShell;
-
-    @inject(WidgetManager)
-    protected readonly widgetManager!: WidgetManager;
+    implements CommandContribution, MenuContribution, TabBarToolbarContribution {
 
     constructor() {
         super({
@@ -44,34 +38,13 @@ export class FormulaSolverContribution
         });
     }
 
-    async onStart(app: FrontendApplication): Promise<void> {
-        console.log('[FORMULA-SOLVER] Contribution started');
-        // Migration: déplacer le widget vers le panel droit s'il est à gauche
-        setTimeout(() => this.migrateToRightPanel(), 2000);
-    }
-
-    protected async migrateToRightPanel(): Promise<void> {
-        try {
-            const widget = this.widgetManager.tryGetWidget(FormulaSolverWidget.ID);
-            if (widget && widget.isAttached) {
-                const currentArea = this.shell.getAreaFor(widget);
-                if (currentArea === 'left') {
-                    console.log('[FORMULA-SOLVER] Migration: déplacement du widget de left vers right');
-                    this.shell.addWidget(widget, { area: 'right', rank: 500 });
-                    this.shell.activateWidget(FormulaSolverWidget.ID);
-                }
-            } else {
-                // Widget pas encore attaché — l'ouvrir dans le bon panel
-                const w = await this.widgetManager.getOrCreateWidget(FormulaSolverWidget.ID);
-                if (!w.isAttached) {
-                    this.shell.addWidget(w, { area: 'right', rank: 500 });
-                }
-                this.shell.activateWidget(FormulaSolverWidget.ID);
-            }
-        } catch (e) {
-            console.error('[FORMULA-SOLVER] Migration error:', e);
-        }
-    }
+    /**
+     * La position de la vue n'est plus forcée : `defaultWidgetOptions` à droite
+     * est la valeur par défaut du layout initial, mais une vue déplacée à
+     * gauche ou fermée par l'utilisateur le reste (spec barres latérales §3.3.C
+     * — l'ancien onStart + setTimeout ré-attachait le widget à chaque démarrage
+     * et annulait les choix utilisateur).
+     */
 
     registerCommands(commands: CommandRegistry): void {
         // Commande pour ouvrir le widget

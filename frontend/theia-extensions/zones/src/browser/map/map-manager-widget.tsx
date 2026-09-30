@@ -35,7 +35,9 @@ export class MapManagerWidget extends ReactWidget {
         this.id = MapManagerWidget.ID;
         this.title.label = MapManagerWidget.LABEL;
         this.title.caption = 'Gestion des cartes';
-        this.title.closable = false;
+        // Fermable comme les autres vues latérales (spec barres latérales §5.5) —
+        // la réouverture passe par la commande geoapp.mapManager.open.
+        this.title.closable = true;
         this.title.iconClass = 'fa fa-map';
 
         this.addClass('geoapp-map-manager-widget');

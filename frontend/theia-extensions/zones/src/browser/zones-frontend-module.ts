@@ -68,7 +68,10 @@ import { ArchiveManagerWidget } from './archive-manager-widget';
 import { TrackablesWidget } from './trackables-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
-import { GeoAppDefaultLeftPanelContribution } from './geoapp-default-left-panel-contribution';
+import {
+    GeoAppSidebarDefaultsContribution,
+    GeoAppLegacyPluginsMigrationContribution,
+} from './sidebar/geoapp-sidebar-defaults-contribution';
 import { LayoutAutoSaveContribution } from './layout-auto-save-contribution';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 import { BackendApiClient } from './backend-api-client';
@@ -272,8 +275,12 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(GeoAppSidebarContribution);
     bind(MenuContribution).toService(GeoAppSidebarContribution);
 
-    bind(GeoAppDefaultLeftPanelContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toService(GeoAppDefaultLeftPanelContribution);
+    // Vues latérales par défaut : créées dans `initializeLayout` uniquement
+    // (jamais après une restauration), depuis le registre geoapp-sidebar-views.
+    bind(GeoAppSidebarDefaultsContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppSidebarDefaultsContribution);
+    bind(GeoAppLegacyPluginsMigrationContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppLegacyPluginsMigrationContribution);
 
     bind(LayoutAutoSaveContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(LayoutAutoSaveContribution);

@@ -4,6 +4,7 @@ import { ApplicationShell, WidgetManager } from '@theia/core/lib/browser';
 import { ZonesTreeWidget } from './zones-tree-widget';
 import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { MapWidget } from './map/map-widget';
+import { MapManagerWidget } from './map/map-manager-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { FriendsTab, GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
@@ -17,6 +18,7 @@ export const ZonesCommands = {
     OPEN: <Command>{ id: 'zones:open', label: 'Zones: Ouvrir' },
     OPEN_ZONE: <Command>{ id: 'zones:open-zone', label: 'Zones: Ouvrir Zone' },
     OPEN_MAP: <Command>{ id: 'geoapp.map.toggle', label: 'GeoApp: Afficher la carte' },
+    OPEN_MAP_MANAGER: <Command>{ id: 'geoapp.mapManager.open', label: 'GeoApp: Cartes' },
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
     OPEN_FRIENDS: <Command>{ id: 'geoapp.friends.open', label: 'GeoApp: Amis' },
     OPEN_FRIEND_ACTIVITY: <Command>{ id: 'geoapp.friends.activity.open', label: 'GeoApp: Activité des amis' },
@@ -57,6 +59,18 @@ export class ZonesCommandContribution implements CommandContribution {
                 }
                 if (args?.zoneId) {
                     widget.setZone({ zoneId: args.zoneId, zoneName: args.zoneName });
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        // Rouvre la vue « Cartes » dans la barre latérale gauche (fermable
+        // depuis la spec barres latérales — c'est sa commande de réouverture).
+        commands.registerCommand(ZonesCommands.OPEN_MAP_MANAGER, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(MapManagerWidget.ID);
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'left', rank: 200 });
                 }
                 this.shell.activateWidget(widget.id);
             }
