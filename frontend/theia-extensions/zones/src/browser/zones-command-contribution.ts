@@ -8,6 +8,7 @@ import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { FriendsTab, GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
+import { TrackablesWidget, TrackablesWidgetContext } from './trackables-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { OutingPlanCommandId, OutingPlanWidget } from './outing-plan-widget';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
@@ -22,6 +23,7 @@ export const ZonesCommands = {
     OPEN_FRIEND_TODO: <Command>{ id: 'geoapp.friends.todo.open', label: 'GeoApp: Caches à faire avec les amis' },
     OPEN_FRIEND_SUMMARY: <Command>{ id: 'geoapp.friends.summary.open', label: 'GeoApp: Fiche ami' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
+    OPEN_TRACKABLES: <Command>{ id: 'geoapp.trackables.open', label: 'GeoApp: Trackables' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
     OPEN_OUTING_PLAN: <Command>{ id: OutingPlanCommandId, label: 'GeoApp: Checklist de sortie' },
     OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
@@ -121,6 +123,21 @@ export class ZonesCommandContribution implements CommandContribution {
                 }
                 if (args?.username) {
                     void widget.setFriend(args.username);
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        // Widget Trackables : `{ tab, trackableCode, action, geocacheCode }` préremplit
+        // un onglet (fiche cache du lot 4 : 'retrieve'/'discover' depuis GC…).
+        commands.registerCommand(ZonesCommands.OPEN_TRACKABLES, {
+            execute: async (args?: TrackablesWidgetContext) => {
+                const widget = await this.widgetManager.getOrCreateWidget(TrackablesWidget.ID) as TrackablesWidget;
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                if (args) {
+                    widget.setContext(args);
                 }
                 this.shell.activateWidget(widget.id);
             }

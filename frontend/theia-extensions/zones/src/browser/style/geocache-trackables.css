@@ -69,8 +69,8 @@
 
 .geoapp-gc-trackables__row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-areas: "icon name code meta";
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "icon name code meta actions";
     align-items: center;
     gap: 8px;
     padding: 3px 6px;
@@ -117,13 +117,24 @@
     white-space: nowrap;
 }
 
-/* Panneau étroit : le type/propriétaire passe sous le nom. */
+.geoapp-gc-trackables__row-actions {
+    grid-area: actions;
+    display: inline-flex;
+    gap: 4px;
+}
+
+.geoapp-gc-trackables__row-btn {
+    padding: 0 6px;
+    font-size: 10px;
+}
+
+/* Panneau étroit : métas et actions sous la ligne d'identité. */
 @container (max-width: 360px) {
     .geoapp-gc-trackables__row {
         grid-template-columns: auto minmax(0, 1fr) auto;
         grid-template-areas:
             "icon name code"
-            "icon meta meta";
+            "icon meta actions";
         row-gap: 1px;
     }
 }

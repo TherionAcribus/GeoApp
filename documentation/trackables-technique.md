@@ -420,9 +420,27 @@ dans `geocache-details-view.tsx` :
   pendant une relecture.
 - **Étroit** : même approche conteneur que l'éditeur — sous 360 px, type et
   propriétaire passent sous le nom ; le code public n'est jamais tronqué.
-- **Reste du lot 4** : les actions « Retirer / Découvrir » (code de suivi +
-  file d'envoi) et « TBs dans cette cache » dans l'éditeur de logs arrivent
-  avec le widget Trackables (lot 5).
+- **Actions** : « Retirer » / « Découvrir » par ligne ouvrent le widget
+  Trackables prérempli (`open-trackables` → `TrackablesWidget.setContext`,
+  onglet « Loguer » avec le code TB et la cache d'origine). Le formulaire qui
+  demande le code de suivi et la file d'envoi arrivent avec le lot 5.2 ;
+  « TBs dans cette cache » dans l'éditeur de logs reste à faire.
+
+### 6.5 Widget « Trackables » (lot 5, coquille)
+
+`trackables-widget.tsx` — `ReactWidget` singleton (`geoapp-trackables-widget`),
+commande `geoapp.trackables.open` (palette) et événement `open-trackables`
+(`{ tab, trackableCode, action, geocacheCode }`), ouvert en zone `main`.
+Trois onglets :
+
+- **Inventaire** : `GET /api/trackables/inventory` (même politique `max_age` /
+  `refresh` / `stale` / `sync_error` / `empty_remote_guarded`), recherche
+  accent-insensible (`filterTrackables`), compteur filtré, date du relevé,
+  « Rafraîchir », actions par ligne « Fiche » et « Loguer » (préremplissage des
+  onglets correspondants).
+- **Loguer / Découvrir** et **Fiche** : coquilles qui honorent déjà le contexte
+  prérempli ; le collage multi-codes, l'aperçu lookup, la file d'envoi et le
+  détail assaini arrivent avec les étapes suivantes du lot.
 
 ## 7. Points d'attention
 

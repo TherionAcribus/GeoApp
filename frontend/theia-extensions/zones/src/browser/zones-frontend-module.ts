@@ -65,6 +65,7 @@ import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
+import { TrackablesWidget } from './trackables-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import { GeoAppDefaultLeftPanelContribution } from './geoapp-default-left-panel-contribution';
@@ -397,6 +398,13 @@ export default new ContainerModule(bind => {
     })).inSingletonScope();
 
     // Widget de gestion de l'archive de résolution
+    // Widget Trackables (lot 5) : inventaire, log autonome, fiche — singleton.
+    bind(TrackablesWidget).toSelf().inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: TrackablesWidget.ID,
+        createWidget: () => ctx.container.get(TrackablesWidget)
+    })).inSingletonScope();
+
     bind(ArchiveManagerWidget).toSelf().inSingletonScope();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ArchiveManagerWidget.ID,

@@ -8,6 +8,7 @@ import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { ZoneTabsManager } from './zone-tabs-manager';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { MapWidgetFactory } from './map/map-widget-factory';
+import { TrackablesWidget, TrackablesWidgetContext } from './trackables-widget';
 
 @injectable()
 export class ZonesFrontendContribution implements FrontendApplicationContribution {
@@ -180,6 +181,25 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
 
         window.addEventListener('open-geocache-log-editor', openLogEditor);
         document.addEventListener('open-geocache-log-editor', openLogEditor);
+
+        // Widget Trackables : `{ tab, trackableCode, action, geocacheCode }` —
+        // la fiche cache (lot 4) préremplit l'onglet Loguer via cet événement.
+        const openTrackables = async (event: any) => {
+            try {
+                const detail = (event?.detail || {}) as TrackablesWidgetContext;
+                const widget = await this.widgetManager.getOrCreateWidget(TrackablesWidget.ID) as TrackablesWidget;
+                widget.setContext(detail);
+                if (!widget.isAttached) {
+                    app.shell.addWidget(widget, { area: 'main' });
+                }
+                app.shell.activateWidget(widget.id);
+            } catch (error) {
+                console.error('[ZonesFrontendContribution] Failed to open trackables widget', error);
+            }
+        };
+
+        window.addEventListener('open-trackables', openTrackables);
+        document.addEventListener('open-trackables', openTrackables);
 
         // Ouverture des détails d'une géocache (recherche globale, plugin executor…).
         // Listener global pour fonctionner même si le tableau de zone n'est pas ouvert.

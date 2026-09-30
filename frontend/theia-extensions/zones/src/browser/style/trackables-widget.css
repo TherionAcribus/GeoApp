@@ -1,0 +1,176 @@
+/* Widget « Trackables » (trackables-widget.tsx) : onglets + inventaire.
+   Même vocabulaire que les autres panneaux ; la grille réagit à la largeur
+   du panneau (container query), jamais de scroll horizontal. */
+
+.geoapp-trackables-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    font-size: 12px;
+    container-type: inline-size;
+}
+
+.geoapp-trackables-widget__tabs {
+    display: flex;
+    gap: 2px;
+    padding: 6px 8px 0;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-trackables-widget__tab {
+    padding: 4px 12px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--theia-foreground);
+    font: inherit;
+    cursor: pointer;
+    opacity: 0.75;
+}
+
+.geoapp-trackables-widget__tab:hover {
+    opacity: 1;
+}
+
+.geoapp-trackables-widget__tab.is-active {
+    opacity: 1;
+    font-weight: 600;
+    border-bottom-color: var(--theia-button-background);
+}
+
+.geoapp-trackables-widget__tab:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.geoapp-trackables-widget__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.geoapp-trackables-widget__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-trackables-widget__filter {
+    flex: 1;
+    min-width: 160px;
+    max-width: 360px;
+}
+
+.geoapp-trackables-widget__sync {
+    opacity: 0.65;
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__error {
+    color: var(--theia-errorForeground);
+}
+
+.geoapp-trackables-widget__notice {
+    opacity: 0.85;
+}
+
+.geoapp-trackables-widget__empty {
+    opacity: 0.7;
+    font-style: italic;
+    padding: 8px 0;
+}
+
+.geoapp-trackables-widget__count {
+    opacity: 0.7;
+}
+
+.geoapp-trackables-widget__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.geoapp-trackables-widget__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto minmax(0, auto) auto;
+    grid-template-areas: "icon name code meta actions";
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 2px;
+}
+
+.geoapp-trackables-widget__row:nth-child(even) {
+    background: var(--theia-list-inactiveSelectionBackground);
+}
+
+.geoapp-trackables-widget__row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-trackables-widget__icon {
+    grid-area: icon;
+    width: 16px;
+    height: 16px;
+}
+
+.geoapp-trackables-widget__name {
+    grid-area: name;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__code {
+    grid-area: code;
+    opacity: 0.7;
+    font-family: var(--theia-code-font-family);
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__meta {
+    grid-area: meta;
+    opacity: 0.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__row-actions {
+    grid-area: actions;
+    display: inline-flex;
+    gap: 4px;
+}
+
+.geoapp-trackables-widget__row-actions .theia-button {
+    padding: 1px 8px;
+    font-size: 11px;
+}
+
+/* Panneau étroit : actions sous la ligne d'identité. */
+@container (max-width: 520px) {
+    .geoapp-trackables-widget__row {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "icon name code"
+            "icon meta actions";
+        row-gap: 1px;
+    }
+}
+
+.geoapp-trackables-widget__visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}

@@ -499,6 +499,7 @@ Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_t
 | P2-06 Panneaux étroits | Fait | Grille + `container-type` ; reste la vérification visuelle manuelle (320–1200 px, zoom, thèmes) |
 | P2-07 Clavier/annonces/masse | Fait | Roving tabindex + flèches, `role="alert"`/`status`, annulation d'action de masse, filtres rapides |
 | P2-08 Instantané confirmation | Fait | `TrackableSubmitSnapshot` gelé, `trackablesRevision`, reconfirmation sur mutation |
-| Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée ; actions Retirer/Découvrir et « TBs dans cette cache » de l'éditeur attendent le widget (lot 5) |
+| Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée + boutons Retirer/Découvrir → widget prérempli ; « TBs dans cette cache » de l'éditeur reste à faire |
+| Lot 5 — coquille + inventaire | En cours | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel, Loguer/Fiche = coquilles |
 
-Reste : lots 4 (actions), 5 et 6 de la spec (section 7 ci-dessus) — widget Trackables, file de découvertes, finitions — et la validation visuelle P2-06.
+Reste : lot 5 (saisie multi-codes + lookup, file d'envoi, fiche assainie), lot 4 restant dans l'éditeur, lot 6 — et la validation visuelle P2-06.

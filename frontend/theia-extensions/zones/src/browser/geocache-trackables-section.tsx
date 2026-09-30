@@ -7,8 +7,8 @@
  * si la copie locale a plus de 15 minutes (`max_age`) ; « Rafraîchir » force la
  * relecture. Un relevé périmé ou servi en repli est toujours signalé.
  *
- * Les actions « Retirer / Découvrir » arrivent avec le widget Trackables
- * (lot 5 de la spec) — elles demandent le code de suivi et la file d'envoi.
+ * « Retirer / Découvrir » ouvrent le widget Trackables (lot 5) prérempli via
+ * l'événement `open-trackables` — le formulaire demande alors le code de suivi.
  */
 
 import * as React from 'react';
@@ -38,6 +38,13 @@ const EMPTY_STATE: CacheTrackablesState = {
 
 /** La copie locale est réinterrogée au-delà de cet âge — même politique que l'éditeur de logs. */
 const CACHE_TRACKABLES_MAX_AGE_SECONDS = 900;
+
+/** Ouvre le widget Trackables prérempli (écouté par ZonesFrontendContribution). */
+function openTrackablesFor(action: 'retrieve' | 'discover', trackableCode: string, geocacheCode: string): void {
+    window.dispatchEvent(new CustomEvent('open-trackables', {
+        detail: { tab: 'log', action, trackableCode, geocacheCode },
+    }));
+}
 
 export const GeocacheTrackablesSection: React.FC<GeocacheTrackablesSectionProps> = ({
     gcCode,
@@ -171,6 +178,24 @@ export const GeocacheTrackablesSection: React.FC<GeocacheTrackablesSectionProps>
                                     </a>
                                     <span className='geoapp-gc-trackables__meta'>
                                         {[tb.type_name, tb.owner_username].filter(Boolean).join(' · ')}
+                                    </span>
+                                    <span className='geoapp-gc-trackables__row-actions'>
+                                        <button
+                                            type='button'
+                                            className='theia-button secondary geoapp-gc-trackables__row-btn'
+                                            title='Retirer ce trackable de la cache (widget Trackables)'
+                                            onClick={() => openTrackablesFor('retrieve', tb.reference_code, gcCode)}
+                                        >
+                                            Retirer
+                                        </button>
+                                        <button
+                                            type='button'
+                                            className='theia-button secondary geoapp-gc-trackables__row-btn'
+                                            title='Découvrir ce trackable (widget Trackables)'
+                                            onClick={() => openTrackablesFor('discover', tb.reference_code, gcCode)}
+                                        >
+                                            Découvrir
+                                        </button>
                                     </span>
                                 </div>
                             ))}
