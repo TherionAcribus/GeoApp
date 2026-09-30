@@ -138,7 +138,7 @@ export default new ContainerModule(bind => {
     bind(ArchiveManagerController).toSelf().inSingletonScope();
     bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();
 
-    bind(ZonesTreeWidget).toSelf().inSingletonScope();
+    bind(ZonesTreeWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ZonesTreeWidget.ID,
         createWidget: () => ctx.container.get(ZonesTreeWidget)
@@ -184,7 +184,7 @@ export default new ContainerModule(bind => {
     })).inSingletonScope();
 
     // Widget des logs de géocache (affichable dans right, bottom ou main)
-    bind(GeocacheLogsWidget).toSelf().inSingletonScope();
+    bind(GeocacheLogsWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocacheLogsWidget.ID,
         createWidget: () => ctx.container.get(GeocacheLogsWidget)
@@ -203,7 +203,7 @@ export default new ContainerModule(bind => {
     })).inSingletonScope();
 
     // Widget des notes de géocache (affichable dans right, bottom ou main)
-    bind(GeocacheNotesWidget).toSelf().inSingletonScope();
+    bind(GeocacheNotesWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocacheNotesWidget.ID,
         createWidget: () => ctx.container.get(GeocacheNotesWidget)
@@ -236,7 +236,7 @@ export default new ContainerModule(bind => {
         return factory;
     });
 
-    bind(MapManagerWidget).toSelf().inSingletonScope();
+    bind(MapManagerWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: MapManagerWidget.ID,
         createWidget: () => ctx.container.get(MapManagerWidget)
@@ -335,13 +335,13 @@ export default new ContainerModule(bind => {
     bind(GeoAppAiExecutionService).toSelf().inSingletonScope();
     bind(GeoAppAiOperationRecorder).toService(GeoAppAiExecutionService);
 
-    bind(OutingPlanWidget).toSelf().inSingletonScope();
+    bind(OutingPlanWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: OutingPlanWidget.ID,
         createWidget: () => ctx.container.get(OutingPlanWidget)
     })).inSingletonScope();
 
-    bind(GeoAppChatPolicyWidget).toSelf().inSingletonScope();
+    bind(GeoAppChatPolicyWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeoAppChatPolicyWidget.ID,
         createWidget: () => ctx.container.get(GeoAppChatPolicyWidget)
@@ -377,41 +377,46 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(GeoAppOutingAnalyzerAgentContribution);
 
     // Widget d'authentification Geocaching.com
-    bind(GeocachingAuthWidget).toSelf().inSingletonScope();
+    bind(GeocachingAuthWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocachingAuthWidget.ID,
         createWidget: () => ctx.container.get(GeocachingAuthWidget)
     })).inSingletonScope();
 
     // Widget Amis Geocaching.com (liste, activité, à faire)
-    bind(GeocachingFriendsWidget).toSelf().inSingletonScope();
+    bind(GeocachingFriendsWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocachingFriendsWidget.ID,
         createWidget: () => ctx.container.get(GeocachingFriendsWidget)
     })).inSingletonScope();
 
     // Widget de la fiche synthétique d'un ami
-    bind(GeocachingFriendSummaryWidget).toSelf().inSingletonScope();
+    bind(GeocachingFriendSummaryWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocachingFriendSummaryWidget.ID,
         createWidget: () => ctx.container.get(GeocachingFriendSummaryWidget)
     })).inSingletonScope();
 
-    // Widget de gestion de l'archive de résolution
-    // Widget Trackables (lot 5) : inventaire, log autonome, fiche — singleton.
-    bind(TrackablesWidget).toSelf().inSingletonScope();
+    // Widget Trackables (lot 5) : inventaire, log autonome, fiche.
+    // Les widgets liés à un WidgetFactory ne sont PAS en singleton : fermer un
+    // widget le dispose (`onCloseRequest` → `dispose()`), et récupérer la même
+    // instance disposée au prochain `getOrCreateWidget` affichait un onglet
+    // noir sans contenu. Le WidgetManager dédoublonne déjà tant que le widget
+    // existe — le « singleton » est assuré par lui, pas par le scope Inversify.
+    bind(TrackablesWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: TrackablesWidget.ID,
         createWidget: () => ctx.container.get(TrackablesWidget)
     })).inSingletonScope();
 
-    bind(ArchiveManagerWidget).toSelf().inSingletonScope();
+    // Widget de gestion de l'archive de résolution
+    bind(ArchiveManagerWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ArchiveManagerWidget.ID,
         createWidget: () => ctx.container.get(ArchiveManagerWidget)
     })).inSingletonScope();
 
-    bind(ServerLogTerminalWidget).toSelf().inSingletonScope();
+    bind(ServerLogTerminalWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ServerLogTerminalWidget.ID,
         createWidget: () => ctx.container.get(ServerLogTerminalWidget)
