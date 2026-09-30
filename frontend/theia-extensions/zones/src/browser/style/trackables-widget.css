@@ -174,3 +174,173 @@
     white-space: nowrap;
     border: 0;
 }
+
+/* ---- Onglet « Loguer / Découvrir » : file d'envoi (lot 5.2) ---- */
+
+.geoapp-trackables-widget__label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-weight: 600;
+    min-width: 0;
+}
+
+.geoapp-trackables-widget__label--grow {
+    flex: 1;
+}
+
+.geoapp-trackables-widget__codes {
+    font-family: var(--theia-code-font-family);
+    resize: vertical;
+}
+
+.geoapp-trackables-widget__common {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.geoapp-trackables-widget__queue {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.geoapp-trackables-widget__queue-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, auto) auto;
+    grid-template-areas:
+        "badge id id type"
+        "badge meta detail actions";
+    align-items: center;
+    gap: 4px 8px;
+    padding: 5px 8px;
+    border-radius: 2px;
+    border: 1px solid transparent;
+}
+
+.geoapp-trackables-widget__queue-item:nth-child(even) {
+    background: var(--theia-list-inactiveSelectionBackground);
+}
+
+.geoapp-trackables-widget__queue-item--confirmed {
+    border-color: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successBackground));
+}
+
+.geoapp-trackables-widget__queue-item--rejected,
+.geoapp-trackables-widget__queue-item--error {
+    border-color: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorBackground));
+}
+
+.geoapp-trackables-widget__queue-item--unknown {
+    border-color: var(--theia-gitDecoration-modifiedResourceForeground, var(--theia-warnForeground));
+}
+
+.geoapp-trackables-widget__queue-item--submitting {
+    opacity: 0.85;
+}
+
+.geoapp-trackables-widget__queue-badge {
+    grid-area: badge;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background, var(--theia-list-inactiveSelectionBackground));
+    color: var(--theia-badge-foreground, inherit);
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__queue-badge--confirmed {
+    background: var(--theia-gitDecoration-addedResourceForeground, var(--theia-successBackground));
+    color: var(--theia-sideBar-background);
+}
+
+.geoapp-trackables-widget__queue-badge--rejected,
+.geoapp-trackables-widget__queue-badge--error {
+    background: var(--theia-gitDecoration-deletedResourceForeground, var(--theia-errorBackground));
+    color: var(--theia-sideBar-background);
+}
+
+.geoapp-trackables-widget__queue-badge--unknown {
+    background: var(--theia-gitDecoration-modifiedResourceForeground, var(--theia-warnForeground));
+    color: var(--theia-sideBar-background);
+}
+
+.geoapp-trackables-widget__queue-id {
+    grid-area: id;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.geoapp-trackables-widget__queue-meta {
+    grid-area: meta;
+    opacity: 0.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__queue-type {
+    grid-area: type;
+    justify-self: end;
+}
+
+.geoapp-trackables-widget__queue-detail {
+    grid-area: detail;
+    opacity: 0.8;
+}
+
+.geoapp-trackables-widget__queue-actions {
+    grid-area: actions;
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.geoapp-trackables-widget__queue-actions .theia-button {
+    padding: 1px 8px;
+    font-size: 11px;
+}
+
+.geoapp-trackables-widget__queue-geocache {
+    width: 9em;
+    font-family: var(--theia-code-font-family);
+}
+
+.geoapp-trackables-widget__tracking-code {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.geoapp-trackables-widget__tracking-code .theia-input {
+    width: 9em;
+    font-family: var(--theia-code-font-family);
+}
+
+.geoapp-trackables-widget__tracking-code .theia-button {
+    padding: 1px 6px;
+    font-size: 11px;
+}
+
+/* Le champ de suivi et les actions passent en ligne quand le panneau est étroit. */
+@container (max-width: 560px) {
+    .geoapp-trackables-widget__queue-item {
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+            "badge type"
+            "id id"
+            "meta actions"
+            "detail detail";
+    }
+
+    .geoapp-trackables-widget__common {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}

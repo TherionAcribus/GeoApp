@@ -500,6 +500,8 @@ Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_t
 | P2-07 Clavier/annonces/masse | Fait | Roving tabindex + flèches, `role="alert"`/`status`, annulation d'action de masse, filtres rapides |
 | P2-08 Instantané confirmation | Fait | `TrackableSubmitSnapshot` gelé, `trackablesRevision`, reconfirmation sur mutation |
 | Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée + boutons Retirer/Découvrir → widget prérempli ; « TBs dans cette cache » de l'éditeur reste à faire |
-| Lot 5 — coquille + inventaire | En cours | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel, Loguer/Fiche = coquilles |
+| Lot 5 — coquille + inventaire | Fait | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel |
+| Lot 5.2 — onglet Loguer/Découvrir | Fait | `trackables-log-queue.ts` (pur) : collage multi-codes, dédoublonnage, lookup POST, types via `log-info`, file séquentielle avec `operationId`, états `pending→…→confirmed/rejected/unknown`, persistance sans codes de suivi, champ masqué + affichage temporaire |
+| Lot 5.3 — onglet Fiche | À faire | Détail assaini, localisation, image, logs paginés |
 
-Reste : lot 5 (saisie multi-codes + lookup, file d'envoi, fiche assainie), lot 4 restant dans l'éditeur, lot 6 — et la validation visuelle P2-06.
+Reste : lot 5.3 (fiche assainie paginée), file de découvertes en masse (étendre la file 5.2 : export CSV du bilan — déjà copiable — et préflight groupé), lot 4 restant dans l'éditeur, lot 6 — et la validation visuelle P2-06.

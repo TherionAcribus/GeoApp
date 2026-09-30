@@ -14,7 +14,7 @@
  */
 
 import * as React from 'react';
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import '../../src/browser/style/trackables-widget.css';
@@ -25,6 +25,22 @@ import {
     filterTrackables,
     trackableUrl,
 } from './log-editor/trackables';
+import {
+    StoredTrackableQueueItem,
+    TRACKABLE_LOG_TYPE_FALLBACK_CHOICES,
+    TRACKABLE_LOG_TYPE_FALLBACK_LABELS,
+    TRACKABLE_QUEUE_STORAGE_VERSION,
+    TrackableQueueItem,
+    buildTrackableQueueReport,
+    defaultTrackableLogType,
+    parseTrackableCodeTokens,
+    queueItemDisplayCode,
+    restoreQueueFromStorage,
+    sanitizeQueueForStorage,
+    trackableLogTypeNeedsGeocache,
+    trackableLogTypeNeedsTrackingCode,
+    trackableQueueCounts,
+} from './log-editor/trackables-log-queue';
 
 export type TrackablesWidgetTab = 'inventory' | 'log' | 'detail';
 
@@ -61,6 +77,9 @@ const EMPTY_INVENTORY: InventoryState = {
     loading: false, loaded: false, trackables: [], lastSyncAt: null, stale: false,
 };
 
+/** File persistée en localStorage — `sanitizeQueueForStorage` a retiré tout code de suivi. */
+const TRACKABLE_QUEUE_STORAGE_KEY = 'geoapp.trackables.queue';
+
 @injectable()
 export class TrackablesWidget extends ReactWidget {
     static readonly ID = 'geoapp-trackables-widget';
@@ -72,6 +91,19 @@ export class TrackablesWidget extends ReactWidget {
     /** Préremplissage des onglets à venir (lot 5.2 / 5.3 et actions du lot 4). */
     protected pendingLogContext: { code: string; action?: string; geocacheCode?: string } | undefined;
     protected pendingDetailCode: string | undefined;
+
+    /* ---- File « Loguer / Découvrir » ---- */
+    /** Collage brut du champ multi-codes — mémoire seule, jamais persisté. */
+    protected queueInput = '';
+    protected queue: TrackableQueueItem[] = [];
+    /** Codes de suivi saisis par élément — mémoire seule : jamais en localStorage. */
+    protected queueTrackingCodes: Record<string, string> = {};
+    protected queueLogDate = new Date().toISOString().slice(0, 10);
+    protected queueLogText = '';
+    protected queueRunning = false;
+    protected queuePreflighting = false;
+    protected queueStopRequested = false;
+    protected queueSequence = 0;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -85,11 +117,61 @@ export class TrackablesWidget extends ReactWidget {
         this.addClass('theia-trackables-widget');
     }
 
+    @postConstruct()
+    initialize(): void {
+        // Reprise de la file persistée (sans codes de suivi : la saisie brute et
+        // les codes entrés ne sont jamais stockés localement, cf. lot 5.2).
+        try {
+            const raw = window.localStorage.getItem(TRACKABLE_QUEUE_STORAGE_KEY);
+            if (raw) {
+                const stored = JSON.parse(raw) as {
+                    version?: number;
+                    logDate?: string;
+                    logText?: string;
+                    items?: StoredTrackableQueueItem[];
+                };
+                const items = restoreQueueFromStorage(stored);
+                if (items.length > 0) {
+                    this.queue = items.map((item, index) => ({
+                        key: item.key ?? `restored-${index}`,
+                        inputCode: item.reference_code ?? '',
+                        reference_code: item.reference_code,
+                        name: item.name,
+                        owner_username: item.owner_username,
+                        current_geocache_code: item.current_geocache_code,
+                        has_tracking_code: item.has_tracking_code,
+                        allowed_log_types: item.allowed_log_types,
+                        logTypeId: item.logTypeId,
+                        status: item.status,
+                        statusDetail: item.statusDetail,
+                        trackable_url: item.trackable_url,
+                    }));
+                }
+                if (stored.logDate) {
+                    this.queueLogDate = stored.logDate;
+                }
+                if (stored.logText) {
+                    this.queueLogText = stored.logText;
+                }
+            }
+        } catch (e) {
+            console.warn('[TrackablesWidget] file persistée illisible, ignorée', e);
+        }
+        // Les éléments restaurés en attente repartent au préflight.
+        if (this.queue.some(item => item.status === 'pending')) {
+            void this.preflightQueue();
+        }
+        void this.loadInventory('auto');
+    }
+
     /** Contexte d'ouverture : onglet + préremplissage (fiche cache du lot 4, file externe). */
     setContext(ctx: TrackablesWidgetContext): void {
         if (ctx.trackableCode && (ctx.tab === 'log' || ctx.tab === 'detail')) {
             if (ctx.tab === 'log') {
                 this.pendingLogContext = { code: ctx.trackableCode, action: ctx.action, geocacheCode: ctx.geocacheCode };
+                // Le code entre directement dans la file : « Retirer »/« Découvrir »
+                // d'une fiche cache arrive prêt à l'aperçu.
+                this.enqueueCode(ctx.trackableCode, ctx.action, ctx.geocacheCode);
             } else {
                 this.pendingDetailCode = ctx.trackableCode;
             }
@@ -101,6 +183,31 @@ export class TrackablesWidget extends ReactWidget {
             void this.loadInventory('auto');
         }
         this.update();
+    }
+
+    /** Ajoute un code à la file s'il n'y figure pas déjà, puis lance le préflight. */
+    protected enqueueCode(code: string, preferredAction?: string, geocacheCode?: string): void {
+        const normalized = code.trim().toUpperCase();
+        if (!normalized) {
+            return;
+        }
+        const exists = this.queue.some(item =>
+            item.inputCode.toUpperCase() === normalized || item.reference_code === normalized);
+        if (!exists) {
+            this.queue = [...this.queue, {
+                key: `q${++this.queueSequence}-${Date.now()}`,
+                inputCode: normalized,
+                geocacheCode,
+                status: 'pending',
+                statusDetail: preferredAction === 'retrieve' ? 'Retirer (fiche cache)'
+                    : preferredAction === 'discover' ? 'Découvrir (fiche cache)' : undefined,
+            }];
+            this.persistQueue();
+        }
+        if (preferredAction) {
+            this.pendingLogContext = { code: normalized, action: preferredAction, geocacheCode };
+        }
+        void this.preflightQueue();
     }
 
     showTab(tab: TrackablesWidgetTab): void {
@@ -162,6 +269,296 @@ export class TrackablesWidget extends ReactWidget {
             this.inventory.loading = false;
             this.update();
         }
+    }
+
+    /* ------------------------------------------------- File Loguer/Découvrir */
+
+    protected persistQueue(): void {
+        try {
+            window.localStorage.setItem(TRACKABLE_QUEUE_STORAGE_KEY, JSON.stringify({
+                version: TRACKABLE_QUEUE_STORAGE_VERSION,
+                logDate: this.queueLogDate,
+                logText: this.queueLogText,
+                items: sanitizeQueueForStorage(this.queue),
+            }));
+        } catch (e) {
+            console.warn('[TrackablesWidget] persistance de la file impossible', e);
+        }
+    }
+
+    protected patchQueueItem(key: string, patch: Partial<TrackableQueueItem>): void {
+        this.queue = this.queue.map(item => (item.key === key ? { ...item, ...patch } : item));
+        this.persistQueue();
+        this.update();
+    }
+
+    /** « Analyser » : extraction + dédoublonnage, puis préflight des nouveaux. */
+    protected analyzeQueueInput(): void {
+        const codes = parseTrackableCodeTokens(this.queueInput);
+        const known = new Set(this.queue.flatMap(item => [
+            item.inputCode.toUpperCase(),
+            item.reference_code ?? '',
+        ]));
+        const fresh = codes.filter(code => !known.has(code));
+        if (fresh.length > 0) {
+            this.queue = [
+                ...this.queue,
+                ...fresh.map(code => ({
+                    key: `q${++this.queueSequence}-${Date.now()}`,
+                    inputCode: code,
+                    status: 'pending' as const,
+                })),
+            ];
+            // Le collage est consommé : on le vide plutôt que de garder
+            // un secret lisible dans le champ.
+            this.queueInput = '';
+            this.persistQueue();
+        }
+        if (codes.length === 0) {
+            this.messages.warn('Aucun code reconnu dans le collage.');
+        }
+        this.update();
+        void this.preflightQueue();
+    }
+
+    /**
+     * Préflight de tous les éléments en attente — sans envoyer de log :
+     * `POST /lookup` (le code reste dans le corps) puis `GET /<TB>/log-info`
+     * pour les types autorisés et la cache courante.
+     */
+    protected async preflightQueue(): Promise<void> {
+        if (this.queuePreflighting) {
+            return;
+        }
+        this.queuePreflighting = true;
+        try {
+            for (;;) {
+                const item = this.queue.find(entry => entry.status === 'pending');
+                if (!item) {
+                    break;
+                }
+                this.patchQueueItem(item.key, { status: 'preflight' });
+                try {
+                    const lookupRes = await fetch(`${this.backendBaseUrl}/api/trackables/lookup`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code: item.inputCode }),
+                    });
+                    const lookupBody = await lookupRes.json().catch(() => undefined);
+                    if (!lookupRes.ok || !lookupBody?.success) {
+                        this.patchQueueItem(item.key, {
+                            status: 'error',
+                            statusDetail: lookupBody?.error_message || `Lookup impossible (HTTP ${lookupRes.status}).`,
+                        });
+                        continue;
+                    }
+                    const tb = lookupBody.trackable ?? {};
+                    const ref = typeof tb.reference_code === 'string' ? tb.reference_code : undefined;
+                    if (!ref) {
+                        this.patchQueueItem(item.key, { status: 'error', statusDetail: 'Réponse de lookup sans code public.' });
+                        continue;
+                    }
+                    let patch: Partial<TrackableQueueItem> = {
+                        reference_code: ref,
+                        name: tb.name,
+                        owner_username: tb.owner_username,
+                        current_geocache_code: tb.current_geocache_code,
+                        current_geocache_name: tb.current_geocache_name,
+                        has_tracking_code: tb.has_tracking_code === true || lookupBody.tracking_code_matched === true,
+                    };
+                    // Types autorisés : la page de log du TB fait foi (relecture distante).
+                    let logInfoOk = false;
+                    try {
+                        const infoRes = await fetch(
+                            `${this.backendBaseUrl}/api/trackables/${encodeURIComponent(ref)}/log-info`,
+                            { credentials: 'include' },
+                        );
+                        const info = await infoRes.json().catch(() => undefined);
+                        if (infoRes.ok && info?.success) {
+                            logInfoOk = true;
+                            const allowed: { id: number; label: string }[] = Array.isArray(info.allowed_log_types)
+                                ? info.allowed_log_types.filter(
+                                    (t: unknown): t is { id: number; label: string } =>
+                                        !!t && typeof (t as { id?: unknown }).id === 'number')
+                                : [];
+                            patch = {
+                                ...patch,
+                                allowed_log_types: allowed,
+                                logTypeId: defaultTrackableLogType(allowed, this.pendingLogContext?.action),
+                                current_geocache_code: info.current_geocache_code ?? patch.current_geocache_code,
+                                current_geocache_name: info.current_geocache_name ?? patch.current_geocache_name,
+                                has_tracking_code: patch.has_tracking_code || info.has_tracking_code === true,
+                            };
+                        }
+                    } catch {
+                        // Traité par le repli ci-dessous.
+                    }
+                    if (!logInfoOk) {
+                        // log-info injoignable : choix courants du site en repli —
+                        // le backend revalide avant l'envoi, rien n'est acquis.
+                        patch = {
+                            ...patch,
+                            allowed_log_types: patch.allowed_log_types ?? [...TRACKABLE_LOG_TYPE_FALLBACK_CHOICES],
+                            logTypeId: patch.logTypeId ?? defaultTrackableLogType(
+                                TRACKABLE_LOG_TYPE_FALLBACK_CHOICES, this.pendingLogContext?.action),
+                            statusDetail: 'Types de log non relus (log-info) : le site revalidera à l’envoi.',
+                        };
+                    } else if (patch.allowed_log_types && patch.allowed_log_types.length === 0) {
+                        patch = { ...patch, statusDetail: 'Aucun type de log proposé par le site pour ce trackable.' };
+                    }
+                    this.patchQueueItem(item.key, { ...patch, status: 'ready', statusDetail: undefined });
+                } catch {
+                    this.patchQueueItem(item.key, { status: 'error', statusDetail: 'Backend injoignable pendant le préflight.' });
+                }
+            }
+        } finally {
+            this.queuePreflighting = false;
+            this.update();
+        }
+    }
+
+    /**
+     * Envoi séquentiel : un POST à la fois, arrêt possible entre deux envois.
+     * Les POST ne sont jamais rejoués : une coupure donne `unknown`, pas un doublon.
+     */
+    protected async submitQueue(): Promise<void> {
+        if (this.queueRunning) {
+            return;
+        }
+        if (!this.queueLogText.trim()) {
+            this.messages.warn('Le texte du log est requis.');
+            return;
+        }
+        this.queueRunning = true;
+        this.queueStopRequested = false;
+        this.update();
+        try {
+            for (const item of this.queue) {
+                if (this.queueStopRequested) {
+                    break;
+                }
+                if (item.status !== 'ready' || !item.reference_code || item.logTypeId === undefined) {
+                    continue;
+                }
+                const needsCode = trackableLogTypeNeedsTrackingCode(item.logTypeId) && !item.has_tracking_code;
+                const trackingCode = (this.queueTrackingCodes[item.reference_code] ?? '').trim();
+                if (needsCode && !trackingCode) {
+                    this.patchQueueItem(item.key, { statusDetail: 'Code de suivi requis pour ce type de log.' });
+                    continue;
+                }
+                if (trackableLogTypeNeedsGeocache(item.logTypeId) && !item.geocacheCode?.trim()) {
+                    this.patchQueueItem(item.key, { statusDetail: 'Indiquez la cache (GC…) de retrait.' });
+                    continue;
+                }
+                this.patchQueueItem(item.key, { status: 'submitting', statusDetail: undefined });
+                // Nouvelle tentative = nouvel operationId : un réessai volontaire
+                // n'est pas un doublon du précédent.
+                const operationId = crypto.randomUUID();
+                try {
+                    const res = await fetch(
+                        `${this.backendBaseUrl}/api/trackables/${encodeURIComponent(item.reference_code)}/logs`,
+                        {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                logType: item.logTypeId,
+                                text: this.queueLogText,
+                                date: this.queueLogDate,
+                                trackingCode: trackingCode || undefined,
+                                geocacheCode: item.geocacheCode,
+                                locationConflictConfirmed: item.locationConflictConfirmed || undefined,
+                                operationId,
+                            }),
+                        },
+                    );
+                    const body = await res.json().catch(() => undefined);
+                    if (res.ok && body?.success) {
+                        this.patchQueueItem(item.key, {
+                            status: 'confirmed', statusDetail: undefined,
+                            has_tracking_code: true,
+                            locationConflictPending: false, locationConflictConfirmed: false,
+                        });
+                    } else if (res.status === 409 && body?.error === 'trackable_location_conflict') {
+                        this.patchQueueItem(item.key, {
+                            status: 'ready',
+                            statusDetail: body.error_message || 'Conflit de localisation : confirmez pour envoyer.',
+                            locationConflictPending: true,
+                        });
+                    } else if (res.status === 409 && body?.error === 'operation_in_flight') {
+                        this.patchQueueItem(item.key, {
+                            status: 'unknown',
+                            statusDetail: 'Envoi déjà en cours côté serveur : à vérifier avant de renvoyer.',
+                        });
+                    } else if (body?.error === 'unknown_remote_outcome') {
+                        this.patchQueueItem(item.key, {
+                            status: 'unknown',
+                            statusDetail: body.error_message || 'Résultat distant incertain : à vérifier sur Geocaching.com.',
+                            trackable_url: typeof body.trackable_url === 'string' ? body.trackable_url : undefined,
+                        });
+                    } else {
+                        // `network_failed_before_response` et refus métier : réessai possible.
+                        this.patchQueueItem(item.key, {
+                            status: 'rejected',
+                            statusDetail: body?.error_message || `Envoi refusé (HTTP ${res.status}).`,
+                        });
+                    }
+                } catch {
+                    // Coupure réseau sur un POST : le site a peut-être enregistré le
+                    // log. Jamais de renvoi à l'aveugle — l'élément passe en « unknown ».
+                    this.patchQueueItem(item.key, {
+                        status: 'unknown',
+                        statusDetail: 'Coupure réseau au résultat inconnu : vérifiez la fiche avant de renvoyer.',
+                    });
+                }
+            }
+        } finally {
+            this.queueRunning = false;
+            this.queueStopRequested = false;
+            const counts = trackableQueueCounts(this.queue);
+            if (counts.unknown > 0) {
+                this.messages.warn(
+                    `File terminée : ${counts.confirmed} confirmé(s), ${counts.rejected} refusé(s), `
+                    + `${counts.unknown} à vérifier sur Geocaching.com.`,
+                );
+            } else {
+                this.messages.info(`File terminée : ${counts.confirmed} confirmé(s), ${counts.rejected} refusé(s).`);
+            }
+            this.persistQueue();
+            this.update();
+        }
+    }
+
+    /** Remet un élément refusé dans la file (nouvel envoi = nouvel operationId). */
+    protected retryQueueItem(key: string): void {
+        this.patchQueueItem(key, {
+            status: 'ready', statusDetail: undefined,
+            locationConflictPending: false, locationConflictConfirmed: false,
+        });
+        void this.submitQueue();
+    }
+
+    /** Confirme le conflit de localisation affiché par le backend et renvoie. */
+    protected confirmLocationConflict(key: string): void {
+        this.patchQueueItem(key, { locationConflictConfirmed: true, locationConflictPending: false });
+        void this.submitQueue();
+    }
+
+    protected clearQueue(): void {
+        if (this.queueRunning) {
+            return;
+        }
+        this.queue = [];
+        this.queueTrackingCodes = {};
+        this.persistQueue();
+        this.update();
+    }
+
+    protected copyQueueReport(): void {
+        void navigator.clipboard.writeText(buildTrackableQueueReport(this.queue))
+            .then(() => this.messages.info('Bilan de la file copié.'))
+            .catch(() => this.messages.warn('Copie impossible dans le presse-papiers.'));
     }
 
     protected render(): React.ReactNode {
@@ -269,21 +666,248 @@ export class TrackablesWidget extends ReactWidget {
         );
     }
 
-    /** Onglet « Loguer / Découvrir » : la file arrive avec le lot 5.2 — le contexte prérempli est déjà honoré. */
+    /**
+     * Onglet « Loguer / Découvrir » : collage multi-codes → préflight (lookup +
+     * types autorisés) → file séquentielle avec états et arrêt entre deux envois.
+     */
     protected renderLogTab(): React.ReactNode {
-        const ctx = this.pendingLogContext;
+        const counts = trackableQueueCounts(this.queue);
+        const busy = this.queueRunning || this.queuePreflighting;
+        const sendable = this.queue.some(item => item.status === 'ready');
         return (
             <div className='geoapp-trackables-widget__panel' role='tabpanel'>
-                {ctx && (
+                {this.pendingLogContext && (
                     <div className='geoapp-trackables-widget__notice' role='status'>
-                        Prérempli : {ctx.action === 'retrieve' ? 'retirer' : ctx.action === 'discover' ? 'découvrir' : 'loguer'}
-                        {' '}le trackable {ctx.code}
-                        {ctx.geocacheCode ? ` depuis ${ctx.geocacheCode}` : ''}.
+                        Prérempli depuis la fiche cache : {this.pendingLogContext.action === 'retrieve' ? 'retirer'
+                            : this.pendingLogContext.action === 'discover' ? 'découvrir' : 'loguer'}
+                        {this.pendingLogContext.geocacheCode ? ` dans ${this.pendingLogContext.geocacheCode}` : ''}.
                     </div>
                 )}
-                <div className='geoapp-trackables-widget__empty'>
-                    La saisie multi-codes, l’aperçu par lookup et la file d’envoi arrivent avec la suite du lot.
+                <label className='geoapp-trackables-widget__label'>
+                    Codes de suivi ou publics — un par ligne, collage libre, URLs coord.info ou ?tracker= acceptées :
+                    <textarea
+                        className='theia-input geoapp-trackables-widget__codes'
+                        rows={3}
+                        value={this.queueInput}
+                        disabled={this.queueRunning}
+                        onChange={e => { this.queueInput = e.currentTarget.value; this.update(); }}
+                        placeholder={'TB1A2B3\nhttps://coord.info/TB7XYZ\ntracker=AB12CD, AF12CD…'}
+                    />
+                </label>
+                <div className='geoapp-trackables-widget__toolbar'>
+                    <button
+                        type='button'
+                        className='theia-button'
+                        disabled={busy || !this.queueInput.trim()}
+                        title='Extraire les codes et lancer le préflight (lookup + types autorisés)'
+                        onClick={() => this.analyzeQueueInput()}
+                    >
+                        {this.queuePreflighting ? '⏳ Préflight…' : 'Analyser'}
+                    </button>
+                    {counts.total > 0 && (
+                        <span className='geoapp-trackables-widget__count' aria-live='polite'>
+                            {counts.total} élément(s) — {counts.ready} prêt(s), {counts.confirmed} confirmé(s),{' '}
+                            {counts.rejected} refusé(s), {counts.unknown} à vérifier, {counts.errors} en erreur
+                        </span>
+                    )}
+                    {counts.total > 0 && !this.queueRunning && (
+                        <>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => this.copyQueueReport()}
+                                title='Copier le bilan (codes publics uniquement)'
+                            >
+                                Copier le bilan
+                            </button>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => this.clearQueue()}
+                            >
+                                Vider la file
+                            </button>
+                        </>
+                    )}
                 </div>
+
+                {this.queue.length > 0 && (
+                    <>
+                        <div className='geoapp-trackables-widget__common'>
+                            <label className='geoapp-trackables-widget__label'>
+                                Date du log
+                                <input
+                                    type='date'
+                                    className='theia-input'
+                                    value={this.queueLogDate}
+                                    onChange={e => {
+                                        this.queueLogDate = e.currentTarget.value;
+                                        this.persistQueue();
+                                        this.update();
+                                    }}
+                                />
+                            </label>
+                            <label className='geoapp-trackables-widget__label geoapp-trackables-widget__label--grow'>
+                                Texte commun à tous les logs
+                                <textarea
+                                    className='theia-input'
+                                    rows={2}
+                                    value={this.queueLogText}
+                                    disabled={this.queueRunning}
+                                    onChange={e => {
+                                        this.queueLogText = e.currentTarget.value;
+                                        this.persistQueue();
+                                        this.update();
+                                    }}
+                                />
+                            </label>
+                        </div>
+                        <div className='geoapp-trackables-widget__toolbar'>
+                            {this.queueRunning ? (
+                                <button
+                                    type='button'
+                                    className='theia-button'
+                                    onClick={() => { this.queueStopRequested = true; this.update(); }}
+                                >
+                                    ⏹ Arrêter après l’envoi en cours
+                                </button>
+                            ) : (
+                                <button
+                                    type='button'
+                                    className='theia-button'
+                                    disabled={!sendable || !this.queueLogText.trim()}
+                                    title='Envoyer les logs en file, un par un'
+                                    onClick={() => { void this.submitQueue(); }}
+                                >
+                                    ▶ Envoyer la file
+                                </button>
+                            )}
+                            {this.queueRunning && (
+                                <span className='geoapp-trackables-widget__count' role='status'>
+                                    Envoi en cours : {counts.settled + counts.unknown}/{counts.total}
+                                </span>
+                            )}
+                        </div>
+                        <div className='geoapp-trackables-widget__queue' role='list'>
+                            {this.queue.map(item => this.renderQueueItem(item))}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    protected renderQueueItem(item: TrackableQueueItem): React.ReactNode {
+        const displayCode = queueItemDisplayCode(item);
+        const needsCode = item.reference_code !== undefined
+            && item.logTypeId !== undefined
+            && trackableLogTypeNeedsTrackingCode(item.logTypeId)
+            && !item.has_tracking_code;
+        const needsGeocache = item.status === 'ready'
+            && trackableLogTypeNeedsGeocache(item.logTypeId);
+        return (
+            <div
+                key={item.key}
+                className={`geoapp-trackables-widget__queue-item geoapp-trackables-widget__queue-item--${item.status}`}
+                role='listitem'
+            >
+                <span className={`geoapp-trackables-widget__queue-badge geoapp-trackables-widget__queue-badge--${item.status}`}>
+                    {TRACKABLE_QUEUE_STATUS_LABELS[item.status]}
+                </span>
+                <span className='geoapp-trackables-widget__queue-id'>
+                    {item.reference_code ? (
+                        <a href={trackableUrl(item.reference_code)} target='_blank' rel='noopener noreferrer'>
+                            {displayCode}
+                        </a>
+                    ) : displayCode}
+                    {item.name ? ` — ${item.name}` : ''}
+                </span>
+                <span className='geoapp-trackables-widget__queue-meta'>
+                    {[item.owner_username, item.current_geocache_code
+                        ? `dans ${item.current_geocache_code}` : undefined]
+                        .filter(Boolean).join(' · ')}
+                </span>
+                {item.status === 'ready' && item.allowed_log_types && item.allowed_log_types.length > 0 && (
+                    <select
+                        className='theia-select geoapp-trackables-widget__queue-type'
+                        value={item.logTypeId ?? ''}
+                        disabled={this.queueRunning}
+                        aria-label={`Type de log pour ${displayCode}`}
+                        onChange={e => this.patchQueueItem(item.key, { logTypeId: Number(e.currentTarget.value) })}
+                    >
+                        {item.allowed_log_types.map(t => (
+                            <option key={t.id} value={t.id}>
+                                {t.label || TRACKABLE_LOG_TYPE_FALLBACK_LABELS[t.id] || `Type ${t.id}`}
+                            </option>
+                        ))}
+                    </select>
+                )}
+                {needsGeocache && (
+                    <input
+                        className='theia-input geoapp-trackables-widget__queue-geocache'
+                        value={item.geocacheCode ?? ''}
+                        disabled={this.queueRunning}
+                        placeholder='GC… de retrait'
+                        aria-label={`Cache de retrait pour ${displayCode}`}
+                        onChange={e => this.patchQueueItem(item.key, { geocacheCode: e.currentTarget.value })}
+                    />
+                )}
+                {item.status === 'ready' && needsCode && (
+                    <TrackingCodeInput
+                        value={this.queueTrackingCodes[item.reference_code!] ?? ''}
+                        disabled={this.queueRunning}
+                        onChange={value => {
+                            this.queueTrackingCodes = { ...this.queueTrackingCodes, [item.reference_code!]: value };
+                            this.update();
+                        }}
+                    />
+                )}
+                {item.statusDetail && (
+                    <span className='geoapp-trackables-widget__queue-detail'>{item.statusDetail}</span>
+                )}
+                <span className='geoapp-trackables-widget__queue-actions'>
+                    {item.locationConflictPending && (
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            onClick={() => this.confirmLocationConflict(item.key)}
+                        >
+                            Confirmer et envoyer
+                        </button>
+                    )}
+                    {item.status === 'rejected' && (
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            onClick={() => this.retryQueueItem(item.key)}
+                        >
+                            Renvoyer
+                        </button>
+                    )}
+                    {item.status === 'unknown' && (
+                        <a
+                            href={item.trackable_url ?? (item.reference_code ? trackableUrl(item.reference_code) : '#')}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                        >
+                            Vérifier sur Geocaching.com
+                        </a>
+                    )}
+                    {!this.queueRunning && (item.status === 'error' || item.status === 'confirmed') && (
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            title='Retirer de la file'
+                            onClick={() => {
+                                this.queue = this.queue.filter(entry => entry.key !== item.key);
+                                this.persistQueue();
+                                this.update();
+                            }}
+                        >
+                            Retirer
+                        </button>
+                    )}
+                </span>
             </div>
         );
     }
@@ -312,6 +936,54 @@ export class TrackablesWidget extends ReactWidget {
         );
     }
 }
+
+/** Libellés des états de la file, affichés dans les badges. */
+const TRACKABLE_QUEUE_STATUS_LABELS: Record<TrackableQueueItem['status'], string> = {
+    pending: 'en attente',
+    preflight: 'préflight…',
+    ready: 'prêt',
+    submitting: 'envoi…',
+    confirmed: 'confirmé',
+    rejected: 'refusé',
+    unknown: 'à vérifier',
+    error: 'erreur',
+};
+
+/**
+ * Code de suivi : champ masqué par défaut avec affichage temporaire —
+ * le site l'exige pour découvrir/retirer/prendre, la saisie ne quitte jamais
+ * la mémoire sauf vers le backend au moment du POST.
+ */
+const TrackingCodeInput: React.FC<{
+    value: string;
+    disabled?: boolean;
+    onChange: (value: string) => void;
+}> = ({ value, disabled, onChange }) => {
+    const [visible, setVisible] = React.useState(false);
+    return (
+        <span className='geoapp-trackables-widget__tracking-code'>
+            <input
+                className='theia-input'
+                type={visible ? 'text' : 'password'}
+                value={value}
+                disabled={disabled}
+                placeholder='Code de suivi'
+                aria-label='Code de suivi du trackable'
+                autoComplete='off'
+                onChange={e => onChange(e.currentTarget.value)}
+            />
+            <button
+                type='button'
+                className='theia-button secondary'
+                disabled={disabled}
+                title={visible ? 'Masquer le code' : 'Afficher le code temporairement'}
+                onClick={() => setVisible(v => !v)}
+            >
+                {visible ? '🙈' : '👁'}
+            </button>
+        </span>
+    );
+};
 
 /** Ligne d'inventaire : identité compacte + actions « Fiche » et « Loguer ». */
 const TrackableInventoryRow: React.FC<{

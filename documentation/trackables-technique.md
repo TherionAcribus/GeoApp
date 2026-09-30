@@ -422,11 +422,11 @@ dans `geocache-details-view.tsx` :
   propriétaire passent sous le nom ; le code public n'est jamais tronqué.
 - **Actions** : « Retirer » / « Découvrir » par ligne ouvrent le widget
   Trackables prérempli (`open-trackables` → `TrackablesWidget.setContext`,
-  onglet « Loguer » avec le code TB et la cache d'origine). Le formulaire qui
-  demande le code de suivi et la file d'envoi arrivent avec le lot 5.2 ;
-  « TBs dans cette cache » dans l'éditeur de logs reste à faire.
+  onglet « Loguer » avec le code TB et la cache d'origine — l'élément entre
+  directement dans la file de la § 6.5). « TBs dans cette cache » dans
+  l'éditeur de logs reste à faire.
 
-### 6.5 Widget « Trackables » (lot 5, coquille)
+### 6.5 Widget « Trackables » (lot 5)
 
 `trackables-widget.tsx` — `ReactWidget` singleton (`geoapp-trackables-widget`),
 commande `geoapp.trackables.open` (palette) et événement `open-trackables`
@@ -438,9 +438,35 @@ Trois onglets :
   accent-insensible (`filterTrackables`), compteur filtré, date du relevé,
   « Rafraîchir », actions par ligne « Fiche » et « Loguer » (préremplissage des
   onglets correspondants).
-- **Loguer / Découvrir** et **Fiche** : coquilles qui honorent déjà le contexte
-  prérempli ; le collage multi-codes, l'aperçu lookup, la file d'envoi et le
-  détail assaini arrivent avec les étapes suivantes du lot.
+- **Loguer / Découvrir** : file d'envoi autonome dont la logique pure vit dans
+  `log-editor/trackables-log-queue.ts` (sans dépendance React/Theia) :
+  - **Collage libre** (`parseTrackableCodeTokens`) : codes publics `TB…`, URLs
+    `coord.info/<code>` et paramètre `tracker=` des pages track/, jetons libres
+    plausibles pour un code de suivi (4–10 alphanumériques contenant un
+    chiffre). Dédoublonné dans l'ordre d'apparition ; le champ est vidé dès
+    l'analyse (un code de suivi ne reste pas affiché).
+  - **Préflight** par élément : `POST /api/trackables/lookup` (le code part dans
+    le corps, jamais en URL) puis `GET /<TB>/log-info` pour `allowed_log_types`,
+    cache courante et `has_tracking_code`. `defaultTrackableLogType` choisit le
+    type selon l'action préremplie (« retirer » → 13, « découvrir » → 48, sinon
+    « Découvert » puis premier permis). Si `log-info` est injoignable, une
+    liste de repli des types courants est proposée et le backend revalide à
+    l'envoi ; si le site n'en propose aucun, l'élément est signalé.
+  - **Secret** : le code saisi n'est jamais affiché (`queueItemDisplayCode`
+    n'expose que le code public résolu, sinon « (code saisi) »), jamais
+    persisté (`sanitizeQueueForStorage` retire `inputCode` et le collage n'est
+    pas stocké), et le code de suivi exigé par les types hors « Note » est un
+    champ masqué vivant en mémoire jusqu'au POST.
+  - **File d'envoi** : `POST /<TB>/logs` un élément à la fois avec
+    `operationId` neuf par tentative ; « Arrêter après l'envoi en cours » ;
+    `locationConflictConfirmed` renvoyé après le 409 de conflit. Échec net →
+    `rejected` (« Renvoyer » possible) ; 409 `operation_in_flight` ou coupure
+    au résultat inconnu (`unknown_remote_outcome`, exception fetch) →
+    `unknown`, lien « Vérifier sur Geocaching.com », jamais de renvoi à
+    l'aveugle. La persistance (localStorage, versionnée) restaure les envois
+    interrompus en « à vérifier » et les préflights en attente.
+- **Fiche** : coquille qui honore déjà le contexte prérempli ; le détail
+  assaini et paginé arrive avec l'étape suivante du lot.
 
 ## 7. Points d'attention
 
@@ -486,6 +512,19 @@ liens HTTPS et URLs relatives (vers `geocaching.com`) conservés.
   de confirmation gelé (résumé et payload insensibles aux changements reçus
   pendant le dialogue).
 
+`frontend/theia-extensions/zones/src/browser/tests/trackables-log-queue.test.ts`
+(dans `npm run test:geoapp`) :
+- parsing du collage multi-codes (TB…, `coord.info`, `tracker=`, jetons libres,
+  dédoublonnage ordonné) ;
+- affichage jamais secret (`queueItemDisplayCode` masque un code de suivi
+  saisi) ;
+- types de log (code de suivi requis, cache requise, type par défaut selon
+  l'action préremplie) ;
+- compteurs de file ;
+- persistance sans secret (`inputCode` jamais stocké, `submitting` restauré
+  « à vérifier », `preflight` restauré « en attente ») ;
+- rapport copiable limité aux codes publics.
+
 `backend/tests/test_geocaching_submit_logs.py` (section Trackables) :
 - format du champ `trackables`, et conservation par le repli REST ;
 - corps de `createTrackableLog` ;
@@ -506,6 +545,8 @@ liens HTTPS et URLs relatives (vers `geocaching.com`) conservés.
 - Frontend : `log-editor/trackables.ts` (logique), `log-editor/trackables-section.tsx`
   (section), intégration dans `geocache-log-editor-widget.tsx`
   (`loadTrackableInventory`, `renderTrackablesSection`, `trackablePlan`)
+- Widget : `trackables-widget.tsx`, `log-editor/trackables-log-queue.ts` (file
+  « Loguer / Découvrir » pure), `geocache-trackables-section.tsx` (fiche cache)
 - Modèles : `Trackable`, `GeocacheTrackable` dans `backend/gc_backend/models.py`
 - Migration : `backend/migrations/versions/add_trackable_tables.py`
 - c:geo : `connector/gc/GCWebAPI.java` (`getTrackableInventory`,
