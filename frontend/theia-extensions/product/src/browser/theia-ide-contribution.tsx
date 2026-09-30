@@ -25,6 +25,11 @@ const SIDEBAR_WIDGET_IDS_TO_HIDE = new Set([
     'scm-view-container',
     'search-view-container',
     'test-view-container',
+    // Vues techniques natives inutiles dans GeoApp :
+    // Extensions (vsx-registry), Debug, Outline (barre droite).
+    'vsx-extensions-view-container',
+    'debug',
+    'outline-view',
 ]);
 
 @injectable()
@@ -61,9 +66,12 @@ export class GeoAppMenuCleanupContribution implements FrontendApplicationContrib
                 setTimeout(() => widget.close(), 0);
             }
         });
-        for (const widget of this.shell.getWidgets('left')) {
-            if (SIDEBAR_WIDGET_IDS_TO_HIDE.has(widget.id)) {
-                widget.close();
+        // Outline vit dans le panneau droit : couvrir les deux barres.
+        for (const area of ['left', 'right'] as const) {
+            for (const widget of this.shell.getWidgets(area)) {
+                if (SIDEBAR_WIDGET_IDS_TO_HIDE.has(widget.id)) {
+                    widget.close();
+                }
             }
         }
     }

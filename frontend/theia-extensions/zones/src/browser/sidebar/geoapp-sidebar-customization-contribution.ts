@@ -31,7 +31,9 @@ export class GeoAppSidebarCustomizationContribution implements CommandContributi
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(GeoAppSidebarCommands.CUSTOMIZE, {
-            execute: () => this.dialog.open(),
+            // `open(false)` : le dialogue est un singleton réutilisable — ne pas
+            // le disposer à la fermeture (sinon contenu vide à la réouverture).
+            execute: () => this.dialog.open(false),
             // Le menu contextuel des tab bars passe l'événement souris : la
             // cible doit être dans le panneau latéral gauche ou droit — sinon
             // (main, bottom) l'entrée est masquée (spec §4.3).

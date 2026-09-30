@@ -7,8 +7,11 @@
  * normale, rien n'est rajouté : une vue fermée par l'utilisateur reste absente.
  *
  * Il n'existe plus de liste `hiddenWidgets` persistée : le layout Theia est la
- * seule source de vérité. La migration de l'ancien widget Plugins vit dans la
- * classe séparée `GeoAppPluginsLayoutTransformer` (fin de fichier).
+ * seule source de vérité. L'ancienne migration du widget Plugins a été
+ * abandonnée : `vsx-extensions-view-container` est désormais le vrai widget
+ * Extensions de `@theia/vsx-registry` — le renommer aurait corrompu le layout ;
+ * il est fermé par la politique `SIDEBAR_WIDGET_IDS_TO_HIDE` de
+ * `theia-ide-contribution.tsx`.
  *
  * Voir documentation/barres-laterales-personnalisation-spec.md §5.3.
  */
@@ -20,8 +23,6 @@ import {
     FrontendApplicationContribution,
     WidgetManager,
 } from '@theia/core/lib/browser';
-import { ShellLayoutTransformer } from '@theia/core/lib/browser/shell/shell-layout-restorer';
-import { renameLegacyPluginsFactoryId } from './geoapp-plugins-layout-migration';
 import { GEOAPP_SIDEBAR_VIEWS } from './geoapp-sidebar-views';
 
 @injectable()
@@ -56,27 +57,3 @@ export class GeoAppSidebarDefaultsContribution implements FrontendApplicationCon
     }
 }
 
-/**
- * Migration historique : l'ancien widget Plugins (`vsx-extensions-view-container`)
- * a été remplacé par `mysterai-plugins-browser`.
- *
- * Implémentée via `ShellLayoutTransformer` : le renommage du `factoryId` se
- * produit dans `transformLayoutOnRestore`, **avant** l'inflation du layout —
- * l'ancien widget n'est donc jamais instancié, ni fermé après coup (aucun
- * `setTimeout`, aucun flag de migration persisté : la donnée corrigée est
- * réécrite à la prochaine sauvegarde).
- *
- * `ApplicationShellLayoutMigration` ne convenait pas : ses versions sont une
- * union fermée (2.0–6.0) pilotée par Theia ; un layout déjà en 6.0 ne déclencherait
- * jamais notre migration.
- */
-@injectable()
-export class GeoAppPluginsLayoutTransformer implements ShellLayoutTransformer {
-
-    transformLayoutOnRestore(layoutData: ApplicationShell.LayoutData): void {
-        const renamed = renameLegacyPluginsFactoryId(layoutData);
-        if (renamed > 0) {
-            console.info(`[GeoAppSidebar] Migration Plugins : ${renamed} description(s) « vsx-extensions-view-container » renommée(s).`);
-        }
-    }
-}

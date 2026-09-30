@@ -105,33 +105,33 @@ export class GeoAppSidebarController {
      * Affiche une vue : la commande d'ouverture existante est préférée (elle
      * applique les bonnes options par défaut), `WidgetManager` sert de repli.
      * Révèle la vue — « cocher » doit rendre la vue visible immédiatement.
+     *
+     * Certaines commandes (Amis, Trackables) attachent leur widget en zone
+     * centrale : comme la case à cocher signifie « épinglée en barre
+     * latérale », le widget est ensuite déplacé vers sa zone par défaut
+     * (`addWidget` reparente un widget déjà attaché).
      */
     async showView(descriptor: GeoAppSidebarViewDescriptor): Promise<void> {
         return this.queue.enqueue(async () => {
-            const widget = this.widgetManager.tryGetWidget(descriptor.id);
-            if (widget?.isAttached) {
-                await this.shell.revealWidget(descriptor.id);
-                return;
+            let widget = this.widgetManager.tryGetWidget(descriptor.id);
+            if (!widget?.isAttached) {
+                if (this.commandRegistry.getCommand(descriptor.openCommandId)) {
+                    try {
+                        await this.commandRegistry.executeCommand(descriptor.openCommandId);
+                    } catch (error) {
+                        console.warn(`[GeoAppSidebar] La commande ${descriptor.openCommandId} a échoué pour « ${descriptor.label} », repli direct`, error);
+                    }
+                }
+                widget = this.widgetManager.tryGetWidget(descriptor.id)
+                    ?? await this.widgetManager.getOrCreateWidget(descriptor.id);
             }
 
-            let attached = false;
-            if (this.commandRegistry.getCommand(descriptor.openCommandId)) {
-                try {
-                    await this.commandRegistry.executeCommand(descriptor.openCommandId);
-                    attached = Boolean(this.widgetManager.tryGetWidget(descriptor.id)?.isAttached);
-                } catch (error) {
-                    console.warn(`[GeoAppSidebar] La commande ${descriptor.openCommandId} a échoué pour « ${descriptor.label} », repli direct`, error);
-                }
-            }
-
-            if (!attached) {
-                const created = await this.widgetManager.getOrCreateWidget(descriptor.id);
-                if (!created.isAttached) {
-                    await this.shell.addWidget(created, {
-                        area: descriptor.defaultArea,
-                        rank: descriptor.defaultRank,
-                    });
-                }
+            const area = widget.isAttached ? this.shell.getAreaFor(widget) : undefined;
+            if (area !== 'left' && area !== 'right') {
+                await this.shell.addWidget(widget, {
+                    area: descriptor.defaultArea,
+                    rank: descriptor.defaultRank,
+                });
             }
             await this.shell.revealWidget(descriptor.id);
             this.layoutAutoSave.requestSave();

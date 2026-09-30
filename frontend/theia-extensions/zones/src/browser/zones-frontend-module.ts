@@ -68,12 +68,8 @@ import { ArchiveManagerWidget } from './archive-manager-widget';
 import { TrackablesWidget } from './trackables-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
-import {
-    GeoAppSidebarDefaultsContribution,
-    GeoAppPluginsLayoutTransformer,
-} from './sidebar/geoapp-sidebar-defaults-contribution';
+import { GeoAppSidebarDefaultsContribution } from './sidebar/geoapp-sidebar-defaults-contribution';
 import { MapManagerViewContribution } from './map/map-manager-view-contribution';
-import { ShellLayoutTransformer } from '@theia/core/lib/browser/shell/shell-layout-restorer';
 import { GeoAppSidebarController } from './sidebar/geoapp-sidebar-controller';
 import {
     GeoAppSidebarCustomizationDialog,
@@ -288,9 +284,6 @@ export default new ContainerModule(bind => {
     // (jamais après une restauration), depuis le registre geoapp-sidebar-views.
     bind(GeoAppSidebarDefaultsContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppSidebarDefaultsContribution);
-    // Renommage factoryId Plugins avant l'inflation du layout (§6.8.4).
-    bind(GeoAppPluginsLayoutTransformer).toSelf().inSingletonScope();
-    bind(ShellLayoutTransformer).toService(GeoAppPluginsLayoutTransformer);
     // Vue « Cartes » homogénéisée (AbstractViewContribution + toggle command).
     bindViewContribution(bind, MapManagerViewContribution);
 

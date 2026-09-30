@@ -27,9 +27,12 @@
 > conservé, menu `Vues` ordonné 0.7 réécrit sans `super.registerMenus`) ;
 > doublons `VIEW_VIEWS` supprimés dans Alphabets, Calculatrice et
 > PluginsBrowser (même pattern que Formula Solver) ; sauvegarde du layout sur
-> `tabMoved` gauche+droite ; migration Plugins réécrite en
-> `ShellLayoutTransformer` (`geoapp-plugins-layout-migration.ts`, renommage de
-> `factoryId` avant inflation, testé). Zones non convertie : `zones:open`
+> `tabMoved` gauche+droite ; migration Plugins abandonnée après constat que
+> `vsx-extensions-view-container` est le vrai widget Extensions de
+> `@theia/vsx-registry` (le renommer corromprait le layout) — Extensions,
+> Debug et Outline rejoignent `SIDEBAR_WIDGET_IDS_TO_HIDE` de
+> `theia-ide-contribution.tsx` (désormais panneaux gauche **et** droit).
+> Zones non convertie : `zones:open`
 > accepte des args (`zoneId`) et la recréation post-fermeture fonctionne —
 > la conversion en `AbstractViewContribution` n'apporterait que le toggle.
 > Reste : lot 5 (perspectives, optionnel) et la validation manuelle §9.
@@ -111,6 +114,8 @@ des icônes de l'Activity Bar. La demande amont correspondante est :
 | Recherche globale | `geoapp-global-search-widget` | `geoapp.globalSearch.open` | gauche, visible | 300 |
 | Plugins | `mysterai-plugins-browser` | `plugins.openBrowser` | gauche, visible | 400 |
 | Alphabets | `alphabets-list` | `alphabets.openList` | gauche, visible | 450 |
+| Amis | `geocaching-friends-widget` | `geoapp.friends.open` | gauche, masquée | 460 |
+| Trackables | `geoapp-trackables-widget` | `geoapp.trackables.open` | gauche, masquée | 470 |
 | Calculatrice | `geoapp.calculator` | `geoapp.calculator.open` | gauche, masquée | 480 |
 | Formula Solver | `formula-solver:widget` | `formula-solver:open` ou `formula-solver:toggle` | droite, visible | 500 |
 
