@@ -204,7 +204,11 @@ const TrackableRow: React.FC<{
             </div>
             <TrackableIcon url={trackable.icon_url} />
             <div className='geoapp-log-trackables__label'>
-                <span className='geoapp-log-trackables__name' title={trackable.type_name ?? undefined}>
+                {/* Le nom peut être ellipsé : l'infobulle le restitue en entier, avec son type. */}
+                <span
+                    className='geoapp-log-trackables__name'
+                    title={[trackable.name, trackable.type_name].filter(Boolean).join(' — ') || undefined}
+                >
                     {trackable.name || trackable.reference_code}
                 </span>
                 <a

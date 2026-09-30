@@ -1268,12 +1268,18 @@
     border-radius: 4px;
     background: var(--theia-editorWidget-background);
     font-size: 12px;
+    /* Les lignes répondent à la largeur de la section, pas du viewport :
+       panneau latéral étroit ou plein écran, même comportement. */
+    container-type: inline-size;
 }
 
 .geoapp-log-trackables__header {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Panneau étroit : la date du relevé et « Rafraîchir » passent à la ligne. */
+    flex-wrap: wrap;
+    row-gap: 2px;
 }
 
 .geoapp-log-trackables__toggle {
@@ -1336,7 +1342,10 @@
 
 /* Une ligne sur deux teintée, survol surligné : l'œil suit la ligne d'un bout à l'autre. */
 .geoapp-log-trackables__row {
-    display: flex;
+    /* Grille : le nom absorbe ce qui reste, la cible de dépôt reste collée à droite. */
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "actions icon label target";
     align-items: center;
     gap: 8px;
     padding: 3px 6px;
@@ -1372,8 +1381,8 @@
 
 /* Boutons d'action groupés, en tête de ligne. */
 .geoapp-log-trackables__actions {
+    grid-area: actions;
     display: inline-flex;
-    flex: none;
     border: 1px solid var(--theia-dropdown-border, var(--theia-panel-border));
     border-radius: 3px;
     overflow: hidden;
@@ -1421,17 +1430,17 @@
 }
 
 .geoapp-log-trackables__icon {
+    grid-area: icon;
     width: 16px;
     height: 16px;
-    flex: none;
 }
 
 /* Pas d'étirement : ce qui suit le nom (cible de dépôt) doit rester à côté de lui. */
 .geoapp-log-trackables__label {
+    grid-area: label;
     display: flex;
     align-items: baseline;
     gap: 6px;
-    flex: 0 1 auto;
     min-width: 0;
 }
 
@@ -1441,6 +1450,7 @@
     white-space: nowrap;
 }
 
+/* Le code public n'est jamais tronqué : il identifie le TB même à 320 px. */
 .geoapp-log-trackables__code {
     flex: none;
     opacity: 0.7;
@@ -1448,18 +1458,49 @@
 }
 
 .geoapp-log-trackables__target {
-    flex: none;
+    grid-area: target;
+    /* Juste après le code, comme avant la grille — pas rejetée au bord droit. */
+    justify-self: start;
     max-width: 260px;
+    min-width: 0;
 }
 
 .geoapp-log-trackables__target-label {
-    flex: none;
+    grid-area: target;
+    justify-self: start;
     opacity: 0.8;
 }
 
 .geoapp-log-trackables__target-label--error {
     color: var(--theia-errorForeground);
     opacity: 1;
+}
+
+/* Panneau étroit : identité seule en tête, actions et cible sur la seconde
+   ligne — jamais de scroll horizontal. */
+@container (max-width: 430px) {
+    .geoapp-log-trackables__row {
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-areas:
+            "icon label"
+            "actions target";
+        row-gap: 3px;
+    }
+
+    .geoapp-log-trackables__actions {
+        justify-self: start;
+    }
+
+    /* Actions à gauche, cible à droite de la seconde ligne : toujours visuellement
+       rattachée à son TB (même ligne, même bande teintée). */
+    .geoapp-log-trackables__target {
+        width: 100%;
+        max-width: none;
+    }
+
+    .geoapp-log-trackables__target-label {
+        justify-self: end;
+    }
 }
 
 .geoapp-log-cache-block__trackables {

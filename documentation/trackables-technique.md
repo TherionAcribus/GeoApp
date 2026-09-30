@@ -289,8 +289,14 @@ Sous le tableau des géocaches, une section repliable :
   - l'icône, le nom et le code (lien vers la fiche du site) — l'image distante
     est chargée à la demande (`loading="lazy"`, `decoding="async"`), à dimensions
     fixes (16 px, la liste ne saute pas) et avec repli sur la case vide si elle
-    est injoignable ;
+    est injoignable ; le nom ellipsé se relit dans l'infobulle (nom + type) ;
   - en « Déposé », le choix de la géocache du lot, placé juste après le code.
+- **Panneaux étroits** : la section est un conteneur (`container-type`) ; la ligne
+  est une grille `actions · icône · identité · cible` tant que la largeur le
+  permet, puis se replie sous 430 px — identité seule en première ligne, actions
+  à gauche et cible à droite de la seconde. Jamais de scroll horizontal ; le code
+  public n'est jamais tronqué. L'en-tête met la date du relevé et « Rafraîchir »
+  à la ligne si nécessaire (`flex-wrap`).
 
   L'action était d'abord un menu déroulant rejeté à droite : sur un éditeur large, on
   ne voyait plus à quel TB il appartenait.
