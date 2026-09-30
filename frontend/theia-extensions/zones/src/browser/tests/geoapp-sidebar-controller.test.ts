@@ -11,6 +11,11 @@ import {
     resetActionFor,
     SidebarOperationQueue,
 } from '../sidebar/geoapp-sidebar-view-state';
+import {
+    LEGACY_PLUGINS_FACTORY_ID,
+    PLUGINS_FACTORY_ID,
+    renameLegacyPluginsFactoryId,
+} from '../sidebar/geoapp-plugins-layout-migration';
 
 const zones = GEOAPP_SIDEBAR_VIEWS.find(v => v.id === 'zones.tree.widget')!;
 const calculator = GEOAPP_SIDEBAR_VIEWS.find(v => v.id === 'geoapp.calculator')!;
@@ -85,9 +90,41 @@ async function testOperationQueueSurvivesFailures(): Promise<void> {
     console.log('testOperationQueueSurvivesFailures passed');
 }
 
+function testPluginsLayoutMigration(): void {
+    const layout = {
+        leftPanel: {
+            type: 'sidepanel',
+            items: [
+                { widget: { constructionOptions: { factoryId: LEGACY_PLUGINS_FACTORY_ID } }, rank: 400 },
+                { widget: { constructionOptions: { factoryId: 'zones.tree.widget' } }, rank: 100 },
+            ],
+        },
+        mainPanel: {
+            children: [
+                { widget: { constructionOptions: { factoryId: LEGACY_PLUGINS_FACTORY_ID } } },
+            ],
+        },
+    };
+
+    const renamed = renameLegacyPluginsFactoryId(layout);
+    assert.equal(renamed, 2);
+    const items = layout.leftPanel.items as { widget: { constructionOptions: { factoryId: string } } }[];
+    assert.equal(items[0].widget.constructionOptions.factoryId, PLUGINS_FACTORY_ID);
+    assert.equal(items[1].widget.constructionOptions.factoryId, 'zones.tree.widget');
+    const mainChildren = layout.mainPanel.children as { widget: { constructionOptions: { factoryId: string } } }[];
+    assert.equal(mainChildren[0].widget.constructionOptions.factoryId, PLUGINS_FACTORY_ID);
+
+    // Idempotent : un layout déjà migré n'est pas touché.
+    assert.equal(renameLegacyPluginsFactoryId(layout), 0);
+    assert.equal(renameLegacyPluginsFactoryId({}), 0);
+    assert.equal(renameLegacyPluginsFactoryId(null), 0);
+    console.log('testPluginsLayoutMigration passed');
+}
+
 async function main(): Promise<void> {
     testPlacementFor();
     testResetActionFor();
+    testPluginsLayoutMigration();
     await testOperationQueueSerializes();
     await testOperationQueueSurvivesFailures();
     console.log('geoapp-sidebar-controller tests passed');

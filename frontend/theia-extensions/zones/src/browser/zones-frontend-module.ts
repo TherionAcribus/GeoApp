@@ -1,5 +1,5 @@
 import { ContainerModule } from '@theia/core/shared/inversify';
-import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
+import { FrontendApplicationContribution, WidgetFactory, bindViewContribution } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { bindRootContributionProvider } from '@theia/core/lib/common/contribution-provider';
 import { PreferenceContribution } from '@theia/core/lib/common/preferences/preference-schema';
@@ -70,8 +70,10 @@ import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import {
     GeoAppSidebarDefaultsContribution,
-    GeoAppLegacyPluginsMigrationContribution,
+    GeoAppPluginsLayoutTransformer,
 } from './sidebar/geoapp-sidebar-defaults-contribution';
+import { MapManagerViewContribution } from './map/map-manager-view-contribution';
+import { ShellLayoutTransformer } from '@theia/core/lib/browser/shell/shell-layout-restorer';
 import { GeoAppSidebarController } from './sidebar/geoapp-sidebar-controller';
 import {
     GeoAppSidebarCustomizationDialog,
@@ -286,8 +288,11 @@ export default new ContainerModule(bind => {
     // (jamais après une restauration), depuis le registre geoapp-sidebar-views.
     bind(GeoAppSidebarDefaultsContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppSidebarDefaultsContribution);
-    bind(GeoAppLegacyPluginsMigrationContribution).toSelf().inSingletonScope();
-    bind(FrontendApplicationContribution).toService(GeoAppLegacyPluginsMigrationContribution);
+    // Renommage factoryId Plugins avant l'inflation du layout (§6.8.4).
+    bind(GeoAppPluginsLayoutTransformer).toSelf().inSingletonScope();
+    bind(ShellLayoutTransformer).toService(GeoAppPluginsLayoutTransformer);
+    // Vue « Cartes » homogénéisée (AbstractViewContribution + toggle command).
+    bindViewContribution(bind, MapManagerViewContribution);
 
     // Dialogue « Personnaliser les barres latérales » : contrôleur singleton
     // (façade du registre), dialog réutilisable (AbstractDialog détache sans

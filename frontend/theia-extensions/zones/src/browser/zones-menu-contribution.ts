@@ -27,12 +27,8 @@ export class ZonesMenuContribution implements MenuContribution {
             order: '0.5'
         });
 
-        // La vue « Cartes » est fermable : il faut une entrée pour la rouvrir.
-        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
-            commandId: ZonesCommands.OPEN_MAP_MANAGER.id,
-            label: 'Cartes',
-            order: '0.7'
-        });
+        // « Cartes » est enregistrée par MapManagerViewContribution
+        // (AbstractViewContribution) avec le même order '0.7'.
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_AUTH.id,

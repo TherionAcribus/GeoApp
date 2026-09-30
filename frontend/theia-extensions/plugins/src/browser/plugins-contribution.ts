@@ -120,9 +120,8 @@ export class PluginsBrowserContribution extends AbstractViewContribution<Plugins
      * Enregistre les menus.
      */
     registerMenus(menus: MenuModelRegistry): void {
-        super.registerMenus(menus);
-        
-        // Ajouter au menu View
+        // Pas de super.registerMenus : la classe de base ajouterait déjà
+        // OPEN_PLUGINS_BROWSER à VIEW_VIEWS (sans order) — doublon.
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: PluginsCommands.OPEN_PLUGINS_BROWSER.id,
             label: 'Plugins Browser',

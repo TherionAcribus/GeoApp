@@ -3,7 +3,7 @@
 > Spécification technique destinée au LLM qui implémentera les changements.
 > État du dépôt audité : 30 septembre 2026, Eclipse Theia `1.76.0`.
 >
-> **Avancement** : lots 1 (P0), 2 (P1) et 3 (P1) implémentés — registre `sidebar/geoapp-sidebar-views.ts`,
+> **Avancement** : lots 1 (P0), 2, 3 (P1) et 4 (P2) implémentés — registre `sidebar/geoapp-sidebar-views.ts`,
 > défauts créés dans `initializeLayout` (`GeoAppSidebarDefaultsContribution`,
 > migration Plugins isolée dans `GeoAppLegacyPluginsMigrationContribution`),
 > auto-sauvegarde installée après `onDidInitializeLayout`, `hiddenDefaultWidgets.v1`
@@ -22,8 +22,17 @@
 > filtré aux panneaux latéraux ; `geoapp.sidebar.reset` en palette),
 > fonctions pures `geoapp-sidebar-view-state.ts` testées par
 > `geoapp-sidebar-controller.test.ts`, styles `style/geoapp-sidebar-customization.css`.
-> Reste : lots 4 (homogénéisation + tests), 5 (perspectives, optionnel) et la
-> validation manuelle §9.
+> Lot 4 : vue Cartes convertie en `MapManagerViewContribution`
+> (`AbstractViewContribution`, `toggleCommandId: 'geoapp.mapManager.open'`
+> conservé, menu `Vues` ordonné 0.7 réécrit sans `super.registerMenus`) ;
+> doublons `VIEW_VIEWS` supprimés dans Alphabets, Calculatrice et
+> PluginsBrowser (même pattern que Formula Solver) ; sauvegarde du layout sur
+> `tabMoved` gauche+droite ; migration Plugins réécrite en
+> `ShellLayoutTransformer` (`geoapp-plugins-layout-migration.ts`, renommage de
+> `factoryId` avant inflation, testé). Zones non convertie : `zones:open`
+> accepte des args (`zoneId`) et la recréation post-fermeture fonctionne —
+> la conversion en `AbstractViewContribution` n'apporterait que le toggle.
+> Reste : lot 5 (perspectives, optionnel) et la validation manuelle §9.
 > Le document couvre le shell frontend uniquement. Il ne demande aucune modification backend.
 
 ## 1. Objectif

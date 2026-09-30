@@ -37,7 +37,8 @@ export class CalculatorContribution
     }
 
     registerMenus(menus: MenuModelRegistry): void {
-        super.registerMenus(menus);
+        // Pas de super.registerMenus : la classe de base ajouterait déjà
+        // OPEN à VIEW_VIEWS (sans order) — l'entrée serait doublée.
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: CalculatorCommands.OPEN.id,
             label: 'Calculatrice',

@@ -128,9 +128,8 @@ export class AlphabetsListContribution
      * Enregistrement des menus.
      */
     registerMenus(menus: MenuModelRegistry): void {
-        super.registerMenus(menus);
-        
-        // Ajouter au menu View
+        // Pas de super.registerMenus : la classe de base ajouterait déjà
+        // OPEN_LIST à VIEW_VIEWS (sans order) — l'entrée serait doublée.
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: AlphabetsCommands.OPEN_LIST.id,
             label: 'Alphabets',

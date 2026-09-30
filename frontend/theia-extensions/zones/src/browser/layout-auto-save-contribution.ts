@@ -40,7 +40,17 @@ export class LayoutAutoSaveContribution implements FrontendApplicationContributi
             this.shell.onDidAddWidget(() => this.scheduleSave()),
             this.shell.onDidRemoveWidget(() => this.scheduleSave()),
         ]);
+        // Un glisser-déposer (réordonnancement ou changement de côté) ne passe
+        // pas par add/remove : écouter tabMoved sur les deux panneaux.
+        this.shell.leftPanelHandler.tabBar.tabMoved.connect(this.onTabMoved, this);
+        this.shell.rightPanelHandler.tabBar.tabMoved.connect(this.onTabMoved, this);
+        this.toDispose.push({ dispose: () => {
+            this.shell.leftPanelHandler.tabBar.tabMoved.disconnect(this.onTabMoved, this);
+            this.shell.rightPanelHandler.tabBar.tabMoved.disconnect(this.onTabMoved, this);
+        } });
     }
+
+    protected readonly onTabMoved = (): void => this.scheduleSave();
 
     onStop(): void {
         if (this.saveTimer !== undefined) {

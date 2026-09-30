@@ -8,7 +8,7 @@
  *
  * Il n'existe plus de liste `hiddenWidgets` persistée : le layout Theia est la
  * seule source de vérité. La migration de l'ancien widget Plugins vit dans la
- * classe séparée `GeoAppLegacyPluginsMigrationContribution` (fin de fichier).
+ * classe séparée `GeoAppPluginsLayoutTransformer` (fin de fichier).
  *
  * Voir documentation/barres-laterales-personnalisation-spec.md §5.3.
  */
@@ -18,9 +18,10 @@ import {
     ApplicationShell,
     FrontendApplication,
     FrontendApplicationContribution,
-    StorageService,
     WidgetManager,
 } from '@theia/core/lib/browser';
+import { ShellLayoutTransformer } from '@theia/core/lib/browser/shell/shell-layout-restorer';
+import { renameLegacyPluginsFactoryId } from './geoapp-plugins-layout-migration';
 import { GEOAPP_SIDEBAR_VIEWS } from './geoapp-sidebar-views';
 
 @injectable()
@@ -57,37 +58,25 @@ export class GeoAppSidebarDefaultsContribution implements FrontendApplicationCon
 
 /**
  * Migration historique : l'ancien widget Plugins (`vsx-extensions-view-container`)
- * a été remplacé par `mysterai-plugins-browser`. S'exécute après la restauration
- * du layout (un widget restauré doit être remplacé, pas seulement absent au
- * premier démarrage) — à migrer vers `ApplicationShellLayoutMigration` en lot 4.
+ * a été remplacé par `mysterai-plugins-browser`.
+ *
+ * Implémentée via `ShellLayoutTransformer` : le renommage du `factoryId` se
+ * produit dans `transformLayoutOnRestore`, **avant** l'inflation du layout —
+ * l'ancien widget n'est donc jamais instancié, ni fermé après coup (aucun
+ * `setTimeout`, aucun flag de migration persisté : la donnée corrigée est
+ * réécrite à la prochaine sauvegarde).
+ *
+ * `ApplicationShellLayoutMigration` ne convenait pas : ses versions sont une
+ * union fermée (2.0–6.0) pilotée par Theia ; un layout déjà en 6.0 ne déclencherait
+ * jamais notre migration.
  */
 @injectable()
-export class GeoAppLegacyPluginsMigrationContribution implements FrontendApplicationContribution {
+export class GeoAppPluginsLayoutTransformer implements ShellLayoutTransformer {
 
-    protected readonly pluginsMigrationStorageKey = 'geoapp.leftPanel.pluginsWidgetMigration.v1';
-
-    @inject(ApplicationShell)
-    protected readonly shell: ApplicationShell;
-
-    @inject(WidgetManager)
-    protected readonly widgetManager: WidgetManager;
-
-    @inject(StorageService)
-    protected readonly storageService: StorageService;
-
-    async onDidInitializeLayout(_app: FrontendApplication): Promise<void> {
-        const alreadyMigrated = await this.storageService.getData<boolean>(this.pluginsMigrationStorageKey, false);
-        if (alreadyMigrated) {
-            return;
+    transformLayoutOnRestore(layoutData: ApplicationShell.LayoutData): void {
+        const renamed = renameLegacyPluginsFactoryId(layoutData);
+        if (renamed > 0) {
+            console.info(`[GeoAppSidebar] Migration Plugins : ${renamed} description(s) « vsx-extensions-view-container » renommée(s).`);
         }
-
-        const legacyWidget = this.widgetManager.tryGetWidget('vsx-extensions-view-container');
-        const desiredWidget = this.widgetManager.tryGetWidget('mysterai-plugins-browser');
-
-        if (legacyWidget?.isAttached && !desiredWidget?.isAttached && this.shell.getAreaFor(legacyWidget) === 'left') {
-            legacyWidget.close();
-        }
-
-        await this.storageService.setData(this.pluginsMigrationStorageKey, true);
     }
 }
