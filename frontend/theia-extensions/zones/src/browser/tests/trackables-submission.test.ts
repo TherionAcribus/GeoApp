@@ -15,6 +15,7 @@ import {
     applyDropResultsToSelection,
     buildTrackableBatchPlan,
     buildTrackableDropOutcomeLines,
+    buildTrackableSubmitSnapshot,
     buildTrackableSummaryLines,
     defaultTrackableAction,
     describeInventorySync,
@@ -346,6 +347,40 @@ function testQuickFiltersByActionAndError(): void {
     );
 }
 
+function testSubmitSnapshotIsFrozenAgainstLaterChanges(): void {
+    // Instantané figé puis dialogue de confirmation ouvert : un relevé ou un choix
+    // qui arrive pendant ce temps ne doit JAMAIS modifier ce qui a été accepté.
+    const inventory: InventoryTrackable[] = [
+        { reference_code: 'TBA', name: 'A' },
+        { reference_code: 'TBB', name: 'B' },
+    ];
+    const sel = selection({ TBB: 'drop' }, { TBB: 3 });
+    const toSubmit = [gc(1, 'GC1'), gc(3, 'GC3')];
+    const snap = buildTrackableSubmitSnapshot(toSubmit, inventory, sel, batch(), 42);
+
+    const summaryBefore = JSON.stringify(snap.summaryLines);
+    const entriesBefore = JSON.stringify(snap.plan.entries.get(3));
+
+    // « Synchro » concurrente : l'inventaire change et l'utilisateur retire son dépôt.
+    inventory.push({ reference_code: 'TBNEW', name: 'Nouveau venu' });
+    sel.actions.TBB = 'none';
+    sel.dropTargets = {};
+    delete sel.actions.TBB;
+
+    // Résumé accepté et payload figé sont restés identiques : pas de divergence.
+    assert.equal(JSON.stringify(snap.summaryLines), summaryBefore);
+    assert.equal(JSON.stringify(snap.plan.entries.get(3)), entriesBefore);
+    assert.deepEqual(snap.plan.entries.get(3), [
+        { code: 'TBA', action: 'none' },
+        { code: 'TBB', action: 'drop' },
+    ]);
+    assert.equal(snap.revision, 42);
+    // L'instantané porte des copies gelées : muter la source ne le contamine pas.
+    assert.equal(snap.inventory.length, 2);
+    assert.equal(snap.selection.actions.TBB, 'drop');
+    assert.equal(Object.isFrozen(snap.selection.actions), true);
+}
+
 testInventorySyncMessage();
 testDefaultsFollowLastActionThenPreference();
 testWithDefaultActionsKeepsUserChoicesAndDropsUnknownCodes();
@@ -369,5 +404,6 @@ testDropResultsNeutralizeARestoredDrop();
 testOverridesOnlyStoreDeviations();
 testOverridesReapplyOverFreshDefaults();
 testQuickFiltersByActionAndError();
+testSubmitSnapshotIsFrozenAgainstLaterChanges();
 
 console.log('trackables-submission tests passed');

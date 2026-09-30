@@ -142,8 +142,8 @@ import {
     TrackablePayloadEntry,
     TrackableQuickFilter,
     TrackableSelection,
-    buildTrackableBatchPlan,
     buildTrackableDropOutcomeLines,
+    buildTrackableSubmitSnapshot,
     buildTrackableSummaryLines,
     canCarryTrackables,
     describeInventorySync,
@@ -401,6 +401,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * attente et appliqué à la fin.
      */
     protected pendingTrackableInventory: { inventory: InventoryTrackable[]; lastSyncAt: string | null } | undefined;
+    /**
+     * Compteur incrémenté à chaque mutation de l'inventaire ou de la sélection TB.
+     * L'instantané de confirmation le mémorise : une différence après le dialogue
+     * signifie que le contenu accepté n'est plus le contenu courant → reconfirmation.
+     */
+    protected trackablesRevision = 0;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -603,6 +609,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 actions: { ...this.trackableSelection.actions, ...result.trackables.actions },
                 dropTargets: { ...this.trackableSelection.dropTargets, ...result.trackables.dropTargets },
             };
+            this.trackablesRevision += 1;
         }
         if (result.trackableDropResults) {
             // Dépôts déjà partis dans le lot interrompu : la sélection restaurée
@@ -664,6 +671,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             actions: withDefaultActions(this.trackableInventory, {}, this.isTrackableAutoVisit()),
             dropTargets: {},
         };
+        this.trackablesRevision += 1;
         this.trackableDropResults = {};
 
         this.restoredDraftAt = undefined;
@@ -1085,6 +1093,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.globalImages = [];
         this.perCacheImages = {};
         this.trackableSelection = { actions: {}, dropTargets: {} };
+        this.trackablesRevision += 1;
         this.trackablesFilter = '';
         this.trackablesQuickFilter = 'all';
         this.trackablesBulkUndo = undefined;
@@ -2172,7 +2181,15 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         });
     }
 
-    protected async confirmSubmission(toSubmit: GeocacheListItem[]): Promise<boolean> {
+    /**
+     * Récapitulatif de confirmation : `trackableLines` vient de l'instantané figé
+     * (jamais recalculé sur l'état courant), ce qui garantit que le contenu
+     * accepté est exactement celui qui partira.
+     */
+    protected async confirmSubmission(
+        toSubmit: GeocacheListItem[],
+        trackableLines: readonly { text: string; highlight: boolean }[]
+    ): Promise<boolean> {
         return confirmSubmissionPure(toSubmit, {
             logDate: this.logDate,
             useSameTextForAll: this.useSameTextForAll,
@@ -2183,7 +2200,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             getImagesForGeocacheId: id => this.getImagesForGeocacheId(id).length,
             isGeocacheSkipped: id => this.isGeocacheSkipped(id),
             isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
-            trackableLines: this.getTrackableSummaryLines(toSubmit),
+            trackableLines: [...trackableLines],
         });
     }
 
@@ -2304,6 +2321,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             actions: withDefaultActions(inventory, this.trackableSelection.actions, this.isTrackableAutoVisit()),
             dropTargets,
         };
+        this.trackablesRevision += 1;
         if (body.empty_remote_guarded === true) {
             // Le site a renvoyé un relevé vide alors que la copie locale ne l'était pas :
             // troncation probable — la liste locale est conservée, « Rafraîchir » confirme.
@@ -2332,6 +2350,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             ...this.trackableSelection,
             actions: { ...this.trackableSelection.actions, [code]: action },
         };
+        this.trackablesRevision += 1;
         // Un choix individuel qui suit une action de masse serait écrasé par
         // « Annuler » : la proposition d'annulation ne vaut plus.
         this.trackablesBulkUndo = undefined;
@@ -2353,6 +2372,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             actions[code] = action;
         }
         this.trackableSelection = { ...this.trackableSelection, actions };
+        this.trackablesRevision += 1;
         this.trackablesBulkUndo = codes.length > 0
             ? { count: codes.length, action, previous }
             : undefined;
@@ -2384,6 +2404,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
         }
         this.trackableSelection = { ...this.trackableSelection, actions };
+        this.trackablesRevision += 1;
         this.update();
     }
 
@@ -2392,6 +2413,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             ...this.trackableSelection,
             dropTargets: { ...this.trackableSelection.dropTargets, [code]: geocacheId },
         };
+        this.trackablesRevision += 1;
         this.update();
     }
 
@@ -2478,17 +2500,42 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return;
         }
 
-        this.isConfirmingSubmit = true;
-        let confirmed = false;
-        try {
-            confirmed = await this.confirmSubmission(toSubmit);
-        } finally {
-            this.isConfirmingSubmit = false;
-        }
-        if (!confirmed) {
-            // Un relevé arrivé pendant la confirmation reprend son cours normal.
+        // Instantané figé AVANT la confirmation : le récapitulatif accepté et le
+        // plan envoyé consomment exactement les mêmes données gelées. Toute
+        // mutation TB (choix, relevé mis en attente) pendant le dialogue change
+        // `trackablesRevision` → on re-fige et on redemande.
+        let trackableSnapshot = buildTrackableSubmitSnapshot(
+            toSubmit, this.trackableInventory, this.trackableSelection,
+            this.getTrackableBatchContext(), this.trackablesRevision
+        );
+        for (;;) {
+            this.isConfirmingSubmit = true;
+            let confirmed = false;
+            try {
+                confirmed = await this.confirmSubmission(toSubmit, trackableSnapshot.summaryLines);
+            } finally {
+                this.isConfirmingSubmit = false;
+            }
+            if (!confirmed) {
+                // Un relevé arrivé pendant la confirmation reprend son cours normal.
+                this.flushPendingTrackableInventory();
+                return;
+            }
+            if (this.trackablesRevision === trackableSnapshot.revision && !this.pendingTrackableInventory) {
+                break;
+            }
+            // Le contenu a bougé pendant la confirmation : le récapitulatif
+            // accepté ne correspond plus à l'état courant — on re-fige et on
+            // demande une nouvelle acceptation.
             this.flushPendingTrackableInventory();
-            return;
+            this.messages.warn(
+                'Les trackables ont changé pendant la confirmation : '
+                + 'vérifiez le nouveau récapitulatif avant de confirmer à nouveau.'
+            );
+            trackableSnapshot = buildTrackableSubmitSnapshot(
+                toSubmit, this.trackableInventory, this.trackableSelection,
+                this.getTrackableBatchContext(), this.trackablesRevision
+            );
         }
 
         this.isSubmitting = true;
@@ -2513,13 +2560,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const submittedCodes: string[] = [];
         /** Fermeture de l'onglet décidée en fin de lot, exécutée après la remise à zéro de l'état. */
         let closeAfterSubmit = false;
-        // Plan des TBs figé avant la boucle : une fois une géocache envoyée, elle sort du lot
-        // restant, et un dépôt prévu chez elle se reporterait sinon sur la géocache suivante.
-        // Le tracker suit ensuite ce qui a *réellement* été confirmé — un dépôt dont la
-        // cible échoue ne disparaît plus silencieusement des logs suivants.
-        const trackablePlan = buildTrackableBatchPlan(
-            toSubmit, this.trackableInventory, this.trackableSelection, this.getTrackableBatchContext()
-        );
+        // Plan des TBs figé avec l'instantané de confirmation : le payload ne peut
+        // pas diverger du récapitulatif accepté. Le tracker suit ce qui s'est
+        // *réellement* passé — un dépôt dont la cible échoue ne disparaît plus
+        // silencieusement des logs suivants.
+        const trackablePlan = trackableSnapshot.plan;
         const dropTracker = new TrackableDropTracker(trackablePlan);
         let trackablesSent = false;
         /** Journal : entrées TB parties dans un log qui existe (ou peut exister) côté site. */

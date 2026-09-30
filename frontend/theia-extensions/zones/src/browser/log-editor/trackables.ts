@@ -219,7 +219,7 @@ export function resolveDropTarget(
  */
 export function trackablesForGeocache(
     geocacheId: number,
-    inventory: InventoryTrackable[],
+    inventory: readonly InventoryTrackable[],
     selection: TrackableSelection,
     ctx: TrackableBatchContext
 ): TrackablePayloadEntry[] {
@@ -287,7 +287,7 @@ export interface TrackableSelectionSummary {
 }
 
 export function summarizeTrackableSelection(
-    inventory: InventoryTrackable[],
+    inventory: readonly InventoryTrackable[],
     selection: TrackableSelection,
     ctx: TrackableBatchContext
 ): TrackableSelectionSummary {
@@ -459,7 +459,7 @@ export interface TrackableBatchPlan {
 /** Fige le plan TB du lot : payloads par géocache et cibles de dépôt résolues. */
 export function buildTrackableBatchPlan(
     toSubmit: GeocacheListItem[],
-    inventory: InventoryTrackable[],
+    inventory: readonly InventoryTrackable[],
     selection: TrackableSelection,
     ctx: TrackableBatchContext
 ): TrackableBatchPlan {
@@ -481,6 +481,44 @@ export function buildTrackableBatchPlan(
     }
     drops.sort((a, b) => (positions.get(a.targetGeocacheId) ?? 0) - (positions.get(b.targetGeocacheId) ?? 0));
     return { entries, positions, drops };
+}
+
+/**
+ * Instantané TB figé **avant** d'ouvrir la confirmation : copies gelées de
+ * l'inventaire et de la sélection, plan de lot et lignes du récapitulatif
+ * calculés dessus. Le résumé accepté et le payload envoyé consomment exactement
+ * cet objet — une modification (choix, relevé) arrivée pendant la confirmation
+ * ne peut pas s'y glisser ; elle est détectée par `revision` et oblige à
+ * re-figer puis reconfirmer.
+ */
+export interface TrackableSubmitSnapshot {
+    /** Révision de l'état TB au moment de la fige ; comparée après confirmation. */
+    readonly revision: number;
+    readonly inventory: readonly InventoryTrackable[];
+    readonly selection: TrackableSelection;
+    readonly plan: TrackableBatchPlan;
+    readonly summaryLines: readonly { text: string; highlight: boolean }[];
+}
+
+export function buildTrackableSubmitSnapshot(
+    toSubmit: GeocacheListItem[],
+    inventory: readonly InventoryTrackable[],
+    selection: TrackableSelection,
+    ctx: TrackableBatchContext,
+    revision: number
+): TrackableSubmitSnapshot {
+    const frozenInventory: readonly InventoryTrackable[] = Object.freeze(
+        inventory.map(tb => Object.freeze({ ...tb }))
+    );
+    const frozenSelection: TrackableSelection = Object.freeze({
+        actions: Object.freeze({ ...selection.actions }),
+        dropTargets: Object.freeze({ ...selection.dropTargets }),
+    });
+    const plan = buildTrackableBatchPlan(toSubmit, frozenInventory, frozenSelection, ctx);
+    const summary = summarizeTrackableSelection(frozenInventory, frozenSelection, ctx);
+    const carrying = toSubmit.filter(gc => canCarryTrackables(ctx.getLogType(gc.id))).length;
+    const summaryLines = Object.freeze(buildTrackableSummaryLines(summary, carrying));
+    return Object.freeze({ revision, inventory: frozenInventory, selection: frozenSelection, plan, summaryLines });
 }
 
 /**

@@ -338,7 +338,14 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
 - **Mémoire** : chaque log envoie tous les TBs encore en main, « none » compris. Le
   backend ne transmet pas « none » au site, mais le mémorise comme défaut du log
   suivant.
-- **Plan figé** : le plan TB du lot est calculé une fois avant la boucle d'envoi
+- **Instantané de confirmation** : `buildTrackableSubmitSnapshot` fige **avant**
+  le dialogue des copies gelées de l'inventaire et de la sélection, le plan du
+  lot et les lignes du récapitulatif — résumé accepté et payload envoyé
+  consomment exactement le même objet. Chaque mutation TB incrémente
+  `trackablesRevision` ; si la révision a bougé pendant la confirmation (choix,
+  relevé en attente), la confirmation est invalidée : on applique le relevé,
+  re-fige et redemande. Le plan n'est plus reconstruit après le dialogue.
+- **Plan figé** : le plan TB du lot vient de l'instantané
   (`buildTrackableBatchPlan` → `TrackableBatchPlan` immuable : payloads par
   géocache, ordre d'envoi, cibles de dépôt). Sans ça, une géocache envoyée
   sortirait du lot restant, et un dépôt prévu chez elle se reporterait sur la
@@ -437,7 +444,9 @@ liens HTTPS et URLs relatives (vers `geocaching.com`) conservés.
 - répartition sur un lot (visites, dépôt, DNF, notes, caches déjà envoyées) ;
 - validation, payload, récapitulatif, filtre, restauration de brouillon ;
 - plan figé et suivi des dépôts (confirmé / échoué / incertain), overrides du
-  brouillon v2 (écarts seuls, réappliqués sur les défauts courants).
+  brouillon v2 (écarts seuls, réappliqués sur les défauts courants), instantané
+  de confirmation gelé (résumé et payload insensibles aux changements reçus
+  pendant le dialogue).
 
 `backend/tests/test_geocaching_submit_logs.py` (section Trackables) :
 - format du champ `trackables`, et conservation par le repli REST ;
