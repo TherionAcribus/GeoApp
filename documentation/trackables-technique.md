@@ -465,8 +465,18 @@ Trois onglets :
     `unknown`, lien « Vérifier sur Geocaching.com », jamais de renvoi à
     l'aveugle. La persistance (localStorage, versionnée) restaure les envois
     interrompus en « à vérifier » et les préflights en attente.
-- **Fiche** : coquille qui honore déjà le contexte prérempli ; le détail
-  assaini et paginé arrive avec l'étape suivante du lot.
+- **Fiche** : `GET /api/trackables/<TB>` (cache court 5 min côté backend,
+  `refresh=1` pour forcer). La saisie accepte un code public ou un code de
+  suivi — celui-ci est d'abord résolu par `POST /lookup` (jamais en URL) ;
+  l'input reste en mémoire, non persisté. Affichage : icône, nom, code public
+  lié, type/propriétaire/verrouillé/code-connu, méta (lâché le, origine,
+  position — cache liée ou détenteur — distance), image, sections **Objectif**
+  et **Description**, logs paginés (10/page, `log_date_ambiguous` marqué
+  « date incertaine », caches liées). Tout le HTML tiers passe par DOMPurify
+  en plus de l'assainissement backend, et les liens s'ouvrent dans le
+  navigateur (`onClick` → `window.open`, jamais de navigation dans le widget).
+  `parse_warnings` signale une fiche partiellement lisible. Le bouton « Loguer »
+  de l'en-tête préremplit la file de l'onglet précédent.
 
 ## 7. Points d'attention
 

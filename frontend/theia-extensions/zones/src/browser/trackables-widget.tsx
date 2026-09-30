@@ -17,12 +17,14 @@ import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
+import DOMPurify from '@theia/core/shared/dompurify';
 import '../../src/browser/style/trackables-widget.css';
 import { formatIsoDateTimeFr } from './log-editor/helpers';
 import {
     InventoryTrackable,
     describeInventorySync,
     filterTrackables,
+    geocacheUrl,
     trackableUrl,
 } from './log-editor/trackables';
 import {
@@ -33,6 +35,7 @@ import {
     TrackableQueueItem,
     buildTrackableQueueReport,
     defaultTrackableLogType,
+    isLikelyPublicCode,
     parseTrackableCodeTokens,
     queueItemDisplayCode,
     restoreQueueFromStorage,
@@ -80,6 +83,53 @@ const EMPTY_INVENTORY: InventoryState = {
 /** File persistée en localStorage — `sanitizeQueueForStorage` a retiré tout code de suivi. */
 const TRACKABLE_QUEUE_STORAGE_KEY = 'geoapp.trackables.queue';
 
+/** Log de la fiche HTML — `details.logs[]` de `GET /api/trackables/<TB>`. */
+interface TrackableDetailLog {
+    log_reference_code?: string | null;
+    log_type_id?: number | null;
+    log_type_label?: string | null;
+    log_date?: string | null;
+    log_date_raw?: string | null;
+    log_date_ambiguous?: boolean;
+    author_username?: string | null;
+    geocache_code?: string | null;
+    geocache_name?: string | null;
+    text_html?: string | null;
+}
+
+/** `details` de `GET /api/trackables/<TB>` — HTML déjà assaini au parsing (§ 4). */
+interface TrackableDetailData {
+    name?: string | null;
+    owner_username?: string | null;
+    released_at?: string | null;
+    origin?: string | null;
+    location_kind?: string | null;
+    location_name?: string | null;
+    location_geocache_code?: string | null;
+    goal_html?: string | null;
+    details_html?: string | null;
+    image_url?: string | null;
+    icon_url?: string | null;
+    type_name?: string | null;
+    distance_km?: number | null;
+    is_locked?: boolean;
+    logs?: TrackableDetailLog[];
+    parse_warnings?: string[];
+}
+
+interface TrackableDetailState {
+    loading: boolean;
+    /** Code public du TB affiché. */
+    requestedCode?: string;
+    trackable?: InventoryTrackable & { goal_html?: string | null; has_tracking_code?: boolean };
+    details?: TrackableDetailData;
+    error?: string;
+}
+
+const EMPTY_DETAIL: TrackableDetailState = { loading: false };
+/** Pagination locale des logs de la fiche. */
+const DETAIL_LOGS_PER_PAGE = 10;
+
 @injectable()
 export class TrackablesWidget extends ReactWidget {
     static readonly ID = 'geoapp-trackables-widget';
@@ -104,6 +154,12 @@ export class TrackablesWidget extends ReactWidget {
     protected queuePreflighting = false;
     protected queueStopRequested = false;
     protected queueSequence = 0;
+
+    /* ---- Onglet « Fiche » ---- */
+    /** Saisie du code de fiche — mémoire seule (peut être un code de suivi). */
+    protected detailInput = '';
+    protected detail: TrackableDetailState = { ...EMPTY_DETAIL };
+    protected detailLogPage = 0;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -174,6 +230,10 @@ export class TrackablesWidget extends ReactWidget {
                 this.enqueueCode(ctx.trackableCode, ctx.action, ctx.geocacheCode);
             } else {
                 this.pendingDetailCode = ctx.trackableCode;
+                this.detailInput = ctx.trackableCode;
+                if (this.detail.requestedCode !== ctx.trackableCode && !this.detail.loading) {
+                    void this.loadTrackableDetail(ctx.trackableCode, false);
+                }
             }
         }
         if (ctx.tab) {
@@ -214,6 +274,11 @@ export class TrackablesWidget extends ReactWidget {
         this.activeTab = tab;
         if (tab === 'inventory' && !this.inventory.loaded && !this.inventory.loading) {
             void this.loadInventory('auto');
+        }
+        if (tab === 'detail' && this.pendingDetailCode
+            && this.detail.requestedCode !== this.pendingDetailCode && !this.detail.loading) {
+            this.detailInput = this.pendingDetailCode;
+            void this.loadTrackableDetail(this.pendingDetailCode, false);
         }
         this.update();
     }
@@ -268,6 +333,76 @@ export class TrackablesWidget extends ReactWidget {
         } finally {
             this.inventory.loading = false;
             this.update();
+        }
+    }
+
+    /* ------------------------------------------------------------ Fiche TB */
+
+    /**
+     * Charge la fiche : un code de suivi est d'abord résolu par `POST /lookup`
+     * (jamais en URL) ; un code public part directement en `GET /<TB>` — la
+     * réponse est côté backend dans le cache court de 5 min (`refresh=1` force).
+     */
+    protected async loadTrackableDetail(rawCode: string, refresh: boolean): Promise<void> {
+        const code = rawCode.trim().toUpperCase();
+        if (!code || this.detail.loading) {
+            return;
+        }
+        this.detail = { loading: true, requestedCode: isLikelyPublicCode(code) ? code : undefined };
+        this.detailLogPage = 0;
+        this.update();
+        try {
+            let publicCode = code;
+            if (!isLikelyPublicCode(code)) {
+                const lookupRes = await fetch(`${this.backendBaseUrl}/api/trackables/lookup`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                });
+                const lookupBody = await lookupRes.json().catch(() => undefined);
+                const ref = lookupBody?.trackable?.reference_code;
+                if (!lookupRes.ok || !lookupBody?.success || typeof ref !== 'string') {
+                    this.detail = {
+                        loading: false,
+                        error: lookupBody?.error_message || 'Aucun trackable trouvé pour ce code.',
+                    };
+                    this.update();
+                    return;
+                }
+                publicCode = ref;
+            }
+            const res = await fetch(
+                `${this.backendBaseUrl}/api/trackables/${encodeURIComponent(publicCode)}${refresh ? '?refresh=1' : ''}`,
+                { credentials: 'include' },
+            );
+            const body = await res.json().catch(() => undefined);
+            if (!res.ok || !body?.success) {
+                this.detail = {
+                    loading: false, requestedCode: publicCode,
+                    error: body?.error_message || `Fiche indisponible (HTTP ${res.status}).`,
+                };
+            } else {
+                this.detail = {
+                    loading: false,
+                    requestedCode: publicCode,
+                    trackable: body.trackable,
+                    details: body.details,
+                };
+                this.detailInput = publicCode;
+            }
+        } catch {
+            this.detail = { loading: false, requestedCode: code, error: 'Backend injoignable : fiche non chargée.' };
+        }
+        this.update();
+    }
+
+    /** Les liens du HTML assaini s'ouvrent dans le navigateur, jamais dans le widget. */
+    protected onDetailHtmlClick(e: React.MouseEvent<HTMLElement>): void {
+        const anchor = (e.target as HTMLElement).closest('a');
+        if (anchor?.href) {
+            e.preventDefault();
+            window.open(anchor.href, '_blank', 'noopener,noreferrer');
         }
     }
 
@@ -912,26 +1047,225 @@ export class TrackablesWidget extends ReactWidget {
         );
     }
 
-    /** Onglet « Fiche » : détails assainis + logs paginés au lot 5.3. */
+    /** Onglet « Fiche » : saisie du code, détail assaini et logs paginés. */
     protected renderDetailTab(): React.ReactNode {
-        const code = this.pendingDetailCode;
+        const d = this.detail;
+        const details = d.details;
+        const tb = d.trackable;
+        const logs = details?.logs ?? [];
+        const pageCount = Math.max(1, Math.ceil(logs.length / DETAIL_LOGS_PER_PAGE));
+        const page = Math.min(this.detailLogPage, pageCount - 1);
+        const pageLogs = logs.slice(page * DETAIL_LOGS_PER_PAGE, (page + 1) * DETAIL_LOGS_PER_PAGE);
         return (
             <div className='geoapp-trackables-widget__panel' role='tabpanel'>
-                {code
-                    ? (
-                        <div className='geoapp-trackables-widget__notice' role='status'>
-                            Fiche {code} —{' '}
-                            <a href={trackableUrl(code)} target='_blank' rel='noopener noreferrer'>
-                                ouvrir sur Geocaching.com
-                            </a>
-                            . Le détail assaini arrive avec la suite du lot.
-                        </div>
-                    )
-                    : (
-                        <div className='geoapp-trackables-widget__empty'>
-                            Ouvrez une fiche depuis l’inventaire (bouton « Fiche » d’une ligne).
-                        </div>
+                <div className='geoapp-trackables-widget__toolbar'>
+                    <input
+                        className='theia-input geoapp-trackables-widget__filter'
+                        value={this.detailInput}
+                        placeholder='Code public TB… ou code de suivi'
+                        aria-label='Code du trackable à afficher'
+                        disabled={d.loading}
+                        onChange={e => { this.detailInput = e.currentTarget.value; this.update(); }}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' && this.detailInput.trim() && !d.loading) {
+                                void this.loadTrackableDetail(this.detailInput, false);
+                            }
+                        }}
+                    />
+                    <button
+                        type='button'
+                        className='theia-button'
+                        disabled={d.loading || !this.detailInput.trim()}
+                        onClick={() => { void this.loadTrackableDetail(this.detailInput, false); }}
+                    >
+                        {d.loading ? '⏳ Chargement…' : 'Charger'}
+                    </button>
+                    {d.requestedCode && (
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            disabled={d.loading}
+                            title='Relire la fiche sur Geocaching.com'
+                            onClick={() => { void this.loadTrackableDetail(this.detailInput, true); }}
+                        >
+                            ⟳ Rafraîchir
+                        </button>
                     )}
+                </div>
+
+                {d.error && <div className='geoapp-trackables-widget__error' role='alert'>{d.error}</div>}
+                <span className='geoapp-trackables-widget__visually-hidden' role='status'>
+                    {d.loading ? 'Chargement de la fiche en cours…'
+                        : d.requestedCode ? `Fiche ${d.requestedCode} affichée` : 'Aucune fiche chargée'}
+                </span>
+
+                {!d.error && !d.loading && !details && !d.requestedCode && (
+                    <div className='geoapp-trackables-widget__empty'>
+                        Saisissez un code public ou un code de suivi, ou ouvrez une fiche depuis l’inventaire.
+                    </div>
+                )}
+
+                {details && d.requestedCode && (
+                    <div className='geoapp-trackables-widget__detail'>
+                        <div className='geoapp-trackables-widget__detail-head'>
+                            {(details.icon_url || tb?.icon_url) && (
+                                <img
+                                    className='geoapp-trackables-widget__detail-icon'
+                                    src={details.icon_url ?? tb?.icon_url ?? ''}
+                                    alt=''
+                                    width={32}
+                                    height={32}
+                                    loading='lazy'
+                                    decoding='async'
+                                />
+                            )}
+                            <div className='geoapp-trackables-widget__detail-title'>
+                                <strong>{details.name ?? tb?.name ?? d.requestedCode}</strong>
+                                <span className='geoapp-trackables-widget__meta'>
+                                    <a href={trackableUrl(d.requestedCode)} target='_blank' rel='noopener noreferrer'>
+                                        {d.requestedCode}
+                                    </a>
+                                    {[details.type_name ?? tb?.type_name,
+                                        tb?.owner_username ?? details.owner_username
+                                            ? `propriétaire : ${tb?.owner_username ?? details.owner_username}` : undefined,
+                                        details.is_locked ? 'verrouillé' : undefined,
+                                        tb?.has_tracking_code ? 'code de suivi connu' : undefined]
+                                        .filter(Boolean).join(' · ')}
+                                </span>
+                            </div>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                title='Préremplir l’onglet Loguer avec ce trackable'
+                                onClick={() => {
+                                    this.enqueueCode(d.requestedCode!, 'log');
+                                    this.showTab('log');
+                                }}
+                            >
+                                Loguer
+                            </button>
+                        </div>
+
+                        {details.parse_warnings && details.parse_warnings.length > 0 && (
+                            <div className='geoapp-trackables-widget__notice' role='status'>
+                                Fiche partiellement lisible : {details.parse_warnings.join(', ')} absent(s).
+                            </div>
+                        )}
+
+                        <dl className='geoapp-trackables-widget__detail-meta'>
+                            {details.released_at && (
+                                <><dt>Lâché le</dt><dd>{formatIsoDateTimeFr(details.released_at)}</dd></>
+                            )}
+                            {details.origin && <><dt>Origine</dt><dd>{details.origin}</dd></>}
+                            {(details.location_name || details.location_geocache_code) && (
+                                <><dt>Position</dt><dd>
+                                    {TRACKABLE_LOCATION_KIND_LABELS[details.location_kind ?? ''] ?? ''}{' '}
+                                    {details.location_geocache_code ? (
+                                        <a href={geocacheUrl(details.location_geocache_code)}
+                                            target='_blank' rel='noopener noreferrer'>
+                                            {details.location_geocache_code}
+                                        </a>
+                                    ) : undefined}
+                                    {details.location_name ? ` ${details.location_name}` : ''}
+                                </dd></>
+                            )}
+                            {details.distance_km != null && (
+                                <><dt>Distance</dt><dd>{details.distance_km.toLocaleString('fr-FR')} km</dd></>
+                            )}
+                        </dl>
+
+                        {details.image_url && (
+                            <img
+                                className='geoapp-trackables-widget__detail-image'
+                                src={details.image_url}
+                                alt={details.name ?? d.requestedCode}
+                                loading='lazy'
+                                decoding='async'
+                            />
+                        )}
+
+                        {details.goal_html && (
+                            <section className='geoapp-trackables-widget__detail-section'>
+                                <h4>Objectif</h4>
+                                <SanitizedHtml html={details.goal_html} onClick={this.onDetailHtmlClick} />
+                            </section>
+                        )}
+                        {details.details_html && (
+                            <section className='geoapp-trackables-widget__detail-section'>
+                                <h4>Description</h4>
+                                <SanitizedHtml html={details.details_html} onClick={this.onDetailHtmlClick} />
+                            </section>
+                        )}
+
+                        <section className='geoapp-trackables-widget__detail-section'>
+                            <h4>
+                                Logs{logs.length > 0 ? ` (${logs.length})` : ''}
+                                {logs.length > DETAIL_LOGS_PER_PAGE
+                                    ? ` — page ${page + 1}/${pageCount}` : ''}
+                            </h4>
+                            {logs.length === 0 ? (
+                                <div className='geoapp-trackables-widget__empty'>Aucun log sur la fiche.</div>
+                            ) : (
+                                <>
+                                    <div className='geoapp-trackables-widget__logs' role='list'>
+                                        {pageLogs.map((log, index) => (
+                                            <div
+                                                key={log.log_reference_code ?? `${page}-${index}`}
+                                                className='geoapp-trackables-widget__log'
+                                                role='listitem'
+                                            >
+                                                <div className='geoapp-trackables-widget__log-head'>
+                                                    <strong>{log.log_type_label ?? 'Log'}</strong>
+                                                    <span className='geoapp-trackables-widget__meta'>
+                                                        {log.log_date ?? log.log_date_raw ?? 'date inconnue'}
+                                                        {log.log_date_ambiguous ? ' (date incertaine)' : ''}
+                                                        {log.author_username ? ` — ${log.author_username}` : ''}
+                                                        {log.geocache_code ? (
+                                                            <>
+                                                                {' · '}
+                                                                <a href={geocacheUrl(log.geocache_code)}
+                                                                    target='_blank' rel='noopener noreferrer'>
+                                                                    {log.geocache_code}
+                                                                </a>
+                                                                {log.geocache_name ? ` ${log.geocache_name}` : ''}
+                                                            </>
+                                                        ) : ''}
+                                                    </span>
+                                                </div>
+                                                {log.text_html && (
+                                                    <SanitizedHtml
+                                                        html={log.text_html}
+                                                        onClick={this.onDetailHtmlClick}
+                                                    />
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    {pageCount > 1 && (
+                                        <div className='geoapp-trackables-widget__toolbar'>
+                                            <button
+                                                type='button'
+                                                className='theia-button secondary'
+                                                disabled={page <= 0}
+                                                onClick={() => { this.detailLogPage = page - 1; this.update(); }}
+                                            >
+                                                ← Précédent
+                                            </button>
+                                            <button
+                                                type='button'
+                                                className='theia-button secondary'
+                                                disabled={page >= pageCount - 1}
+                                                onClick={() => { this.detailLogPage = page + 1; this.update(); }}
+                                            >
+                                                Suivant →
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </section>
+                    </div>
+                )}
             </div>
         );
     }
@@ -984,6 +1318,30 @@ const TrackingCodeInput: React.FC<{
         </span>
     );
 };
+
+/** Localisation de la fiche — miroir des `location_kind` de `TrackableDetails`. */
+const TRACKABLE_LOCATION_KIND_LABELS: Record<string, string> = {
+    cache: 'dans la cache',
+    user: 'chez',
+    owner: 'chez son propriétaire,',
+    unknown: '',
+};
+
+/**
+ * HTML de fiche : le backend l'a assaini à l'extraction (§ 4) ; DOMPurify fait
+ * ici la défense en profondeur avant `dangerouslySetInnerHTML`, et les liens
+ * partent dans le navigateur via `onClick`.
+ */
+const SanitizedHtml: React.FC<{
+    html: string;
+    onClick: (e: React.MouseEvent<HTMLElement>) => void;
+}> = ({ html, onClick }) => (
+    <div
+        className='geoapp-trackables-widget__html'
+        onClick={onClick}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
+    />
+);
 
 /** Ligne d'inventaire : identité compacte + actions « Fiche » et « Loguer ». */
 const TrackableInventoryRow: React.FC<{

@@ -502,6 +502,6 @@ Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_t
 | Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée + boutons Retirer/Découvrir → widget prérempli ; « TBs dans cette cache » de l'éditeur reste à faire |
 | Lot 5 — coquille + inventaire | Fait | `trackables-widget.tsx` : 3 onglets, commande `geoapp.trackables.open`, événement `open-trackables` ; onglet Inventaire fonctionnel |
 | Lot 5.2 — onglet Loguer/Découvrir | Fait | `trackables-log-queue.ts` (pur) : collage multi-codes, dédoublonnage, lookup POST, types via `log-info`, file séquentielle avec `operationId`, états `pending→…→confirmed/rejected/unknown`, persistance sans codes de suivi, champ masqué + affichage temporaire |
-| Lot 5.3 — onglet Fiche | À faire | Détail assaini, localisation, image, logs paginés |
+| Lot 5.3 — onglet Fiche | Fait | Détail assaini (DOMPurify côté client en plus du backend), méta complète, image, logs paginés 10/page, `parse_warnings` et dates incertaines affichés, code de suivi résolu par POST lookup |
 
-Reste : lot 5.3 (fiche assainie paginée), file de découvertes en masse (étendre la file 5.2 : export CSV du bilan — déjà copiable — et préflight groupé), lot 4 restant dans l'éditeur, lot 6 — et la validation visuelle P2-06.
+Reste : file de découvertes en masse (étendre la file 5.2 : export CSV du bilan — déjà copiable — et préflight groupé), lot 4 restant dans l'éditeur (« TBs dans cette cache »), lot 6 — et la validation visuelle P2-06.

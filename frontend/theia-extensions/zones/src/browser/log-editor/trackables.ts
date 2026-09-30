@@ -417,6 +417,11 @@ export function trackableUrl(code: string): string {
     return `https://www.geocaching.com/track/details.aspx?tracker=${encodeURIComponent(code)}`;
 }
 
+/** URL publique d'une cache sur Geocaching.com (même convention que les autres panneaux). */
+export function geocacheUrl(code: string): string {
+    return `https://www.geocaching.com/geocache/${encodeURIComponent(code)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Plan de lot figé et suivi des dépôts (P1-04)
 // ---------------------------------------------------------------------------

@@ -328,6 +328,100 @@
     font-size: 11px;
 }
 
+/* ---- Onglet « Fiche » (lot 5.3) ---- */
+
+.geoapp-trackables-widget__detail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.geoapp-trackables-widget__detail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.geoapp-trackables-widget__detail-icon {
+    flex: none;
+}
+
+.geoapp-trackables-widget__detail-title {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.geoapp-trackables-widget__detail-title strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-trackables-widget__detail-meta {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 2px 12px;
+    margin: 0;
+}
+
+.geoapp-trackables-widget__detail-meta dt {
+    font-weight: 600;
+}
+
+.geoapp-trackables-widget__detail-meta dd {
+    margin: 0;
+    min-width: 0;
+}
+
+.geoapp-trackables-widget__detail-image {
+    max-width: 240px;
+    max-height: 180px;
+    object-fit: contain;
+    align-self: flex-start;
+    border-radius: 2px;
+}
+
+.geoapp-trackables-widget__detail-section h4 {
+    margin: 4px 0;
+    font-size: 12px;
+}
+
+.geoapp-trackables-widget__html {
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: break-word;
+}
+
+.geoapp-trackables-widget__html img {
+    max-width: 100%;
+    height: auto;
+}
+
+.geoapp-trackables-widget__html a {
+    cursor: pointer;
+}
+
+.geoapp-trackables-widget__logs {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.geoapp-trackables-widget__log {
+    padding: 4px 8px;
+    border-left: 2px solid var(--theia-panel-border);
+    background: var(--theia-list-inactiveSelectionBackground);
+}
+
+.geoapp-trackables-widget__log-head {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: baseline;
+}
+
 /* Le champ de suivi et les actions passent en ligne quand le panneau est étroit. */
 @container (max-width: 560px) {
     .geoapp-trackables-widget__queue-item {
