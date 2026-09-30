@@ -12,6 +12,7 @@ import { GeocacheDto } from './geocache-details-types';
 import { GeocacheNotePreview } from './geocache-note-preview';
 import { GeocacheNotesApiResponse } from './geocache-notes-types';
 import { GeocacheFriendFindsBanner } from './geocache-friend-finds-banner';
+import { GeocacheTrackablesSection } from './geocache-trackables-section';
 import { GeocacheImagesPanel } from './geocache-images-panel';
 import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
 import { EmptyState, LoadingState } from './state-views';
@@ -153,6 +154,15 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     collapsed={collapsedSections?.has('details')}
                     onSectionCollapsedChange={onSectionCollapsedChange}
                 />
+
+                {apiBaseUrl && geocacheData.gc_code ? (
+                    <GeocacheTrackablesSection
+                        gcCode={geocacheData.gc_code}
+                        apiBaseUrl={apiBaseUrl}
+                        collapsed={collapsedSections?.has('trackables')}
+                        onSectionCollapsedChange={onSectionCollapsedChange}
+                    />
+                ) : undefined}
 
                 <MemoDescriptionEditor
                     {...descriptionEditorProps}

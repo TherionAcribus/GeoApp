@@ -477,3 +477,28 @@ Le chantier peut être considéré terminé lorsque :
 - les lots 4 et 5 offrent une expérience clavier et panneau étroit utilisable ;
 - les commandes de validation ci-dessus passent ;
 - les opérations réelles minimales ont été validées séparément, sans utiliser un TB tiers pour les essais destructifs.
+
+## 12. État d'avancement des corrections
+
+Phases P1 et P2 implémentées et couvertes par les tests (`backend/tests/test_trackables_api.py`, `test_geocaching_trackables.py`, `test_html_sanitize.py`, `trackables-submission.test.ts`). Détail complet dans `trackables-technique.md`.
+
+| Phase | État | Notes |
+|---|---|---|
+| P1-01 Lookup sécurisé | Fait | `POST /lookup` ; GET déprécié et limité aux codes publics ; codes absents des URL/réponses/logs/exceptions |
+| P1-02 Validation métier backend | Fait | Actions/type/cible/inventaire vérifiés côté serveur ; `locationConflictConfirmed` |
+| P1-03 Fusion source-aware | Fait | `location_known`, merge par champ, purge des localisations obsolètes, O(n²) supprimé |
+| P1-04 Plan de lot et dépôts | Fait | Plan immuable, états `planned…uncertain`, choix continuer/arrêter, réconciliation inventaire distant |
+| P1-05 Résultat distant ambigu | Fait | `LogSubmitNetworkError`, `unknown_remote_outcome`, pas de renvoi automatique, IDs d'opération |
+| P1-06 Brouillon/historique | Fait | Brouillon v2 = overrides seuls, défauts recalculés à la restauration, journal TB sans codes de suivi |
+| P1-07 Assainissement HTML | Fait | `html_sanitize.py` à l'extraction + à la sérialisation des lignes héritées |
+| P2-01 Requêtes groupées | Fait | Préchargement paquets de 500, insert/update bulk, transaction unique, bornes mesurées |
+| P2-02 DTO liste + icônes | Fait | `to_list_dict()` (−61 % JSON mesuré), `loading="lazy"`, dimensions fixes, repli |
+| P2-03 Cache et single-flight | Fait | `max_age` borné, `stale`/`sync_error`, verrou par ressource, garde-fou relevé vide |
+| P2-04 Robustesse réseau | Fait | Timeouts 10 s/30 s, rejouage GET 429/5xx avec `Retry-After`, `partial_result`, cache fiche 5 min |
+| P2-05 Parseurs tolérants | Fait | `parse_warnings`, `log_date_ambiguous`, diagnostics sans HTML ni secret |
+| P2-06 Panneaux étroits | Fait | Grille + `container-type` ; reste la vérification visuelle manuelle (320–1200 px, zoom, thèmes) |
+| P2-07 Clavier/annonces/masse | Fait | Roving tabindex + flèches, `role="alert"`/`status`, annulation d'action de masse, filtres rapides |
+| P2-08 Instantané confirmation | Fait | `TrackableSubmitSnapshot` gelé, `trackablesRevision`, reconfirmation sur mutation |
+| Lot 4 — section fiche cache | En cours | `geocache-trackables-section.tsx` : liste + refresh + copie locale périmée ; actions Retirer/Découvrir et « TBs dans cette cache » de l'éditeur attendent le widget (lot 5) |
+
+Reste : lots 4 (actions), 5 et 6 de la spec (section 7 ci-dessus) — widget Trackables, file de découvertes, finitions — et la validation visuelle P2-06.

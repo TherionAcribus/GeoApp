@@ -1,0 +1,142 @@
+/* Section « Trackables » de la fiche de géocache (geocache-trackables-section.tsx).
+   Compacte, repliable, sans scroll horizontal : la grille réagit à la largeur
+   de la section, pas du viewport. */
+
+.geoapp-gc-trackables {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-editorWidget-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    font-size: 12px;
+    container-type: inline-size;
+}
+
+.geoapp-gc-trackables__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+}
+
+.geoapp-gc-trackables__title {
+    margin: 0;
+    font-size: 13px;
+}
+
+.geoapp-gc-trackables__headline {
+    opacity: 0.75;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-gc-trackables__sync {
+    opacity: 0.65;
+    white-space: nowrap;
+}
+
+.geoapp-gc-trackables__refresh {
+    padding: 1px 8px;
+    font-size: 11px;
+}
+
+.geoapp-gc-trackables__error {
+    color: var(--theia-errorForeground);
+}
+
+.geoapp-gc-trackables__notice {
+    opacity: 0.85;
+}
+
+.geoapp-gc-trackables__empty {
+    opacity: 0.7;
+    font-style: italic;
+}
+
+.geoapp-gc-trackables__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.geoapp-gc-trackables__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "icon name code meta";
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 2px;
+}
+
+.geoapp-gc-trackables__row:nth-child(even) {
+    background: var(--theia-list-inactiveSelectionBackground);
+}
+
+.geoapp-gc-trackables__row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-gc-trackables__icon {
+    grid-area: icon;
+    width: 16px;
+    height: 16px;
+}
+
+.geoapp-gc-trackables__name {
+    grid-area: name;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Le code public n'est jamais tronqué : il identifie le TB même en panneau étroit. */
+.geoapp-gc-trackables__code {
+    grid-area: code;
+    flex: none;
+    opacity: 0.7;
+    font-family: var(--theia-code-font-family);
+    white-space: nowrap;
+}
+
+.geoapp-gc-trackables__meta {
+    grid-area: meta;
+    opacity: 0.6;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Panneau étroit : le type/propriétaire passe sous le nom. */
+@container (max-width: 360px) {
+    .geoapp-gc-trackables__row {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "icon name code"
+            "icon meta meta";
+        row-gap: 1px;
+    }
+}
+
+/* Message live annoncé mais non affiché. */
+.geoapp-gc-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}

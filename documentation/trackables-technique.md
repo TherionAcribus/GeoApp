@@ -404,6 +404,26 @@ La logique pure est dans `log-editor/trackables.ts`, testée sans React.
   s'affiche avec un avertissement. Après un lot qui a visité ou déposé des TBs, la
   copie locale (déjà mise à jour par le backend) est relue.
 
+### 6.4 Fiche de géocache : section « Trackables »
+
+`geocache-trackables-section.tsx` (lot 4 de la spec), placée après les détails
+dans `geocache-details-view.tsx` :
+
+- **Contenu** : `GET /api/trackables/geocache/<GC>?max_age=900` à l'ouverture —
+  icône (`loading="lazy"`, 16 px, repli), nom (infobulle nom + type), code public
+  lié vers la fiche du site (`trackableUrl`, jamais de code de suivi), type et
+  propriétaire. Repliée, la section annonce son bilan (« 3 présents »).
+- **Fraîcheur** : « Rafraîchir » (`?refresh=1`) force la relecture ; `synced_at`
+  est affiché avec « (périmé) » quand `stale`, et les replis
+  `sync_error`/`empty_remote_guarded` sont rendus en notices `role="status"`
+  (l'erreur bloquante en `role="alert"`). La liste affichée ne clignote pas
+  pendant une relecture.
+- **Étroit** : même approche conteneur que l'éditeur — sous 360 px, type et
+  propriétaire passent sous le nom ; le code public n'est jamais tronqué.
+- **Reste du lot 4** : les actions « Retirer / Découvrir » (code de suivi +
+  file d'envoi) et « TBs dans cette cache » dans l'éditeur de logs arrivent
+  avec le widget Trackables (lot 5).
+
 ## 7. Points d'attention
 
 - **Code de suivi secret.** Il permet de loguer le TB. Il est stocké en base locale
