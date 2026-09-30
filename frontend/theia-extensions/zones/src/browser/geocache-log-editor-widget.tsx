@@ -130,6 +130,7 @@ import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
 import { TrackablesSection } from './log-editor/trackables-section';
 import { GeocacheTrackablesSection } from './geocache-trackables-section';
+import { AdvancedFilterClause } from './geocache-filter-shared';
 import {
     InventoryTrackable,
     PlannedDrop,
@@ -385,6 +386,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected trackablesNotice: string | undefined;
     protected trackablesLastSyncAt: string | null | undefined;
     protected trackablesFilter = '';
+    /** Clauses du panneau « Filtres supplémentaires » de la barre de recherche TB. */
+    protected trackablesFilterClauses: AdvancedFilterClause[] = [];
     protected trackablesQuickFilter: TrackableQuickFilter = 'all';
     /**
      * Dernière action de masse, annulable : état précédent des lignes touchées
@@ -1102,6 +1105,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.trackableSelection = { actions: {}, dropTargets: {} };
         this.trackablesRevision += 1;
         this.trackablesFilter = '';
+        this.trackablesFilterClauses = [];
         this.trackablesQuickFilter = 'all';
         this.trackablesBulkUndo = undefined;
         this.releaseUnusedPreviewUrls();
@@ -2447,6 +2451,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 notice={this.trackablesNotice}
                 lastSyncAt={this.trackablesLastSyncAt}
                 filter={this.trackablesFilter}
+                filterClauses={this.trackablesFilterClauses}
                 quickFilter={this.trackablesQuickFilter}
                 bulkChange={this.trackablesBulkUndo
                     ? { count: this.trackablesBulkUndo.count, action: this.trackablesBulkUndo.action }
@@ -2454,6 +2459,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 disabled={disabled}
                 onToggleOpen={() => { this.isTrackablesOpen = !this.isTrackablesOpen; this.update(); }}
                 onFilterChange={value => { this.trackablesFilter = value; this.update(); }}
+                onFilterClausesChange={clauses => { this.trackablesFilterClauses = clauses; this.update(); }}
                 onQuickFilterChange={value => { this.trackablesQuickFilter = value; this.update(); }}
                 onActionChange={(code, action) => this.setTrackableAction(code, action)}
                 onSetAll={(action, codes) => this.setTrackableActions(action, codes)}

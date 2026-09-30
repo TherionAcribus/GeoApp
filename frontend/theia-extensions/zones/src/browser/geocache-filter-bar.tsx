@@ -19,10 +19,14 @@ export interface GeocacheFilterBarProps {
     onAdvancedClausesChange: (clauses: AdvancedFilterClause[]) => void;
     fieldDefinitions?: FieldDefinition[];
     enumOptionsByField?: Map<string, string[]>;
+    /** Résolution `@alias:` → champ canonique dans l'autocomplétion (défaut : alias géocaches). */
+    resolveField?: (raw: string) => string | null;
     /** Filtres prédéfinis affichés en pastilles à droite du bouton de filtres. */
     presets?: FilterPreset[];
     placeholder?: string;
     resultCount?: number;
+    /** Libellé du compteur de résultats (« 12 trackable(s) ») — défaut « géocache(s) ». */
+    resultLabel?: string;
     disabled?: boolean;
 }
 
@@ -41,9 +45,11 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
     onAdvancedClausesChange,
     fieldDefinitions = STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     enumOptionsByField = new Map(),
+    resolveField = normalizeFieldAlias,
     presets = [],
     placeholder = 'Rechercher... (@champ:valeur, joker *)',
     resultCount,
+    resultLabel = 'géocache(s)',
     disabled = false,
 }) => {
     const [advancedFiltersOpen, setAdvancedFiltersOpen] = React.useState(false);
@@ -105,7 +111,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                 }
             } else {
                 const fieldPart = fragment.slice(0, colonIndex).trim().toLowerCase();
-                const field = normalizeFieldAlias(fieldPart);
+                const field = resolveField(fieldPart);
                 if (field) {
                     const kind = fieldKindById.get(field);
                     const valueAfterColon = fragment.slice(colonIndex + 1);
@@ -173,7 +179,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
             setAutocompleteActiveIndex(0);
             setAutocompleteOpen(true);
         },
-        [fieldDefinitions, fieldKindById, enumOptionsByField]
+        [fieldDefinitions, fieldKindById, enumOptionsByField, resolveField]
     );
 
     const applyAutocompleteSuggestion = React.useCallback(
@@ -342,7 +348,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                 </div>
 
                 {resultCount !== undefined && (
-                    <span style={{ fontSize: '0.9em', opacity: 0.7 }}>{resultCount} géocache(s)</span>
+                    <span style={{ fontSize: '0.9em', opacity: 0.7 }}>{resultCount} {resultLabel}</span>
                 )}
 
                 <button

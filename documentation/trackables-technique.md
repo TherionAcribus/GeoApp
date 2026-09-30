@@ -311,6 +311,13 @@ Sous le tableau des géocaches, une section repliable :
   (« En erreur » = dépôts au résultat `uncertain`, marqués d'un badge « dépôt à
   vérifier » sur leur ligne), combinables avec le filtre texte ; un compteur
   « N sur M » apparaît dès qu'un filtre est actif.
+- **Filtre au clavier** : la recherche est la `GeocacheFilterBar` du tableau des
+  géocaches — même syntaxe `@champ:valeur` (autocomplétion, joker `*`, panneau
+  « Filtres supplémentaires ») branchée sur les champs TB : `@code:`, `@nom:`,
+  `@type:`, `@proprio:`/`@owner:`, `@suivi:oui|non` (code de suivi connu en
+  local) et `@maj:` (date du relevé, comparaison par préfixe ISO). Voir
+  `trackables.ts` (`TRACKABLE_FIELD_DEFINITIONS`, `parseTrackableSearchQuery`,
+  `matchesTrackableClause`).
 - **Relevé pendant un lot** : « Rafraîchir » reste disponible même après la
   confirmation, mais un relevé arrivé pendant la confirmation ou l'envoi est
   **mis en attente** et appliqué à la fin — appliquer en plein vol recalculerait
@@ -438,9 +445,10 @@ commande `geoapp.trackables.open` (palette) et événement `open-trackables`
 Trois onglets :
 
 - **Inventaire** : `GET /api/trackables/inventory` (même politique `max_age` /
-  `refresh` / `stale` / `sync_error` / `empty_remote_guarded`), recherche
-  accent-insensible (`filterTrackables`), compteur filtré, date du relevé,
-  « Rafraîchir ». La liste est un vrai tableau TanStack (`trackables-table.tsx`,
+  `refresh` / `stale` / `sync_error` / `empty_remote_guarded`), compteur filtré,
+  date du relevé, « Rafraîchir ». La recherche est la `GeocacheFilterBar` —
+  même syntaxe `@champ:valeur` que le tableau des géocaches (voir §6.1) —
+  plus un preset « Code de suivi connu » (`@suivi:oui`). La liste est un vrai tableau TanStack (`trackables-table.tsx`,
   même techno que le tableau des zones) : colonnes triables (icône, nom, code,
   type, propriétaire, actions « Fiche »/« Loguer »), `aria-sort`, et la fenêtre
   de virtualisation partagée `virtualized-table-window.ts` — un inventaire de

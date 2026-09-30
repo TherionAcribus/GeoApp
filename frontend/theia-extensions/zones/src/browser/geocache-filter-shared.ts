@@ -153,6 +153,26 @@ export const ENUM_GEOCACHE_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Familles de champs pilotant la syntaxe des tokens (`@champ:>=3`, `@champ:a,b`,
+ * `@champ:oui`) et la comparaison. Optionnelles par famille : un champ absent
+ * de toute famille est traité comme du texte (« contient » par défaut).
+ */
+export interface FilterFieldKinds {
+    numeric?: ReadonlySet<string>;
+    boolean?: ReadonlySet<string>;
+    enum?: ReadonlySet<string>;
+    date?: ReadonlySet<string>;
+}
+
+/** Familles du tableau des géocaches — valeur par défaut des parseurs. */
+export const GEOCACHE_FIELD_KINDS: FilterFieldKinds = {
+    numeric: NUMERIC_GEOCACHE_FIELDS,
+    boolean: BOOLEAN_GEOCACHE_FIELDS,
+    enum: ENUM_GEOCACHE_FIELDS,
+    date: DATE_GEOCACHE_FIELDS,
+};
+
+/**
  * Normalise une valeur pour la recherche : minuscules et suppression des accents
  * (décomposition NFD puis retrait des diacritiques). Toutes les comparaisons
  * texte des filtres passent par ici afin d'être insensibles casse/accents.
@@ -226,14 +246,12 @@ export function findAutocompleteTokenStart(beforeCaret: string): number | null {
     return idx;
 }
 
-export function normalizeFieldAlias(raw: string): string | null {
-    // `normalizeSearchText` (minuscules + sans accents) permet de saisir les
-    // alias français accentués : `@état:`, `@corrigée:`, `@posée:`…
-    const key = normalizeSearchText(raw.trim());
-    if (!key) {
-        return null;
-    }
-    const map: Record<string, string> = {
+/**
+ * Alias géocache : ce que l'utilisateur tape (`@code:`, `@proprio:`, `@dist:`)
+ * vers le champ canonique filtré. Paramétrable pour réutiliser la syntaxe
+ * `@champ:valeur` sur d'autres tableaux (ex. l'inventaire des trackables).
+ */
+export const GEOCACHE_FIELD_ALIASES: Record<string, string> = {
         gc: 'gc_code',
         code: 'gc_code',
         gc_code: 'gc_code',
@@ -298,11 +316,27 @@ export function normalizeFieldAlias(raw: string): string | null {
         distance_km: 'distance_km',
         rayon: 'distance_km',
         radius: 'distance_km',
-    };
-    return map[key] ?? null;
+};
+
+export function normalizeFieldAlias(raw: string, aliasMap: Record<string, string> = GEOCACHE_FIELD_ALIASES): string | null {
+    // `normalizeSearchText` (minuscules + sans accents) permet de saisir les
+    // alias français accentués : `@état:`, `@corrigée:`, `@posée:`…
+    const key = normalizeSearchText(raw.trim());
+    if (!key) {
+        return null;
+    }
+    return aliasMap[key] ?? null;
 }
 
-export function parseSearchQuery(input: string): { freeText: string; tokenFilters: TokenFilter[] } {
+/** Options de `parseSearchQuery` : autre tableau, autres alias/familles. */
+export interface SearchQueryOptions {
+    /** Alias saisis → champ canonique (défaut : géocaches). */
+    aliases?: Record<string, string>;
+    /** Familles de champs pilotant la syntaxe des tokens (défaut : géocaches). */
+    kinds?: FilterFieldKinds;
+}
+
+export function parseSearchQuery(input: string, options: SearchQueryOptions = {}): { freeText: string; tokenFilters: TokenFilter[] } {
     if (!input) {
         return { freeText: '', tokenFilters: [] };
     }
@@ -322,11 +356,11 @@ export function parseSearchQuery(input: string): { freeText: string; tokenFilter
         }
         const fieldRaw = token.slice(0, colon);
         const expr = token.slice(colon + 1);
-        const field = normalizeFieldAlias(fieldRaw);
+        const field = normalizeFieldAlias(fieldRaw, options.aliases);
         if (!field) {
             continue;
         }
-        const parsed = parseTokenExpression(field, expr);
+        const parsed = parseTokenExpression(field, expr, options.kinds);
         if (parsed) {
             tokenFilters.push(parsed);
         }
@@ -348,13 +382,13 @@ export function parseSearchQuery(input: string): { freeText: string; tokenFilter
  */
 const DATE_OPERAND_REGEXP = /^\d{4}(-\d{2}(-\d{2})?)?$/;
 
-export function parseTokenExpression(field: string, exprRaw: string): TokenFilter | null {
+export function parseTokenExpression(field: string, exprRaw: string, kinds: FilterFieldKinds = GEOCACHE_FIELD_KINDS): TokenFilter | null {
     const expr = (exprRaw ?? '').trim();
     if (!expr) {
         return null;
     }
 
-    const isNumericField = NUMERIC_GEOCACHE_FIELDS.has(field);
+    const isNumericField = kinds.numeric?.has(field) ?? false;
 
     if (isNumericField) {
         const betweenIdx = expr.indexOf('<>');
@@ -394,7 +428,7 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
         return Number.isFinite(v) ? { field, operator: 'eq', value: String(v) } : null;
     }
 
-    if (BOOLEAN_GEOCACHE_FIELDS.has(field)) {
+    if (kinds.boolean?.has(field)) {
         const v = expr.toLowerCase();
         if (v === 'true' || v === '1' || v === 'yes' || v === 'oui' || v === 'found') {
             return { field, operator: 'is', value: 'true' };
@@ -405,7 +439,7 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
         return null;
     }
 
-    if (ENUM_GEOCACHE_FIELDS.has(field)) {
+    if (kinds.enum?.has(field)) {
         const list = expr
             .split(',')
             .map(s => s.trim())
@@ -419,7 +453,7 @@ export function parseTokenExpression(field: string, exprRaw: string): TokenFilte
     // Dates : mêmes opérateurs que les numériques, mais l'opérande est une
     // année (`2020`), une année-mois (`2020-05`) ou une date ISO complète —
     // la comparaison se fait ensuite par préfixe sur la date de la cache.
-    if (DATE_GEOCACHE_FIELDS.has(field)) {
+    if (kinds.date?.has(field)) {
         const betweenIdx = expr.indexOf('<>');
         if (betweenIdx !== -1) {
             const a = expr.slice(0, betweenIdx).trim();

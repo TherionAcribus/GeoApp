@@ -170,6 +170,31 @@ function testFilterIgnoresCaseAndAccents(): void {
     assert.equal(filterTrackables(INVENTORY, '  ').length, 3);
 }
 
+/** Syntaxe `@champ:valeur` du tableau des géocaches, portée sur l'inventaire TB. */
+function testFilterTokenSyntaxMatchesGeocacheTable(): void {
+    const inv: InventoryTrackable[] = [
+        { reference_code: 'TBA', name: 'Pièce', type_name: 'Geocoin', owner_username: 'Alice', has_tracking_code: true, updated_at: '2026-09-01T10:00:00Z' },
+        { reference_code: 'TBB', name: 'Tag bagage', type_name: 'Travel Bug', owner_username: 'Bob', has_tracking_code: false, updated_at: '2026-01-15T10:00:00Z' },
+    ];
+    const codes = (list: InventoryTrackable[]): string[] => list.map(tb => tb.reference_code);
+    assert.deepEqual(codes(filterTrackables(inv, '@type:geocoin')), ['TBA']);
+    assert.deepEqual(codes(filterTrackables(inv, '@type:*coin*')), ['TBA']);
+    assert.deepEqual(codes(filterTrackables(inv, '@proprio:bo*')), ['TBB']);
+    assert.deepEqual(codes(filterTrackables(inv, '@code:=TBB')), ['TBB']);
+    assert.deepEqual(codes(filterTrackables(inv, '@suivi:oui')), ['TBA']);
+    assert.deepEqual(codes(filterTrackables(inv, '@suivi:non')), ['TBB']);
+    assert.deepEqual(codes(filterTrackables(inv, '@maj:>=2026-05')), ['TBA']);
+    assert.deepEqual(codes(filterTrackables(inv, '@maj:2026-01<>2026-05')), ['TBB']);
+    // Texte libre et tokens se combinent.
+    assert.deepEqual(codes(filterTrackables(inv, 'bagage @type:travel')), ['TBB']);
+    assert.deepEqual(codes(filterTrackables(inv, '@type:geocoin @suivi:non')), []);
+    // Clauses du panneau « Filtres supplémentaires » : même matcher.
+    assert.deepEqual(
+        codes(filterTrackables(inv, '', [{ id: 'c1', field: 'owner_username', operator: 'eq', value: 'alice' }])),
+        ['TBA'],
+    );
+}
+
 // -------------------------------------------- Plan figé et suivi des dépôts
 
 /** Lot GC1 (trouvée, cible du dépôt) puis GC3 (trouvée) — la cible est figée. */
@@ -394,6 +419,7 @@ testPayloadCarriesTrackablesOnlyWhenPresent();
 testSummaryLinesAndWarning();
 testPerCacheDescription();
 testFilterIgnoresCaseAndAccents();
+testFilterTokenSyntaxMatchesGeocacheTable();
 testSanitizeRestoredSelection();
 testPlanFreezesEntriesAndDropTargets();
 testConfirmedDropDisappearsFromLaterPayloads();

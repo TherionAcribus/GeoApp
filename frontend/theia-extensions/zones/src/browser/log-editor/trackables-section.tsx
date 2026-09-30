@@ -9,15 +9,19 @@
 
 import * as React from '@theia/core/shared/react';
 import { formatIsoDateTimeFr } from './helpers';
+import { GeocacheFilterBar } from '../geocache-filter-bar';
+import { AdvancedFilterClause } from '../geocache-filter-shared';
 import {
     InventoryTrackable,
     TRACKABLE_ACTION_LABELS,
+    TRACKABLE_FIELD_DEFINITIONS,
     TRACKABLE_QUICK_FILTERS,
     TrackableAction,
     TrackableDropResult,
     TrackableQuickFilter,
     TrackableSelectionSummary,
     filterTrackables,
+    normalizeTrackableFieldAlias,
     quickFilterTrackables,
     trackableUrl,
 } from './trackables';
@@ -40,12 +44,15 @@ export interface TrackablesSectionProps {
     notice?: string;
     lastSyncAt?: string | null;
     filter: string;
+    /** Clauses du panneau « Filtres supplémentaires » de la barre de recherche. */
+    filterClauses: AdvancedFilterClause[];
     quickFilter: TrackableQuickFilter;
     /** Bilan de la dernière action de masse, annulable tant qu'aucun autre choix n'a suivi. */
     bulkChange?: { count: number; action: TrackableAction };
     disabled: boolean;
     onToggleOpen: () => void;
     onFilterChange: (value: string) => void;
+    onFilterClausesChange: (clauses: AdvancedFilterClause[]) => void;
     onQuickFilterChange: (value: TrackableQuickFilter) => void;
     onActionChange: (code: string, action: TrackableAction) => void;
     onSetAll: (action: TrackableAction, codes: string[]) => void;
@@ -70,11 +77,11 @@ const FILTER_THRESHOLD = 8;
 export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
     const {
         inventory, actions, dropTargets, dropResults, dropCandidates, summary, isOpen, isLoading, error, notice,
-        lastSyncAt, filter, quickFilter, bulkChange, disabled,
+        lastSyncAt, filter, filterClauses, quickFilter, bulkChange, disabled,
     } = props;
-    const visible = filterTrackables(quickFilterTrackables(inventory, quickFilter, actions, dropResults), filter);
+    const visible = filterTrackables(quickFilterTrackables(inventory, quickFilter, actions, dropResults), filter, filterClauses);
     const headline = buildHeadline(inventory.length, summary, isLoading);
-    const isFiltered = quickFilter !== 'all' || filter.trim() !== '';
+    const isFiltered = quickFilter !== 'all' || filter.trim() !== '' || filterClauses.length > 0;
 
     return (
         <div className='geoapp-log-trackables'>
@@ -155,13 +162,15 @@ export const TrackablesSection: React.FC<TrackablesSectionProps> = props => {
                             )}
                         </div>
                         {inventory.length > FILTER_THRESHOLD && (
-                            <input
-                                className='theia-input geoapp-log-trackables__filter'
-                                type='search'
-                                placeholder='Filtrer (code, nom, type)…'
-                                aria-label='Filtrer les trackables'
-                                value={filter}
-                                onChange={e => props.onFilterChange(e.currentTarget.value)}
+                            <GeocacheFilterBar
+                                searchQuery={filter}
+                                advancedClauses={filterClauses}
+                                onSearchQueryChange={props.onFilterChange}
+                                onAdvancedClausesChange={props.onFilterClausesChange}
+                                fieldDefinitions={TRACKABLE_FIELD_DEFINITIONS}
+                                resolveField={normalizeTrackableFieldAlias}
+                                placeholder='Filtrer… (@champ:valeur, joker *)'
+                                disabled={disabled}
                             />
                         )}
                         <label className='geoapp-log-trackables__set-all'>

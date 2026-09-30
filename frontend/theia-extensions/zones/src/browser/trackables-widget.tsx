@@ -20,12 +20,16 @@ import { MessageService } from '@theia/core';
 import DOMPurify from '@theia/core/shared/dompurify';
 import '../../src/browser/style/trackables-widget.css';
 import { formatIsoDateTimeFr } from './log-editor/helpers';
+import { GeocacheFilterBar } from './geocache-filter-bar';
+import { AdvancedFilterClause } from './geocache-filter-shared';
 import { TrackablesTable } from './trackables-table';
 import {
     InventoryTrackable,
+    TRACKABLE_FIELD_DEFINITIONS,
     describeInventorySync,
     filterTrackables,
     geocacheUrl,
+    normalizeTrackableFieldAlias,
     trackableUrl,
 } from './log-editor/trackables';
 import {
@@ -68,6 +72,11 @@ const TRACKABLES_WIDGET_TABS: readonly { id: TrackablesWidgetTab; label: string 
 
 /** La copie locale est réinterrogée au-delà de cet âge — même politique que l'éditeur. */
 const TRACKABLE_INVENTORY_MAX_AGE_SECONDS = 900;
+
+/** Pastilles de la barre de filtre de l'inventaire — même mécanique que les presets des géocaches. */
+const TRACKABLE_FILTER_PRESETS = [
+    { id: 'known-tracking-code', label: 'Code de suivi connu', searchQuery: '@suivi:oui' },
+];
 
 interface InventoryState {
     loading: boolean;
@@ -141,6 +150,8 @@ export class TrackablesWidget extends ReactWidget {
     protected activeTab: TrackablesWidgetTab = 'inventory';
     protected inventory: InventoryState = { ...EMPTY_INVENTORY };
     protected inventoryFilter = '';
+    /** Clauses du panneau « Filtres supplémentaires » de la barre de recherche. */
+    protected inventoryFilterClauses: AdvancedFilterClause[] = [];
     /** Préremplissage des onglets à venir (lot 5.2 / 5.3 et actions du lot 4). */
     protected pendingLogContext: { code: string; action?: string; geocacheCode?: string } | undefined;
     protected pendingDetailCode: string | undefined;
@@ -752,17 +763,22 @@ export class TrackablesWidget extends ReactWidget {
 
     protected renderInventoryTab(): React.ReactNode {
         const inv = this.inventory;
-        const visible = filterTrackables(inv.trackables, this.inventoryFilter);
+        const visible = filterTrackables(inv.trackables, this.inventoryFilter, this.inventoryFilterClauses);
+        const filtered = this.inventoryFilter.trim() !== '' || this.inventoryFilterClauses.length > 0;
         return (
             <div className='geoapp-trackables-widget__panel' role='tabpanel'>
                 <div className='geoapp-trackables-widget__toolbar'>
-                    <input
-                        className='theia-input geoapp-trackables-widget__filter'
-                        type='search'
-                        placeholder='Rechercher (code, nom, type, propriétaire)…'
-                        aria-label='Rechercher un trackable'
-                        value={this.inventoryFilter}
-                        onChange={e => { this.inventoryFilter = e.currentTarget.value; this.update(); }}
+                    <GeocacheFilterBar
+                        searchQuery={this.inventoryFilter}
+                        advancedClauses={this.inventoryFilterClauses}
+                        onSearchQueryChange={v => { this.inventoryFilter = v; this.update(); }}
+                        onAdvancedClausesChange={clauses => { this.inventoryFilterClauses = clauses; this.update(); }}
+                        fieldDefinitions={TRACKABLE_FIELD_DEFINITIONS}
+                        resolveField={normalizeTrackableFieldAlias}
+                        presets={TRACKABLE_FILTER_PRESETS}
+                        placeholder='Rechercher… (@champ:valeur, joker *)'
+                        resultCount={filtered ? visible.length : undefined}
+                        resultLabel='trackable(s)'
                     />
                     {inv.lastSyncAt && (
                         <span
@@ -798,7 +814,7 @@ export class TrackablesWidget extends ReactWidget {
 
                 {inv.trackables.length > 0 && (
                     <>
-                        {this.inventoryFilter && (
+                        {filtered && (
                             <div className='geoapp-trackables-widget__count' aria-live='polite'>
                                 {visible.length} sur {inv.trackables.length}
                             </div>

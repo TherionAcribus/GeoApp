@@ -13,6 +13,15 @@
  * Voir documentation/trackables-technique.md.
  */
 
+import {
+    AdvancedFilterClause,
+    FieldDefinition,
+    FilterFieldKinds,
+    TokenFilter,
+    matchesSearchPattern,
+    normalizeSearchText,
+    parseSearchQuery,
+} from '../geocache-filter-shared';
 import { GeocacheListItem, LogTypeValue } from './types';
 
 export type TrackableAction = 'none' | 'visit' | 'drop';
@@ -347,14 +356,152 @@ export function describeTrackablesForGeocache(entries: TrackablePayloadEntry[]):
     return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
-/** Filtre de la liste : code, nom ou type, insensible à la casse et aux accents. */
-export function filterTrackables(inventory: InventoryTrackable[], query: string): InventoryTrackable[] {
-    const needle = normalizeForSearch(query);
-    if (!needle) {
-        return inventory;
+/**
+ * Champs filtrables d'un TB en main — même syntaxe que le tableau des
+ * géocaches (`@champ:valeur`, joker `*`, panneau « Filtres supplémentaires »).
+ * Les libellés sont réutilisés par la barre de filtre (autocomplétion,
+ * éditeur de clauses).
+ */
+export const TRACKABLE_FIELD_DEFINITIONS: FieldDefinition[] = [
+    { field: 'reference_code', label: 'Code', kind: 'text' },
+    { field: 'name', label: 'Nom', kind: 'text' },
+    { field: 'type_name', label: 'Type', kind: 'text' },
+    { field: 'owner_username', label: 'Propriétaire', kind: 'text' },
+    { field: 'has_tracking_code', label: 'Code de suivi connu', kind: 'boolean' },
+    { field: 'updated_at', label: 'Relevé le', kind: 'date' },
+];
+
+/** Alias saisis (`@code:`, `@proprio:`, `@suivi:`) → champ canonique. */
+const TRACKABLE_FIELD_ALIASES: Record<string, string> = {
+    code: 'reference_code',
+    tb: 'reference_code',
+    reference_code: 'reference_code',
+    nom: 'name',
+    name: 'name',
+    titre: 'name',
+    type: 'type_name',
+    type_name: 'type_name',
+    owner: 'owner_username',
+    proprietaire: 'owner_username',
+    proprio: 'owner_username',
+    owner_username: 'owner_username',
+    suivi: 'has_tracking_code',
+    tracking: 'has_tracking_code',
+    has_tracking_code: 'has_tracking_code',
+    maj: 'updated_at',
+    releve: 'updated_at',
+    updated_at: 'updated_at',
+};
+
+const TRACKABLE_FIELD_KINDS: FilterFieldKinds = {
+    boolean: new Set(['has_tracking_code']),
+    date: new Set(['updated_at']),
+};
+
+/** Résolution `@alias:` pour l'autocomplétion de la barre de filtre. */
+export function normalizeTrackableFieldAlias(raw: string): string | null {
+    const key = normalizeSearchText(raw.trim());
+    return key ? TRACKABLE_FIELD_ALIASES[key] ?? null : null;
+}
+
+/** `parseSearchQuery` branché sur les alias/familles trackables. */
+export function parseTrackableSearchQuery(input: string): { freeText: string; tokenFilters: TokenFilter[] } {
+    return parseSearchQuery(input, { aliases: TRACKABLE_FIELD_ALIASES, kinds: TRACKABLE_FIELD_KINDS });
+}
+
+function trackableFieldValue(tb: InventoryTrackable, field: string): unknown {
+    switch (field) {
+        case 'reference_code': return tb.reference_code;
+        case 'name': return tb.name;
+        case 'type_name': return tb.type_name;
+        case 'owner_username': return tb.owner_username;
+        case 'has_tracking_code': return tb.has_tracking_code;
+        case 'updated_at': return tb.updated_at;
+        default: return undefined;
     }
-    return inventory.filter(tb => [tb.reference_code, tb.name, tb.type_name, tb.owner_username]
-        .some(value => normalizeForSearch(value ?? '').includes(needle)));
+}
+
+/** Une clause (token `@…` ou ligne du panneau « filtres ») contre un TB. */
+export function matchesTrackableClause(tb: InventoryTrackable, clause: TokenFilter): boolean {
+    const op = clause.operator;
+    const raw = trackableFieldValue(tb, clause.field);
+    if (raw === undefined) {
+        // Champ inconnu : ne pas exclure silencieusement tous les TBs.
+        return true;
+    }
+
+    if (clause.field === 'has_tracking_code') {
+        if (op !== 'is') {
+            return true;
+        }
+        const actual = Boolean(raw);
+        return clause.value === 'true' ? actual : clause.value === 'false' ? !actual : true;
+    }
+
+    if (clause.field === 'updated_at') {
+        // Même comparaison par préfixe ISO que les dates des géocaches :
+        // `@maj:>=2026-09` garde les TBs relevés depuis septembre 2026.
+        const actual = String(raw ?? '');
+        if (!/^\d{4}-\d{2}-\d{2}/.test(actual)) {
+            return op === 'neq';
+        }
+        if (op === 'between') {
+            const v1 = clause.value ?? '';
+            const v2 = clause.value2 ?? '';
+            return v1 && v2
+                ? actual.slice(0, v1.length) >= v1 && actual.slice(0, v2.length) <= v2
+                : true;
+        }
+        const w = clause.value ?? '';
+        if (!w) {
+            return true;
+        }
+        const p = actual.slice(0, w.length);
+        switch (op) {
+            case 'eq': return p === w;
+            case 'neq': return p !== w;
+            case 'gte': return p >= w;
+            case 'gt': return p > w;
+            case 'lte': return p <= w;
+            case 'lt': return p < w;
+            default: return true;
+        }
+    }
+
+    const wanted = (clause.value ?? '').toString();
+    if (!normalizeSearchText(wanted) && (op === 'contains' || op === 'not_contains' || op === 'eq' || op === 'neq')) {
+        return true;
+    }
+    switch (op) {
+        case 'contains': return matchesSearchPattern(raw, wanted, 'contains');
+        case 'not_contains': return !matchesSearchPattern(raw, wanted, 'contains');
+        case 'eq': return matchesSearchPattern(raw, wanted, 'equals');
+        case 'neq': return !matchesSearchPattern(raw, wanted, 'equals');
+        default: return true;
+    }
+}
+
+/**
+ * Filtre de la liste : texte libre (code, nom, type, propriétaire — insensible
+ * casse/accents) plus les tokens `@champ:…` et les clauses du panneau
+ * « Filtres supplémentaires », comme le tableau des géocaches.
+ */
+export function filterTrackables(
+    inventory: InventoryTrackable[],
+    query: string,
+    clauses: AdvancedFilterClause[] = []
+): InventoryTrackable[] {
+    const { freeText, tokenFilters } = parseTrackableSearchQuery(query ?? '');
+    let result = inventory;
+    const needle = normalizeForSearch(freeText);
+    if (needle) {
+        result = result.filter(tb => [tb.reference_code, tb.name, tb.type_name, tb.owner_username]
+            .some(value => normalizeForSearch(value ?? '').includes(needle)));
+    }
+    for (const clause of [...tokenFilters, ...clauses]) {
+        result = result.filter(tb => matchesTrackableClause(tb, clause));
+    }
+    return result;
 }
 
 /** Filtres rapides par état : action choisie, ou dépôt dont le résultat reste à vérifier. */
