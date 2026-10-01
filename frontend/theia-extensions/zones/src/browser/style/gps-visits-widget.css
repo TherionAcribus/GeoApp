@@ -22,7 +22,7 @@
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.geoapp-gps-visits__header.is-drag-over {
+.geoapp-gps-visits.is-drag-over {
     outline: 1px dashed var(--theia-focusBorder);
     outline-offset: -2px;
     background: var(--theia-list-dropBackground, var(--theia-input-background));

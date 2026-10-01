@@ -151,6 +151,11 @@ export class BackendApiClient {
         const payload = await response.text();
         const text = payload.trim();
 
+        // Page d'erreur HTML de Flask (route inconnue, 500 sans JSON) : jamais affichée telle quelle.
+        if (/^<(!doctype|html)/i.test(text)) {
+            return new BackendApiError(response.status, fallbackMessage ? `${fallbackMessage} (${statusMessage})` : statusMessage);
+        }
+
         if (text) {
             try {
                 const parsed = JSON.parse(text) as Record<string, unknown>;

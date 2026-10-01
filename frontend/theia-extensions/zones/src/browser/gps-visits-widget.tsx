@@ -23,6 +23,7 @@ import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager
 import { ZoneDto, ZonesService } from './zones-service';
 import { consumeImportStream } from './import-stream';
 import { GpsVisitsService } from './gps-visits-service';
+import { BackendApiError } from './backend-api-client';
 import {
     DetectedVisitsFile,
     GPS_STATUS_LABELS,
@@ -218,11 +219,20 @@ export class GpsVisitsWidget extends ReactWidget {
         try {
             this.listing = await this.service.list(this.showAllStates ? ['pending', 'logged', 'ignored'] : ['pending']);
         } catch (e) {
-            this.error = e instanceof Error ? e.message : String(e);
+            this.error = this.describeError(e);
         } finally {
             this.loading = false;
             this.update();
         }
+    }
+
+    /** Une route inconnue (404 sans JSON) signifie un backend lancé avant la mise à jour. */
+    protected describeError(e: unknown): string {
+        if (e instanceof BackendApiError && e.status === 404 && /HTTP 404/.test(e.message)) {
+            return 'Le backend en cours d\'exécution ne connaît pas encore les visites GPS : '
+                + 'redémarre-le (backend/app.py), puis recharge cette vue.';
+        }
+        return e instanceof Error ? e.message : String(e);
     }
 
     protected async runBusy<T>(action: BusyAction, task: () => Promise<T>): Promise<T | undefined> {
@@ -234,7 +244,7 @@ export class GpsVisitsWidget extends ReactWidget {
         try {
             return await task();
         } catch (e) {
-            this.messages.error(e instanceof Error ? e.message : String(e));
+            this.messages.error(this.describeError(e));
             return undefined;
         } finally {
             this.busy = undefined;
@@ -504,20 +514,28 @@ export class GpsVisitsWidget extends ReactWidget {
     /* ------------------------------------------------------------------ dépôt */
 
     protected onDragOver = (e: React.DragEvent): void => {
+        // Sans ça, Theia ouvre le fichier déposé dans un éditeur.
         e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
         if (!this.dragOver) {
             this.dragOver = true;
             this.update();
         }
     };
 
-    protected onDragLeave = (): void => {
+    protected onDragLeave = (e: React.DragEvent): void => {
+        // Quitter un enfant déclenche aussi `dragleave` : on ignore tant qu'on reste dans le widget.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            return;
+        }
         this.dragOver = false;
         this.update();
     };
 
     protected onDrop = (e: React.DragEvent): void => {
         e.preventDefault();
+        e.stopPropagation();
         this.dragOver = false;
         const file = e.dataTransfer.files && e.dataTransfer.files[0];
         if (file) {
@@ -539,7 +557,13 @@ export class GpsVisitsWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         return (
-            <div className='geoapp-gps-visits'>
+            <div
+                className={`geoapp-gps-visits${this.dragOver ? ' is-drag-over' : ''}`}
+                onDragEnter={this.onDragOver}
+                onDragOver={this.onDragOver}
+                onDragLeave={this.onDragLeave}
+                onDrop={this.onDrop}
+            >
                 {this.renderHeader()}
                 {this.cutoffPrompt && this.renderCutoffPrompt(this.cutoffPrompt)}
                 {this.prepareState && this.renderPreparePanel(this.prepareState)}
@@ -554,10 +578,7 @@ export class GpsVisitsWidget extends ReactWidget {
         const busy = this.busy !== undefined;
         return (
             <div
-                className={`geoapp-gps-visits__header${this.dragOver ? ' is-drag-over' : ''}`}
-                onDragOver={this.onDragOver}
-                onDragLeave={this.onDragLeave}
-                onDrop={this.onDrop}
+                className='geoapp-gps-visits__header'
             >
                 <div className='geoapp-gps-visits__actions'>
                     <button className='theia-button' disabled={busy} onClick={() => { void this.detectGps(); }}
