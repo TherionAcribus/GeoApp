@@ -524,3 +524,43 @@ Tests :
 - `backend/tests/test_gps_visit_resolution.py` (faux client de recherche et fausses
   fiches) ;
 - `tests/gps-visits-model.test.ts`.
+
+## 11. Finitions
+
+### 11.1 Pattern `@visit_time`
+
+[pattern-resolver.ts](../frontend/theia-extensions/zones/src/browser/log-editor/pattern-resolver.ts) :
+`PatternResolutionContext.perCacheVisitTime`, rempli par l'éditeur depuis le prefill GPS
+(`perCacheVisit[id].time`).
+
+- Valeur : « 10h32 » (`formatVisitTime`).
+- Sans heure, `[visit_time]` : cas d'un texte commun sans cache précise, ou d'un onglet
+  qui ne vient pas du GPS. Comme pour `[cache_name]`, le trou reste visible dans
+  l'aperçu.
+- `perCacheVisitTime` entre dans `getPatternResolutionSignature`. La référence est
+  calculée une fois par onglet, dans `setContext`, pour ne pas invalider le cache de
+  résolution à chaque frappe.
+- Documenté au §9.2 de `docs/LOGS_SYSTEM_TECHNICAL.md`.
+
+### 11.2 Détection au branchement
+
+Tant que le widget est visible (`onAfterShow` / `onAfterHide`), `detect` est appelé
+toutes les 10 s. Le premier passage sert de référence : un GPS déjà branché à l'ouverture
+ne déclenche rien, et « Détecter le GPS » sert à ce cas. Un fichier qui apparaît déclenche
+une notification « GPS détecté : H:\Garmin\geocache_visits.txt » avec le bouton
+« Importer les visites ».
+
+### 11.3 Fuseau horaire
+
+Préférence `geoApp.gpsVisits.timezone` (texte, avancée, cible backend, catégorie Logs,
+section « Visites GPS ») :
+- vide : fuseau de l'OS ;
+- sinon nom IANA (« America/Montreal »), via `zoneinfo` ;
+- un nom invalide est journalisé et retombe sur le fuseau de l'OS.
+
+`tzdata==2026.4` est ajouté à `requirements.txt` : sous Windows, `zoneinfo` n'a pas de
+base de fuseaux sans lui. Point d'entrée unique : `gps_visit_store.get_local_tz()`.
+
+Tests :
+- `backend/tests/test_gps_visits_timezone.py` ;
+- `tests/pattern-visit-time.test.ts`.

@@ -52,6 +52,9 @@ import {
 
 type BusyAction = 'detect' | 'import' | 'cutoff' | 'state' | 'prepare' | 'resolve';
 
+/** Intervalle de la détection au branchement, quand le widget est visible. */
+const GPS_WATCH_INTERVAL_MS = 10_000;
+
 /** Panneau « Rattacher » d'une visite sans code. */
 interface ResolveState {
     entry: GpsVisitEntry;
@@ -127,6 +130,74 @@ export class GpsVisitsWidget extends ReactWidget {
     }
 
     protected reloadTimer: number | undefined;
+
+    /* --------------------------------------------- détection au branchement */
+
+    /** Fichiers vus au dernier passage : `undefined` tant que le premier passage n'a pas eu lieu. */
+    protected knownGpsPaths: Set<string> | undefined;
+    protected detectTimer: number | undefined;
+
+    protected onAfterShow(msg: any): void {
+        super.onAfterShow(msg);
+        this.startGpsWatch();
+    }
+
+    protected onAfterHide(msg: any): void {
+        super.onAfterHide(msg);
+        this.stopGpsWatch();
+    }
+
+    protected onBeforeDetach(msg: any): void {
+        this.stopGpsWatch();
+        super.onBeforeDetach(msg);
+    }
+
+    /**
+     * Interroge `detect` toutes les 10 s tant que le widget est visible. Le premier
+     * passage sert de référence : un GPS déjà branché à l'ouverture ne déclenche rien
+     * (« Détecter le GPS » est là pour ça). Seule une apparition propose l'import.
+     */
+    protected startGpsWatch(): void {
+        if (this.detectTimer !== undefined) {
+            return;
+        }
+        void this.checkForNewGps();
+        this.detectTimer = window.setInterval(() => { void this.checkForNewGps(); }, GPS_WATCH_INTERVAL_MS);
+    }
+
+    protected stopGpsWatch(): void {
+        if (this.detectTimer !== undefined) {
+            window.clearInterval(this.detectTimer);
+            this.detectTimer = undefined;
+        }
+        this.knownGpsPaths = undefined;
+    }
+
+    protected async checkForNewGps(): Promise<void> {
+        if (this.busy) {
+            return;
+        }
+        let files: DetectedVisitsFile[];
+        try {
+            files = await this.service.detect();
+        } catch {
+            return;
+        }
+        const paths = new Set(files.map(f => f.path));
+        const previous = this.knownGpsPaths;
+        this.knownGpsPaths = paths;
+        if (!previous) {
+            return;
+        }
+        const appeared = files.filter(f => !previous.has(f.path));
+        if (appeared.length === 0) {
+            return;
+        }
+        const action = await this.messages.info(`GPS détecté : ${appeared[0].path}`, 'Importer les visites');
+        if (action === 'Importer les visites') {
+            await this.importPath(appeared[0].path);
+        }
+    }
 
     protected scheduleReload(): void {
         window.clearTimeout(this.reloadTimer);

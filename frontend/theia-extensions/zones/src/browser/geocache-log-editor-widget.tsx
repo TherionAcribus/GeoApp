@@ -240,6 +240,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected prefill: LogEditorPrefill | undefined;
     /** Ce que le GPS a noté, par géocache : aide-mémoire du tableau et des blocs. */
     protected gpsVisits: Record<number, GpsVisitHint> = {};
+    /** Heures de visite pour `@visit_time` : référence stable, elle entre dans la signature du cache de résolution. */
+    protected perCacheVisitTime: Record<number, string> = {};
     /** Signalements (Needs Maintenance / Needs Archived) : un second log par cache, après le log principal. */
     protected perCacheProblem: Record<number, ProblemReport> = {};
     protected perCacheProblemStatus: Record<number, ProblemSubmitStatus> = {};
@@ -1145,6 +1147,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.geocacheIds = Array.from(new Set(ids));
         this.prefill = params.prefill;
         this.gpsVisits = params.prefill?.perCacheVisit ?? {};
+        this.perCacheVisitTime = Object.fromEntries(
+            Object.entries(this.gpsVisits).map(([id, visit]) => [Number(id), visit.time])
+        );
         this.perCacheProblem = {};
         this.perCacheProblemStatus = {};
         this.perCacheProblemReference = {};
@@ -1945,6 +1950,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             userFindsCount: this.userFindsCount,
             logDate: this.logDate,
             customPatterns: this.customPatterns,
+            perCacheVisitTime: this.perCacheVisitTime,
         };
     }
 

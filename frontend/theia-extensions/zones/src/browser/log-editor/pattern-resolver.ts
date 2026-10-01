@@ -18,6 +18,8 @@ export interface PatternResolutionContext {
     userFindsCount: number;
     logDate: string;
     customPatterns: LogTextPattern[];
+    /** Heure de visite notée par le GPS (HH:MM), par géocache : onglets ouverts depuis les visites GPS. */
+    perCacheVisitTime?: Record<number, string>;
 }
 
 /** Patterns intégrés, toujours disponibles sans configuration. */
@@ -28,6 +30,7 @@ export function getBuiltinPatterns(): LogTextPattern[] {
         { id: 'builtin-cache_name', name: 'cache_name', content: '', isBuiltin: true },
         { id: 'builtin-cache_owner', name: 'cache_owner', content: '', isBuiltin: true },
         { id: 'builtin-gc_code', name: 'gc_code', content: '', isBuiltin: true },
+        { id: 'builtin-visit_time', name: 'visit_time', content: '', isBuiltin: true },
     ];
 }
 
@@ -60,6 +63,12 @@ export function getCacheCountForIndex(geocacheIndex: number, context: PatternRes
     return context.userFindsCount + foundCountBefore + 1;
 }
 
+/** « 10:32 » → « 10h32 », comme on l'écrit dans un log. */
+export function formatVisitTime(time: string): string {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+    return match ? `${match[1]}h${match[2]}` : time;
+}
+
 /** Valeur de remplacement d'un @pattern pour une géocache donnée. */
 export function resolvePatternValue(
     patternName: string,
@@ -83,6 +92,10 @@ export function resolvePatternValue(
             return geocache?.owner ?? '[cache_owner]';
         case 'gc_code':
             return geocache?.gc_code ?? '[gc_code]';
+        case 'visit_time': {
+            const time = geocache ? context.perCacheVisitTime?.[geocache.id] : undefined;
+            return time ? formatVisitTime(time) : '[visit_time]';
+        }
         default: {
             const custom = context.customPatterns.find(p => p.name === patternName);
             return custom?.content ?? `@${patternName}`;
@@ -103,6 +116,7 @@ export function getPatternResolutionSignature(context: PatternResolutionContext)
         context.logType,
         context.userFindsCount,
         context.logDate,
+        context.perCacheVisitTime,
     ];
 }
 

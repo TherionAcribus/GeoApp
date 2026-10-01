@@ -431,6 +431,7 @@ Le système de patterns permet d'insérer des éléments dynamiques dans le text
 | `@cache_name` | Nom de la géocache | La cache mystère |
 | `@cache_owner` | Nom du propriétaire de la cache | GeoMaster |
 | `@gc_code` | Code GC de la cache | GC12345 |
+| `@visit_time` | Heure de visite notée par le GPS (onglet ouvert depuis « Visites GPS ») ; `[visit_time]` sinon | 10h32 |
 
 ### 9.3 Calcul du cache_count
 

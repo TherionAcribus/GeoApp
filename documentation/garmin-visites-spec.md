@@ -347,10 +347,11 @@ choisit, saisit un code à la main, ou ignore.
 - **Coût réseau** : une recherche par visite sans code. Tout rattachement est déclenché
   par l'utilisateur, jamais un balayage des 367 visites d'un coup.
 
-### Lot 7 (optionnel) : finitions
+### Lot 7 (optionnel) : finitions — livré le 2026-10-01
 
 - **Pattern `@visit_time`** dans l'éditeur, qui insère l'heure de visite du GPS
-  (« trouvée à 10h32 »). Il est vide hors prefill GPS. À documenter avec les autres
+  (« trouvée à 10h32 »). Hors prefill GPS, il affiche `[visit_time]`, comme les autres
+  patterns sans valeur (choix d'implémentation : un vide passerait inaperçu). À documenter avec les autres
   patterns (§9 de `LOGS_SYSTEM_TECHNICAL.md`).
 - **Détection au branchement** : pendant que le widget est ouvert, `detect` est appelé
   toutes les 10 s. Quand un GPS apparaît, une notification propose « Importer les
@@ -364,16 +365,22 @@ choisit, saisit un code à la main, ou ignore.
 
 | Rôle | Fichier |
 |---|---|
-| Lecteur du fichier | `backend/gc_backend/services/garmin_visits.py` (nouveau) |
-| Endpoints visites | `backend/gc_backend/blueprints/gps_visits.py` (nouveau) |
-| Modèle `GpsVisit` | `backend/gc_backend/models.py` ou `geocaches/models.py`, à côté de `Trackable` |
+| Lecteur du fichier | `backend/gc_backend/services/garmin_visits.py` |
+| Mémoire des visites | `backend/gc_backend/services/gps_visit_store.py` |
+| Rattachement | `backend/gc_backend/services/gps_visit_resolution.py` |
+| Signalements | `backend/gc_backend/services/log_problems.py` |
+| Endpoints visites | `backend/gc_backend/blueprints/gps_visits.py` |
+| Modèle `GpsVisit` | `backend/gc_backend/models.py`, à côté de `Trackable` |
 | Import par code (réutilisé) | `backend/gc_backend/blueprints/geocaches.py` (`/api/geocaches/add`, `import-bookmark-list`) |
 | Envoi des logs | `backend/gc_backend/blueprints/logs.py` (`submit_geocache_log`, `_store_submitted_log`), `services/geocaching_submit_logs.py` |
 | Recherche web | `backend/gc_backend/services/geocaching_friend_finds.py` (`search_finds_by`, `search_summaries`) |
-| Widget | `frontend/theia-extensions/zones/src/browser/gps-visits-widget.tsx` (nouveau) |
+| Widget | `frontend/theia-extensions/zones/src/browser/gps-visits-widget.tsx`, `gps-visits-model.ts`, `gps-visits-service.ts` |
+| Flux d'import partagé | `frontend/theia-extensions/zones/src/browser/import-stream.ts` |
+| Signalements (éditeur) | `log-editor/problem-report.ts`, `log-editor/problem-reports-section.tsx` |
 | Registre des vues | `frontend/theia-extensions/zones/src/browser/sidebar/geoapp-sidebar-views.ts` |
 | Ouverture de l'éditeur | `geocache-log-editor-tabs-manager.ts`, `geocache-log-editor-widget.tsx` (`setContext`, `initializeSession`) |
-| Types de l'éditeur | `log-editor/types.ts` (`LogDraft` v3, `LogHistoryEntry`, `ProblemReport`) |
+| Types de l'éditeur | `log-editor/types.ts` (`LogEditorPrefill`, `GpsVisitHint`, `ProblemReport`, `LogDraft.problems`) |
+| Patterns | `log-editor/pattern-resolver.ts` (`@visit_time`) |
 | Récapitulatif d'envoi | `log-editor/log-submit-service.ts`, `log-editor/submission-orchestrator.ts` |
 
 ## Vérification

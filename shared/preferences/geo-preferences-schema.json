@@ -2526,6 +2526,34 @@
         "trackables"
       ]
     },
+    "geoApp.gpsVisits.timezone": {
+      "type": "string",
+      "default": "",
+      "title": "Fuseau horaire des visites GPS",
+      "description": "Le GPS note ses visites en heure UTC ; la date du log se calcule dans ce fuseau (nom IANA, par exemple Europe/Paris ou America/Montreal). Vide : fuseau de l'ordinateur. Utile pour loguer au retour d'un voyage.",
+      "x-ui": {
+        "section": "Visites GPS",
+        "label": "Fuseau horaire des visites",
+        "advanced": true,
+        "order": 90,
+        "keywords": [
+          "garmin",
+          "gps",
+          "visites",
+          "fuseau",
+          "timezone",
+          "heure"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "backend"
+      ],
+      "x-tags": [
+        "logs",
+        "gps"
+      ]
+    },
     "geoApp.logs.problemTexts": {
       "type": "object",
       "default": {},

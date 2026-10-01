@@ -47,9 +47,27 @@ USER_SETTABLE_STATES = ('pending', 'logged', 'ignored')
 DEFAULT_MAX_DAYS = 90
 
 
+TIMEZONE_PREF = 'geoApp.gpsVisits.timezone'
+
+
 def get_local_tz() -> Optional[tzinfo]:
-    """Fuseau des dates de log. ``None`` = celui de l'OS, sur lequel tourne le backend."""
-    return None
+    """
+    Fuseau des dates de log : la préférence ``geoApp.gpsVisits.timezone`` (nom IANA,
+    ex. « Europe/Paris ») si elle est renseignée, sinon ``None`` = celui de l'OS, sur
+    lequel tourne le backend. Utile pour loguer au retour d'un voyage.
+    """
+    from ..utils.preferences import get_value_or_default
+
+    name = str(get_value_or_default(TIMEZONE_PREF, '') or '').strip()
+    if not name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(name)
+    except Exception as exc:  # noqa: BLE001 - un nom invalide ne doit pas bloquer les visites
+        logger.warning("Fuseau « %s » inconnu, fuseau de l'OS utilisé : %s", name, exc)
+        return None
 
 
 @dataclass
