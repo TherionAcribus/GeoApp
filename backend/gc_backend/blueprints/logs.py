@@ -35,6 +35,7 @@ from ..services.geocaching_logs import (
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient, LogSubmitNetworkError
 from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
 from ..services import gps_visit_store, trackable_store
+from ..services.log_problems import PROBLEM_CATEGORIES, PROBLEM_LOG_TYPE_LABELS, validate_problem
 
 bp = Blueprint('logs', __name__)
 logger = logging.getLogger(__name__)
@@ -346,7 +347,10 @@ _LOCAL_LOG_ID_PREFIX = 'GL'
 
 # Libellés Geocaching.com des types de log qu'on sait soumettre, pour repasser par
 # la même normalisation que les logs rafraîchis (`Found`, `Did Not Find`, `Note`).
-_LOG_TYPE_LABELS = {2: 'Found it', 3: "Didn't find it", 4: 'Write note', 11: 'Webcam Photo Taken'}
+_LOG_TYPE_LABELS = {
+    2: 'Found it', 3: "Didn't find it", 4: 'Write note', 11: 'Webcam Photo Taken',
+    **PROBLEM_LOG_TYPE_LABELS,
+}
 
 # Types de log qui valent trouvaille. Une Webcam ne se logue pas « Found it »
 # (Geocaching.com répond 422 « Cannot log FoundIt on Webcam geocaches ») mais
@@ -674,6 +678,10 @@ def submit_geocache_log(geocache_id: int):
                 "didnt find it": 3,
                 'note': 4,
                 'write note': 4,
+                'needs_maintenance': 45,
+                'needs maintenance': 45,
+                'needs_archived': 7,
+                'needs archived': 7,
             }
             resolved_log_type_id = mapping.get(key)
         else:
@@ -811,6 +819,107 @@ def submit_geocache_log(geocache_id: int):
 
     except Exception as e:  # pragma: no cover
         logger.error('Error submitting log for geocache %s: %s', geocache_id, e)
+        db.session.rollback()
+        raise
+
+
+#: Borne du texte d'un signalement (même limite que le texte d'un log).
+_MAX_PROBLEM_TEXT_LENGTH = 4000
+
+
+@bp.post('/api/geocaches/<int:geocache_id>/logs/report-problem')
+def report_geocache_problem(geocache_id: int):
+    """
+    Signale un problème (Needs Maintenance / Needs Archived) : un second log, distinct
+    du log principal, comme c:geo.
+
+    Corps : ``{"category": "<code c:geo>", "text": "…", "date": "AAAA-MM-JJ",
+    "main_log_type": "found|dnf|note|skip"}``. L'éditeur l'appelle après un log
+    principal réussi (ou seul, quand la cache est en « Ne pas loguer »). Pas de nouvel
+    essai automatique côté client : rien ne garantit qu'un doublon de signalement
+    serait refusé, une issue incertaine (``UNKNOWN_REMOTE_OUTCOME``) se vérifie à la main.
+    """
+    try:
+        geocache = Geocache.query.get(geocache_id)
+        if not geocache:
+            return jsonify({'error': 'Geocache not found'}), 404
+        gc_code = geocache.gc_code
+        if not gc_code:
+            return jsonify({'error': 'Geocache has no GC code'}), 400
+
+        data = request.get_json(silent=True) or {}
+        category_code = data.get('category')
+        if not isinstance(category_code, str) or category_code not in PROBLEM_CATEGORIES:
+            return jsonify({'error': 'Unknown problem category', 'error_code': 'INVALID_PROBLEM'}), 400
+        text = data.get('text')
+        if not isinstance(text, str) or not text.strip():
+            return jsonify({'error': 'Missing problem text', 'error_code': 'INVALID_PROBLEM'}), 400
+        if len(text) > _MAX_PROBLEM_TEXT_LENGTH:
+            return jsonify({'error': 'Problem text too long', 'error_code': 'INVALID_PROBLEM'}), 400
+        raw_date = data.get('date')
+        try:
+            visited_date: date_type = datetime.strptime(str(raw_date or '').strip(), '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format (expected YYYY-MM-DD)'}), 400
+        main_log_type = data.get('main_log_type')
+        main_log_type = main_log_type.strip().lower() if isinstance(main_log_type, str) else None
+
+        problem_error = validate_problem(category_code, main_log_type, geocache.type)
+        if problem_error:
+            return jsonify({'error': problem_error, 'error_code': 'INVALID_PROBLEM'}), 400
+
+        category = PROBLEM_CATEGORIES[category_code]
+        client = GeocachingSubmitLogsClient()
+        try:
+            result = client.submit_geocache_log(
+                gc_code,
+                log_type_id=category.log_type_id,
+                log_text=text,
+                visited_date=visited_date,
+            )
+        except LogSubmitNetworkError as e:
+            error_code = ('UNKNOWN_REMOTE_OUTCOME' if e.outcome == 'unknown_remote_outcome'
+                          else 'NETWORK_FAILED_BEFORE_RESPONSE')
+            return jsonify({
+                'error': 'Problem report interrupted by a network error',
+                'error_code': error_code,
+            }), 502
+        if not result:
+            return jsonify({'error': 'Failed to submit problem report to Geocaching.com'}), 502
+        if not isinstance(result, dict) or not result.get('logReferenceCode'):
+            return jsonify({
+                'error': 'Geocaching.com did not return a logReferenceCode',
+                'error_code': 'GC_MISSING_LOG_REFERENCE',
+                'gc_response': result,
+            }), 502
+
+        log_reference_code = result.get('logReferenceCode')
+        stored_log = _store_submitted_log(
+            geocache,
+            log_reference_code=log_reference_code,
+            text=text,
+            visited_date=visited_date,
+            log_type_id=category.log_type_id,
+            used_favorite_point=False,
+        )
+        try:
+            gps_visit_store.mark_nm_logged(gc_code, visited_date, log_reference_code,
+                                           tz=gps_visit_store.get_local_tz())
+        except Exception as e:  # pragma: no cover - mise à jour best-effort
+            logger.warning('Could not record problem report on GPS visits for %s: %s', gc_code, e)
+            db.session.rollback()
+
+        return jsonify({
+            'geocache_id': geocache_id,
+            'gc_code': gc_code,
+            'submitted': True,
+            'category': category_code,
+            'log_type_id': category.log_type_id,
+            'log_reference_code': log_reference_code,
+            'log': stored_log.to_dict() if stored_log else None,
+        })
+    except Exception as e:  # pragma: no cover
+        logger.error('Error reporting a problem for geocache %s: %s', geocache_id, e)
         db.session.rollback()
         raise
 

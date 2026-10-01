@@ -92,8 +92,9 @@ Les catégories `logFull`, `logWet` et `damaged` ne sont pas proposées pour une
 **À vérifier en réel au lot 5, sans jamais créer de faux signalement** : un NM est public
 et notifie le propriétaire, aucun test ne doit donc en poster pour voir. Deux vérifications
 sans effet de bord :
-1. lire le `__NEXT_DATA__` de `/live/geocache/{GC}/log` (déjà exploité pour les TBs) pour
-   confirmer que 45 et 7 figurent dans les types de log autorisés ;
+1. ~~lire le `__NEXT_DATA__` de `/live/geocache/{GC}/log` (déjà exploité pour les TBs) pour
+   confirmer que 45 et 7 figurent dans les types de log autorisés~~ **Fait le 2026-10-01** :
+   `GC7RK9H` annonce `"logTypes":[{"value":2},{"value":3},{"value":4},{"value":45},{"value":7}]` ;
 2. au prochain vrai signalement de l'utilisateur, faire l'envoi depuis l'App, puis
    contrôler le log obtenu sur la page de la cache.
 
@@ -250,7 +251,18 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
   « Marquer comme loguée » la sort de la liste. Rien d'automatique : `found_date` peut dater
   d'une autre visite.
 
-### Lot 5 : signaler un problème (NM / NA) dans l'éditeur de logs
+### Lot 5 : signaler un problème (NM / NA) dans l'éditeur de logs — livré le 2026-10-01
+
+> **Écarts à la mise en œuvre** :
+> - le signalement passe par un endpoint séparé, `POST /api/geocaches/<id>/logs/report-problem`,
+>   et non par un champ de `logs/submit`. Une reprise renvoie ainsi seulement ce qui manque
+>   (log principal parti, NM en échec). L'ordre « principal d'abord » est tenu par la
+>   boucle d'envoi de l'éditeur. **Aucun nouvel essai automatique** du NM : une issue
+>   incertaine passe en « à vérifier » ;
+> - le brouillon garde `LogDraft` en version 2, avec un champ facultatif `problems` (sans
+>   changement de sens des champs existants, pas besoin de version 3) ;
+> - la saisie se fait dans une section « Signaler un problème » sous le tableau (valable
+>   en mode texte commun comme par cache), plutôt que dans chaque bloc de cache.
 
 Ce lot sert à **tous** les logs, pas seulement à ceux qui viennent du GPS.
 

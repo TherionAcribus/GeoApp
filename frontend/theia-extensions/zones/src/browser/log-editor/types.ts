@@ -49,6 +49,31 @@ export interface AiRewriteJob {
 
 export type SubmissionStatus = 'ok' | 'failed' | 'skipped';
 
+/** Catégories de signalement, codes de c:geo (`ReportProblemType`). */
+export type ProblemCategory = 'needsMaintenance' | 'logFull' | 'logWet' | 'damaged' | 'missing' | 'other' | 'archive';
+
+/**
+ * Signalement d'un problème sur une cache : un second log (Needs Maintenance ou
+ * Needs Archived), envoyé après le log principal, à la même date.
+ */
+export interface ProblemReport {
+    category: ProblemCategory;
+    text: string;
+}
+
+/**
+ * Issue de l'envoi d'un signalement. `uncertain` : la réponse s'est perdue, le
+ * signalement a peut-être été créé — il n'est jamais renvoyé automatiquement.
+ */
+export type ProblemSubmitStatus = 'ok' | 'failed' | 'uncertain';
+
+/** Signalements d'un brouillon ou d'une entrée d'historique, par géocache. */
+export interface ProblemReportsRecord {
+    reports: Record<number, ProblemReport>;
+    status: Record<number, ProblemSubmitStatus>;
+    references: Record<number, string>;
+}
+
 export function isSubmissionStatus(value: unknown): value is SubmissionStatus {
     return value === 'ok' || value === 'failed' || value === 'skipped';
 }
@@ -106,6 +131,8 @@ export interface LogHistoryEntry {
     perCacheFavorite: Record<number, boolean>;
     /** Issue de l'envoi par géocache (`ok`/`failed`/`skipped`). Absent des entrées anciennes. */
     perCacheSubmitStatus?: Record<number, SubmissionStatus>;
+    /** Signalements (NM / NA) et leur issue. Absent des entrées antérieures. */
+    problems?: ProblemReportsRecord;
     /**
      * Journal TB de l'envoi : entrées réellement parties par géocache et sort
      * final de chaque dépôt (`confirmed`/`failed`/`uncertain`). Informatif
@@ -154,6 +181,12 @@ export interface LogDraft {
     /** Logs déjà postés : les restaurer évite de republier après un plantage en cours de lot. */
     perCacheSubmitStatus: Record<number, SubmissionStatus>;
     perCacheSubmitReference: Record<number, string | undefined>;
+    /**
+     * Signalements (NM / NA) et leur issue : une reprise ne renvoie jamais un
+     * signalement parti (`ok`) ou peut-être parti (`uncertain`). Champ facultatif,
+     * absent des brouillons antérieurs : pas de changement de version.
+     */
+    problems?: ProblemReportsRecord;
     /**
      * Actions sur les TBs de mon inventaire (`{actions, dropTargets}`, cf. `trackables.ts`).
      * En v2, `actions` ne contient que les écarts au défaut (overrides) ; en v1,

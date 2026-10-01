@@ -389,3 +389,23 @@ def mark_logged(gc_code: str, log_date: date, *, log_reference_code: Optional[st
     if rows:
         db.session.commit()
     return len(rows)
+
+
+def mark_nm_logged(gc_code: str, log_date: date, log_reference_code: str, *, tz: Optional[tzinfo] = None) -> int:
+    """Un signalement vient de partir : il est noté sur les visites NM de la cache ce jour-là."""
+    code = (gc_code or '').strip().upper()
+    if not code or not log_reference_code:
+        return 0
+    start = local_midnight_utc(log_date, tz)
+    end = local_midnight_utc(log_date + timedelta(days=1), tz)
+    rows = GpsVisit.query.filter(
+        db.or_(GpsVisit.gc_code == code, GpsVisit.resolved_gc_code == code),
+        GpsVisit.status == 'needs_maintenance',
+        GpsVisit.visited_at >= start,
+        GpsVisit.visited_at < end,
+    ).all()
+    for row in rows:
+        row.nm_log_reference_code = log_reference_code
+    if rows:
+        db.session.commit()
+    return len(rows)

@@ -1633,3 +1633,82 @@
     opacity: 0.8;
     white-space: pre-wrap;
 }
+
+/* Section « Signaler un problème » (problem-reports-section.tsx) : second log
+   Needs Maintenance / Needs Archived par cache. */
+.geoapp-log-problems {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.geoapp-log-problems__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.geoapp-log-problems__hint {
+    font-weight: normal;
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+.geoapp-log-problems__confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-left: 3px solid var(--theia-editorWarning-foreground);
+    background: var(--theia-inputValidation-warningBackground, transparent);
+}
+
+.geoapp-log-problems__row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.geoapp-log-problems__row-head,
+.geoapp-log-problems__add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.geoapp-log-problems__name {
+    flex: 1 1 120px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-log-problems__type {
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+.geoapp-log-problems__status.is-failed,
+.geoapp-log-problems__status.is-uncertain {
+    color: var(--theia-editorWarning-foreground);
+    font-weight: 600;
+}
+
+.geoapp-log-problems__text {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.geoapp-log-problems .theia-button {
+    margin: 0;
+}

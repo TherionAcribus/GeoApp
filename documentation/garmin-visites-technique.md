@@ -338,3 +338,105 @@ Geocaching.com » (`found` avec `found_date` le même jour) propose « Marquer c
 loguée ». Rien n'est automatique, car `found_date` peut dater d'une autre visite.
 
 Tests : `backend/tests/test_gps_visits_log_submit.py`.
+
+## 9. Signaler un problème (Needs Maintenance / Needs Archived)
+
+Valable pour **tous** les logs de l'éditeur, pas seulement ceux venus du GPS.
+
+### 9.1 Référence c:geo
+
+Vérifié dans les sources c:geo (`ReportProblemType`, `LogUtils.createLogTaskLogic`) : le
+signalement est un **second log**, envoyé **après** le log principal et **seulement s'il a
+réussi**, à la même date, avec un texte selon la catégorie.
+
+| Catégorie | Type GC | Interdite avec | Cache virtuelle |
+|---|---|---|---|
+| `needsMaintenance` | 45 | — | oui |
+| `logFull`, `logWet`, `damaged` | 45 | DNF | non |
+| `missing` | 45 | Trouvée | oui |
+| `other` | 45 | — | oui |
+| `archive` | 7 | — | oui |
+
+Vérifié en lecture seule le 2026‑10‑01 : la page `/live/geocache/GC7RK9H/log` annonce les
+types `2, 3, 4, 45, 7`. Aucun signalement n'a été posté pour tester : un NM est public et
+prévient le propriétaire.
+
+### 9.2 Backend
+
+- [log_problems.py](../backend/gc_backend/services/log_problems.py) : catégories,
+  `validate_problem` (combinaisons interdites, catégories à contenant sur une cache
+  virtuelle, webcam ou EarthCache).
+- `POST /api/geocaches/<id>/logs/report-problem`
+  `{category, text, date, main_log_type}` ([logs.py](../backend/gc_backend/blueprints/logs.py)) :
+  - valide avant tout appel distant (400 `INVALID_PROBLEM`) ;
+  - appelle `submit_geocache_log` avec le type 45 ou 7, sans photo, TB ni point favori ;
+  - enregistre le log en base (`_store_submitted_log`, type « Needs Maintenance » /
+    « Needs Archived ») ;
+  - note la référence sur les visites GPS NM du jour (`nm_log_reference_code`) ;
+  - en cas de coupure, renvoie `UNKNOWN_REMOTE_OUTCOME` ou
+    `NETWORK_FAILED_BEFORE_RESPONSE`, comme l'envoi principal.
+- `logs/submit` accepte aussi `needs_maintenance` (45) et `needs_archived` (7) comme
+  `logType`, pour être complet. L'éditeur ne s'en sert pas.
+
+### 9.3 Frontend
+
+- [problem-report.ts](../frontend/theia-extensions/zones/src/browser/log-editor/problem-report.ts)
+  (pur, testé) : catégories et textes français par défaut, `problemCategoryRefusal`,
+  `validateProblemReports`, `describePendingProblems` (ligne du récapitulatif),
+  `sanitizeProblemReports` (restauration), `submitProblemReport` (**un seul essai** :
+  toute réponse perdue donne `uncertain`).
+- [problem-reports-section.tsx](../frontend/theia-extensions/zones/src/browser/log-editor/problem-reports-section.tsx),
+  sous le tableau :
+  - ajout d'un signalement pour une cache ;
+  - catégorie (les catégories incompatibles sont grisées, avec la raison) ;
+  - texte modifiable ;
+  - statut (« Envoyé », « Échec », « À vérifier ») ;
+  - « Pas parti, renvoyer » pour un statut à vérifier, après contrôle sur la page de la
+    cache ;
+  - bloc « à confirmer » pour les types proposés par le GPS.
+- Textes proposés : préférence `geoApp.logs.problemTexts` (objet catégorie → texte), sinon
+  textes par défaut. Le texte suit la catégorie tant qu'il n'a pas été retouché.
+- État du widget : `perCacheProblem`, `perCacheProblemStatus`, `perCacheProblemReference`,
+  `perCacheProblemError`, `pendingTypeConfirmation`.
+
+### 9.4 Envoi
+
+1. Avant la confirmation :
+   - refus tant qu'un type proposé par le GPS reste « à confirmer » (NM sans « Found
+     it ») ;
+   - refus si un signalement a un texte vide ou une catégorie incompatible.
+2. Récapitulatif : « ⚠️ Signalements : 1 × Needs Maintenance — publics, le propriétaire est
+   prévenu ». Si seuls des signalements partent, le bouton devient « Envoyer les
+   signalements ».
+3. Boucle :
+   - pour chaque cache, le log principal part s'il le faut ;
+   - le signalement part ensuite si le principal est `ok`, ou si la cache est en « Ne pas
+     loguer » (signalement seul, ou « déjà logué » sur Geocaching.com) ;
+   - un principal en échec bloque le signalement.
+4. Fin de lot :
+   - bilan « Signalements : 2 envoyés, 1 à vérifier… » ;
+   - l'historique est écrit dès qu'un log ou un signalement est parti ;
+   - le brouillon et l'onglet restent tant qu'un signalement est à envoyer ou à vérifier.
+
+### 9.5 Reprise sans doublon
+
+Le brouillon (`LogDraft.problems`, champ facultatif, toujours écrit même vide) garde les
+signalements, leur statut et leur référence :
+- un signalement `ok` ou `uncertain` n'est jamais renvoyé ;
+- un signalement retiré ne revient pas depuis le pré‑remplissage GPS, puisque le brouillon
+  passe après lui.
+
+L'historique garde la même trace (`LogHistoryEntry.problems`), à titre informatif : elle
+n'est jamais réappliquée à la navigation.
+
+### 9.6 Venant du GPS
+
+`applyPrefill` :
+- pré‑coche `needsMaintenance` pour une cache dont le GPS a noté un NM (`hasNm`) ;
+- met en « à confirmer » une cache NM sans « Found it » (`needsConfirmation`).
+
+Changer le type de la cache, ou cliquer sur « C'est bien ça », lève la confirmation.
+
+Tests :
+- `backend/tests/test_log_report_problem.py` ;
+- `frontend/.../tests/problem-report.test.ts` (inscrit dans `test:geoapp`).

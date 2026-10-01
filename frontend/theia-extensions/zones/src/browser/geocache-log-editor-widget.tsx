@@ -92,9 +92,24 @@ import {
     LogTextPattern,
     LogTypeValue,
     PatternSuggestion,
+    ProblemCategory,
+    ProblemReport,
+    ProblemReportsRecord,
+    ProblemSubmitStatus,
     SelectedLogImage,
     SubmissionStatus,
 } from './log-editor/types';
+import {
+    PROBLEM_TEXTS_PREF,
+    defaultProblemText,
+    describePendingProblems,
+    describeProblemOutcome,
+    isProblemPending,
+    sanitizeProblemReports,
+    submitProblemReport,
+    validateProblemReports,
+} from './log-editor/problem-report';
+import { ProblemReportsSection } from './log-editor/problem-reports-section';
 import {
     buildDraftFromState,
     buildHistoryEntry,
@@ -225,6 +240,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected prefill: LogEditorPrefill | undefined;
     /** Ce que le GPS a noté, par géocache : aide-mémoire du tableau et des blocs. */
     protected gpsVisits: Record<number, GpsVisitHint> = {};
+    /** Signalements (Needs Maintenance / Needs Archived) : un second log par cache, après le log principal. */
+    protected perCacheProblem: Record<number, ProblemReport> = {};
+    protected perCacheProblemStatus: Record<number, ProblemSubmitStatus> = {};
+    protected perCacheProblemReference: Record<number, string> = {};
+    protected perCacheProblemError: Record<number, string | undefined> = {};
+    /** Types proposés par le GPS à confirmer (NM sans « Found it ») : l'envoi attend une validation. */
+    protected pendingTypeConfirmation: Record<number, true> = {};
     protected isLoading = false;
 
     protected logDate = todayIsoDate();
@@ -481,7 +503,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      */
     protected hasDraftWorthSaving(): boolean {
         if (this.getTrackableSelectionForDraft() !== undefined
-            || Object.keys(this.trackableDropResults).length > 0) {
+            || Object.keys(this.trackableDropResults).length > 0
+            || Object.keys(this.perCacheProblem).length > 0
+            || Object.keys(this.perCacheProblemStatus).length > 0) {
             return true;
         }
         return hasDraftWorthSavingPure(
@@ -500,7 +524,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         // sinon une reprise après plantage pourrait renvoyer un dépôt déjà parti.
         const trackablesForDraft = this.getTrackableSelectionForDraft()
             ?? (Object.keys(this.trackableDropResults).length > 0 ? { actions: {}, dropTargets: {} } : undefined);
-        return buildDraftFromState(
+        const draft = buildDraftFromState(
             this.geocaches,
             this.logDate,
             this.logType,
@@ -515,6 +539,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             trackablesForDraft,
             this.trackableDropResults
         );
+        // Toujours présent, même vide : un signalement retiré ne doit pas revenir
+        // depuis le pré-remplissage GPS à la restauration.
+        return { ...draft, problems: this.getProblemsRecord() };
+    }
+
+    protected getProblemsRecord(): ProblemReportsRecord {
+        return {
+            reports: { ...this.perCacheProblem },
+            status: { ...this.perCacheProblemStatus },
+            references: { ...this.perCacheProblemReference },
+        };
     }
 
     /** Programme l'écriture du brouillon ; appelé à chaque rendu, donc volontairement bon marché. */
@@ -617,6 +652,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheFavorite = result.perCacheFavorite;
         this.perCacheSubmitStatus = result.perCacheSubmitStatus;
         this.perCacheSubmitReference = result.perCacheSubmitReference;
+        if (draft.problems) {
+            const problems = sanitizeProblemReports(draft.problems, new Set(this.geocaches.map(gc => gc.id)));
+            this.perCacheProblem = problems.reports;
+            this.perCacheProblemStatus = problems.status;
+            this.perCacheProblemReference = problems.references;
+        }
         if (result.trackables) {
             // Overrides par-dessus la sélection courante (défauts déjà appliqués si
             // l'inventaire est chargé — sinon ils le seront au chargement) : jamais
@@ -721,6 +762,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             trackables,
             this.perCacheSubmitStatus
         );
+        if (Object.keys(this.perCacheProblem).length > 0) {
+            // Informatif, comme le journal TB : jamais réappliqué à la navigation.
+            entry.problems = this.getProblemsRecord();
+        }
 
         const maxItems = this.getLogHistoryMaxItems();
         this.logHistory = [entry, ...this.logHistory].slice(0, maxItems);
@@ -1100,6 +1145,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.geocacheIds = Array.from(new Set(ids));
         this.prefill = params.prefill;
         this.gpsVisits = params.prefill?.perCacheVisit ?? {};
+        this.perCacheProblem = {};
+        this.perCacheProblemStatus = {};
+        this.perCacheProblemReference = {};
+        this.perCacheProblemError = {};
+        this.pendingTypeConfirmation = {};
         this.geocaches = [];
         this.perCacheText = {};
         this.lastDistributedGlobalText = undefined;
@@ -1174,13 +1224,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isLogDatePinned = false;
         }
         const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
+        const problems: Record<number, ProblemReport> = {};
+        const toConfirm: Record<number, true> = {};
         for (const gc of this.geocaches) {
             const proposed = prefill.perCacheLogType[gc.id];
             if (proposed) {
                 nextTypes[gc.id] = sanitizeLogTypeForGeocache(proposed, gc);
             }
+            const visit = prefill.perCacheVisit[gc.id];
+            if (visit?.hasNm) {
+                problems[gc.id] = { category: 'needsMaintenance', text: this.getDefaultProblemText('needsMaintenance') };
+            }
+            if (visit?.needsConfirmation && nextTypes[gc.id] !== 'skip') {
+                toConfirm[gc.id] = true;
+            }
         }
         this.perCacheLogType = nextTypes;
+        this.perCacheProblem = problems;
+        this.pendingTypeConfirmation = toConfirm;
         this.update();
     }
 
@@ -2157,6 +2218,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType, [geocacheId]: nextValue };
         this.perCacheLogType = nextTypes;
+        this.confirmLogType(geocacheId);
 
         // Les caches déjà trouvées ne peuvent pas suivre un "Found it" global : on les exclut de l'alignement.
         const values = this.geocaches
@@ -2247,6 +2309,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             isGeocacheSkipped: id => this.isGeocacheSkipped(id),
             isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
             trackableLines: [...trackableLines],
+            problemLine: describePendingProblems(this.geocaches, this.perCacheProblem, this.perCacheProblemStatus),
         });
     }
 
@@ -2560,8 +2623,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
 
         const toSubmit = this.getGeocachesToSubmit();
-        if (toSubmit.length === 0) {
+        if (toSubmit.length === 0 && this.getProblemsToSend().length === 0) {
             this.messages.warn('Aucune géocache à envoyer : les géocaches restantes sont en "Ne pas loguer".');
+            return;
+        }
+
+        const toConfirm = this.geocaches.filter(gc => this.pendingTypeConfirmation[gc.id] && !this.isGeocacheSubmittedOk(gc.id));
+        if (toConfirm.length > 0) {
+            this.messages.warn(`Type de log à confirmer pour ${toConfirm.map(gc => gc.gc_code).join(', ')} : `
+                + 'le GPS a noté « Needs Maintenance » sans « Found it ». Vérifie le type, puis « C\'est bien ça » dans la section des signalements.');
+            return;
+        }
+
+        const problemIssues = validateProblemReports(
+            this.geocaches, this.perCacheProblem, this.perCacheProblemStatus, id => this.getLogTypeForGeocacheId(id)
+        );
+        if (problemIssues.length > 0) {
+            this.messages.warn(problemIssues.map(issue => issue.message).join(' '));
             return;
         }
 
@@ -2647,6 +2725,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         let ok = 0;
         let failed = 0;
         let processed = 0;
+        /** Signalements : partis, en échec, à vérifier. */
+        const problemCounts = { ok: 0, failed: 0, uncertain: 0 };
         /** "Envoyer sans les photos" appliqué au reste du lot : on ne redemande plus. */
         let sendWithoutImagesForBatch = false;
         /** Codes GC réellement publiés : récapitulatif de la notification si l'onglet se ferme. */
@@ -2666,6 +2746,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         try {
             for (const gc of this.geocaches) {
                 if (this.isGeocacheSubmittedOk(gc.id) || this.isGeocacheSkipped(gc.id)) {
+                    // Log principal déjà parti, ou pas de log principal : reste peut-être un signalement.
+                    if (!this.stopRequested && this.isProblemPendingFor(gc.id)) {
+                        problemCounts[await this.sendProblemReport(gc)] += 1;
+                        this.update();
+                    }
                     continue;
                 }
                 // Arrêt demandé : on ne coupe jamais une géocache en plein vol (photos déjà
@@ -2792,10 +2877,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     await this.settleTrackableDrops(dropTracker, gc, toSubmit, result.ambiguous ? 'ambiguous' : 'failed');
                 }
 
+                // Comme c:geo : le signalement part après le log principal, et seulement s'il a réussi
+                // (ou si Geocaching.com en a déjà un : la cache est alors passée en « Ne pas loguer »).
+                if ((this.isGeocacheSubmittedOk(gc.id) || this.isGeocacheSkipped(gc.id)) && this.isProblemPendingFor(gc.id)) {
+                    problemCounts[await this.sendProblemReport(gc)] += 1;
+                }
+
                 this.update();
             }
 
             this.lastSubmitSummary = { ok, failed };
+            const problemSummary = describeProblemOutcome(problemCounts);
+            if (problemSummary) {
+                if (problemCounts.failed > 0 || problemCounts.uncertain > 0) {
+                    this.messages.warn(problemSummary);
+                } else {
+                    this.messages.info(problemSummary);
+                }
+            }
             // Bilan des dépôts : déposé / échoué / à vérifier — jamais confondu avec un succès.
             const dropOutcome = dropTracker.outcome();
             const dropLines = buildTrackableDropOutcomeLines(dropOutcome);
@@ -2811,7 +2910,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 // Les TBs déposés ont quitté l'inventaire (le backend l'a noté) : on relit sa copie.
                 void this.loadTrackableInventory();
             }
-            if (ok > 0) {
+            if (ok > 0 || problemCounts.ok > 0) {
                 // Journal TB : ce qui est réellement parti, et le sort de chaque dépôt.
                 const dropOutcomes: Record<string, 'confirmed' | 'failed' | 'uncertain'> = {};
                 for (const drop of dropOutcome.confirmed) {
@@ -2826,7 +2925,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 await this.saveCurrentStateToHistory({ sent: sentTrackableEntries, dropOutcomes });
             }
 
-            if (this.getGeocachesToSubmit().length === 0) {
+            if (this.getGeocachesToSubmit().length === 0 && !this.hasProblemsToFollowUp()) {
                 // Tout est parti : le travail vit désormais dans l'historique, le brouillon n'a plus d'objet.
                 this.draftAutosaveSuspended = true;
                 this.restoredDraftAt = undefined;
@@ -2841,7 +2940,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 enabled: this.preferenceService.get<boolean>(CLOSE_EDITOR_AFTER_SUBMIT_PREF, false) === true,
                 ok,
                 failed,
-                remainingToSubmit: this.getGeocachesToSubmit().length,
+                // Un signalement en échec ou à vérifier garde l'onglet ouvert : son statut n'est visible qu'ici.
+                remainingToSubmit: this.getGeocachesToSubmit().length + (this.hasProblemsToFollowUp() ? 1 : 0),
             });
             if (closeAfterSubmit) {
                 // La page s'en va : cette notification est tout ce qui reste du lot,
@@ -2877,6 +2977,133 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         if (closeAfterSubmit) {
             this.close();
         }
+    }
+
+    /* ---------------------------------------------------------- Signalements */
+
+    protected getDefaultProblemText(category: ProblemCategory): string {
+        return defaultProblemText(category, this.preferenceService.get<Record<string, unknown>>(PROBLEM_TEXTS_PREF, {}));
+    }
+
+    protected isProblemPendingFor(geocacheId: number): boolean {
+        return isProblemPending(this.perCacheProblem[geocacheId], this.perCacheProblemStatus[geocacheId]);
+    }
+
+    /** Signalements qui partiront au prochain envoi. */
+    protected getProblemsToSend(): GeocacheListItem[] {
+        return this.geocaches.filter(gc => this.isProblemPendingFor(gc.id));
+    }
+
+    /** Un signalement attend encore quelque chose : envoi, ou vérification d'une issue incertaine. */
+    protected hasProblemsToFollowUp(): boolean {
+        return this.getProblemsToSend().length > 0
+            || Object.values(this.perCacheProblemStatus).some(status => status === 'uncertain');
+    }
+
+    /** Un seul essai : un doublon de signalement ne serait pas forcément refusé par Geocaching.com. */
+    protected async sendProblemReport(gc: GeocacheListItem): Promise<ProblemSubmitStatus> {
+        const report = this.perCacheProblem[gc.id];
+        const result = await submitProblemReport(this.backendBaseUrl, gc.id, {
+            category: report.category,
+            text: report.text.trim(),
+            date: this.logDate,
+            mainLogType: this.getLogTypeForGeocacheId(gc.id),
+        });
+        this.perCacheProblemStatus = { ...this.perCacheProblemStatus, [gc.id]: result.status };
+        this.perCacheProblemError = { ...this.perCacheProblemError, [gc.id]: result.error };
+        if (result.logReferenceCode) {
+            this.perCacheProblemReference = { ...this.perCacheProblemReference, [gc.id]: result.logReferenceCode };
+        }
+        if (result.status !== 'ok') {
+            this.messages.warn(`${gc.gc_code} - signalement ${result.status === 'uncertain' ? 'à vérifier' : 'en échec'}${result.error ? ` (${result.error})` : ''}`);
+        }
+        return result.status;
+    }
+
+    protected confirmLogType(geocacheId: number): void {
+        if (this.pendingTypeConfirmation[geocacheId]) {
+            const next = { ...this.pendingTypeConfirmation };
+            delete next[geocacheId];
+            this.pendingTypeConfirmation = next;
+            this.update();
+        }
+    }
+
+    protected readonly handleAddProblem = (geocacheId: number): void => {
+        const category: ProblemCategory = this.getLogTypeForGeocacheId(geocacheId) === 'dnf' ? 'missing' : 'needsMaintenance';
+        this.perCacheProblem = {
+            ...this.perCacheProblem,
+            [geocacheId]: { category, text: this.getDefaultProblemText(category) },
+        };
+        this.update();
+    };
+
+    protected readonly handleRemoveProblem = (geocacheId: number): void => {
+        const next = { ...this.perCacheProblem };
+        delete next[geocacheId];
+        this.perCacheProblem = next;
+        const nextStatus = { ...this.perCacheProblemStatus };
+        delete nextStatus[geocacheId];
+        this.perCacheProblemStatus = nextStatus;
+        this.update();
+    };
+
+    protected readonly handleProblemCategory = (geocacheId: number, category: ProblemCategory): void => {
+        const current = this.perCacheProblem[geocacheId];
+        if (!current) {
+            return;
+        }
+        // Le texte suit la catégorie tant qu'il n'a pas été retouché.
+        const untouched = !current.text.trim() || current.text === this.getDefaultProblemText(current.category);
+        this.perCacheProblem = {
+            ...this.perCacheProblem,
+            [geocacheId]: { category, text: untouched ? this.getDefaultProblemText(category) : current.text },
+        };
+        this.update();
+    };
+
+    protected readonly handleProblemText = (geocacheId: number, text: string): void => {
+        const current = this.perCacheProblem[geocacheId];
+        if (!current) {
+            return;
+        }
+        this.perCacheProblem = { ...this.perCacheProblem, [geocacheId]: { ...current, text } };
+        this.update();
+    };
+
+    protected readonly handleConfirmLogType = (geocacheId: number): void => {
+        this.confirmLogType(geocacheId);
+    };
+
+    protected readonly handleRetryUncertainProblem = (geocacheId: number): void => {
+        const next = { ...this.perCacheProblemStatus };
+        delete next[geocacheId];
+        this.perCacheProblemStatus = next;
+        this.perCacheProblemError = { ...this.perCacheProblemError, [geocacheId]: undefined };
+        this.update();
+    };
+
+    protected readonly getLogTypeForProblems = (geocacheId: number): LogTypeValue => this.getLogTypeForGeocacheId(geocacheId);
+
+    protected renderProblemReportsSection(): React.ReactNode {
+        return (
+            <ProblemReportsSection
+                geocaches={this.geocaches}
+                reports={this.perCacheProblem}
+                status={this.perCacheProblemStatus}
+                references={this.perCacheProblemReference}
+                errors={this.perCacheProblemError}
+                pendingTypeConfirmation={this.pendingTypeConfirmation}
+                getLogType={this.getLogTypeForProblems}
+                disabled={this.isSubmitting}
+                onAdd={this.handleAddProblem}
+                onRemove={this.handleRemoveProblem}
+                onChangeCategory={this.handleProblemCategory}
+                onChangeText={this.handleProblemText}
+                onConfirmType={this.handleConfirmLogType}
+                onRetryUncertain={this.handleRetryUncertainProblem}
+            />
+        );
     }
 
     /** Demande l'arrêt du lot : effectif dès que la géocache en cours est terminée. */
@@ -3493,7 +3720,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const favoritePointsSyncing = this.isSyncingFavoritePoints || this.isFetchingFavoritePoints;
         const canPrev = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor < this.logHistory.length - 1);
         const canNext = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor > 0);
-        const canSubmit = this.getGeocachesToSubmit().length > 0;
+        const canSubmit = this.getGeocachesToSubmit().length > 0 || this.getProblemsToSend().length > 0;
         const submitTitle = this.geocaches.length > 0 && !canSubmit
             ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
             : 'Envoyer le(s) log(s) sur Geocaching.com via le backend';
@@ -3642,6 +3869,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         />
                     </div>
                 )}
+
+                {!this.isLoading && this.geocaches.length > 0 && this.renderProblemReportsSection()}
 
                 {!this.isLoading && this.geocaches.length > 0
                     && this.renderTrackablesSection(this.isSubmitting || allSubmitted)}

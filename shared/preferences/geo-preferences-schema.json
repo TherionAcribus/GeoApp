@@ -2526,6 +2526,33 @@
         "trackables"
       ]
     },
+    "geoApp.logs.problemTexts": {
+      "type": "object",
+      "default": {},
+      "title": "Textes des signalements de problème",
+      "description": "Texte proposé par catégorie quand on signale un problème (Needs Maintenance / Needs Archived) depuis l'éditeur de logs. Clés : needsMaintenance, logFull, logWet, damaged, missing, other, archive. Une catégorie absente garde le texte par défaut ; le texte reste modifiable avant l'envoi.",
+      "x-ui": {
+        "section": "Envoi",
+        "label": "Textes des signalements",
+        "advanced": true,
+        "order": 70,
+        "keywords": [
+          "logs",
+          "needs maintenance",
+          "needs archived",
+          "signalement",
+          "problème"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "maintenance"
+      ]
+    },
     "geoApp.logs.downloadImages": {
       "type": "boolean",
       "default": true,

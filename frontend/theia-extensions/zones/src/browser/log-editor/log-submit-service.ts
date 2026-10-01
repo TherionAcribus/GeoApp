@@ -336,6 +336,8 @@ export interface SubmissionSummaryContext {
     isGeocacheSubmittedOk: (geocacheId: number) => boolean;
     /** Lignes sur les trackables (visites, dépôts), cf. `buildTrackableSummaryLines`. */
     trackableLines?: { text: string; highlight: boolean }[];
+    /** Signalements (NM / NA) à envoyer, cf. `describePendingProblems`. */
+    problemLine?: string;
 }
 
 /** Construit le nœud DOM du récapitulatif avant envoi. */
@@ -349,9 +351,11 @@ export function buildSubmissionSummaryNode(
 
     const intro = document.createElement('div');
     intro.style.marginBottom = '8px';
-    intro.textContent = toSubmit.length === 1
-        ? '1 log va être publié sur Geocaching.com :'
-        : `${toSubmit.length} logs vont être publiés sur Geocaching.com :`;
+    intro.textContent = toSubmit.length === 0
+        ? 'Aucun log de trouvaille, de non-trouvaille ou de note ne part, seulement :'
+        : toSubmit.length === 1
+            ? '1 log va être publié sur Geocaching.com :'
+            : `${toSubmit.length} logs vont être publiés sur Geocaching.com :`;
     node.appendChild(intro);
 
     const list = document.createElement('ul');
@@ -422,6 +426,10 @@ export function buildSubmissionSummaryNode(
         addLine(line.text, line.highlight);
     }
 
+    if (ctx.problemLine) {
+        addLine(ctx.problemLine, true);
+    }
+
     const alreadySent = ctx.geocaches.filter(gc => ctx.isGeocacheSubmittedOk(gc.id)).length;
     if (alreadySent > 0) {
         addLine(`✔️ ${alreadySent} log(s) déjà envoyé(s) plus tôt, non renvoyé(s)`);
@@ -444,7 +452,9 @@ export async function confirmSubmission(
     const dialog = new ConfirmDialog({
         title: 'Envoyer sur Geocaching.com ?',
         msg: buildSubmissionSummaryNode(toSubmit, ctx),
-        ok: toSubmit.length === 1 ? 'Envoyer le log' : `Envoyer les ${toSubmit.length} logs`,
+        ok: toSubmit.length === 0
+            ? 'Envoyer les signalements'
+            : toSubmit.length === 1 ? 'Envoyer le log' : `Envoyer les ${toSubmit.length} logs`,
         cancel: 'Annuler',
         maxWidth: 520,
     });
