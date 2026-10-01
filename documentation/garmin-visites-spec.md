@@ -304,7 +304,17 @@ Ce lot sert à **tous** les logs, pas seulement à ceux qui viennent du GPS.
     « à confirmer » n'a pas été touchée : changement de type, ou clic sur le badge pour
     valider.
 
-### Lot 6 : rattacher les visites sans code
+### Lot 6 : rattacher les visites sans code — livré le 2026-10-01
+
+> **Écarts à la mise en œuvre** (vérifications en réel du 2026‑10‑01) :
+> - la recherche de mes trouvailles ne renvoie **pas** ma date de trouvaille
+>   (`lastFoundDate` est la dernière trouvaille tous joueurs confondus). En revanche, la
+>   fiche JSON `/api/proxy/web/v1/geocache/{code}` la donne (`callerSpecific.found`), en
+>   0,2 s. Elle donne aussi les coordonnées d'une voisine absente de la base ;
+> - la recherche rapide (voisines, zone d'environ 1 km puis 3 km, date de trouvaille
+>   confirmée) prend 1 à 20 s. Le placement par l'ordre de mes trouvailles, cadencé à
+>   6 s par requête, coûte environ une minute : c'est un second bouton, utile quand
+>   aucune voisine n'est située.
 
 Le rattachement n'est **jamais automatique** : l'App propose des candidats, l'utilisateur
 choisit, saisit un code à la main, ou ignore.

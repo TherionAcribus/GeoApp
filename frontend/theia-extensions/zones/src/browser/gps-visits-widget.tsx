@@ -29,13 +29,18 @@ import {
     GpsImportLandmarks,
     GpsImportReport,
     GpsPreparedDay,
+    GpsResolutionCandidate,
+    GpsResolutionResult,
     GpsVisitDay,
     GpsVisitEntry,
     GpsVisitsListing,
     buildCutoffLandmarks,
     buildLogEditorOpening,
     describeCacheKnowledge,
+    describeCandidateDay,
     describeImportReport,
+    describeNeighbours,
+    formatDistance,
     describePasses,
     formatDayLabel,
     formatFullDay,
@@ -45,7 +50,16 @@ import {
     visitIdsOf,
 } from './gps-visits-model';
 
-type BusyAction = 'detect' | 'import' | 'cutoff' | 'state' | 'prepare';
+type BusyAction = 'detect' | 'import' | 'cutoff' | 'state' | 'prepare' | 'resolve';
+
+/** Panneau « Rattacher » d'une visite sans code. */
+interface ResolveState {
+    entry: GpsVisitEntry;
+    loading: 'quick' | 'deep' | undefined;
+    result: GpsResolutionResult | undefined;
+    error: string | undefined;
+    manualCode: string;
+}
 
 /** Panneau « Préparer les logs » : choix de la zone qui reçoit les caches manquantes, puis import. */
 interface PrepareState {
@@ -80,6 +94,7 @@ export class GpsVisitsWidget extends ReactWidget {
     protected dragOver = false;
     protected fileInput: HTMLInputElement | null = null;
     protected prepareState: PrepareState | undefined;
+    protected resolveState: ResolveState | undefined;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -361,6 +376,60 @@ export class GpsVisitsWidget extends ReactWidget {
         await this.logEditorTabsManager.openLogEditor(opening);
     }
 
+    /* ------------------------------------------------------------ rattachement */
+
+    protected openResolve = (entry: GpsVisitEntry): void => {
+        this.resolveState = { entry, loading: undefined, result: undefined, error: undefined, manualCode: '' };
+        void this.searchCandidates(false);
+    };
+
+    protected async searchCandidates(deep: boolean): Promise<void> {
+        const state = this.resolveState;
+        if (!state || state.loading) {
+            return;
+        }
+        state.loading = deep ? 'deep' : 'quick';
+        state.error = undefined;
+        this.update();
+        try {
+            const result = await this.service.candidates(state.entry.visit_ids[0], deep);
+            if (this.resolveState === state) {
+                state.result = result;
+            }
+        } catch (e) {
+            state.error = e instanceof Error ? e.message : String(e);
+        } finally {
+            state.loading = undefined;
+            this.update();
+        }
+    }
+
+    protected resolveWith = async (gcCode: string | null, source: 'neighbours' | 'my_finds' | 'manual'): Promise<void> => {
+        const entry = this.resolveState?.entry;
+        const visitId = entry?.visit_ids[0];
+        if (visitId === undefined) {
+            return;
+        }
+        const done = await this.runBusy('resolve', async () => {
+            await this.service.resolve(visitId, gcCode, source);
+            return true;
+        });
+        if (done) {
+            this.resolveState = undefined;
+            await this.reload();
+        }
+    };
+
+    protected detach = async (entry: GpsVisitEntry): Promise<void> => {
+        const done = await this.runBusy('resolve', async () => {
+            await this.service.resolve(entry.visit_ids[0], null);
+            return true;
+        });
+        if (done) {
+            await this.reload();
+        }
+    };
+
     /* ------------------------------------------------------------------ dépôt */
 
     protected onDragOver = (e: React.DragEvent): void => {
@@ -403,6 +472,7 @@ export class GpsVisitsWidget extends ReactWidget {
                 {this.renderHeader()}
                 {this.cutoffPrompt && this.renderCutoffPrompt(this.cutoffPrompt)}
                 {this.prepareState && this.renderPreparePanel(this.prepareState)}
+                {this.resolveState && this.renderResolvePanel(this.resolveState)}
                 {this.renderBody()}
                 {this.renderFooter()}
             </div>
@@ -566,6 +636,99 @@ export class GpsVisitsWidget extends ReactWidget {
         );
     }
 
+    protected renderResolvePanel(state: ResolveState): React.ReactNode {
+        const { entry, result } = state;
+        const busy = this.busy !== undefined;
+        const manualValid = /^GC[0-9A-Z]{1,8}$/i.test(state.manualCode.trim());
+        return (
+            <div className='geoapp-gps-visits__cutoff'>
+                <div className='geoapp-gps-visits__cutoff-title'>
+                    Rattacher la visite de {entry.time} ({formatDayLabel(entry.day)}) — {entry.status_raw}
+                </div>
+                {state.loading === 'quick' && <div className='geoapp-gps-visits__cutoff-help'>⏳ Recherche autour des visites voisines…</div>}
+                {state.loading === 'deep' && (
+                    <div className='geoapp-gps-visits__cutoff-help'>
+                        ⏳ Recherche dans l'ordre de tes trouvailles — environ une minute (Geocaching.com limite le rythme des recherches).
+                    </div>
+                )}
+                {state.error && <div className='geoapp-gps-visits__errors'>{state.error}</div>}
+                {result && (
+                    <>
+                        <div className='geoapp-gps-visits__cutoff-help'>{describeNeighbours(result)}</div>
+                        {!result.authenticated && (
+                            <div className='geoapp-gps-visits__cutoff-help'>Connecte-toi à Geocaching.com pour une recherche complète.</div>
+                        )}
+                        {result.candidates.length === 0
+                            ? <div className='geoapp-gps-visits__cutoff-help'>Aucun candidat.</div>
+                            : (
+                                <div className='geoapp-gps-visits__candidates'>
+                                    {result.candidates.map(candidate => this.renderCandidate(candidate, busy))}
+                                </div>
+                            )}
+                        {result.finds_state === 'not_requested' && (
+                            <button className='theia-button secondary' disabled={busy || state.loading !== undefined}
+                                title={'Utile quand aucune voisine n\'est située : place tes trouvailles absentes du GPS par leur ordre de date'}
+                                onClick={() => { void this.searchCandidates(true); }}>
+                                Chercher aussi dans l'ordre de mes trouvailles (≈ 1 min)
+                            </button>
+                        )}
+                        {result.finds_state === 'out_of_reach' && (
+                            <div className='geoapp-gps-visits__cutoff-help'>
+                                Ce jour est plus ancien que les ~10 000 trouvailles que Geocaching.com laisse parcourir.
+                            </div>
+                        )}
+                    </>
+                )}
+                <div className='geoapp-gps-visits__cutoff-option'>
+                    Code GC :
+                    <input
+                        className='theia-input'
+                        placeholder='GC…'
+                        value={state.manualCode}
+                        onChange={e => { state.manualCode = e.target.value; this.update(); }}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' && manualValid) {
+                                void this.resolveWith(state.manualCode.trim().toUpperCase(), 'manual');
+                            }
+                        }}
+                    />
+                    <button className='theia-button' disabled={busy || !manualValid}
+                        onClick={() => { void this.resolveWith(state.manualCode.trim().toUpperCase(), 'manual'); }}>
+                        Rattacher
+                    </button>
+                </div>
+                <div className='geoapp-gps-visits__cutoff-help'>
+                    Les caches archivées n'apparaissent pas dans la recherche. Une Adventure Lab ne se logue pas
+                    sur Geocaching.com : dans ce cas, ignore la visite.
+                </div>
+                <div className='geoapp-gps-visits__actions'>
+                    <button className='theia-button secondary' onClick={() => { this.resolveState = undefined; this.update(); }}>
+                        Fermer
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    protected renderCandidate(candidate: GpsResolutionCandidate, busy: boolean): React.ReactNode {
+        const day = describeCandidateDay(candidate);
+        const distance = formatDistance(candidate.distance_m);
+        const source = candidate.sources.includes('neighbours') ? 'neighbours' : 'my_finds';
+        return (
+            <div key={candidate.gc_code} className='geoapp-gps-visits__candidate'>
+                <button className='theia-button secondary' disabled={busy}
+                    onClick={() => { void this.resolveWith(candidate.gc_code, source); }}>
+                    Choisir
+                </button>
+                <span className='geoapp-gps-visits__code'>{candidate.gc_code}</span>
+                <span className='geoapp-gps-visits__name' title={candidate.name ?? undefined}>{candidate.name ?? ''}</span>
+                {candidate.cache_type && <span className='geoapp-gps-visits__passes'>{candidate.cache_type}</span>}
+                {distance && <span className='geoapp-gps-visits__time'>{distance}</span>}
+                <span className={`geoapp-gps-visits__day-badge is-${day.kind}`}>{day.label}</span>
+            </div>
+        );
+    }
+
     protected renderBody(): React.ReactNode {
         if (this.loading && !this.listing) {
             return <div className='geoapp-gps-visits__empty'>Chargement…</div>;
@@ -650,12 +813,29 @@ export class GpsVisitsWidget extends ReactWidget {
                             ? <a href='#' onClick={e => { e.preventDefault(); this.openGeocache(entry); }}>{entry.gc_code}</a>
                             : entry.gc_code)
                         : <em>{entry.raw_code ? `« ${entry.raw_code} »` : 'sans code'}</em>}
+                    {entry.resolved && (
+                        <span className='geoapp-gps-visits__resolved' title='Code absent du GPS, rattaché par toi'> 🔗</span>
+                    )}
                 </span>
                 <span className='geoapp-gps-visits__name' title={entry.name ?? undefined}>{entry.name ?? ''}</span>
                 <span className={`geoapp-gps-visits__knowledge is-${knowledge.kind}`} title={knowledge.tooltip}>{knowledge.label}</span>
                 {passes && <span className='geoapp-gps-visits__passes' title={passes.tooltip}>{passes.label}</span>}
                 {entry.comment && <span className='geoapp-gps-visits__comment' title={entry.comment}>📟 « {entry.comment} »</span>}
                 <span className='geoapp-gps-visits__entry-actions'>
+                    {!entry.gc_code && entry.state === 'pending' && (
+                        <button className='theia-button secondary' disabled={this.busy !== undefined}
+                            title='Proposer les caches que tu as pu visiter à ce moment-là'
+                            onClick={() => this.openResolve(entry)}>
+                            Rattacher…
+                        </button>
+                    )}
+                    {entry.resolved && entry.state === 'pending' && (
+                        <button className='theia-button secondary' disabled={this.busy !== undefined}
+                            title='Annuler le rattachement : la visite redevient sans code'
+                            onClick={() => { void this.detach(entry); }}>
+                            Détacher
+                        </button>
+                    )}
                     {entry.state === 'pending' && knowledge.kind === 'logged-same-day' && (
                         <button className='theia-button secondary' disabled={this.busy !== undefined}
                             title='Geocaching.com indique une trouvaille ce jour-là : ne plus proposer cette visite'

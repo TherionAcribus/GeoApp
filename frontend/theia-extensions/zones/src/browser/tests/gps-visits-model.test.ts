@@ -4,13 +4,18 @@
  */
 import * as assert from 'assert/strict';
 import {
+    GpsResolutionCandidate,
+    GpsResolutionResult,
     GpsVisitDay,
     GpsVisitEntry,
     buildCutoffLandmarks,
     buildLogEditorOpening,
     describeCacheKnowledge,
+    describeCandidateDay,
     describeImportReport,
+    describeNeighbours,
     describePasses,
+    formatDistance,
     formatDayLabel,
     formatFullDay,
     formatShortDay,
@@ -153,9 +158,36 @@ function testLogEditorOpening(): void {
     assert.equal(formatFullDay('2026-09-27'), '27/09/2026');
 }
 
+function testResolutionDisplay(): void {
+    assert.equal(formatDistance(129.4), '129 m');
+    assert.equal(formatDistance(1663), '1,7 km');
+    assert.equal(formatDistance(null), undefined);
+
+    const base: GpsResolutionCandidate = {
+        gc_code: 'GC94Y25', name: '#15', cache_type: 'Traditional', found_by_me: true, found_on: '2021-06-13',
+        sources: ['neighbours'], day_confidence: 'confirmed', distance_m: 202,
+    };
+    assert.deepEqual(describeCandidateDay(base), { kind: 'strong', label: 'Trouvée ce jour-là' });
+    assert.equal(describeCandidateDay({ ...base, day_confidence: 'close_day', found_on: '2021-06-14' }).label,
+        'Trouvée le 14/06/2021 (log à quelques jours près)');
+    assert.equal(describeCandidateDay({ ...base, day_confidence: null, found_by_me: null, found_on: null }).label,
+        'Jamais trouvée (DNF ?)');
+
+    const result: GpsResolutionResult = {
+        visit_id: 1, day: '2021-06-13', located: true, search_radius_m: 1110, finds_state: 'not_requested',
+        candidates: [], authenticated: true,
+        neighbours: [{ gc_code: 'GC2RE4R', name: 'le repos du celte', located: true }, { gc_code: 'GC2RE7H', name: null, located: false }],
+    };
+    assert.equal(describeNeighbours(result),
+        'Situé grâce à GC2RE4R (le repos du celte) et GC2RE7H — non située, recherche dans un rayon d\'environ 1,1 km.');
+    assert.equal(describeNeighbours({ ...result, neighbours: [] }),
+        'Aucune visite codée à moins d\'1 h 30 ce jour-là : la recherche de proximité est impossible.');
+}
+
 testPasses();
 testStatusLabel();
 testLogEditorOpening();
+testResolutionDisplay();
 testKnowledge();
 testDaySummary();
 testDates();

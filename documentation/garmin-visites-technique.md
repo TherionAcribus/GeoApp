@@ -440,3 +440,87 @@ Changer le type de la cache, ou cliquer sur « C'est bien ça », lève la confi
 Tests :
 - `backend/tests/test_log_report_problem.py` ;
 - `frontend/.../tests/problem-report.test.ts` (inscrit dans `test:geoapp`).
+
+## 10. Rattacher une visite sans code
+
+[gps_visit_resolution.py](../backend/gc_backend/services/gps_visit_resolution.py). Rien
+n'est rattaché automatiquement : l'App propose, l'utilisateur choisit ou saisit un code.
+
+### 10.1 Ce que Geocaching.com donne (vérifié le 2026‑10‑01, en lecture seule)
+
+| Source | Donne | Coût |
+|---|---|---|
+| Recherche web `fb=<moi>&sort=founddate` | Mes trouvailles **triées** par ma date de trouvaille, mais **sans** cette date (`lastFoundDate` = dernière trouvaille tous joueurs) | 1 requête toutes les ~6 s (client cadencé des amis) |
+| Recherche web dans une boîte | Caches de la zone, avec `userFound` | idem |
+| `/api/proxy/web/v1/geocache/{code}` | Coordonnées, nom, `callerSpecific.found` = **ma** date de trouvaille | ~0,2 s, hors cadence |
+
+### 10.2 Recherche rapide (par défaut)
+
+1. **Voisines** : la visite codée juste avant et juste après, le même jour, à moins de 90
+   min. Elles sont situées par la base GeoApp, sinon par leur fiche JSON.
+2. **Boîte d'environ 1 km** autour du point milieu. Les codes déjà connus du fichier GPS
+   (lus ou rattachés) sont exclus.
+3. **Ma date de trouvaille** des candidats trouvés par moi, au plus 30 fiches, les plus
+   vraisemblables d'abord, 0,15 s entre deux :
+
+   | Écart avec le jour de la visite | Classement |
+   |---|---|
+   | 0 jour | « confirmé » |
+   | 1 à 3 jours (log saisi en différé) | « jour proche » |
+   | plus | « autre jour » |
+
+4. Sans candidat confirmé : **seconde boîte d'environ 3 km**. La cache visitée peut être
+   loin d'une voisine notée une heure avant.
+
+Classement final : confirmé, déduit le jour même, jour proche, déduit autour du jour, sans
+date, autre jour. À égalité : trouvée par moi d'abord, puis la plus proche. Une cache
+jamais trouvée reste proposée (une visite sans code peut être un DNF).
+
+### 10.3 Recherche approfondie (`?deep=1`, ~1 min)
+
+Placement par l'ordre de mes trouvailles :
+
+- les caches que le GPS connaît (`Found it`) servent de repères de date ;
+- `first_page_not_newer` trouve la page du jour par interpolation sur les dates, avec
+  une bissection une fois sur trois ;
+- une trouvaille absente du fichier, coincée entre deux repères du jour, est « déduite le
+  jour même » ; à la frontière du jour, « autour du jour ».
+
+Limites : ~10 000 trouvailles accessibles (`out_of_reach` au‑delà), caches archivées
+absentes de l'index.
+
+Caches mémoire (30 min) : pages de mes trouvailles, total et fiches JSON. Une journée
+compte souvent des dizaines de visites sans code : la visite suivante répond presque
+immédiatement.
+
+### 10.4 Mesures sur le compte réel
+
+| Visite | Résultat | Durée |
+|---|---|---|
+| 13/06/2021 10:45, deux voisines | 1er candidat confirmé à 129 m (série « 🎣 ») | 4,5 s |
+| 27/02/2022, une voisine | confirmé à 1,7 km après élargissement | 19 s |
+| 19/09/2023, une voisine | confirmé à 1,6 km après élargissement | 19 s |
+| 23/10/2021, 78 visites sans code, aucune voisine | approfondie : trouvailles des 25‑26/10, « jour proche » | 55 s, puis 0,1 s |
+
+### 10.5 API et interface
+
+- `GET /api/gps-visits/<id>/candidates[?deep=1]` →
+  `{neighbours, located, search_radius_m, finds_state, candidates, authenticated}`.
+  Erreurs : 401 non connecté, 429 recherche limitée.
+- `POST /api/gps-visits/<id>/resolve {"gc_code", "source"}` : `source` vaut
+  `neighbours`, `my_finds` ou `manual`, et `gc_code: null` détache. Refusé pour une
+  visite qui a un code lu sur le GPS.
+- Une visite rattachée se comporte partout comme une visite codée (liste, préparation des
+  logs, retour d'envoi), via `coalesce(gc_code, resolved_gc_code)`.
+- Widget :
+  - « Rattacher… » sur une visite sans code ouvre un panneau qui affiche les voisines
+    utilisées, puis les candidats avec badge de date, distance et type, et un bouton
+    « Choisir » ;
+  - le panneau propose aussi la recherche approfondie et la saisie manuelle, et rappelle
+    les limites (caches archivées, Adventure Labs) ;
+  - une visite rattachée affiche 🔗 et un bouton « Détacher ».
+
+Tests :
+- `backend/tests/test_gps_visit_resolution.py` (faux client de recherche et fausses
+  fiches) ;
+- `tests/gps-visits-model.test.ts`.

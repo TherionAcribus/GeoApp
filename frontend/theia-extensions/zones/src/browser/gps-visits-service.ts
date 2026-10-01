@@ -4,6 +4,7 @@ import {
     DetectedVisitsFile,
     GpsImportReport,
     GpsPreparedDay,
+    GpsResolutionResult,
     GpsVisitState,
     GpsVisitsListing,
 } from './gps-visits-model';
@@ -68,6 +69,24 @@ export class GpsVisitsService {
             '/api/gps-visits/import-missing',
             this.apiClient.createJsonInit('POST', { zone_id: zoneId, gc_codes: gcCodes }, { signal }),
             'Erreur lors de l\'import des caches'
+        );
+    }
+
+    /** Candidats pour une visite sans code. `deep` : aussi l'ordre de mes trouvailles (~1 min). */
+    async candidates(visitId: number, deep = false): Promise<GpsResolutionResult> {
+        return this.apiClient.requestJson<GpsResolutionResult>(
+            `/api/gps-visits/${visitId}/candidates${deep ? '?deep=1' : ''}`,
+            {},
+            'Erreur lors de la recherche de candidats'
+        );
+    }
+
+    /** Rattache une visite sans code à une cache, ou la détache (`gcCode` nul). */
+    async resolve(visitId: number, gcCode: string | null, source: 'neighbours' | 'my_finds' | 'manual' = 'manual'): Promise<void> {
+        await this.apiClient.requestJson(
+            `/api/gps-visits/${visitId}/resolve`,
+            this.apiClient.createJsonInit('POST', { gc_code: gcCode, source }),
+            'Erreur lors du rattachement de la visite'
         );
     }
 

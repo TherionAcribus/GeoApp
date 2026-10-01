@@ -283,3 +283,94 @@ def import_missing():
         }) + '\n'
 
     return Response(stream_with_context(generate()), content_type='application/json')
+
+
+GEOCACHE_SHEET_URL = 'https://www.geocaching.com/api/proxy/web/v1/geocache/{code}'
+
+
+def _geocache_sheet_lookup(session):
+    """Fiche JSON d'une cache (coordonnées, ma date de trouvaille), ou None."""
+    def lookup(code: str):
+        try:
+            response = session.get(GEOCACHE_SHEET_URL.format(code=code), timeout=20,
+                                   headers={'Accept': 'application/json'})
+        except Exception as exc:  # noqa: BLE001 - un candidat sans fiche reste proposé
+            logger.warning('Fiche de %s illisible : %s', code, exc)
+            return None
+        if response.status_code in (401, 403):
+            from ..services.geocaching_friends import NotAuthenticatedError
+            raise NotAuthenticatedError('Session Geocaching.com expirée')
+        if not response.ok:
+            return None
+        try:
+            return response.json()
+        except ValueError:
+            return None
+    return lookup
+
+
+@bp.get('/<int:visit_id>/candidates')
+def resolution_candidates(visit_id: int):
+    """
+    Caches candidates pour une visite sans code (voir services/gps_visit_resolution.py).
+    ``?deep=1`` ajoute la recherche dans l'ordre de mes trouvailles (~1 min).
+    """
+    from ..models import GpsVisit
+    from ..services import gps_visit_resolution
+    from ..services.geocaching_auth import get_auth_service
+    from ..services.geocaching_friend_finds import FriendFindsError, RateLimitedError, get_friend_finds_client
+    from ..services.geocaching_friends import NotAuthenticatedError
+
+    visit = db.session.get(GpsVisit, visit_id)
+    if visit is None:
+        return _error('visit_not_found', 'Visite introuvable.', 404)
+    if visit.gc_code:
+        return _error('visit_has_code', 'Cette visite a déjà un code lu sur le GPS.', 400)
+
+    state = get_auth_service().get_auth_state()
+    username = state.user_info.username if state and state.user_info else None
+    try:
+        result = gps_visit_resolution.find_candidates(
+            visit,
+            request=get_friend_finds_client()._request,
+            lookup=_geocache_sheet_lookup(get_auth_service().get_session()),
+            username=username,
+            deep=request.args.get('deep') in ('1', 'true'),
+            tz=gps_visit_store.get_local_tz(),
+        )
+    except NotAuthenticatedError:
+        return _error('not_authenticated', 'Connecte-toi à Geocaching.com pour chercher des candidats.', 401)
+    except RateLimitedError:
+        return _error('rate_limited', 'Geocaching.com limite les recherches : réessaie dans quelques minutes.', 429)
+    except FriendFindsError as exc:
+        return _error('search_failed', str(exc), 502)
+    result['authenticated'] = bool(username)
+    return jsonify(result)
+
+
+@bp.post('/<int:visit_id>/resolve')
+def resolve_visit(visit_id: int):
+    """Rattache une visite sans code à une cache (``{"gc_code", "source"}``), ou la détache (``gc_code: null``)."""
+    from ..models import GpsVisit
+
+    visit = db.session.get(GpsVisit, visit_id)
+    if visit is None:
+        return _error('visit_not_found', 'Visite introuvable.', 404)
+    if visit.gc_code:
+        return _error('visit_has_code', 'Cette visite a déjà un code lu sur le GPS.', 400)
+    body = request.get_json(silent=True) or {}
+    raw_code = body.get('gc_code')
+    if raw_code is None:
+        visit.resolved_gc_code = None
+        visit.resolution_source = None
+    else:
+        code = normalize_code(str(raw_code))
+        if code is None:
+            return _error('invalid_code', 'Code GC invalide (ex. GC1A2B3).', 400)
+        source = body.get('source')
+        if source not in ('neighbours', 'my_finds', 'manual'):
+            source = 'manual'
+        visit.resolved_gc_code = code
+        visit.resolution_source = source
+    db.session.commit()
+    return jsonify(visit.to_dict())

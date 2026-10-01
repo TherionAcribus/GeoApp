@@ -312,3 +312,69 @@ export function buildLogEditorOpening(prepared: GpsPreparedDay): LogEditorOpenin
         prefill: { source: 'gps-visits', logDate: prepared.day, perCacheLogType, perCacheVisit },
     };
 }
+
+export type GpsCandidateConfidence = 'confirmed' | 'close_day' | 'same_day' | 'around' | 'other_day' | null;
+
+/** Un candidat au rattachement d'une visite sans code (`GET /api/gps-visits/<id>/candidates`). */
+export interface GpsResolutionCandidate {
+    gc_code: string;
+    name: string | null;
+    cache_type: string | null;
+    found_by_me: boolean | null;
+    /** Ma date de trouvaille (AAAA-MM-JJ), lue sur Geocaching.com. */
+    found_on: string | null;
+    sources: ('neighbours' | 'my_finds')[];
+    day_confidence: GpsCandidateConfidence;
+    distance_m: number | null;
+}
+
+export interface GpsResolutionResult {
+    visit_id: number;
+    day: string;
+    neighbours: { gc_code: string; name: string | null; located: boolean }[];
+    located: boolean;
+    search_radius_m: number | null;
+    /** `not_requested` tant que la recherche approfondie n'a pas été demandée. */
+    finds_state: 'not_requested' | 'ok' | 'out_of_reach' | 'empty' | 'unavailable';
+    candidates: GpsResolutionCandidate[];
+    authenticated: boolean;
+}
+
+/** « 129 m », « 1,7 km ». */
+export function formatDistance(meters: number | null): string | undefined {
+    if (meters === null || meters === undefined) {
+        return undefined;
+    }
+    return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1).replace('.', ',')} km`;
+}
+
+/** Ce qu'on sait du jour de trouvaille d'un candidat, pour son badge. */
+export function describeCandidateDay(candidate: GpsResolutionCandidate): { kind: 'strong' | 'medium' | 'weak'; label: string } {
+    const foundOn = candidate.found_on ? formatFullDay(candidate.found_on) : undefined;
+    switch (candidate.day_confidence) {
+        case 'confirmed':
+            return { kind: 'strong', label: 'Trouvée ce jour-là' };
+        case 'close_day':
+            return { kind: 'medium', label: `Trouvée le ${foundOn} (log à quelques jours près)` };
+        case 'same_day':
+            return { kind: 'medium', label: 'Trouvée ce jour-là (déduit de l\'ordre de tes trouvailles)' };
+        case 'around':
+            return { kind: 'weak', label: 'Trouvée vers ce jour (déduit de l\'ordre de tes trouvailles)' };
+        case 'other_day':
+            return { kind: 'weak', label: `Trouvée le ${foundOn}` };
+        default:
+            return candidate.found_by_me
+                ? { kind: 'weak', label: 'Trouvée (date inconnue)' }
+                : { kind: 'weak', label: 'Jamais trouvée (DNF ?)' };
+    }
+}
+
+/** Phrase sur les voisines utilisées pour situer la visite. */
+export function describeNeighbours(result: GpsResolutionResult): string {
+    if (result.neighbours.length === 0) {
+        return 'Aucune visite codée à moins d\'1 h 30 ce jour-là : la recherche de proximité est impossible.';
+    }
+    const names = result.neighbours.map(n => `${n.gc_code}${n.name ? ` (${n.name})` : ''}${n.located ? '' : ' — non située'}`);
+    const radius = result.search_radius_m ? `, recherche dans un rayon d'environ ${formatDistance(result.search_radius_m)}` : '';
+    return `Situé grâce à ${names.join(' et ')}${radius}.`;
+}

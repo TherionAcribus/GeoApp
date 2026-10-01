@@ -252,3 +252,46 @@
     padding-left: 18px;
     color: var(--theia-errorForeground);
 }
+
+.geoapp-gps-visits__candidates {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.geoapp-gps-visits__candidate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.geoapp-gps-visits__candidate .theia-button {
+    margin: 0;
+    min-width: 0;
+    padding: 0 8px;
+    line-height: 20px;
+}
+
+.geoapp-gps-visits__day-badge {
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__day-badge.is-strong {
+    background: var(--theia-testing-iconPassed, #388a34);
+    color: var(--theia-editor-background);
+    border-color: transparent;
+}
+
+.geoapp-gps-visits__day-badge.is-medium {
+    border-color: var(--theia-focusBorder);
+}
+
+.geoapp-gps-visits__day-badge.is-weak {
+    opacity: 0.75;
+}
