@@ -10,6 +10,7 @@ import { FriendsTab, GeocachingFriendsWidget } from './geocaching-friends-widget
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { TrackablesWidget, TrackablesWidgetContext } from './trackables-widget';
+import { GpsVisitsWidget } from './gps-visits-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { OutingPlanCommandId, OutingPlanWidget } from './outing-plan-widget';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
@@ -28,6 +29,7 @@ export const ZonesCommands = {
     OPEN_FRIEND_SUMMARY: <Command>{ id: 'geoapp.friends.summary.open', label: 'GeoApp: Fiche ami' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
     OPEN_TRACKABLES: <Command>{ id: 'geoapp.trackables.open', label: 'GeoApp: Trackables' },
+    OPEN_GPS_VISITS: <Command>{ id: 'geoapp.gpsVisits.open', label: 'GeoApp: Visites GPS' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
     OPEN_OUTING_PLAN: <Command>{ id: OutingPlanCommandId, label: 'GeoApp: Checklist de sortie' },
     OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
@@ -144,6 +146,17 @@ export class ZonesCommandContribution implements CommandContribution {
                     widget.setContext(args);
                 }
                 this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(ZonesCommands.OPEN_GPS_VISITS, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(GpsVisitsWidget.ID) as GpsVisitsWidget;
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+                void widget.reload();
             }
         });
 

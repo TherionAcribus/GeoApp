@@ -95,6 +95,15 @@ export const GEOAPP_SIDEBAR_VIEWS: readonly GeoAppSidebarViewDescriptor[] = [
         defaultVisible: false,
     },
     {
+        id: 'geoapp-gps-visits-widget',
+        label: 'Visites GPS',
+        iconClass: 'codicon codicon-device-mobile',
+        openCommandId: 'geoapp.gpsVisits.open',
+        defaultArea: 'left',
+        defaultRank: 475,
+        defaultVisible: false,
+    },
+    {
         id: 'geoapp.calculator',
         label: 'Calculatrice',
         iconClass: 'codicon codicon-symbol-operator',

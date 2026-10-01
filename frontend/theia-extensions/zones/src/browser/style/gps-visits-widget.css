@@ -1,0 +1,242 @@
+/* Widget « Visites GPS » (gps-visits-widget.tsx) : en-tête d'import, point de
+   départ, liste des visites par jour. Même vocabulaire visuel que le widget
+   Trackables ; les lignes passent à la ligne plutôt que de défiler en largeur. */
+
+.geoapp-gps-visits-widget {
+    height: 100%;
+    font-size: 12px;
+    outline: none;
+}
+
+.geoapp-gps-visits {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.geoapp-gps-visits__header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__header.is-drag-over {
+    outline: 1px dashed var(--theia-focusBorder);
+    outline-offset: -2px;
+    background: var(--theia-list-dropBackground, var(--theia-input-background));
+}
+
+.geoapp-gps-visits__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.geoapp-gps-visits__actions .theia-button {
+    margin: 0;
+}
+
+.geoapp-gps-visits__drop-hint,
+.geoapp-gps-visits__status {
+    opacity: 0.75;
+}
+
+.geoapp-gps-visits__detected {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+}
+
+.geoapp-gps-visits__cutoff {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+}
+
+.geoapp-gps-visits__cutoff-title {
+    font-weight: 600;
+}
+
+.geoapp-gps-visits__cutoff-help {
+    opacity: 0.8;
+}
+
+.geoapp-gps-visits__cutoff-option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.geoapp-gps-visits__days {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.geoapp-gps-visits__empty {
+    padding: 16px 10px;
+    opacity: 0.75;
+}
+
+.geoapp-gps-visits__empty.is-error {
+    color: var(--theia-errorForeground);
+    opacity: 1;
+}
+
+.geoapp-gps-visits__day + .geoapp-gps-visits__day {
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__day-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 10px;
+    position: sticky;
+    top: 0;
+    background: var(--theia-sideBar-background, var(--theia-editor-background));
+    z-index: 1;
+}
+
+.geoapp-gps-visits__day-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    padding: 2px 0;
+    border: none;
+    background: none;
+    color: var(--theia-foreground);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.geoapp-gps-visits__day-toggle:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.geoapp-gps-visits__day-label {
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.geoapp-gps-visits__day-summary {
+    opacity: 0.7;
+}
+
+.geoapp-gps-visits__day-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.geoapp-gps-visits__day-actions .theia-button,
+.geoapp-gps-visits__entry-actions .theia-button {
+    margin: 0;
+    min-width: 0;
+    padding: 0 8px;
+    line-height: 20px;
+}
+
+.geoapp-gps-visits__entries {
+    display: flex;
+    flex-direction: column;
+    padding: 0 10px 6px 28px;
+}
+
+.geoapp-gps-visits__entry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--theia-editorGroup-border, transparent);
+}
+
+.geoapp-gps-visits__entry.is-without-code,
+.geoapp-gps-visits__entry.is-ignored,
+.geoapp-gps-visits__entry.is-logged {
+    opacity: 0.6;
+}
+
+.geoapp-gps-visits__time {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+.geoapp-gps-visits__code {
+    font-family: var(--theia-code-font-family);
+}
+
+.geoapp-gps-visits__name {
+    flex: 1 1 140px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-gps-visits__knowledge,
+.geoapp-gps-visits__passes {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 11px;
+}
+
+.geoapp-gps-visits__knowledge.is-logged-same-day,
+.geoapp-gps-visits__knowledge.is-found-before {
+    background: var(--theia-editorWarning-foreground);
+    color: var(--theia-editor-background);
+}
+
+.geoapp-gps-visits__knowledge.is-to-import,
+.geoapp-gps-visits__knowledge.is-no-code {
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    border: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__comment {
+    flex-basis: 100%;
+    padding-left: 44px;
+    opacity: 0.8;
+    font-style: italic;
+    white-space: pre-wrap;
+}
+
+.geoapp-gps-visits__entry-actions {
+    margin-left: auto;
+}
+
+.geoapp-gps-visits__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 10px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__footer label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.geoapp-gps-visits__footer .theia-button {
+    margin: 0;
+}

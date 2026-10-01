@@ -50,6 +50,12 @@ export class ZonesMenuContribution implements MenuContribution {
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_GPS_VISITS.id,
+            label: 'Visites GPS',
+            order: '1.7'
+        });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_ARCHIVE_MANAGER.id,
             label: 'Gestionnaire d\'Archive',
             order: '2'

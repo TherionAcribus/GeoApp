@@ -66,6 +66,8 @@ import { GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendSummaryWidget } from './geocaching-friend-summary-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { TrackablesWidget } from './trackables-widget';
+import { GpsVisitsWidget } from './gps-visits-widget';
+import { GpsVisitsService } from './gps-visits-service';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import { GeoAppSidebarDefaultsContribution } from './sidebar/geoapp-sidebar-defaults-contribution';
@@ -122,6 +124,7 @@ export default new ContainerModule(bind => {
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
+    bind(GpsVisitsService).toSelf().inSingletonScope();
     bind(FriendsService).toSelf().inSingletonScope();
     bind(ImportAroundService).toSelf().inSingletonScope();
     bind(OutingAnalysisController).toSelf().inSingletonScope();
@@ -431,6 +434,14 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: TrackablesWidget.ID,
         createWidget: () => ctx.container.get(TrackablesWidget)
+    })).inSingletonScope();
+
+    // Widget Visites GPS (documentation/garmin-visites-technique.md) : pas de
+    // singleton Inversify, pour la même raison que Trackables ci-dessus.
+    bind(GpsVisitsWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: GpsVisitsWidget.ID,
+        createWidget: () => ctx.container.get(GpsVisitsWidget)
     })).inSingletonScope();
 
     // Widget de gestion de l'archive de résolution

@@ -158,7 +158,7 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
   Le fichier réel n'est **pas** un fixture : il contient des données personnelles. Les
   fixtures sont de petits échantillons synthétiques.
 
-### Lot 2 : widget « Visites GPS » (frontend)
+### Lot 2 : widget « Visites GPS » (frontend) — livré le 2026-10-01
 
 - Nouveau widget dans l'extension `zones` : `gps-visits-widget.tsx`, id
   `geoapp-gps-visits-widget`, commande `geoapp.gpsVisits.open`.
@@ -167,9 +167,10 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
   - Ajouter une entrée de menu **Affichage → Vues**.
 - **En‑tête** : bouton « Détecter le GPS », zone de dépôt du fichier (même composant
   visuel que `import-gpx-dialog.tsx`), et le bilan du dernier import.
-- **Premier import** : petit dialogue « À partir de quand veux‑tu loguer ? », avec les
-  repères du backend et un champ date. Le texte explique que les visites plus anciennes
-  sont gardées en historique sans être proposées.
+- **Premier import** : panneau « À partir de quand veux‑tu loguer ? » dans le widget
+  (pas de dialogue modal), avec les repères du backend et un champ date. Le texte explique
+  que les visites plus anciennes sont gardées en historique sans être proposées. Un bouton
+  « Changer le point de départ » le rouvre plus tard.
 - **Liste** groupée par jour, le plus récent en haut. Chaque jour se replie et affiche son
   nombre de caches. Chaque ligne affiche :
   - l'heure locale, le code et le nom (si la cache est connue) ;
@@ -178,8 +179,8 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
   - un indicateur : « dans l'App (zone X) », « à importer » ou « déjà trouvée sur
     Geocaching.com » ;
   - le nombre de lignes brutes réduites (« 4 passages »), avec le détail en infobulle.
-- Les visites **sans code** apparaissent à leur place chronologique, en grisé, avec un
-  bouton « Rattacher… » (actif au lot 6).
+- Les visites **sans code** apparaissent à leur place chronologique, en grisé. Le bouton
+  « Rattacher… » arrive avec le lot 6.
 - **Actions** :
   - par ligne : « Ignorer » ;
   - par jour : « Tout ignorer », « Préparer les logs » (lot 3) ;

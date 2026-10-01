@@ -172,3 +172,70 @@ Une entrée de `days[].entries` contient : `key`, `visit_ids`, `gc_code`, `raw_c
 - `backend/tests/test_gps_visits_api.py` : premier import et point de départ, réimport
   idempotent, liste groupée et enrichie, visite antérieure au point de départ, ignorer et
   restaurer, `history` refusé à la main, chemin hors `detect` refusé, fichier invalide.
+
+## 6. Widget « Visites GPS » (frontend)
+
+Extension `zones` :
+
+| Fichier | Rôle |
+|---|---|
+| [gps-visits-model.ts](../frontend/theia-extensions/zones/src/browser/gps-visits-model.ts) | Types de l'API et règles d'affichage, sans React (testées) |
+| [gps-visits-service.ts](../frontend/theia-extensions/zones/src/browser/gps-visits-service.ts) | Client de `/api/gps-visits`, sur `BackendApiClient` |
+| [gps-visits-widget.tsx](../frontend/theia-extensions/zones/src/browser/gps-visits-widget.tsx) | Widget `geoapp-gps-visits-widget` |
+| `style/gps-visits-widget.css` | Styles |
+
+Ouverture : commande `geoapp.gpsVisits.open`, menu **Affichage → Vues → Visites GPS**,
+ou la barre latérale (registre `geoapp-sidebar-views.ts`, gauche, rang 475, masquée par
+défaut). Comme Trackables, le widget n'est pas en singleton Inversify : le
+`WidgetManager` dédoublonne, et un widget fermé est recréé proprement.
+
+### 6.1 En‑tête
+
+- **Détecter le GPS** : appelle `detect`.
+  - Aucun fichier : message qui invite au glisser‑déposer (cas des GPS en MTP).
+  - Un fichier : import direct par chemin.
+  - Plusieurs : un bouton par GPS.
+- **Choisir le fichier…** et glisser‑déposer sur l'en‑tête : import en multipart.
+- Ligne d'état : bilan du dernier import (`describeImportReport`).
+
+### 6.2 Point de départ
+
+Après un import qui renvoie `needs_cutoff`, un panneau propose :
+- le dernier jour de visite ;
+- 7 jours avant ;
+- 30 jours avant ;
+- une autre date.
+
+« Changer le point de départ » (pied du widget) rouvre ce panneau, avec des repères
+recalculés depuis `last_import.last_visit_day` (`buildCutoffLandmarks`, calcul en UTC pour
+ne jamais perdre de jour au passage à l'heure d'été).
+
+### 6.3 Liste
+
+- Un bloc par jour, repliable, en‑tête collant, résumé « 12 trouvées · 1 non trouvée · 1 NM
+  · 1 sans code » (`summarizeDay`).
+- Une ligne par cache réduite : heure locale, statut, code (cliquable vers la fiche si la
+  cache est dans l'App), nom, indicateur, « N passages » (détail en infobulle), commentaire
+  du GPS.
+- Indicateur (`describeCacheKnowledge`), par ordre de priorité :
+
+  | Cas | Libellé |
+  |---|---|
+  | Pas de code | « Sans code » (infobulle : ce que le GPS a écrit) |
+  | `found` avec `found_date` le jour de la visite | « Déjà loguée sur Geocaching.com » |
+  | `found` un autre jour | « Déjà trouvée » |
+  | Présente en base | « Zone X » (infobulle : toutes les zones) |
+  | Absente | « À importer » |
+
+- Actions :
+  - par ligne : « Ignorer », ou « Remettre à loguer » pour une visite loguée ou ignorée ;
+  - par jour : « Tout ignorer » ;
+  - case « Afficher aussi les visites loguées et ignorées ».
+
+Vérifié sur une copie de la base réelle, avec le GPS branché en `H:` :
+- import de 14 629 visites en 1,0 s ;
+- point de départ au 01/09/2026 : 46 visites du 27/09, toutes déjà présentes dans une
+  zone ;
+- réimport : 0 nouvelle visite, en 0,1 s.
+
+Tests : `tests/gps-visits-model.test.ts`, inscrit dans `test:geoapp`.
