@@ -109,6 +109,7 @@ def create_app() -> Flask:
     from .blueprints.puzzle_states import bp as puzzle_states_bp
     from .blueprints.outing_plans import bp as outing_plans_bp
     from .blueprints.trackables import bp as trackables_bp
+    from .blueprints.gps_visits import bp as gps_visits_bp
 
     app.register_blueprint(zones_bp)
     app.register_blueprint(geocaches_bp)
@@ -137,6 +138,7 @@ def create_app() -> Flask:
     app.register_blueprint(puzzle_states_bp)
     app.register_blueprint(outing_plans_bp)
     app.register_blueprint(trackables_bp)
+    app.register_blueprint(gps_visits_bp)
 
     from .plugins import PluginManager
 

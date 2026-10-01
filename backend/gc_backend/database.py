@@ -14,7 +14,7 @@ def init_db(app):
     db.init_app(app)
 
     with app.app_context():
-        from .models import Zone, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, OutingPlan, Trackable  # noqa
+        from .models import Zone, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, GpsVisit, OutingPlan, Trackable  # noqa
         from .geocaches.models import (  # noqa: F401
             EarthCoachImageContext,
             EarthCoachImageGroup,

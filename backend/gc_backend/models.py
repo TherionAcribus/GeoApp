@@ -437,3 +437,71 @@ class GeocacheTrackable(db.Model):
     __table_args__ = (
         db.UniqueConstraint('gc_code', 'trackable_code', name='unique_trackable_per_geocache'),
     )
+
+
+class GpsVisit(db.Model):
+    """
+    Une visite lue dans le ``geocache_visits.txt`` d'un GPS Garmin.
+
+    Le GPS ne vide jamais ce fichier : cette table retient ce qui a déjà été
+    traité, pour ne proposer à chaque branchement que les visites à loguer.
+    Une ligne par ligne du fichier ; la réduction « une cache, un jour » se fait
+    à la lecture (`garmin_visits.reduce_by_cache_day`).
+
+    ``visited_at`` est en UTC naïf. ``occurrence`` distingue deux lignes
+    identiques du fichier (deux visites sans code à la même minute).
+    ``resolved_gc_code`` est le code choisi par l'utilisateur pour une visite
+    sans code ; ``gc_code`` reste ce que le GPS a écrit.
+
+    États : ``pending`` (à loguer), ``logged``, ``ignored``, ``history``
+    (antérieure au point de départ choisi au premier import).
+    Voir documentation/garmin-visites-technique.md.
+    """
+    __tablename__ = 'gps_visit'
+
+    id = db.Column(db.Integer, primary_key=True)
+    raw_code = db.Column(db.String(40), nullable=False, default='')
+    gc_code = db.Column(db.String(20), index=True)
+    visited_at = db.Column(db.DateTime, nullable=False, index=True)
+    status_raw = db.Column(db.String(60), nullable=False, default='')
+    occurrence = db.Column(db.Integer, nullable=False, default=0)
+    status = db.Column(db.String(30), nullable=False)
+    comment = db.Column(db.Text)
+    state = db.Column(db.String(20), nullable=False, default='pending', index=True)
+
+    resolved_gc_code = db.Column(db.String(20), index=True)
+    # 'neighbours', 'my_finds' ou 'manual'.
+    resolution_source = db.Column(db.String(20))
+    log_reference_code = db.Column(db.String(64))
+    nm_log_reference_code = db.Column(db.String(64))
+
+    imported_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('raw_code', 'visited_at', 'status_raw', 'occurrence', name='unique_gps_visit'),
+    )
+
+    @property
+    def effective_gc_code(self) -> str | None:
+        return self.gc_code or self.resolved_gc_code
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'raw_code': self.raw_code,
+            'gc_code': self.gc_code,
+            'resolved_gc_code': self.resolved_gc_code,
+            'resolution_source': self.resolution_source,
+            'visited_at': self.visited_at.isoformat() + 'Z' if self.visited_at else None,
+            'status_raw': self.status_raw,
+            'status': self.status,
+            'comment': self.comment,
+            'state': self.state,
+            'log_reference_code': self.log_reference_code,
+            'nm_log_reference_code': self.nm_log_reference_code,
+        }
