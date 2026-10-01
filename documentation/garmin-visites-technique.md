@@ -239,3 +239,70 @@ Vérifié sur une copie de la base réelle, avec le GPS branché en `H:` :
 - réimport : 0 nouvelle visite, en 0,1 s.
 
 Tests : `tests/gps-visits-model.test.ts`, inscrit dans `test:geoapp`.
+
+## 7. Préparer les logs d'un jour
+
+### 7.1 Backend
+
+`POST /api/gps-visits/prepare {"day", "zone_id"?}` (`gps_visit_store.prepare_day`) renvoie
+les caches `pending` du jour, dans l'ordre de visite, chacune avec `geocache_id` :
+
+- la géocache de `zone_id` si la cache y est, sinon la plus récemment mise à jour ;
+- `null` si la cache n'est pas en base : son code part dans `missing_codes`, sauf si elle
+  n'a pas été tentée (`skipped_unattempted`, rien à importer pour rien) ;
+- les visites sans code vont dans `without_code` et ne partent pas dans l'éditeur ;
+- `last_zone_id` : dernière zone choisie (`AppConfig` `gps_visits.last_zone_id`).
+
+`POST /api/gps-visits/import-missing {"zone_id", "gc_codes"}` importe en flux NDJSON, avec
+les mêmes helpers que l'import d'une liste (`_progress_line`, `_bulk_import_summary`…) et
+une pause de 0,2 s entre deux téléchargements.
+
+> **Piège** : `GeocacheImporter.import_by_code` **déplace** dans la zone cible une cache qui
+> existe déjà ailleurs (`_resolve_existing`). L'endpoint vérifie donc l'absence en base
+> juste avant chaque import : une cache connue est comptée « déjà présente » et reste dans
+> sa zone.
+
+Une cache en échec (introuvable, délai dépassé) est signalée dans le flux (`error_item`)
+sans bloquer les autres.
+
+### 7.2 Frontend
+
+« Préparer les logs », sur l'en‑tête d'un jour :
+
+1. `prepare(day)`. Les visites sans code sont annoncées (« rattache‑les d'abord »).
+2. S'il manque des caches : panneau de choix de zone (dernière zone présélectionnée, ou
+   « Nouvelle zone… » nommée « Sortie du JJ/MM/AAAA »), puis import avec barre de
+   progression et liste des erreurs. La lecture du flux est mise en commun dans
+   [import-stream.ts](../frontend/theia-extensions/zones/src/browser/import-stream.ts),
+   également utilisée par l'onglet d'une zone.
+3. Nouvel appel à `prepare(day, zone_id)`, puis `buildLogEditorOpening` et ouverture de
+   l'éditeur.
+
+`buildLogEditorOpening` ([gps-visits-model.ts](../frontend/theia-extensions/zones/src/browser/gps-visits-model.ts))
+produit :
+
+- `geocacheIds` **dans l'ordre de visite** : c'est lui qui numérote `@cache_count` ;
+- le titre « Log GPS — JJ/MM » ;
+- `prefill` (`LogEditorPrefill`, [types.ts](../frontend/theia-extensions/zones/src/browser/log-editor/types.ts)) :
+  `logDate`, `perCacheLogType` (type proposé) et `perCacheVisit` (`GpsVisitHint` : heure,
+  libellé du GPS, commentaire, détail des passages, `hasNm`, `needsConfirmation`).
+
+Un onglet par jour : l'éditeur n'a qu'une date par onglet.
+
+### 7.3 Dans l'éditeur de logs
+
+- `setContext` reçoit `prefill`. `initializeSession` appelle `applyPrefill()` **après**
+  `loadGeocaches` et **avant** `restoreDraftIfAny` : un brouillon existant pour les mêmes
+  caches l'emporte toujours.
+- `applyPrefill` :
+  - remplace la date de l'onglet par celle des visites et met `isLogDatePinned` à
+    `false` pour cet onglet. La date épinglée enregistrée n'est pas touchée ;
+  - applique les types proposés, assainis par `sanitizeLogTypeForGeocache` (une cache
+    déjà trouvée passe en « Ne pas loguer »).
+- Aide‑mémoire : badge « 📟 10:32 ⚠️ 💬 » dans la cellule du code de la table, ligne
+  « 📟 10:32 — Found it — « Horse » » dans le bloc par cache. Infobulle commune :
+  `describeGpsVisitHint` (helpers.ts). Le commentaire du GPS n'est **jamais** copié dans
+  le texte du log.
+
+Vérifié sur une copie de la base réelle : le 27/09/2026 donne 46 caches dans l'ordre de
+visite, toutes déjà en base, avec 43 « trouvée », 2 « non trouvée » et 1 « ne pas loguer ».

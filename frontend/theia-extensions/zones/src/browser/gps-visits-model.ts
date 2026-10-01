@@ -5,6 +5,8 @@
  * `tests/gps-visits-model.test.ts`. Voir documentation/garmin-visites-technique.md.
  */
 
+import { GpsVisitHint, LogEditorPrefill, LogTypeValue } from './log-editor/types';
+
 export type GpsVisitStatus = 'found' | 'dnf' | 'unattempted' | 'needs_maintenance' | 'other';
 export type GpsVisitState = 'pending' | 'logged' | 'ignored' | 'history';
 export type GpsProposedLogType = 'found' | 'dnf' | 'note' | 'skip';
@@ -248,5 +250,65 @@ export function buildCutoffLandmarks(lastVisitDay: string, firstVisitDay: string
         week_before: shiftIsoDay(lastVisitDay, -7),
         month_before: shiftIsoDay(lastVisitDay, -30),
         first_visit_day: firstVisitDay,
+    };
+}
+
+/** Une cache du jour prête pour l'éditeur : `geocache_id` nul tant qu'elle n'est pas importée. */
+export type GpsPreparedEntry = GpsVisitEntry & { geocache_id: number | null };
+
+/** Réponse de `POST /api/gps-visits/prepare`. */
+export interface GpsPreparedDay {
+    day: string;
+    entries: GpsPreparedEntry[];
+    /** Caches à importer avant d'ouvrir l'éditeur. */
+    missing_codes: string[];
+    /** Visites sans code : à rattacher (elles ne partent pas dans l'éditeur). */
+    without_code: GpsVisitEntry[];
+    /** Caches absentes de la base et non tentées : pas importées pour rien. */
+    skipped_unattempted: string[];
+    last_zone_id: number | null;
+}
+
+/** « 27/09/2026 » : nom proposé pour une nouvelle zone (« Sortie du 27/09/2026 »). */
+export function formatFullDay(isoDay: string): string {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDay);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : isoDay;
+}
+
+export interface LogEditorOpening {
+    geocacheIds: number[];
+    title: string;
+    prefill: LogEditorPrefill;
+}
+
+/**
+ * Ce qu'il faut à l'éditeur de logs pour un jour : les géocaches dans l'ordre de
+ * visite (il pilote `@cache_count`), la date et, par cache, le type proposé et
+ * l'aide-mémoire du GPS. Les caches pas encore importées sont laissées de côté.
+ */
+export function buildLogEditorOpening(prepared: GpsPreparedDay): LogEditorOpening {
+    const geocacheIds: number[] = [];
+    const perCacheLogType: Record<number, LogTypeValue> = {};
+    const perCacheVisit: Record<number, GpsVisitHint> = {};
+    for (const entry of prepared.entries) {
+        const id = entry.geocache_id;
+        if (id === null || id === undefined || perCacheVisit[id]) {
+            continue;
+        }
+        geocacheIds.push(id);
+        perCacheLogType[id] = entry.proposed_log_type;
+        perCacheVisit[id] = {
+            time: entry.time,
+            statusRaw: entry.status_raw,
+            comment: entry.comment || undefined,
+            passes: describePasses(entry)?.tooltip,
+            hasNm: entry.has_nm || undefined,
+            needsConfirmation: entry.needs_confirmation || undefined,
+        };
+    }
+    return {
+        geocacheIds,
+        title: `Log GPS — ${formatShortDay(prepared.day)}`,
+        prefill: { source: 'gps-visits', logDate: prepared.day, perCacheLogType, perCacheVisit },
     };
 }

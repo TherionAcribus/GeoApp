@@ -7,10 +7,12 @@ import {
     GpsVisitDay,
     GpsVisitEntry,
     buildCutoffLandmarks,
+    buildLogEditorOpening,
     describeCacheKnowledge,
     describeImportReport,
     describePasses,
     formatDayLabel,
+    formatFullDay,
     formatShortDay,
     isAlreadyLoggedSameDay,
     pendingEntries,
@@ -121,8 +123,39 @@ function testImportReport(): void {
         '46 nouvelles visites · 14629 dans le fichier · 2 lignes illisibles');
 }
 
+function testLogEditorOpening(): void {
+    const opening = buildLogEditorOpening({
+        day: '2026-09-27',
+        entries: [
+            { ...entry({ key: 'a', comment: 'Horse', raw_count: 2, passes: [
+                { time: '11:42', status_raw: "Didn't find it" }, { time: '11:45', status_raw: 'Found it' },
+            ] }), geocache_id: 12 },
+            { ...entry({ key: 'b', gc_code: 'GC2', time: '12:00', status: 'needs_maintenance', status_raw: 'Needs Maintenance',
+                has_nm: true, needs_confirmation: true }), geocache_id: 7 },
+            { ...entry({ key: 'c', gc_code: 'GC3', status: 'dnf', proposed_log_type: 'dnf' }), geocache_id: null },
+            { ...entry({ key: 'd', gc_code: 'GC4', status: 'unattempted', proposed_log_type: 'skip' }), geocache_id: 3 },
+        ],
+        missing_codes: ['GC3'],
+        without_code: [],
+        skipped_unattempted: [],
+        last_zone_id: null,
+    });
+    // L'ordre de visite est gardé : c'est lui qui numérote `@cache_count`.
+    assert.deepEqual(opening.geocacheIds, [12, 7, 3]);
+    assert.equal(opening.title, 'Log GPS — 27/09');
+    assert.equal(opening.prefill.logDate, '2026-09-27');
+    assert.deepEqual(opening.prefill.perCacheLogType, { 12: 'found', 7: 'found', 3: 'skip' });
+    assert.deepEqual(opening.prefill.perCacheVisit[12], {
+        time: '11:45', statusRaw: 'Found it', comment: 'Horse',
+        passes: "11:42 — Didn't find it\n11:45 — Found it", hasNm: undefined, needsConfirmation: undefined,
+    });
+    assert.equal(opening.prefill.perCacheVisit[7].needsConfirmation, true);
+    assert.equal(formatFullDay('2026-09-27'), '27/09/2026');
+}
+
 testPasses();
 testStatusLabel();
+testLogEditorOpening();
 testKnowledge();
 testDaySummary();
 testDates();

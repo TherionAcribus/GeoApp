@@ -19,6 +19,7 @@ import { LogTypeIcon } from '../geocache-log-type-icons';
 import { DnfBadge } from './dnf-badge';
 import {
     alreadyFoundTooltip,
+    describeGpsVisitHint,
     getLogTypeLabel,
     isJustLogged,
     isPendingDnf,
@@ -26,7 +27,7 @@ import {
     sanitizeLogTypeForGeocache,
 } from './helpers';
 import { SubmitBadge } from './submit-badge';
-import { GeocacheListItem, LogTypeValue, SubmissionStatus } from './types';
+import { GeocacheListItem, GpsVisitHint, LogTypeValue, SubmissionStatus } from './types';
 import { favoritePercent, favoritePercentHint, formatFavoritePercent } from '../favorite-percent';
 import { OutingPlanCacheFlags, badgesForFlags, formatOutingMinutes } from '../outing-plan-types';
 // Les badges de sortie sont habillés par la feuille du panneau « Sortie ».
@@ -62,6 +63,17 @@ Analyse du ${entry.outing_date}`}
     );
 }
 
+function gpsVisitBadge(hint: GpsVisitHint | undefined): React.ReactNode {
+    if (!hint) {
+        return undefined;
+    }
+    return (
+        <span className='geoapp-log-table__gps' title={describeGpsVisitHint(hint)}>
+            📟 {hint.time}{hint.hasNm ? ' ⚠️' : ''}{hint.comment ? ' 💬' : ''}
+        </span>
+    );
+}
+
 const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     data: GeocacheListItem[];
     logType: LogTypeValue;
@@ -91,8 +103,10 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
      * mieux qu'une colonne de plus à mettre en regard.
      */
     outingFlags?: Record<string, OutingPlanCacheFlags>;
+    /** Ce que le GPS a noté, par géocache (onglet ouvert depuis les visites GPS). */
+    gpsVisits?: Record<number, GpsVisitHint>;
     maxHeight?: number;
-}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, favoritePointsPending = false, outingFlags, maxHeight = 220 }) => {
+}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, favoritePointsPending = false, outingFlags, gpsVisits, maxHeight = 220 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [draggedId, setDraggedId] = React.useState<number | null>(null);
     const [dropIndicator, setDropIndicator] = React.useState<{ id: number; position: 'before' | 'after' } | null>(null);
@@ -274,6 +288,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                             perCacheSubmitStatus
                         ) && <DnfBadge compact />}
                         {outingBadges(outingFlags?.[row.original.gc_code])}
+                        {gpsVisitBadge(gpsVisits?.[row.original.id])}
                     </div>
                 ),
             },
@@ -398,7 +413,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 enableSorting: false,
             },
         ];
-    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, remainingFavoritePoints, favoritePointsPending, outingFlags]);
+    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, remainingFavoritePoints, favoritePointsPending, outingFlags, gpsVisits]);
 
     const table = useReactTable({
         data,

@@ -240,3 +240,15 @@
 .geoapp-gps-visits__footer .theia-button {
     margin: 0;
 }
+
+.geoapp-gps-visits__progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.geoapp-gps-visits__errors {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--theia-errorForeground);
+}

@@ -16,8 +16,9 @@ import {
 } from './geocaches-table';
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
+import { ImportStreamResult, consumeImportStream } from './import-stream';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
-import { ImportProgressCallback, ImportCounts } from './import-dialog-shell';
+import { ImportProgressCallback } from './import-dialog-shell';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import type { MapWidget } from './map/map-widget';
@@ -707,81 +708,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    private async consumeImportStream(
+    private consumeImportStream(
         response: Response,
         onProgress?: ImportProgressCallback
-    ): Promise<{ lastMessage?: string; hadError: boolean }> {
-        const reader = response.body?.getReader();
-        if (!reader) {
-            return { hadError: false };
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let lastMessage: string | undefined;
-        let hadError = false;
-        let errorMessage: string | undefined;
-
-        const processLine = (rawLine: string): void => {
-            const line = rawLine.trim();
-            if (!line) {
-                return;
-            }
-
-            try {
-                const data = JSON.parse(line) as {
-                    error?: boolean;
-                    progress?: number;
-                    message?: string;
-                    final_summary?: boolean;
-                    counts?: ImportCounts;
-                    error_item?: string;
-                };
-
-                if (data.error) {
-                    // Erreur fatale du flux (téléchargement échoué, aucun code…).
-                    const message = data.message || 'Erreur lors de l\'import';
-                    hadError = true;
-                    errorMessage = message;
-                    this.messages.error(message);
-                    onProgress?.(0, message);
-                    return;
-                }
-
-                if (typeof data.progress === 'number') {
-                    onProgress?.(data.progress, data.message || '', {
-                        counts: data.counts,
-                        errorItem: data.error_item
-                    });
-                }
-
-                if (data.final_summary && data.message) {
-                    lastMessage = data.message;
-                }
-            } catch (error) {
-                console.error('Error parsing import progress data:', error);
-            }
-        };
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (value) {
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    processLine(line);
-                }
-            }
-
-            if (done) {
-                break;
-            }
-        }
-
-        buffer += decoder.decode();
-        processLine(buffer);
-        return { lastMessage: errorMessage ?? lastMessage, hadError };
+    ): Promise<ImportStreamResult> {
+        return consumeImportStream(response, onProgress, message => this.messages.error(message));
     }
 
     protected async handleExportGpxSelected(geocacheIds: number[]): Promise<void> {

@@ -168,6 +168,38 @@ export interface LogDraft {
     };
 }
 
+/**
+ * Ce que le GPS a noté pour une cache (widget « Visites GPS »). Affiché comme
+ * aide-mémoire dans l'éditeur, jamais copié dans le texte du log.
+ */
+export interface GpsVisitHint {
+    /** Heure locale de la visite (HH:MM). */
+    time: string;
+    /** Libellé écrit par le GPS : « Found it », « Needs Maintenance »… */
+    statusRaw: string;
+    /** Commentaire tapé sur le GPS. */
+    comment?: string;
+    /** Détail des passages réduits à une seule ligne (« 11:42 — Didn't find it »), un par ligne. */
+    passes?: string;
+    /** Le GPS a noté un « Needs Maintenance » ce jour-là. */
+    hasNm?: boolean;
+    /** NM sans « Found it » : sur le Garmin, NM remplace le résultat — le type proposé est à confirmer. */
+    needsConfirmation?: boolean;
+}
+
+/**
+ * Pré-remplissage d'un onglet de log ouvert depuis les visites GPS. S'applique après
+ * le chargement des géocaches et avant le brouillon : un brouillon existant pour ces
+ * mêmes géocaches l'emporte toujours.
+ */
+export interface LogEditorPrefill {
+    source: 'gps-visits';
+    /** Jour local des visites (AAAA-MM-JJ) : remplace la date de l'onglet, sans toucher à la date épinglée. */
+    logDate: string;
+    perCacheLogType: Record<number, LogTypeValue>;
+    perCacheVisit: Record<number, GpsVisitHint>;
+}
+
 export interface LogTextPattern {
     id: string;
     name: string;

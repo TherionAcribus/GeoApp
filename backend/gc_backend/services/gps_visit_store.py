@@ -304,3 +304,61 @@ def list_grouped(
         'cutoff': (get_cutoff().isoformat() if get_cutoff() else None),
         'last_import': get_last_import(),
     }
+
+
+def get_last_zone_id() -> Optional[int]:
+    raw = AppConfig.get_value(LAST_ZONE_KEY)
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def set_last_zone_id(zone_id: int) -> None:
+    AppConfig.set_value(LAST_ZONE_KEY, str(zone_id))
+    db.session.commit()
+
+
+def prepare_day(day: date, *, zone_id: Optional[int] = None, tz: Optional[tzinfo] = None) -> dict:
+    """
+    Ce qu'il faut pour ouvrir l'éditeur de logs sur un jour : les caches à loguer,
+    dans l'ordre de visite, chacune avec la géocache GeoApp à utiliser.
+
+    - Une cache présente en base est réutilisée là où elle est (celle de
+      ``zone_id`` si elle y est, sinon la plus récemment mise à jour) : jamais
+      déplacée. `GeocacheImporter.import_by_code` déplacerait une cache existante
+      dans la zone cible, d'où l'import des seules caches absentes.
+    - Une cache absente de la base part dans ``missing_codes``, sauf si la
+      visite n'a pas été tentée : importer une cache qu'on ne loguera pas ne sert à rien.
+    - Les visites sans code attendent leur rattachement (``without_code``).
+    """
+    listing = list_grouped(states=('pending',), from_day=day, to_day=day, max_days=1, tz=tz)
+    entries = listing['days'][0]['entries'] if listing['days'] else []
+
+    prepared: list[dict] = []
+    missing_codes: list[str] = []
+    without_code: list[dict] = []
+    skipped_unattempted: list[str] = []
+    for entry in entries:
+        if not entry['gc_code']:
+            without_code.append(entry)
+            continue
+        known = entry['geocaches']
+        chosen = next((g for g in known if zone_id is not None and g['zone_id'] == zone_id), None)
+        if chosen is None and known:
+            chosen = known[0]
+        if chosen is None:
+            if entry['proposed_log_type'] == 'skip':
+                skipped_unattempted.append(entry['gc_code'])
+                continue
+            missing_codes.append(entry['gc_code'])
+        prepared.append({**entry, 'geocache_id': chosen['id'] if chosen else None})
+
+    return {
+        'day': day.isoformat(),
+        'entries': prepared,
+        'missing_codes': missing_codes,
+        'without_code': without_code,
+        'skipped_unattempted': skipped_unattempted,
+        'last_zone_id': get_last_zone_id(),
+    }

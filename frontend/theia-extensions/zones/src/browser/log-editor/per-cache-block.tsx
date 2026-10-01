@@ -17,7 +17,8 @@ import { MarkdownToolbar } from './markdown-toolbar';
 import { PatternAutocompleteMenu } from './pattern-autocomplete-menu';
 import { SubmitBadge } from './submit-badge';
 import { TextareaWithOverlay } from './textarea-overlay';
-import { GeocacheListItem, LogTypeValue, PatternSuggestion, SelectedLogImage, SubmissionStatus } from './types';
+import { GeocacheListItem, GpsVisitHint, LogTypeValue, PatternSuggestion, SelectedLogImage, SubmissionStatus } from './types';
+import { describeGpsVisitHint } from './helpers';
 
 export interface PerCacheBlockProps {
     gc: GeocacheListItem;
@@ -43,6 +44,8 @@ export interface PerCacheBlockProps {
 
     /** Ce que ce log fait des TBs en main (« 3 TB visités · TB1234 déposé »), réglé dans la section Trackables. */
     trackablesSummary?: string;
+    /** Ce que le GPS a noté pour cette cache (onglet ouvert depuis les visites GPS). */
+    gpsVisit?: GpsVisitHint;
 
     // Images
     images: SelectedLogImage[];
@@ -126,7 +129,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         submitStatus, submitReference, submitError,
         logType, onLogTypeChange, isFavorite, onFavoriteChange, remainingFavoritePoints,
         favoritePointsPending = false,
-        formatFavoritePercent, getLogTypeLabel, trackablesSummary,
+        formatFavoritePercent, getLogTypeLabel, trackablesSummary, gpsVisit,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
         onTranslate, translateDisabledReason, isTranslating, logLanguage, translationExecutionBadge,
@@ -191,6 +194,12 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                     {formatFavoritePercent(gc)}
                     )
                 </div>
+                {gpsVisit && (
+                    <div className='geoapp-log-cache-block__gps' title={describeGpsVisitHint(gpsVisit)}>
+                        📟 {gpsVisit.time} — {gpsVisit.statusRaw}
+                        {gpsVisit.comment && <> — « {gpsVisit.comment} »</>}
+                    </div>
+                )}
                 {trackablesSummary && (
                     <div
                         className='geoapp-log-cache-block__trackables'

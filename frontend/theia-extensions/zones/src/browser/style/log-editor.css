@@ -1618,3 +1618,18 @@
     max-width: 320px;
     font-weight: 400;
 }
+
+/* Aide-mémoire des visites GPS (onglet ouvert depuis le widget « Visites GPS ») :
+   ce que le GPS a noté, jamais copié dans le log. */
+.geoapp-log-table__gps {
+    margin-left: 6px;
+    font-size: 11px;
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.geoapp-log-cache-block__gps {
+    font-size: 11px;
+    opacity: 0.8;
+    white-space: pre-wrap;
+}

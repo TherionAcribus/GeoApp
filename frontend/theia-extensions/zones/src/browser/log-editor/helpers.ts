@@ -5,7 +5,7 @@
  * à l'état du widget, uniquement des paramètres explicites.
  */
 
-import { GeocacheListItem, LogTypeValue, SubmissionStatus } from './types';
+import { GeocacheListItem, GpsVisitHint, LogTypeValue, SubmissionStatus } from './types';
 
 /**
  * Date du jour au format ISO `YYYY-MM-DD` en heure **locale**.
@@ -177,4 +177,19 @@ export function getCaretCoordinates(element: HTMLTextAreaElement, position: numb
         // le document y resterait invisible mais bien present, une fois par frappe.
         div.remove();
     }
+}
+
+/** Infobulle commune à la table et au bloc par cache : ce que le GPS a noté. */
+export function describeGpsVisitHint(hint: GpsVisitHint): string {
+    const lines = [`GPS : ${hint.statusRaw} à ${hint.time}`];
+    if (hint.passes) {
+        lines.push(hint.passes);
+    }
+    if (hint.comment) {
+        lines.push(`Commentaire : « ${hint.comment} »`);
+    }
+    if (hint.hasNm) {
+        lines.push('Needs Maintenance noté sur le GPS');
+    }
+    return lines.join('\n');
 }

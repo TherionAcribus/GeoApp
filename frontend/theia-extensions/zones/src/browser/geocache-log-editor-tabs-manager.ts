@@ -3,10 +3,13 @@ import { ApplicationShell } from '@theia/core/lib/browser';
 import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 
 import { GeocacheLogEditorWidget } from './geocache-log-editor-widget';
+import { LogEditorPrefill } from './log-editor/types';
 
 export interface OpenGeocacheLogEditorOptions {
     geocacheIds: number[];
     title?: string;
+    /** Pré-remplissage (visites GPS) : date, types de log, aide-mémoire par cache. */
+    prefill?: LogEditorPrefill;
 }
 
 @injectable()
@@ -25,6 +28,7 @@ export class GeocacheLogEditorTabsManager {
         widget.setContext({
             geocacheIds: options.geocacheIds,
             title: options.title,
+            prefill: options.prefill,
         });
 
         if (!widget.isAttached) {

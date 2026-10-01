@@ -188,10 +188,10 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
 - Vocabulaire : « visite », « loguer », « ignorer ». Pas de « field note », de « draft » ni
   de « pending » dans l'UI.
 
-### Lot 3 : préparer les logs d'une journée
+### Lot 3 : préparer les logs d'une journée — livré le 2026-10-01
 
 - **Choix de la zone** au clic sur « Préparer les logs », seulement si au moins une cache
-  du jour manque en base. Liste des zones existantes, plus « Nouvelle zone… » (nom proposé :
+  du jour manque en base. C'est un panneau dans le widget, comme le point de départ. Liste des zones existantes, plus « Nouvelle zone… » (nom proposé :
   « Sortie du JJ/MM/AAAA »).
   - La dernière zone choisie est mémorisée (`AppConfig`, clé `gps_visits.last_zone_id`) et
     présélectionnée la fois suivante.
@@ -203,6 +203,10 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
     sans bloquer les autres.
   - Une cache présente dans **plusieurs zones** : on prend celle de la zone choisie si elle
     y est, sinon la plus récemment mise à jour. Pas de copie.
+  - `import_by_code` **déplace** une cache déjà en base dans la zone cible : il n'est
+    appelé que pour les codes absents de la base, vérifiés juste avant.
+  - Une cache absente de la base et seulement « pas tentée » n'est pas importée
+    (`skipped_unattempted`).
 - **Ouverture de l'éditeur** : `OpenGeocacheLogEditorOptions` et `setContext` reçoivent un
   `prefill` optionnel :
   ```ts
@@ -210,12 +214,11 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
       source: 'gps-visits';
       logDate: string;                                   // AAAA-MM-JJ, jour local
       perCacheLogType: Record<number, LogTypeValue>;
-      perCacheVisitTime: Record<number, string>;         // HH:MM local, affichage et lot 7
-      perCacheHint: Record<number, string>;              // commentaire GPS
-      perCacheProblem?: Record<number, ProblemReport>;   // lot 5
-      perCacheNeedsConfirmation?: Record<number, true>;  // NM sans Found
-  }
+      perCacheVisit: Record<number, GpsVisitHint>;       // heure, libellé, commentaire,
+  }                                                      // passages, NM, à confirmer
   ```
+  Implémenté avec un seul `perCacheVisit` (`GpsVisitHint`) au lieu de quatre tables
+  parallèles : le lot 5 en tire le signalement NM et le « à confirmer », le lot 7 l'heure.
   - `geocacheIds` est passé **dans l'ordre chronologique des visites** : c'est lui qui
     pilote `@cache_count`.
   - Le titre de l'onglet est « Log GPS — JJ/MM ».

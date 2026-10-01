@@ -83,9 +83,11 @@ import {
 import {
     AiRewriteJob,
     GeocacheListItem,
+    GpsVisitHint,
     ImageUploadStatus,
     ImagesUploadResult,
     LogDraft,
+    LogEditorPrefill,
     LogHistoryEntry,
     LogTextPattern,
     LogTypeValue,
@@ -219,6 +221,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     /** Signaux de la dernière analyse IA de sortie, par code GC : badges du tableau. */
     protected outingFlags: Record<string, OutingPlanCacheFlags> = {};
     protected outingPlanSubscribed = false;
+    /** Pré-remplissage venu des visites GPS, appliqué une fois les géocaches chargées. */
+    protected prefill: LogEditorPrefill | undefined;
+    /** Ce que le GPS a noté, par géocache : aide-mémoire du tableau et des blocs. */
+    protected gpsVisits: Record<number, GpsVisitHint> = {};
     protected isLoading = false;
 
     protected logDate = todayIsoDate();
@@ -1089,9 +1095,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }, 0);
     }
 
-    setContext(params: { geocacheIds: number[]; title?: string }): void {
+    setContext(params: { geocacheIds: number[]; title?: string; prefill?: LogEditorPrefill }): void {
         const ids = (params.geocacheIds || []).filter((v): v is number => typeof v === 'number');
         this.geocacheIds = Array.from(new Set(ids));
+        this.prefill = params.prefill;
+        this.gpsVisits = params.prefill?.perCacheVisit ?? {};
         this.geocaches = [];
         this.perCacheText = {};
         this.lastDistributedGlobalText = undefined;
@@ -1139,6 +1147,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             await this.loadPinnedLogLanguage();
             await this.loadImprovementMode();
             await this.loadGeocaches();
+            this.applyPrefill();
             await this.restoreDraftIfAny();
             // Après le brouillon : ses choix de TB priment sur les défauts. Pas d'attente : un
             // relevé trop ancien part sur Geocaching.com et ne doit pas bloquer la rédaction.
@@ -1147,6 +1156,32 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.draftAutosaveSuspended = false;
             this.update();
         }
+    }
+
+    /**
+     * Visites GPS : date du jour des visites et type de log proposé par cache. Appelé
+     * entre le chargement des géocaches (qui assainit les types) et le brouillon (qui
+     * l'emporte). La date épinglée n'est pas modifiée : cet onglet suit la date du GPS
+     * et ne réépingle rien tant que l'utilisateur ne le demande pas.
+     */
+    protected applyPrefill(): void {
+        const prefill = this.prefill;
+        if (!prefill || this.geocaches.length === 0) {
+            return;
+        }
+        if (this.isValidIsoDate(prefill.logDate)) {
+            this.logDate = prefill.logDate;
+            this.isLogDatePinned = false;
+        }
+        const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
+        for (const gc of this.geocaches) {
+            const proposed = prefill.perCacheLogType[gc.id];
+            if (proposed) {
+                nextTypes[gc.id] = sanitizeLogTypeForGeocache(proposed, gc);
+            }
+        }
+        this.perCacheLogType = nextTypes;
+        this.update();
     }
 
     protected toggleUseSameTextForAll(checked: boolean): void {
@@ -3342,6 +3377,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 submitStatus={this.perCacheSubmitStatus[gc.id]}
                 submitReference={this.perCacheSubmitReference[gc.id]}
                 submitError={this.perCacheSubmitError[gc.id]}
+                gpsVisit={this.gpsVisits[gc.id]}
                 logType={this.getLogTypeForGeocacheId(gc.id)}
                 onLogTypeChange={value => this.setLogTypeForGeocacheId(gc.id, value)}
                 isFavorite={this.perCacheFavorite[gc.id] === true}
@@ -3601,6 +3637,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             remainingFavoritePoints={remainingFavoritePoints}
                             favoritePointsPending={favoritePointsPending}
                             outingFlags={this.outingFlags}
+                            gpsVisits={this.gpsVisits}
                             maxHeight={220}
                         />
                     </div>

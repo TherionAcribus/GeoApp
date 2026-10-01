@@ -3,6 +3,7 @@ import { BackendApiClient } from './backend-api-client';
 import {
     DetectedVisitsFile,
     GpsImportReport,
+    GpsPreparedDay,
     GpsVisitState,
     GpsVisitsListing,
 } from './gps-visits-model';
@@ -50,6 +51,23 @@ export class GpsVisitsService {
             `/api/gps-visits?state=${encodeURIComponent(states.join(','))}`,
             {},
             'Erreur lors du chargement des visites'
+        );
+    }
+
+    async prepare(day: string, zoneId?: number): Promise<GpsPreparedDay> {
+        return this.apiClient.requestJson<GpsPreparedDay>(
+            '/api/gps-visits/prepare',
+            this.apiClient.createJsonInit('POST', zoneId === undefined ? { day } : { day, zone_id: zoneId }),
+            'Erreur lors de la préparation des logs'
+        );
+    }
+
+    /** Flux de progression (une ligne JSON par cache), à lire avec `consumeImportStream`. */
+    async importMissing(zoneId: number, gcCodes: string[], signal?: AbortSignal): Promise<Response> {
+        return this.apiClient.requestResponse(
+            '/api/gps-visits/import-missing',
+            this.apiClient.createJsonInit('POST', { zone_id: zoneId, gc_codes: gcCodes }, { signal }),
+            'Erreur lors de l\'import des caches'
         );
     }
 
