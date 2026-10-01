@@ -34,7 +34,7 @@ from ..services.geocaching_logs import (
 )
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient, LogSubmitNetworkError
 from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
-from ..services import trackable_store
+from ..services import gps_visit_store, trackable_store
 
 bp = Blueprint('logs', __name__)
 logger = logging.getLogger(__name__)
@@ -578,6 +578,18 @@ def _validate_trackable_actions(actions: dict, *, is_find_log: bool, log_type_id
     return None
 
 
+def _mark_gps_visits_logged(gc_code: str, visited_date, log_reference_code=None) -> None:
+    """Visites GPS de cette cache ce jour-là : loguées. Best-effort, le log est parti."""
+    try:
+        gps_visit_store.mark_logged(
+            gc_code, visited_date,
+            log_reference_code=log_reference_code, tz=gps_visit_store.get_local_tz(),
+        )
+    except Exception as e:  # pragma: no cover - mise à jour best-effort
+        logger.warning('Could not mark GPS visits as logged for %s: %s', gc_code, e)
+        db.session.rollback()
+
+
 def _looks_like_already_logged(result) -> bool:
     """L'envoi a-t-il été refusé parce que la cache est déjà loguée ?"""
     if not isinstance(result, dict):
@@ -675,6 +687,9 @@ def submit_geocache_log(geocache_id: int):
         is_find_log = resolved_log_type_id in _FIND_LOG_TYPE_IDS
 
         if is_find_log and bool(geocache.found):
+            # Trouvée le jour même : la visite GPS de ce jour est réglée.
+            if geocache.found_date and geocache.found_date.date() == visited_date:
+                _mark_gps_visits_logged(gc_code, visited_date)
             return jsonify({
                 'error': 'Geocache already logged',
                 'error_code': 'ALREADY_LOGGED',
@@ -729,6 +744,8 @@ def submit_geocache_log(geocache_id: int):
 
         if not isinstance(result, dict) or not result.get('logReferenceCode'):
             if _looks_like_already_logged(result):
+                # Geocaching.com a déjà un log de ce type : la visite est réglée.
+                _mark_gps_visits_logged(gc_code, visited_date)
                 return jsonify({
                     'error': 'Geocache already logged',
                     'error_code': 'ALREADY_LOGGED',
@@ -767,6 +784,7 @@ def submit_geocache_log(geocache_id: int):
             log_type_id=resolved_log_type_id,
             used_favorite_point=bool(used_favorite_point),
         )
+        _mark_gps_visits_logged(gc_code, visited_date, log_reference_code)
 
         # Le log vient de modifier les compteurs côté Geocaching.com : on les
         # répercute sur les stats en cache, sinon le prochain log repartirait du

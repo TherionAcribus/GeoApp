@@ -16,7 +16,7 @@
 import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { MessageService } from '@theia/core';
+import { Disposable, MessageService } from '@theia/core';
 import '../../src/browser/style/gps-visits-widget.css';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
@@ -101,6 +101,21 @@ export class GpsVisitsWidget extends ReactWidget {
     @postConstruct()
     initialize(): void {
         void this.reload();
+        // Un log envoyé depuis l'éditeur fait passer les visites du jour en « loguée »
+        // côté backend : on recharge, une fois le lot calmé.
+        const onLogSubmitted = (): void => this.scheduleReload();
+        window.addEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
+        this.toDispose.push(Disposable.create(() => {
+            window.removeEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
+            window.clearTimeout(this.reloadTimer);
+        }));
+    }
+
+    protected reloadTimer: number | undefined;
+
+    protected scheduleReload(): void {
+        window.clearTimeout(this.reloadTimer);
+        this.reloadTimer = window.setTimeout(() => { void this.reload(); }, 1000);
     }
 
     protected onActivateRequest(msg: any): void {
@@ -641,6 +656,13 @@ export class GpsVisitsWidget extends ReactWidget {
                 {passes && <span className='geoapp-gps-visits__passes' title={passes.tooltip}>{passes.label}</span>}
                 {entry.comment && <span className='geoapp-gps-visits__comment' title={entry.comment}>📟 « {entry.comment} »</span>}
                 <span className='geoapp-gps-visits__entry-actions'>
+                    {entry.state === 'pending' && knowledge.kind === 'logged-same-day' && (
+                        <button className='theia-button secondary' disabled={this.busy !== undefined}
+                            title='Geocaching.com indique une trouvaille ce jour-là : ne plus proposer cette visite'
+                            onClick={() => { void this.setEntriesState([entry], 'logged'); }}>
+                            Marquer comme loguée
+                        </button>
+                    )}
                     {entry.state === 'pending' && (
                         <button className='theia-button secondary' disabled={this.busy !== undefined}
                             onClick={() => { void this.setEntriesState([entry], 'ignored'); }}>

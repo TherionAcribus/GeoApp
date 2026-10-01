@@ -362,3 +362,30 @@ def prepare_day(day: date, *, zone_id: Optional[int] = None, tz: Optional[tzinfo
         'skipped_unattempted': skipped_unattempted,
         'last_zone_id': get_last_zone_id(),
     }
+
+
+def mark_logged(gc_code: str, log_date: date, *, log_reference_code: Optional[str] = None,
+                tz: Optional[tzinfo] = None) -> int:
+    """
+    Un log de cette cache vient de partir pour ce jour : ses visites à loguer de ce
+    jour-là passent en ``logged``. Correspondance par code (lu sur le GPS ou rattaché)
+    et par jour local — la date du log est celle de la visite.
+    """
+    code = (gc_code or '').strip().upper()
+    if not code:
+        return 0
+    start = local_midnight_utc(log_date, tz)
+    end = local_midnight_utc(log_date + timedelta(days=1), tz)
+    rows = GpsVisit.query.filter(
+        db.or_(GpsVisit.gc_code == code, GpsVisit.resolved_gc_code == code),
+        GpsVisit.state == 'pending',
+        GpsVisit.visited_at >= start,
+        GpsVisit.visited_at < end,
+    ).all()
+    for row in rows:
+        row.state = 'logged'
+        if log_reference_code:
+            row.log_reference_code = log_reference_code
+    if rows:
+        db.session.commit()
+    return len(rows)

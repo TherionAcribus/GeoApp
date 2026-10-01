@@ -306,3 +306,35 @@ Un onglet par jour : l'éditeur n'a qu'une date par onglet.
 
 Vérifié sur une copie de la base réelle : le 27/09/2026 donne 46 caches dans l'ordre de
 visite, toutes déjà en base, avec 43 « trouvée », 2 « non trouvée » et 1 « ne pas loguer ».
+
+## 8. Retour d'envoi
+
+Le marquage se fait **côté backend**, dans `POST /api/geocaches/<id>/logs/submit`
+([logs.py](../backend/gc_backend/blueprints/logs.py), `_mark_gps_visits_logged`). Il reste
+juste même si l'onglet de log est fermé pendant l'envoi.
+
+`gps_visit_store.mark_logged(gc_code, log_date, log_reference_code)` fait passer en
+`logged` les visites `pending` :
+
+- dont `gc_code` **ou** `resolved_gc_code` est celui de la cache ;
+- dont le jour local est la date du log (bornes `local_midnight_utc`). Une visite à
+  22h30Z en été appartient au lendemain et n'est pas touchée par un log daté de la veille.
+
+| Cas | Effet |
+|---|---|
+| Log envoyé (`logReferenceCode`) | `logged`, avec la référence du log |
+| Geocaching.com répond « déjà logué » | `logged`, sans référence |
+| Refus local « déjà trouvée » avec `found_date` le jour du log | `logged`, sans référence |
+| Refus local « déjà trouvée » un autre jour | rien |
+| Cache en « Ne pas loguer » | rien (aucun appel) |
+
+Best‑effort : une erreur est journalisée et annulée (`rollback`), elle ne remet jamais
+en cause le log, qui est parti.
+
+Frontend : le widget écoute l'événement existant `geoapp-geocache-log-submitted` (émis
+par l'éditeur à chaque log réussi) et recharge 1 s après le dernier. Un jour entièrement
+logué disparaît de la vue par défaut. Une visite indiquée « Déjà loguée sur
+Geocaching.com » (`found` avec `found_date` le même jour) propose « Marquer comme
+loguée ». Rien n'est automatique, car `found_date` peut dater d'une autre visite.
+
+Tests : `backend/tests/test_gps_visits_log_submit.py`.

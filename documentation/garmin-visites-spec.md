@@ -234,7 +234,7 @@ Le payload tRPC `web.logs.createGeocacheLog` est le même que pour un log normal
   par onglet. Ne pas ajouter de date par cache.
 - Les caches déjà trouvées (`already_found`) restent soumises à l'avertissement existant.
 
-### Lot 4 : retour d'envoi
+### Lot 4 : retour d'envoi — livré le 2026-10-01
 
 - Dans `POST /api/geocaches/<id>/logs/submit`, après un envoi réussi, les `gps_visit` en
   `pending` de cette cache passent en `logged`, avec le `log_reference_code` :
