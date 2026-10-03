@@ -278,6 +278,17 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
     }
 
 
+def _day_zone_names() -> dict[str, dict]:
+    """Zone de la sortie de chaque jour préparé (zones disparues ignorées)."""
+    from .gps_zone_operations import get_day_zones
+
+    day_zones = get_day_zones()
+    if not day_zones:
+        return {}
+    names = dict(db.session.query(Zone.id, Zone.name).filter(Zone.id.in_(set(day_zones.values()))).all())
+    return {day: {'id': zone_id, 'name': names[zone_id]} for day, zone_id in day_zones.items() if zone_id in names}
+
+
 def list_grouped(
     *,
     states: Iterable[str] = ('pending',),
@@ -311,10 +322,16 @@ def list_grouped(
 
     codes = {e.gc_code for d in ordered_days for e in days[d] if e.gc_code}
     geocaches_by_code = _geocaches_by_code(codes)
+    day_zones = _day_zone_names()
 
     return {
         'days': [
-            {'day': d.isoformat(), 'entries': [entry_dict(e, rows_by_id, geocaches_by_code) for e in days[d]]}
+            {
+                'day': d.isoformat(),
+                'entries': [entry_dict(e, rows_by_id, geocaches_by_code) for e in days[d]],
+                # Zone de la sortie, si ce jour a déjà été préparé.
+                'zone': day_zones.get(d.isoformat()),
+            }
             for d in ordered_days
         ],
         'truncated': truncated,
@@ -337,48 +354,77 @@ def set_last_zone_id(zone_id: int) -> None:
     db.session.commit()
 
 
-def prepare_day(day: date, *, zone_id: Optional[int] = None, tz: Optional[tzinfo] = None) -> dict:
-    """
-    Ce qu'il faut pour ouvrir l'éditeur de logs sur un jour : les caches à loguer,
-    dans l'ordre de visite, chacune avec la géocache GeoApp à utiliser.
+def entries_for_visits(visit_ids: Iterable[int], tz: Optional[tzinfo] = None) -> list[dict]:
+    """Entrées réduites (une cache, un jour) des visites à loguer données, dans l'ordre de visite."""
+    ids = [int(i) for i in visit_ids]
+    if not ids:
+        return []
+    rows = GpsVisit.query.filter(GpsVisit.id.in_(ids), GpsVisit.state == 'pending').order_by(
+        GpsVisit.visited_at, GpsVisit.id
+    ).all()
+    rows_by_id = {row.id: row for row in rows}
+    reduced = reduce_by_cache_day(_records(rows), tz)
+    geocaches_by_code = _geocaches_by_code({r.gc_code for r in reduced if r.gc_code})
+    return [entry_dict(r, rows_by_id, geocaches_by_code) for r in reduced]
 
-    - Une cache présente en base est réutilisée là où elle est (celle de
-      ``zone_id`` si elle y est, sinon la plus récemment mise à jour) : jamais
-      déplacée. `GeocacheImporter.import_by_code` déplacerait une cache existante
-      dans la zone cible, d'où l'import des seules caches absentes.
-    - Une cache absente de la base part dans ``missing_codes``, sauf si la
-      visite n'a pas été tentée : importer une cache qu'on ne loguera pas ne sert à rien.
-    - Les visites sans code attendent leur rattachement (``without_code``).
-    """
-    listing = list_grouped(states=('pending',), from_day=day, to_day=day, max_days=1, tz=tz)
-    entries = listing['days'][0]['entries'] if listing['days'] else []
 
-    prepared: list[dict] = []
-    missing_codes: list[str] = []
-    without_code: list[dict] = []
-    skipped_unattempted: list[str] = []
+def pending_visit_ids_of_day(day: date, tz: Optional[tzinfo] = None) -> list[int]:
+    return [
+        visit_id for (visit_id,) in db.session.query(GpsVisit.id).filter(
+            GpsVisit.state == 'pending',
+            GpsVisit.visited_at >= local_midnight_utc(day, tz),
+            GpsVisit.visited_at < local_midnight_utc(day + timedelta(days=1), tz),
+        ).all()
+    ]
+
+
+PLAN_EXISTING = 'existing'   # déjà dans la zone de la sortie
+PLAN_COPY = 'copy'           # dans une autre zone : y sera ajoutée (copiée)
+PLAN_DOWNLOAD = 'download'   # absente de l'App : sera téléchargée
+
+
+def prepare_selection(visit_ids: Iterable[int], *, zone_id: Optional[int] = None,
+                      tz: Optional[tzinfo] = None) -> dict:
+    """
+    Récapitulatif de « Préparer la sortie » : pour chaque cache sélectionnée, ce qui se
+    passera dans la zone de la sortie, et ce qui est laissé de côté.
+
+    Une cache connue ailleurs est **ajoutée** à la zone (copiée), jamais déplacée.
+    Laissées de côté : les visites sans code (à rattacher) et les visites non tentées.
+    """
+    from .gps_zone_operations import get_day_zones
+
+    entries = entries_for_visits(visit_ids, tz)
+    included: list[dict] = []
+    excluded: list[dict] = []
     for entry in entries:
         if not entry['gc_code']:
-            without_code.append(entry)
+            excluded.append({**entry, 'reason': 'without_code'})
             continue
-        known = entry['geocaches']
-        chosen = next((g for g in known if zone_id is not None and g['zone_id'] == zone_id), None)
-        if chosen is None and known:
-            chosen = known[0]
-        if chosen is None:
-            if entry['proposed_log_type'] == 'skip':
-                skipped_unattempted.append(entry['gc_code'])
-                continue
-            missing_codes.append(entry['gc_code'])
-        prepared.append({**entry, 'geocache_id': chosen['id'] if chosen else None})
+        if entry['status'] == 'unattempted':
+            excluded.append({**entry, 'reason': 'unattempted'})
+            continue
+        in_zone = next((g for g in entry['geocaches'] if zone_id is not None and g['zone_id'] == zone_id), None)
+        plan = PLAN_EXISTING if in_zone else (PLAN_COPY if entry['geocaches'] else PLAN_DOWNLOAD)
+        included.append({**entry, 'plan': plan, 'target_geocache_id': in_zone['id'] if in_zone else None})
 
+    days = sorted({entry['day'] for entry in entries})
+    day_zones = get_day_zones()
+    known_zone_ids = {zone_id for (zone_id,) in db.session.query(Zone.id).all()}
+    suggested = next((day_zones[d] for d in days if day_zones.get(d) in known_zone_ids), None)
+    if suggested is None and get_last_zone_id() in known_zone_ids:
+        suggested = get_last_zone_id()
+    counts = Counter(entry['plan'] for entry in included)
+    counts.update(entry['reason'] for entry in excluded)
     return {
-        'day': day.isoformat(),
-        'entries': prepared,
-        'missing_codes': missing_codes,
-        'without_code': without_code,
-        'skipped_unattempted': skipped_unattempted,
-        'last_zone_id': get_last_zone_id(),
+        'days': days,
+        'entries': included,
+        'excluded': excluded,
+        'counts': {key: counts.get(key, 0) for key in
+                   (PLAN_EXISTING, PLAN_COPY, PLAN_DOWNLOAD, 'without_code', 'unattempted')},
+        'zone_id': zone_id,
+        'suggested_zone_id': suggested,
+        'day_zones': {d: day_zones[d] for d in days if d in day_zones},
     }
 
 

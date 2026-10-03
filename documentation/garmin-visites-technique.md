@@ -242,6 +242,9 @@ Tests : `tests/gps-visits-model.test.ts`, inscrit dans `test:geoapp`.
 
 ## 7. Préparer les logs d'un jour
 
+> **Remplacé** par la préparation de la sortie (§ 12) : `POST /api/gps-visits/import-missing`
+> n'existe plus, `prepare` prend une sélection de visites et la zone de la sortie.
+
 ### 7.1 Backend
 
 `POST /api/gps-visits/prepare {"day", "zone_id"?}` (`gps_visit_store.prepare_day`) renvoie
@@ -564,3 +567,91 @@ base de fuseaux sans lui. Point d'entrée unique : `gps_visit_store.get_local_tz
 Tests :
 - `backend/tests/test_gps_visits_timezone.py` ;
 - `tests/pattern-visit-time.test.ts`.
+
+## 12. Préparer la sortie : sélection, zone, annulation
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 1.
+
+### 12.1 Sélection
+
+- Une case par cache **cochable** (`isSelectable` : à loguer, avec un code lu ou rattaché)
+  et une case par jour, à trois états (`daySelectionState`).
+- La sélection (`selection`, clés d'entrée) peut couvrir plusieurs jours. Après un
+  rechargement, elle oublie les lignes disparues.
+- Barre d'action : « N caches sur K jours — Préparer les logs · Ignorer · Vider la
+  sélection ».
+- Le bouton d'un jour coche ce jour puis ouvre la préparation. Il devient « Préparer /
+  changer la zone » quand le jour a déjà une zone, affichée en badge 📁.
+
+### 12.2 Récapitulatif — `POST /api/gps-visits/prepare`
+
+Corps : `{"visit_ids": […] | "day": "AAAA-MM-JJ", "zone_id"?}` (`prepare_selection`).
+
+Pour chaque cache retenue, le `plan` dans la zone :
+- `existing` : déjà dans la zone ;
+- `copy` : connue ailleurs, sera copiée ;
+- `download` : absente de l'App.
+
+Sont laissées de côté (`excluded`) :
+- les visites sans code (`without_code`, à rattacher) ;
+- les visites non tentées (`unattempted`).
+
+La réponse donne aussi `counts` et `days`. `suggested_zone_id` est la zone déjà associée
+à un de ces jours (`AppConfig` `gps_visits.day_zones`), sinon la dernière zone utilisée.
+
+### 12.3 Ajout à la zone — `POST /api/gps-visits/zone-operations`
+
+Corps : `{"operation_id", "zone_id" | "new_zone_name", "visit_ids" | "day"}`. Réponse en flux
+NDJSON (lu par `consumeImportStream`, qui expose maintenant `finalPayload`).
+
+- La nouvelle zone est créée **dans le flux**, pour que l'annulation puisse la retirer.
+  Un nom déjà pris donne 409 `zone_exists`.
+- Chaque cache passe par `zone_membership.add_to_zone` :
+
+  | Cas | Action |
+  |---|---|
+  | Déjà dans la zone | `existing` |
+  | Connue ailleurs | `copied`, via `copy_geocache_to_zone` (ligne, waypoints, checkers), désormais aussi utilisé par `POST /api/geocaches/<id>/copy` |
+  | Absente | `created` par `import_by_code` |
+
+  `import_by_code` n'est jamais appelé sur une cache connue, car il la **déplacerait**.
+- Journal : tables `gps_zone_operation` (état `running`, `done`, `cancelled` ou
+  `interrupted`, `zone_created`, jours) et `gps_zone_operation_item` (code, géocache,
+  action). Migration `add_gps_zone_operation_tables`.
+- Fin normale : le jour est associé à la zone, et la zone devient la dernière utilisée.
+  La ligne finale porte `operation`.
+- Un client parti en cours de flux laisse l'opération `interrupted`.
+
+### 12.4 Annulation — `POST /api/gps-visits/zone-operations/<id>/cancel`
+
+- **En cours** (`running`) : réponse 202. Un drapeau mémoire est lu **entre deux
+  caches** ; le flux s'arrête, retire ce qui a été ajouté, et finit par
+  `{"cancelled": true, "message"}`.
+- **Terminé ou interrompu** : retrait immédiat.
+  - Seules les lignes `copied` et `created` sont retirées, sans archivage : elles ne
+    portent aucun travail que l'original n'aurait pas.
+  - La zone est supprimée si l'ajout l'a créée et qu'elle est vide.
+  - L'association jour → zone est oubliée.
+  - Refus (409 `undo_refused`) si un log personnel a été envoyé depuis une de ces
+    lignes.
+- Dans le widget :
+  - « Annuler » dans le panneau, pendant l'ajout ;
+  - à la fin, une notification « … — Annuler l'ajout ».
+
+### 12.5 Éditeur de logs et copies
+
+- `buildLogEditorOpenings` ouvre **un onglet par jour**, avec les géocaches **de la zone de
+  la sortie** (`target_geocache_id`), dans l'ordre de visite.
+- Avec les copies, une cache vit dans plusieurs zones. `submit_geocache_log` :
+  - marque la cache trouvée dans **toutes** ses lignes (`mark_found_everywhere`) ;
+  - refuse un second « Found it » si une ligne du même code est déjà trouvée
+    (`found_row`).
+
+Vérifié sur une copie de la base réelle (27/09/2026) :
+- 45 caches copiées dans « Sortie du 27/09/2026 » en 1,1 s ; la 46e, non tentée, est
+  laissée de côté ;
+- l'annulation retire les 45 copies et la zone ; chaque cache reste dans « Slovénie ».
+
+Tests :
+- `backend/tests/test_gps_zone_operations.py` ;
+- `tests/gps-visits-model.test.ts`.

@@ -505,3 +505,55 @@ class GpsVisit(db.Model):
             'log_reference_code': self.log_reference_code,
             'nm_log_reference_code': self.nm_log_reference_code,
         }
+
+
+class GpsZoneOperation(db.Model):
+    """
+    Un ajout de caches à une zone depuis les visites GPS (« Préparer la sortie »).
+
+    Le journal permet d'annuler : pendant l'ajout (arrêt entre deux caches) comme
+    juste après, on retire les seules lignes ``created`` ou ``copied`` par cet ajout,
+    et la zone si l'ajout l'a créée. ``zone_id`` n'est pas une clé étrangère : la zone
+    peut disparaître à l'annulation.
+
+    États : ``running``, ``done``, ``cancelled``, ``interrupted`` (client parti en
+    cours de flux : rien n'est retiré d'office, l'annulation reste possible).
+    """
+    __tablename__ = 'gps_zone_operation'
+
+    id = db.Column(db.String(64), primary_key=True)
+    zone_id = db.Column(db.Integer, nullable=False, index=True)
+    zone_created = db.Column(db.Boolean, nullable=False, default=False)
+    state = db.Column(db.String(20), nullable=False, default='running')
+    # Jours locaux (AAAA-MM-JJ) de la sortie, JSON.
+    days = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    finished_at = db.Column(db.DateTime)
+
+    items = db.relationship('GpsZoneOperationItem', backref='operation', cascade='all, delete-orphan',
+                            lazy=True, order_by='GpsZoneOperationItem.id')
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'zone_id': self.zone_id,
+            'zone_created': bool(self.zone_created),
+            'state': self.state,
+            'days': json.loads(self.days) if self.days else [],
+            'counts': {
+                action: sum(1 for item in self.items if item.action == action)
+                for action in ('existing', 'copied', 'created')
+            },
+        }
+
+
+class GpsZoneOperationItem(db.Model):
+    """Une cache traitée par un ajout : ``existing``, ``copied`` ou ``created``."""
+    __tablename__ = 'gps_zone_operation_item'
+
+    id = db.Column(db.Integer, primary_key=True)
+    operation_id = db.Column(db.String(64), db.ForeignKey('gps_zone_operation.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    gc_code = db.Column(db.String(20), nullable=False)
+    geocache_id = db.Column(db.Integer)
+    action = db.Column(db.String(10), nullable=False)

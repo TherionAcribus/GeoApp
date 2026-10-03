@@ -53,6 +53,8 @@ export interface GpsVisitEntry {
 export interface GpsVisitDay {
     day: string;
     entries: GpsVisitEntry[];
+    /** Zone de la sortie, si ce jour a déjà été préparé. */
+    zone?: { id: number; name: string } | null;
 }
 
 export interface GpsLastImport {
@@ -253,26 +255,77 @@ export function buildCutoffLandmarks(lastVisitDay: string, firstVisitDay: string
     };
 }
 
-/** Une cache du jour prête pour l'éditeur : `geocache_id` nul tant qu'elle n'est pas importée. */
-export type GpsPreparedEntry = GpsVisitEntry & { geocache_id: number | null };
+/** Ce qui arrivera à une cache dans la zone de la sortie. */
+export type GpsPreparationPlan = 'existing' | 'copy' | 'download';
 
-/** Réponse de `POST /api/gps-visits/prepare`. */
-export interface GpsPreparedDay {
-    day: string;
+/** Une cache retenue pour la sortie (`POST /api/gps-visits/prepare`). */
+export type GpsPreparedEntry = GpsVisitEntry & {
+    plan: GpsPreparationPlan;
+    /** Sa géocache dans la zone de la sortie, quand elle y est déjà. */
+    target_geocache_id: number | null;
+};
+
+/** Une visite laissée de côté : sans code (à rattacher) ou non tentée. */
+export type GpsExcludedEntry = GpsVisitEntry & { reason: 'without_code' | 'unattempted' };
+
+/** Récapitulatif de « Préparer la sortie ». */
+export interface GpsPreparation {
+    days: string[];
     entries: GpsPreparedEntry[];
-    /** Caches à importer avant d'ouvrir l'éditeur. */
-    missing_codes: string[];
-    /** Visites sans code : à rattacher (elles ne partent pas dans l'éditeur). */
-    without_code: GpsVisitEntry[];
-    /** Caches absentes de la base et non tentées : pas importées pour rien. */
-    skipped_unattempted: string[];
-    last_zone_id: number | null;
+    excluded: GpsExcludedEntry[];
+    counts: Record<GpsPreparationPlan | 'without_code' | 'unattempted', number>;
+    zone_id: number | null;
+    /** Zone déjà associée à ces jours, sinon la dernière utilisée. */
+    suggested_zone_id: number | null;
 }
 
 /** « 27/09/2026 » : nom proposé pour une nouvelle zone (« Sortie du 27/09/2026 »). */
 export function formatFullDay(isoDay: string): string {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDay);
     return match ? `${match[3]}/${match[2]}/${match[1]}` : isoDay;
+}
+
+/** « Sortie du 27/09/2026 », « Sortie du 26 au 27/09/2026 », « Sortie du 30/09 au 01/10/2026 ». */
+export function defaultOutingZoneName(days: string[]): string {
+    const sorted = [...days].sort();
+    if (sorted.length === 0) {
+        return 'Sortie';
+    }
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    if (first === last) {
+        return `Sortie du ${formatFullDay(first)}`;
+    }
+    const [fy, fm, fd] = first.split('-');
+    const [ly, lm] = last.split('-');
+    const from = fy !== ly ? formatFullDay(first) : fm !== lm ? `${fd}/${fm}` : fd;
+    return `Sortie du ${from} au ${formatFullDay(last)}`;
+}
+
+/** Lignes du récapitulatif, dans l'ordre d'affichage (les compteurs nuls sont omis). */
+export function describePreparation(counts: GpsPreparation['counts'], newZone: boolean): string[] {
+    const plural = (n: number, one: string, many: string): string => `${n} ${n > 1 ? many : one}`;
+    const lines: string[] = [];
+    if (counts.existing) {
+        lines.push(`✔️ ${plural(counts.existing, 'cache déjà dans la zone', 'caches déjà dans la zone')}`);
+    }
+    if (counts.copy) {
+        lines.push(`➕ ${plural(counts.copy, 'cache connue ailleurs, ajoutée', 'caches connues ailleurs, ajoutées')} à la zone`
+            + ' (elles restent aussi dans leurs zones)');
+    }
+    if (counts.download) {
+        lines.push(`⬇️ ${plural(counts.download, 'cache à télécharger', 'caches à télécharger')}`);
+    }
+    if (counts.without_code) {
+        lines.push(`⏭️ ${plural(counts.without_code, 'visite sans code laissée', 'visites sans code laissées')} de côté (à rattacher d'abord)`);
+    }
+    if (counts.unattempted) {
+        lines.push(`⏭️ ${plural(counts.unattempted, 'visite non tentée laissée', 'visites non tentées laissées')} de côté`);
+    }
+    if (newZone && lines.length > 0) {
+        lines.unshift('🆕 La zone sera créée.');
+    }
+    return lines;
 }
 
 export interface LogEditorOpening {
@@ -282,35 +335,57 @@ export interface LogEditorOpening {
 }
 
 /**
- * Ce qu'il faut à l'éditeur de logs pour un jour : les géocaches dans l'ordre de
- * visite (il pilote `@cache_count`), la date et, par cache, le type proposé et
- * l'aide-mémoire du GPS. Les caches pas encore importées sont laissées de côté.
+ * Un onglet de log par jour (l'éditeur n'a qu'une date par onglet) : les géocaches de
+ * la zone de la sortie dans l'ordre de visite (il pilote `@cache_count`), la date et,
+ * par cache, le type proposé et l'aide-mémoire du GPS. Une cache pas encore dans la
+ * zone (ajout en échec) est laissée de côté.
  */
-export function buildLogEditorOpening(prepared: GpsPreparedDay): LogEditorOpening {
-    const geocacheIds: number[] = [];
-    const perCacheLogType: Record<number, LogTypeValue> = {};
-    const perCacheVisit: Record<number, GpsVisitHint> = {};
-    for (const entry of prepared.entries) {
-        const id = entry.geocache_id;
-        if (id === null || id === undefined || perCacheVisit[id]) {
+export function buildLogEditorOpenings(preparation: GpsPreparation): LogEditorOpening[] {
+    const byDay = new Map<string, GpsPreparedEntry[]>();
+    for (const entry of preparation.entries) {
+        if (entry.target_geocache_id === null || entry.target_geocache_id === undefined) {
             continue;
         }
-        geocacheIds.push(id);
-        perCacheLogType[id] = entry.proposed_log_type;
-        perCacheVisit[id] = {
-            time: entry.time,
-            statusRaw: entry.status_raw,
-            comment: entry.comment || undefined,
-            passes: describePasses(entry)?.tooltip,
-            hasNm: entry.has_nm || undefined,
-            needsConfirmation: entry.needs_confirmation || undefined,
-        };
+        byDay.set(entry.day, [...(byDay.get(entry.day) ?? []), entry]);
     }
-    return {
-        geocacheIds,
-        title: `Log GPS — ${formatShortDay(prepared.day)}`,
-        prefill: { source: 'gps-visits', logDate: prepared.day, perCacheLogType, perCacheVisit },
-    };
+    return [...byDay.keys()].sort().map(day => {
+        const geocacheIds: number[] = [];
+        const perCacheLogType: Record<number, LogTypeValue> = {};
+        const perCacheVisit: Record<number, GpsVisitHint> = {};
+        for (const entry of byDay.get(day)!) {
+            const id = entry.target_geocache_id!;
+            if (perCacheVisit[id]) {
+                continue;
+            }
+            geocacheIds.push(id);
+            perCacheLogType[id] = entry.proposed_log_type;
+            perCacheVisit[id] = {
+                time: entry.time,
+                statusRaw: entry.status_raw,
+                comment: entry.comment || undefined,
+                passes: describePasses(entry)?.tooltip,
+                hasNm: entry.has_nm || undefined,
+                needsConfirmation: entry.needs_confirmation || undefined,
+            };
+        }
+        return {
+            geocacheIds,
+            title: `Log GPS — ${formatShortDay(day)}`,
+            prefill: { source: 'gps-visits', logDate: day, perCacheLogType, perCacheVisit },
+        };
+    });
+}
+
+/** Une ligne se coche si elle peut partir dans une sortie : à loguer, avec un code (lu ou rattaché). */
+export function isSelectable(entry: GpsVisitEntry): boolean {
+    return entry.state === 'pending' && !!entry.gc_code;
+}
+
+/** État de la case d'un jour : toutes, une partie ou aucune de ses lignes cochables. */
+export function daySelectionState(day: GpsVisitDay, selected: ReadonlySet<string>): 'all' | 'some' | 'none' {
+    const selectable = day.entries.filter(isSelectable);
+    const count = selectable.filter(e => selected.has(e.key)).length;
+    return count === 0 ? 'none' : count === selectable.length ? 'all' : 'some';
 }
 
 export type GpsCandidateConfidence = 'confirmed' | 'close_day' | 'same_day' | 'around' | 'other_day' | null;

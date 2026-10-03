@@ -3,7 +3,7 @@ import { BackendApiClient } from './backend-api-client';
 import {
     DetectedVisitsFile,
     GpsImportReport,
-    GpsPreparedDay,
+    GpsPreparation,
     GpsResolutionResult,
     GpsVisitState,
     GpsVisitsListing,
@@ -55,20 +55,38 @@ export class GpsVisitsService {
         );
     }
 
-    async prepare(day: string, zoneId?: number): Promise<GpsPreparedDay> {
-        return this.apiClient.requestJson<GpsPreparedDay>(
+    /** Récapitulatif de « Préparer la sortie » pour ces visites, dans cette zone (ou une zone à créer). */
+    async prepare(visitIds: number[], zoneId?: number): Promise<GpsPreparation> {
+        return this.apiClient.requestJson<GpsPreparation>(
             '/api/gps-visits/prepare',
-            this.apiClient.createJsonInit('POST', zoneId === undefined ? { day } : { day, zone_id: zoneId }),
-            'Erreur lors de la préparation des logs'
+            this.apiClient.createJsonInit('POST', zoneId === undefined ? { visit_ids: visitIds } : { visit_ids: visitIds, zone_id: zoneId }),
+            'Erreur lors de la préparation de la sortie'
         );
     }
 
-    /** Flux de progression (une ligne JSON par cache), à lire avec `consumeImportStream`. */
-    async importMissing(zoneId: number, gcCodes: string[], signal?: AbortSignal): Promise<Response> {
+    /**
+     * Ajoute les caches des visites à la zone de la sortie. Flux de progression (une ligne
+     * JSON par cache) à lire avec `consumeImportStream` ; annulable par `cancelZoneOperation`.
+     */
+    async startZoneOperation(
+        operationId: string,
+        zone: { zoneId: number } | { newZoneName: string },
+        visitIds: number[]
+    ): Promise<Response> {
+        const target = 'zoneId' in zone ? { zone_id: zone.zoneId } : { new_zone_name: zone.newZoneName };
         return this.apiClient.requestResponse(
-            '/api/gps-visits/import-missing',
-            this.apiClient.createJsonInit('POST', { zone_id: zoneId, gc_codes: gcCodes }, { signal }),
-            'Erreur lors de l\'import des caches'
+            '/api/gps-visits/zone-operations',
+            this.apiClient.createJsonInit('POST', { operation_id: operationId, visit_ids: visitIds, ...target }),
+            "Erreur lors de l'ajout à la zone"
+        );
+    }
+
+    /** En cours : arrêt entre deux caches. Terminé : retrait immédiat des caches ajoutées. */
+    async cancelZoneOperation(operationId: string): Promise<{ state?: string; message?: string }> {
+        return this.apiClient.requestJson(
+            `/api/gps-visits/zone-operations/${encodeURIComponent(operationId)}/cancel`,
+            this.apiClient.createJsonInit('POST'),
+            "Erreur lors de l'annulation de l'ajout"
         );
     }
 

@@ -8,9 +8,9 @@ Routes :
 - ``GET  /api/gps-visits``          visites réduites et groupées par jour
   (``?state=pending,logged,ignored&from=&to=&max_days=``)
 - ``POST /api/gps-visits/state``    ``{"ids": [...], "state": "pending|logged|ignored"}``
-- ``POST /api/gps-visits/prepare``  caches d'un jour pour l'éditeur de logs : ``{"day", "zone_id"?}``
-- ``POST /api/gps-visits/import-missing``  import en flux des caches absentes de la base :
-  ``{"zone_id", "gc_codes"}`` — une cache déjà connue n'est jamais déplacée
+- ``POST /api/gps-visits/prepare``  récapitulatif de la sortie : ``{"visit_ids" | "day", "zone_id"?}``
+- ``POST /api/gps-visits/zone-operations``  ajout en flux des caches à la zone de la sortie
+  (copie si connue ailleurs, jamais de déplacement) ; ``GET …/<id>``, ``POST …/<id>/cancel``
 
 Voir documentation/garmin-visites-technique.md.
 """
@@ -20,6 +20,7 @@ import glob
 import json
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timezone
 
@@ -196,27 +197,43 @@ def set_state():
     return jsonify({'updated': updated, 'state': state})
 
 
-@bp.post('/prepare')
-def prepare_day():
-    body = request.get_json(silent=True) or {}
+def _parse_visit_ids(body: dict) -> tuple[list[int] | None, tuple | None]:
+    """``visit_ids`` (liste d'entiers) ou, à défaut, ``day`` : toutes les visites à loguer du jour."""
+    raw_ids = body.get('visit_ids')
+    if raw_ids is not None:
+        if not isinstance(raw_ids, list) or not all(isinstance(i, int) for i in raw_ids):
+            return None, _error('invalid_ids', "visit_ids doit être une liste d'entiers.", 400)
+        return raw_ids, None
     day, error = _parse_day(body.get('day'), 'day')
     if error:
-        return error
+        return None, error
     if day is None:
-        return _error('missing_day', 'Jour manquant.', 400)
+        return None, _error('missing_selection', 'Visites à préparer manquantes (visit_ids ou day).', 400)
+    return gps_visit_store.pending_visit_ids_of_day(day, gps_visit_store.get_local_tz()), None
+
+
+@bp.post('/prepare')
+def prepare_selection():
+    """Récapitulatif de « Préparer la sortie » : ``{"visit_ids" | "day", "zone_id"?}``."""
+    body = request.get_json(silent=True) or {}
+    visit_ids, error = _parse_visit_ids(body)
+    if error:
+        return error
     zone_id = body.get('zone_id')
     if zone_id is not None and not isinstance(zone_id, int):
         return _error('invalid_zone', 'zone_id doit être un entier.', 400)
-    return jsonify(gps_visit_store.prepare_day(day, zone_id=zone_id, tz=gps_visit_store.get_local_tz()))
+    return jsonify(gps_visit_store.prepare_selection(visit_ids, zone_id=zone_id, tz=gps_visit_store.get_local_tz()))
 
 
 # Pause entre deux téléchargements de cache : même rythme que l'import d'une liste.
-IMPORT_MISSING_INTERVAL_SECONDS = 0.2
+DOWNLOAD_INTERVAL_SECONDS = 0.2
 
 _IMPORT_ERROR_LABELS = {
     'gc_not_found': 'introuvable sur Geocaching.com (archivée ou code faux ?)',
     'gc_timeout': 'Geocaching.com ne répond pas',
 }
+
+_OPERATION_ID_RE = re.compile(r'^[A-Za-z0-9-]{8,64}$')
 
 
 def _import_error_label(exc: Exception) -> str:
@@ -227,62 +244,143 @@ def _import_error_label(exc: Exception) -> str:
     return text or exc.__class__.__name__
 
 
-@bp.post('/import-missing')
-def import_missing():
-    """Importe dans une zone les caches du jour absentes de la base, en flux de progression."""
+def _line(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False) + '\n'
+
+
+@bp.post('/zone-operations')
+def start_zone_operation():
+    """
+    Ajoute à la zone de la sortie les caches des visites sélectionnées, en flux NDJSON.
+
+    Corps : ``{"operation_id", "zone_id" | "new_zone_name", "visit_ids"}``. Une cache
+    déjà connue ailleurs est copiée dans la zone (jamais déplacée), une cache absente
+    est téléchargée. Chaque cache est notée au journal : ``POST
+    /zone-operations/<id>/cancel`` arrête l'ajout entre deux caches et retire ce qui
+    a été ajouté.
+    """
     from ..geocaches.importer import GeocacheImporter
-    from ..geocaches.models import Geocache
-    from .geocaches import _bulk_import_summary, _import_item_label, _import_stats, _new_import_counts, _progress_line
+    from ..services import gps_zone_operations as operations
+    from ..services.zone_membership import ACTION_CREATED, add_to_zone
 
     body = request.get_json(silent=True) or {}
+    operation_id = body.get('operation_id')
+    if not isinstance(operation_id, str) or not _OPERATION_ID_RE.match(operation_id):
+        return _error('invalid_operation', "operation_id manquant ou invalide.", 400)
+    if operations.get(operation_id) is not None:
+        return _error('operation_exists', 'Cet ajout a déjà été lancé.', 409)
     zone_id = body.get('zone_id')
-    if not isinstance(zone_id, int):
-        return _error('invalid_zone', 'zone_id doit être un entier.', 400)
-    if db.session.get(Zone, zone_id) is None:
-        return _error('zone_not_found', 'Zone introuvable.', 404)
-    raw_codes = body.get('gc_codes')
-    if not isinstance(raw_codes, list):
-        return _error('invalid_codes', 'gc_codes doit être une liste.', 400)
-    codes = list(dict.fromkeys(c for c in (normalize_code(str(r)) for r in raw_codes) if c))
-    gps_visit_store.set_last_zone_id(zone_id)
+    new_zone_name = (body.get('new_zone_name') or '').strip() if isinstance(body.get('new_zone_name'), str) else ''
+    if zone_id is None and not new_zone_name:
+        return _error('missing_zone', 'Zone de la sortie manquante.', 400)
+    if zone_id is not None:
+        if not isinstance(zone_id, int) or db.session.get(Zone, zone_id) is None:
+            return _error('zone_not_found', 'Zone introuvable.', 404)
+    elif Zone.query.filter_by(name=new_zone_name).first() is not None:
+        return _error('zone_exists', f'Une zone « {new_zone_name} » existe déjà : choisis-la dans la liste.', 409)
+    visit_ids, error = _parse_visit_ids(body)
+    if error:
+        return error
+    tz = gps_visit_store.get_local_tz()
 
     def generate():
-        importer = GeocacheImporter()
-        counts = _new_import_counts()
+        nonlocal zone_id
+        zone_created = False
+        if zone_id is None:
+            zone = Zone(name=new_zone_name, description='Sortie préparée depuis les visites GPS')
+            db.session.add(zone)
+            db.session.commit()
+            zone_id, zone_created = zone.id, True
+        prepared = gps_visit_store.prepare_selection(visit_ids, zone_id=zone_id, tz=tz)
+        codes = list(dict.fromkeys(entry['gc_code'] for entry in prepared['entries']))
+        operation = operations.start(operation_id, zone_id, zone_created=zone_created, days=prepared['days'])
+        counts = {'existing': 0, 'copied': 0, 'created': 0, 'errors': 0}
+        importer: GeocacheImporter | None = None
+
+        def create(code: str, target_zone_id: int):
+            nonlocal importer
+            importer = importer or GeocacheImporter()
+            # Absente de toute zone (vérifié par add_to_zone) : import_by_code ne déplace rien.
+            return importer.import_by_code(target_zone_id, code)
+
         total = len(codes)
-        if total == 0:
-            yield json.dumps({'progress': 100, 'message': 'Aucune cache à importer', 'final_summary': True,
-                              'stats': _import_stats(counts, 0)}) + '\n'
-            return
-        yield _progress_line(f'{total} cache(s) à importer…', 0, counts=counts)
-        for idx, code in enumerate(codes, start=1):
-            error_item = None
-            try:
-                # Vérifié juste avant : `import_by_code` déplacerait une cache
-                # existante dans la zone cible.
-                if Geocache.query.filter_by(gc_code=code).first() is not None:
-                    counts['existing'] += 1
-                    message = f'Déjà présente : {code} ({idx}/{total})'
-                else:
-                    _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
-                    counts[outcome] += 1
-                    message = f'{_import_item_label(outcome)} : {code} ({idx}/{total})'
-                    time.sleep(IMPORT_MISSING_INTERVAL_SECONDS)
-            except Exception as exc:  # noqa: BLE001 - une cache en échec ne bloque pas les autres
-                db.session.rollback()
-                counts['errors'] += 1
-                message = f'{code} : {_import_error_label(exc)}'
-                error_item = message
-                logger.warning('Import de %s pour les visites GPS impossible : %s', code, exc)
-            yield _progress_line(message, int(idx / total * 100), counts=counts, error_item=error_item)
-        yield json.dumps({
-            'progress': 100,
-            'message': _bulk_import_summary(counts),
-            'final_summary': True,
-            'stats': _import_stats(counts, total),
-        }) + '\n'
+        yield _line({'operation_id': operation_id, 'zone_id': zone_id, 'zone_created': zone_created,
+                     'progress': 0, 'message': f'{total} cache(s) à ajouter à la zone…', 'counts': counts})
+        try:
+            for index, code in enumerate(codes, start=1):
+                if operations.cancel_requested(operation_id):
+                    break
+                error_item = None
+                try:
+                    geocache, action = add_to_zone(code, zone_id, create=create)
+                    operations.record(operation, code, geocache.id, action)
+                    counts[action] += 1
+                    label = {'existing': 'Déjà dans la zone', 'copied': 'Ajoutée (copie)', 'created': 'Téléchargée'}[action]
+                    message = f'{label} : {code} ({index}/{total})'
+                    if action == ACTION_CREATED:
+                        time.sleep(DOWNLOAD_INTERVAL_SECONDS)
+                except Exception as exc:  # noqa: BLE001 - une cache en échec ne bloque pas les autres
+                    db.session.rollback()
+                    counts['errors'] += 1
+                    message = f'{code} : {_import_error_label(exc)}'
+                    error_item = message
+                    logger.warning('Ajout de %s à la zone %s impossible : %s', code, zone_id, exc)
+                payload = {'progress': int(index / max(total, 1) * 100), 'message': message, 'counts': counts}
+                if error_item:
+                    payload['error_item'] = error_item
+                yield _line(payload)
+
+            if operations.cancel_requested(operation_id):
+                result = operations.undo(operation)
+                yield _line({'progress': 100, 'final_summary': True, 'cancelled': True,
+                             'message': result['message'], 'operation': operation.to_dict()})
+                return
+            operations.finish(operation, 'done')
+            operations.set_day_zones(prepared['days'], zone_id)
+            gps_visit_store.set_last_zone_id(zone_id)
+            added = counts['copied'] + counts['created']
+            message = (f'{added} cache(s) ajoutée(s) à la zone, {counts["existing"]} déjà présente(s)'
+                       + (f', {counts["errors"]} erreur(s)' if counts['errors'] else ''))
+            yield _line({'progress': 100, 'final_summary': True, 'message': message,
+                         'operation': operation.to_dict()})
+        finally:
+            # Client parti en cours de flux : on garde le journal, l'annulation reste possible.
+            if operation.state == 'running':
+                operations.finish(operation, 'interrupted')
 
     return Response(stream_with_context(generate()), content_type='application/json')
+
+
+@bp.get('/zone-operations/<operation_id>')
+def get_zone_operation(operation_id: str):
+    from ..services import gps_zone_operations as operations
+
+    operation = operations.get(operation_id)
+    if operation is None:
+        return _error('operation_not_found', 'Ajout introuvable.', 404)
+    return jsonify(operation.to_dict())
+
+
+@bp.post('/zone-operations/<operation_id>/cancel')
+def cancel_zone_operation(operation_id: str):
+    """
+    Annule un ajout. En cours : arrêt entre deux caches, le flux retire ce qui a été
+    ajouté et l'annonce. Terminé ou interrompu : retrait immédiat, sauf si un log est
+    déjà parti depuis la zone de la sortie.
+    """
+    from ..services import gps_zone_operations as operations
+
+    operation = operations.get(operation_id)
+    if operation is None:
+        return _error('operation_not_found', 'Ajout introuvable.', 404)
+    if operation.state == 'running':
+        operations.request_cancel(operation_id)
+        return jsonify({'state': 'cancelling', 'message': "Arrêt demandé : l'ajout s'arrête après la cache en cours."}), 202
+    refusal = operations.undo_refusal(operation)
+    if refusal:
+        return _error('undo_refused', refusal, 409)
+    result = operations.undo(operation)
+    return jsonify({**result, 'state': 'cancelled', 'operation': operation.to_dict()})
 
 
 GEOCACHE_SHEET_URL = 'https://www.geocaching.com/api/proxy/web/v1/geocache/{code}'

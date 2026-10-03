@@ -13,6 +13,8 @@ export interface ImportStreamResult {
     /** Résumé final, ou message de l'erreur fatale. */
     lastMessage?: string;
     hadError: boolean;
+    /** Ligne finale complète (`final_summary`), pour les flux qui y ajoutent des champs. */
+    finalPayload?: Record<string, unknown>;
 }
 
 export async function consumeImportStream(
@@ -30,6 +32,7 @@ export async function consumeImportStream(
     let lastMessage: string | undefined;
     let hadError = false;
     let errorMessage: string | undefined;
+    let finalPayload: Record<string, unknown> | undefined;
 
     const processLine = (rawLine: string): void => {
         const line = rawLine.trim();
@@ -64,8 +67,11 @@ export async function consumeImportStream(
                 });
             }
 
-            if (data.final_summary && data.message) {
-                lastMessage = data.message;
+            if (data.final_summary) {
+                finalPayload = data as Record<string, unknown>;
+                if (data.message) {
+                    lastMessage = data.message;
+                }
             }
         } catch (error) {
             console.error('Error parsing import progress data:', error);
@@ -90,5 +96,5 @@ export async function consumeImportStream(
 
     buffer += decoder.decode();
     processLine(buffer);
-    return { lastMessage: errorMessage ?? lastMessage, hadError };
+    return { lastMessage: errorMessage ?? lastMessage, hadError, finalPayload };
 }

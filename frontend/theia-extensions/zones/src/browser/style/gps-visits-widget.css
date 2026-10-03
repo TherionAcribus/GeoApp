@@ -295,3 +295,81 @@
 .geoapp-gps-visits__day-badge.is-weak {
     opacity: 0.75;
 }
+
+/* Lot 1 (améliorations) : sélection, barre d'action, préparation de la sortie. */
+.geoapp-gps-visits__selection-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-list-inactiveSelectionBackground, var(--theia-editorWidget-background));
+}
+
+.geoapp-gps-visits__selection-bar .theia-button {
+    margin: 0;
+}
+
+.geoapp-gps-visits__check {
+    width: 16px;
+    display: inline-flex;
+}
+
+.geoapp-gps-visits__entry.is-selected {
+    background: var(--theia-list-inactiveSelectionBackground, transparent);
+}
+
+.geoapp-gps-visits__day-zone {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.geoapp-gps-outing__summary {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.geoapp-gps-outing__detail-toggle {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--theia-textLink-foreground);
+    font: inherit;
+    cursor: pointer;
+}
+
+.geoapp-gps-outing__detail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.geoapp-gps-outing__detail-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+}
+
+.geoapp-gps-outing__detail-row.is-excluded {
+    opacity: 0.6;
+}
+
+.geoapp-gps-outing__plan {
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    border: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-outing__plan.is-copy {
+    border-color: var(--theia-focusBorder);
+}
+
+.geoapp-gps-outing__plan.is-download {
+    border-style: dashed;
+}

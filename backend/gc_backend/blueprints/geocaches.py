@@ -1889,72 +1889,12 @@ def copy_geocache(geocache_id: int):
                 'error': f'La géocache {source_geocache.gc_code} existe déjà dans la zone cible'
             }), 400
         
-        from ..geocaches.models import GeocacheWaypoint, GeocacheChecker
-        
+        from ..services.zone_membership import copy_geocache_to_zone
+
         logger.info(f"Copying geocache {source_geocache.gc_code} from zone {source_geocache.zone_id} to zone {target_zone_id}")
-        
-        # Créer une nouvelle géocache avec les mêmes données
-        new_geocache = Geocache(
-            gc_code=source_geocache.gc_code,
-            name=source_geocache.name,
-            url=source_geocache.url,
-            type=source_geocache.type,
-            size=source_geocache.size,
-            owner=source_geocache.owner,
-            owner_guid=source_geocache.owner_guid,
-            difficulty=source_geocache.difficulty,
-            terrain=source_geocache.terrain,
-            latitude=source_geocache.latitude,
-            longitude=source_geocache.longitude,
-            placed_at=source_geocache.placed_at,
-            status=source_geocache.status,
-            coordinates_raw=source_geocache.coordinates_raw,
-            is_corrected=source_geocache.is_corrected,
-            original_latitude=source_geocache.original_latitude,
-            original_longitude=source_geocache.original_longitude,
-            original_coordinates_raw=source_geocache.original_coordinates_raw,
-            description_html=source_geocache.description_html,
-            hints=source_geocache.hints,
-            attributes=source_geocache.attributes,
-            favorites_count=source_geocache.favorites_count,
-            logs_count=source_geocache.logs_count,
-            finds_count=source_geocache.finds_count,
-            favorites_percent=source_geocache.favorites_percent,
-            images=source_geocache.images,
-            found=source_geocache.found,
-            found_date=source_geocache.found_date,
-            zone_id=target_zone_id
-        )
-        
-        db.session.add(new_geocache)
-        db.session.flush()  # Pour obtenir l'ID de la nouvelle géocache
-        
-        # Copier les waypoints
-        for waypoint in source_geocache.waypoints:
-            new_waypoint = GeocacheWaypoint(
-                geocache_id=new_geocache.id,
-                prefix=waypoint.prefix,
-                lookup=waypoint.lookup,
-                name=waypoint.name,
-                type=waypoint.type,
-                latitude=waypoint.latitude,
-                longitude=waypoint.longitude,
-                gc_coords=waypoint.gc_coords,
-                note=waypoint.note
-            )
-            db.session.add(new_waypoint)
-        
-        # Copier les checkers
-        for checker in source_geocache.checkers:
-            new_checker = GeocacheChecker(
-                geocache_id=new_geocache.id,
-                name=checker.name,
-                url=checker.url
-            )
-            db.session.add(new_checker)
-        
+        new_geocache = copy_geocache_to_zone(source_geocache, target_zone_id)
         db.session.commit()
-        
+
         logger.info(f"Successfully copied geocache {source_geocache.gc_code} to zone {target_zone_id}")
         return jsonify({
             'message': f'Geocache {source_geocache.gc_code} copied successfully',

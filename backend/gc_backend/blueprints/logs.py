@@ -36,6 +36,7 @@ from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient, LogSub
 from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
 from ..services import gps_visit_store, trackable_store
 from ..services.log_problems import PROBLEM_CATEGORIES, PROBLEM_LOG_TYPE_LABELS, validate_problem
+from ..services.zone_membership import found_row, mark_found_everywhere
 
 bp = Blueprint('logs', __name__)
 logger = logging.getLogger(__name__)
@@ -694,17 +695,19 @@ def submit_geocache_log(geocache_id: int):
             resolved_log_type_id = _WEBCAM_LOG_TYPE_ID
         is_find_log = resolved_log_type_id in _FIND_LOG_TYPE_IDS
 
-        if is_find_log and bool(geocache.found):
+        # Une cache peut vivre dans plusieurs zones : trouvée dans l'une, elle l'est partout.
+        already_found = geocache if geocache.found else (found_row(gc_code) if is_find_log else None)
+        if is_find_log and already_found is not None:
             # Trouvée le jour même : la visite GPS de ce jour est réglée.
-            if geocache.found_date and geocache.found_date.date() == visited_date:
+            if already_found.found_date and already_found.found_date.date() == visited_date:
                 _mark_gps_visits_logged(gc_code, visited_date)
             return jsonify({
                 'error': 'Geocache already logged',
                 'error_code': 'ALREADY_LOGGED',
                 'geocache_id': geocache_id,
                 'gc_code': gc_code,
-                'found': bool(geocache.found),
-                'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
+                'found': True,
+                'found_date': already_found.found_date.isoformat() if already_found.found_date else None,
             }), 409
 
         trackable_actions, trackables_error = _parse_trackable_actions(data.get('trackables'))
@@ -772,6 +775,8 @@ def submit_geocache_log(geocache_id: int):
             # doit laisser la base locale d'accord avec Geocaching.com.
             # Datetime naïf à minuit, comme le scraper (cf. scraper.py, "Logged on:").
             geocache.found_date = datetime.combine(visited_date, time_type.min)
+            # Les copies de la cache dans d'autres zones suivent (ajout d'une sortie à une zone).
+            mark_found_everywhere(gc_code, geocache.found_date)
             db.session.commit()
             ArchiveService.sync_from_geocache(geocache)
 

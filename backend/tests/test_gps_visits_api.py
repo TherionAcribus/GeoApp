@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import json
 from datetime import timedelta, timezone
 
 import pytest
@@ -144,82 +143,3 @@ def test_rejects_a_file_that_is_not_a_visits_file(app):
     assert response.status_code == 400
     assert response.get_json()['error'] == 'not_a_visits_file'
 
-
-DAY_VISITS = (
-    'GC4NKAY,2026-09-27T09:45Z,Found it,""\r\n'
-    'GC2BBBB,2026-09-27T10:00Z,Didn\'t find it,""\r\n'
-    'GC3CCCC,2026-09-27T10:05Z,Unattempted,""\r\n'
-    ',2026-09-27T10:10Z,Found it,""\r\n'
-)
-
-
-def _prepared(client, **extra):
-    _upload(client, DAY_VISITS)
-    client.post('/api/gps-visits/cutoff', json={'since': '2026-09-01'})
-    return client.post('/api/gps-visits/prepare', json={'day': '2026-09-27', **extra}).get_json()
-
-
-def test_prepare_lists_known_and_missing_caches_in_visit_order(app):
-    body = _prepared(app.test_client())
-    assert [e['gc_code'] for e in body['entries']] == ['GC4NKAY', 'GC2BBBB']
-    assert body['entries'][0]['geocache_id'] is not None
-    assert body['entries'][1]['geocache_id'] is None
-    assert body['missing_codes'] == ['GC2BBBB']
-    # Une cache absente qui n'a pas été tentée n'est pas importée pour rien.
-    assert body['skipped_unattempted'] == ['GC3CCCC']
-    assert len(body['without_code']) == 1
-
-
-def test_prepare_prefers_the_chosen_zone(app):
-    with app.app_context():
-        other = Zone(name='Autre')
-        db.session.add(other)
-        db.session.flush()
-        copy = Geocache(gc_code='GC4NKAY', name='Copie', type='Traditional', zone_id=other.id)
-        db.session.add(copy)
-        db.session.commit()
-        other_id, copy_id = other.id, copy.id
-    body = _prepared(app.test_client(), zone_id=other_id)
-    assert body['entries'][0]['geocache_id'] == copy_id
-
-
-class _FakeImporter:
-    imported: list = []
-
-    def import_by_code(self, zone_id, code, return_outcome=False, update_existing=False):
-        if code == 'GC9DEAD':
-            raise LookupError('gc_not_found')
-        geocache = Geocache(gc_code=code, name=f'Cache {code}', type='Traditional', zone_id=zone_id)
-        db.session.add(geocache)
-        db.session.commit()
-        _FakeImporter.imported.append(code)
-        return (geocache, 'created') if return_outcome else geocache
-
-
-def test_import_missing_never_moves_a_known_cache(app, monkeypatch):
-    from gc_backend.geocaches import importer as importer_module
-
-    monkeypatch.setattr(importer_module, 'GeocacheImporter', _FakeImporter)
-    monkeypatch.setattr(gps_visits_bp, 'IMPORT_MISSING_INTERVAL_SECONDS', 0)
-    _FakeImporter.imported = []
-    with app.app_context():
-        target = Zone(name='Cible')
-        db.session.add(target)
-        db.session.commit()
-        target_id = target.id
-        original_zone = Geocache.query.filter_by(gc_code='GC4NKAY').one().zone_id
-
-    client = app.test_client()
-    response = client.post('/api/gps-visits/import-missing',
-                           json={'zone_id': target_id, 'gc_codes': ['GC4NKAY', 'gc2bbbb', 'GC9DEAD', '8']})
-    lines = [line for line in response.get_data(as_text=True).splitlines() if line.strip()]
-    final = json.loads(lines[-1])
-    assert final['final_summary'] is True
-    assert final['stats']['created'] == 1
-    assert final['stats']['existing'] == 1
-    assert final['stats']['errors'] == 1
-    assert _FakeImporter.imported == ['GC2BBBB']
-    assert any('introuvable sur Geocaching.com' in line for line in lines)
-    with app.app_context():
-        assert Geocache.query.filter_by(gc_code='GC4NKAY').one().zone_id == original_zone
-        assert gps_visit_store.get_last_zone_id() == target_id

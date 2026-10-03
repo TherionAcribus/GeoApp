@@ -9,7 +9,13 @@ import {
     GpsVisitDay,
     GpsVisitEntry,
     buildCutoffLandmarks,
-    buildLogEditorOpening,
+    GpsPreparationPlan,
+    GpsPreparedEntry,
+    buildLogEditorOpenings,
+    daySelectionState,
+    defaultOutingZoneName,
+    describePreparation,
+    isSelectable,
     describeCacheKnowledge,
     describeCandidateDay,
     describeImportReport,
@@ -128,34 +134,73 @@ function testImportReport(): void {
         '46 nouvelles visites · 14629 dans le fichier · 2 lignes illisibles');
 }
 
-function testLogEditorOpening(): void {
-    const opening = buildLogEditorOpening({
-        day: '2026-09-27',
+function prepared(overrides: Partial<GpsVisitEntry>, plan: GpsPreparationPlan, target: number | null): GpsPreparedEntry {
+    return { ...entry(overrides), plan, target_geocache_id: target };
+}
+
+function testLogEditorOpenings(): void {
+    const openings = buildLogEditorOpenings({
+        days: ['2026-09-26', '2026-09-27'],
         entries: [
-            { ...entry({ key: 'a', comment: 'Horse', raw_count: 2, passes: [
+            prepared({ key: 'a', comment: 'Horse', raw_count: 2, passes: [
                 { time: '11:42', status_raw: "Didn't find it" }, { time: '11:45', status_raw: 'Found it' },
-            ] }), geocache_id: 12 },
-            { ...entry({ key: 'b', gc_code: 'GC2', time: '12:00', status: 'needs_maintenance', status_raw: 'Needs Maintenance',
-                has_nm: true, needs_confirmation: true }), geocache_id: 7 },
-            { ...entry({ key: 'c', gc_code: 'GC3', status: 'dnf', proposed_log_type: 'dnf' }), geocache_id: null },
-            { ...entry({ key: 'd', gc_code: 'GC4', status: 'unattempted', proposed_log_type: 'skip' }), geocache_id: 3 },
+            ] }, 'existing', 12),
+            prepared({ key: 'b', gc_code: 'GC2', time: '12:00', status: 'needs_maintenance', status_raw: 'Needs Maintenance',
+                has_nm: true, needs_confirmation: true }, 'copy', 7),
+            // Ajout en échec : pas de géocache dans la zone, laissée de côté.
+            prepared({ key: 'c', gc_code: 'GC3', status: 'dnf', proposed_log_type: 'dnf' }, 'download', null),
+            prepared({ key: 'd', gc_code: 'GC4', day: '2026-09-26', time: '16:00' }, 'existing', 3),
         ],
-        missing_codes: ['GC3'],
-        without_code: [],
-        skipped_unattempted: [],
-        last_zone_id: null,
+        excluded: [],
+        counts: { existing: 2, copy: 1, download: 1, without_code: 0, unattempted: 0 },
+        zone_id: 1,
+        suggested_zone_id: null,
     });
-    // L'ordre de visite est gardé : c'est lui qui numérote `@cache_count`.
-    assert.deepEqual(opening.geocacheIds, [12, 7, 3]);
-    assert.equal(opening.title, 'Log GPS — 27/09');
-    assert.equal(opening.prefill.logDate, '2026-09-27');
-    assert.deepEqual(opening.prefill.perCacheLogType, { 12: 'found', 7: 'found', 3: 'skip' });
-    assert.deepEqual(opening.prefill.perCacheVisit[12], {
+    // Un onglet par jour, dans l'ordre des jours ; dans un jour, l'ordre de visite (il numérote @cache_count).
+    assert.deepEqual(openings.map(o => o.prefill.logDate), ['2026-09-26', '2026-09-27']);
+    const [first, second] = openings;
+    assert.deepEqual(first.geocacheIds, [3]);
+    assert.deepEqual(second.geocacheIds, [12, 7]);
+    assert.equal(second.title, 'Log GPS — 27/09');
+    assert.deepEqual(second.prefill.perCacheLogType, { 12: 'found', 7: 'found' });
+    assert.deepEqual(second.prefill.perCacheVisit[12], {
         time: '11:45', statusRaw: 'Found it', comment: 'Horse',
         passes: "11:42 — Didn't find it\n11:45 — Found it", hasNm: undefined, needsConfirmation: undefined,
     });
-    assert.equal(opening.prefill.perCacheVisit[7].needsConfirmation, true);
+    assert.equal(second.prefill.perCacheVisit[7].needsConfirmation, true);
     assert.equal(formatFullDay('2026-09-27'), '27/09/2026');
+}
+
+function testOutingZoneName(): void {
+    assert.equal(defaultOutingZoneName(['2026-09-27']), 'Sortie du 27/09/2026');
+    assert.equal(defaultOutingZoneName(['2026-09-27', '2026-09-26']), 'Sortie du 26 au 27/09/2026');
+    assert.equal(defaultOutingZoneName(['2026-09-30', '2026-10-01']), 'Sortie du 30/09 au 01/10/2026');
+    assert.equal(defaultOutingZoneName(['2025-12-31', '2026-01-01']), 'Sortie du 31/12/2025 au 01/01/2026');
+    assert.equal(defaultOutingZoneName([]), 'Sortie');
+}
+
+function testPreparationSummary(): void {
+    const lines = describePreparation({ existing: 1, copy: 43, download: 2, without_code: 1, unattempted: 0 }, true);
+    assert.deepEqual(lines, [
+        '🆕 La zone sera créée.',
+        '✔️ 1 cache déjà dans la zone',
+        '➕ 43 caches connues ailleurs, ajoutées à la zone (elles restent aussi dans leurs zones)',
+        '⬇️ 2 caches à télécharger',
+        "⏭️ 1 visite sans code laissée de côté (à rattacher d'abord)",
+    ]);
+}
+
+function testSelection(): void {
+    const day: GpsVisitDay = {
+        day: '2026-09-27',
+        entries: [entry({ key: 'a' }), entry({ key: 'b' }), entry({ key: 'c', gc_code: null }), entry({ key: 'd', state: 'logged' })],
+    };
+    assert.ok(isSelectable(day.entries[0]));
+    assert.ok(!isSelectable(day.entries[2]), 'sans code : à rattacher avant');
+    assert.ok(!isSelectable(day.entries[3]), 'déjà loguée');
+    assert.equal(daySelectionState(day, new Set()), 'none');
+    assert.equal(daySelectionState(day, new Set(['a'])), 'some');
+    assert.equal(daySelectionState(day, new Set(['a', 'b'])), 'all');
 }
 
 function testResolutionDisplay(): void {
@@ -186,7 +231,10 @@ function testResolutionDisplay(): void {
 
 testPasses();
 testStatusLabel();
-testLogEditorOpening();
+testLogEditorOpenings();
+testOutingZoneName();
+testPreparationSummary();
+testSelection();
 testResolutionDisplay();
 testKnowledge();
 testDaySummary();

@@ -20,23 +20,26 @@ import { Disposable, MessageService } from '@theia/core';
 import '../../src/browser/style/gps-visits-widget.css';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
-import { ZoneDto, ZonesService } from './zones-service';
+import { ZonesService } from './zones-service';
 import { consumeImportStream } from './import-stream';
 import { GpsVisitsService } from './gps-visits-service';
 import { BackendApiError } from './backend-api-client';
+import { OutingPreparationPanel, OutingPreparationState, OutingRunState } from './gps-outing-preparation';
 import {
     DetectedVisitsFile,
     GPS_STATUS_LABELS,
     GpsImportLandmarks,
     GpsImportReport,
-    GpsPreparedDay,
+    GpsPreparation,
     GpsResolutionCandidate,
     GpsResolutionResult,
     GpsVisitDay,
     GpsVisitEntry,
     GpsVisitsListing,
     buildCutoffLandmarks,
-    buildLogEditorOpening,
+    buildLogEditorOpenings,
+    daySelectionState,
+    defaultOutingZoneName,
     describeCacheKnowledge,
     describeCandidateDay,
     describeImportReport,
@@ -44,7 +47,7 @@ import {
     formatDistance,
     describePasses,
     formatDayLabel,
-    formatFullDay,
+    isSelectable,
     pendingEntries,
     statusLabel,
     summarizeDay,
@@ -65,17 +68,11 @@ interface ResolveState {
     manualCode: string;
 }
 
-/** Panneau « Préparer les logs » : choix de la zone qui reçoit les caches manquantes, puis import. */
-interface PrepareState {
-    prepared: GpsPreparedDay;
-    zones: ZoneDto[];
-    /** Zone existante, ou 'new' pour en créer une. */
-    zoneChoice: number | 'new';
-    newZoneName: string;
-    importing: boolean;
-    progress: number;
-    message: string;
-    errors: string[];
+/** Identifiant d'un ajout à une zone, fourni au backend (journal et annulation). */
+function newOperationId(): string {
+    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `op-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 @injectable()
@@ -97,7 +94,10 @@ export class GpsVisitsWidget extends ReactWidget {
     protected collapsedDays = new Set<string>();
     protected dragOver = false;
     protected fileInput: HTMLInputElement | null = null;
-    protected prepareState: PrepareState | undefined;
+    /** Panneau « Préparer la sortie ». */
+    protected preparation: OutingPreparationState | undefined;
+    /** Lignes cochées (clé d'entrée), éventuellement sur plusieurs jours. */
+    protected selection = new Set<string>();
     protected resolveState: ResolveState | undefined;
 
     constructor(
@@ -218,6 +218,7 @@ export class GpsVisitsWidget extends ReactWidget {
         this.update();
         try {
             this.listing = await this.service.list(this.showAllStates ? ['pending', 'logged', 'ignored'] : ['pending']);
+            this.pruneSelection();
         } catch (e) {
             this.error = this.describeError(e);
         } finally {
@@ -354,107 +355,223 @@ export class GpsVisitsWidget extends ReactWidget {
             .catch(e => console.error('[GpsVisits] openGeocacheDetails failed:', e));
     }
 
+    /* -------------------------------------------------------------- sélection */
+
+    protected allEntries(): GpsVisitEntry[] {
+        return (this.listing?.days ?? []).flatMap(day => day.entries);
+    }
+
+    protected selectedEntries(): GpsVisitEntry[] {
+        return this.allEntries().filter(entry => this.selection.has(entry.key) && isSelectable(entry));
+    }
+
+    protected toggleEntry(entry: GpsVisitEntry): void {
+        if (this.selection.has(entry.key)) {
+            this.selection.delete(entry.key);
+        } else {
+            this.selection.add(entry.key);
+        }
+        this.selectionChanged();
+    }
+
+    protected toggleDaySelection(day: GpsVisitDay): void {
+        const select = daySelectionState(day, this.selection) !== 'all';
+        for (const entry of day.entries.filter(isSelectable)) {
+            if (select) {
+                this.selection.add(entry.key);
+            } else {
+                this.selection.delete(entry.key);
+            }
+        }
+        this.selectionChanged();
+    }
+
+    protected clearSelection = (): void => {
+        this.selection.clear();
+        this.selectionChanged();
+    };
+
+    /** Après un rechargement : on oublie les lignes disparues (loguées, ignorées). */
+    protected pruneSelection(): void {
+        const keys = new Set(this.allEntries().filter(isSelectable).map(entry => entry.key));
+        for (const key of [...this.selection]) {
+            if (!keys.has(key)) {
+                this.selection.delete(key);
+            }
+        }
+    }
+
+    protected selectionChanged(): void {
+        this.update();
+    }
+
+    protected ignoreSelection = async (): Promise<void> => {
+        await this.setEntriesState(this.selectedEntries(), 'ignored');
+        this.clearSelection();
+    };
+
     /* ------------------------------------------------------------- préparation */
 
-    protected prepareDay = async (day: string): Promise<void> => {
-        const prepared = await this.runBusy('prepare', () => this.service.prepare(day));
-        if (!prepared) {
-            return;
+    /** « Préparer les logs » d'un jour : coche le jour, puis ouvre la préparation. */
+    protected prepareDay = (day: GpsVisitDay): void => {
+        for (const entry of day.entries.filter(isSelectable)) {
+            this.selection.add(entry.key);
         }
-        const withoutCode = prepared.without_code.length;
-        if (withoutCode > 0) {
-            this.messages.info(withoutCode === 1
-                ? 'Une visite sans code n\'est pas incluse : rattache-la d\'abord à une cache.'
-                : `${withoutCode} visites sans code ne sont pas incluses : rattache-les d'abord à une cache.`);
-        }
-        if (prepared.missing_codes.length === 0) {
-            await this.openLogEditor(prepared);
-            return;
-        }
-        let zones: ZoneDto[];
-        try {
-            zones = await this.zonesService.list();
-        } catch (e) {
-            this.messages.error(e instanceof Error ? e.message : String(e));
-            return;
-        }
-        const lastZone = prepared.last_zone_id;
-        this.prepareState = {
-            prepared,
-            zones,
-            zoneChoice: lastZone !== null && zones.some(z => z.id === lastZone) ? lastZone : 'new',
-            newZoneName: `Sortie du ${formatFullDay(prepared.day)}`,
-            importing: false,
-            progress: 0,
-            message: '',
-            errors: [],
-        };
-        this.update();
+        this.selectionChanged();
+        void this.openPreparation(visitIdsOf(day.entries.filter(isSelectable)));
     };
 
-    protected importMissingAndOpen = async (): Promise<void> => {
-        const state = this.prepareState;
-        if (!state || state.importing) {
+    protected prepareSelection = (): void => {
+        void this.openPreparation(visitIdsOf(this.selectedEntries()));
+    };
+
+    protected async openPreparation(visitIds: number[]): Promise<void> {
+        if (visitIds.length === 0) {
+            this.messages.info('Coche d\'abord les caches de la sortie.');
             return;
         }
-        let zoneId: number;
-        if (state.zoneChoice === 'new') {
-            const name = state.newZoneName.trim();
-            if (!name) {
-                this.messages.warn('Donne un nom à la nouvelle zone.');
-                return;
-            }
-            state.importing = true;
-            this.update();
-            try {
-                zoneId = (await this.zonesService.create({ name })).id;
-            } catch (e) {
-                state.importing = false;
-                this.messages.error(e instanceof Error ? e.message : String(e));
-                this.update();
-                return;
-            }
-        } else {
-            zoneId = state.zoneChoice;
-        }
-        state.importing = true;
-        state.errors = [];
+        const state: OutingPreparationState = {
+            visitIds, preparation: undefined, loading: true, zones: [], zoneChoice: 'new',
+            newZoneName: '', showDetail: false, run: undefined, error: undefined,
+        };
+        this.preparation = state;
         this.update();
         try {
-            const response = await this.service.importMissing(zoneId, state.prepared.missing_codes);
+            const [zones, first] = await Promise.all([this.zonesService.list(), this.service.prepare(visitIds)]);
+            state.zones = zones;
+            state.newZoneName = defaultOutingZoneName(first.days);
+            const suggested = first.suggested_zone_id;
+            state.zoneChoice = suggested !== null && zones.some(z => z.id === suggested) ? suggested : 'new';
+            state.preparation = state.zoneChoice === 'new' ? first : await this.service.prepare(visitIds, state.zoneChoice);
+        } catch (e) {
+            state.error = this.describeError(e);
+        } finally {
+            state.loading = false;
+            this.update();
+        }
+    }
+
+    protected changePreparationZone = async (choice: number | 'new'): Promise<void> => {
+        const state = this.preparation;
+        if (!state || state.run) {
+            return;
+        }
+        state.zoneChoice = choice;
+        state.loading = true;
+        state.error = undefined;
+        this.update();
+        try {
+            const preparation = await this.service.prepare(state.visitIds, choice === 'new' ? undefined : choice);
+            if (this.preparation === state && state.zoneChoice === choice) {
+                state.preparation = preparation;
+            }
+        } catch (e) {
+            state.error = this.describeError(e);
+        } finally {
+            state.loading = false;
+            this.update();
+        }
+    };
+
+    protected confirmPreparation = async (): Promise<void> => {
+        const state = this.preparation;
+        if (!state || state.run || !state.preparation) {
+            return;
+        }
+        const zone = state.zoneChoice === 'new'
+            ? { newZoneName: state.newZoneName.trim() }
+            : { zoneId: state.zoneChoice };
+        const run: OutingRunState = {
+            operationId: newOperationId(), progress: 0, message: 'Démarrage…', errors: [], cancelling: false,
+        };
+        state.run = run;
+        state.error = undefined;
+        this.update();
+        try {
+            const response = await this.service.startZoneOperation(run.operationId, zone, state.visitIds);
             const result = await consumeImportStream(response, (progress, message, extra) => {
-                state.progress = progress;
-                state.message = message;
+                run.progress = progress;
+                run.message = message;
+                run.counts = extra?.counts as OutingRunState['counts'];
                 if (extra?.errorItem) {
-                    state.errors = [...state.errors, extra.errorItem];
+                    run.errors = [...run.errors, extra.errorItem];
                 }
                 this.update();
-            }, message => this.messages.error(message));
-            if (result.hadError) {
+            }, message => { state.error = message; });
+            const final = result.finalPayload as { cancelled?: boolean; message?: string; operation?: { zone_id: number } } | undefined;
+            if (!final) {
+                state.error = state.error ?? 'L\'ajout s\'est interrompu sans bilan : vérifie la zone, puis annule l\'ajout si besoin.';
                 return;
             }
-            const again = await this.service.prepare(state.prepared.day, zoneId);
-            if (state.errors.length > 0) {
-                this.messages.warn(`${state.errors.length} cache(s) n'ont pas pu être importées : elles ne sont pas dans l'onglet de log.`);
+            if (final.cancelled) {
+                this.messages.info(final.message ?? 'Ajout annulé.');
+                this.preparation = undefined;
+                await this.reload();
+                return;
             }
-            this.prepareState = undefined;
-            await this.openLogEditor(again);
+            const zoneId = final.operation?.zone_id;
+            const prepared = zoneId !== undefined ? await this.service.prepare(state.visitIds, zoneId) : undefined;
+            this.preparation = undefined;
+            this.clearSelection();
+            if (prepared) {
+                await this.openLogEditors(prepared);
+            }
             await this.reload();
+            void this.offerUndo(run.operationId, final.message ?? 'Caches ajoutées à la zone.', run.errors.length);
         } catch (e) {
-            this.messages.error(e instanceof Error ? e.message : String(e));
+            state.error = this.describeError(e);
         } finally {
-            state.importing = false;
+            if (this.preparation === state) {
+                state.run = undefined;
+            }
             this.update();
         }
     };
 
-    protected async openLogEditor(prepared: GpsPreparedDay): Promise<void> {
-        const opening = buildLogEditorOpening(prepared);
-        if (opening.geocacheIds.length === 0) {
-            this.messages.warn('Aucune cache à loguer pour ce jour.');
+    protected cancelPreparationRun = async (): Promise<void> => {
+        const run = this.preparation?.run;
+        if (!run || run.cancelling) {
             return;
         }
-        await this.logEditorTabsManager.openLogEditor(opening);
+        run.cancelling = true;
+        this.update();
+        try {
+            await this.service.cancelZoneOperation(run.operationId);
+        } catch (e) {
+            run.cancelling = false;
+            this.messages.error(this.describeError(e));
+            this.update();
+        }
+    };
+
+    /** Notification de fin avec « Annuler l'ajout » : retire les caches ajoutées, tant qu'aucun log n'est parti. */
+    protected async offerUndo(operationId: string, message: string, errors: number): Promise<void> {
+        const undoLabel = 'Annuler l\'ajout';
+        const text = errors > 0 ? `${message} ${errors} cache(s) n'ont pas pu être ajoutées.` : message;
+        const action = errors > 0
+            ? await this.messages.warn(text, undoLabel)
+            : await this.messages.info(text, undoLabel);
+        if (action !== undoLabel) {
+            return;
+        }
+        try {
+            const result = await this.service.cancelZoneOperation(operationId);
+            this.messages.info(result.message ?? 'Ajout annulé.');
+            await this.reload();
+        } catch (e) {
+            this.messages.error(this.describeError(e));
+        }
+    }
+
+    protected async openLogEditors(preparation: GpsPreparation): Promise<void> {
+        const openings = buildLogEditorOpenings(preparation);
+        if (openings.length === 0) {
+            this.messages.warn('Aucune cache à loguer dans cette sélection.');
+            return;
+        }
+        for (const opening of openings) {
+            await this.logEditorTabsManager.openLogEditor(opening);
+        }
     }
 
     /* ------------------------------------------------------------ rattachement */
@@ -566,7 +683,8 @@ export class GpsVisitsWidget extends ReactWidget {
             >
                 {this.renderHeader()}
                 {this.cutoffPrompt && this.renderCutoffPrompt(this.cutoffPrompt)}
-                {this.prepareState && this.renderPreparePanel(this.prepareState)}
+                {this.renderSelectionBar()}
+                {this.preparation && this.renderPreparationPanel(this.preparation)}
                 {this.resolveState && this.renderResolvePanel(this.resolveState)}
                 {this.renderBody()}
                 {this.renderFooter()}
@@ -668,62 +786,36 @@ export class GpsVisitsWidget extends ReactWidget {
         );
     }
 
-    protected renderPreparePanel(state: PrepareState): React.ReactNode {
-        const codes = state.prepared.missing_codes;
-        const plural = codes.length > 1;
+    protected renderPreparationPanel(state: OutingPreparationState): React.ReactNode {
         return (
-            <div className='geoapp-gps-visits__cutoff'>
-                <div className='geoapp-gps-visits__cutoff-title'>
-                    Préparer les logs du {formatDayLabel(state.prepared.day)}
-                </div>
-                <div className='geoapp-gps-visits__cutoff-help'>
-                    {plural
-                        ? `${codes.length} caches ne sont pas encore dans l'App (${codes.join(', ')}). Dans quelle zone les importer ?`
-                        : `La cache ${codes[0]} n'est pas encore dans l'App. Dans quelle zone l'importer ?`}
-                    {' '}Les caches déjà connues restent dans leur zone.
-                </div>
-                <label className='geoapp-gps-visits__cutoff-option'>
-                    Zone :
-                    <select
-                        className='theia-select'
-                        value={String(state.zoneChoice)}
-                        disabled={state.importing}
-                        onChange={e => {
-                            state.zoneChoice = e.target.value === 'new' ? 'new' : Number(e.target.value);
-                            this.update();
-                        }}
-                    >
-                        <option value='new'>Nouvelle zone…</option>
-                        {state.zones.map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
-                    </select>
-                    {state.zoneChoice === 'new' && (
-                        <input
-                            className='theia-input'
-                            value={state.newZoneName}
-                            disabled={state.importing}
-                            onChange={e => { state.newZoneName = e.target.value; this.update(); }}
-                        />
-                    )}
-                </label>
-                {state.importing && (
-                    <div className='geoapp-gps-visits__progress'>
-                        <progress max={100} value={state.progress} /> {state.message}
-                    </div>
-                )}
-                {state.errors.length > 0 && (
-                    <ul className='geoapp-gps-visits__errors'>
-                        {state.errors.map(error => <li key={error}>{error}</li>)}
-                    </ul>
-                )}
-                <div className='geoapp-gps-visits__actions'>
-                    <button className='theia-button' disabled={state.importing} onClick={() => { void this.importMissingAndOpen(); }}>
-                        Importer et ouvrir l'éditeur de logs
-                    </button>
-                    <button className='theia-button secondary' disabled={state.importing}
-                        onClick={() => { this.prepareState = undefined; this.update(); }}>
-                        Annuler
-                    </button>
-                </div>
+            <OutingPreparationPanel
+                state={state}
+                onZoneChange={choice => { void this.changePreparationZone(choice); }}
+                onNewZoneName={name => { state.newZoneName = name; this.update(); }}
+                onToggleDetail={() => { state.showDetail = !state.showDetail; this.update(); }}
+                onConfirm={() => { void this.confirmPreparation(); }}
+                onCancelRun={() => { void this.cancelPreparationRun(); }}
+                onClose={() => { this.preparation = undefined; this.update(); }}
+            />
+        );
+    }
+
+    /** Barre d'action de la sélection, visible dès qu'une cache est cochée. */
+    protected renderSelectionBar(): React.ReactNode {
+        const selected = this.selectedEntries();
+        if (selected.length === 0) {
+            return undefined;
+        }
+        const days = new Set(selected.map(entry => entry.day)).size;
+        const busy = this.busy !== undefined || this.preparation?.run !== undefined;
+        return (
+            <div className='geoapp-gps-visits__selection-bar'>
+                <span>
+                    {selected.length} cache{selected.length > 1 ? 's' : ''} sur {days} jour{days > 1 ? 's' : ''}
+                </span>
+                <button className='theia-button' disabled={busy} onClick={this.prepareSelection}>✍️ Préparer les logs</button>
+                <button className='theia-button secondary' disabled={busy} onClick={() => { void this.ignoreSelection(); }}>Ignorer</button>
+                <button className='theia-button secondary' disabled={busy} onClick={this.clearSelection}>Vider la sélection</button>
             </div>
         );
     }
@@ -852,21 +944,38 @@ export class GpsVisitsWidget extends ReactWidget {
     protected renderDay(day: GpsVisitDay): React.ReactNode {
         const collapsed = this.collapsedDays.has(day.day);
         const pending = pendingEntries(day);
+        const selectable = day.entries.filter(isSelectable).length;
+        const selectionState = daySelectionState(day, this.selection);
+        const busy = this.busy !== undefined || this.preparation?.run !== undefined;
         return (
             <section key={day.day} className='geoapp-gps-visits__day'>
                 <div className='geoapp-gps-visits__day-header'>
+                    {selectable > 0 && (
+                        <input
+                            type='checkbox'
+                            title='Cocher toutes les caches de ce jour'
+                            checked={selectionState === 'all'}
+                            ref={el => { if (el) { el.indeterminate = selectionState === 'some'; } }}
+                            onChange={() => this.toggleDaySelection(day)}
+                        />
+                    )}
                     <button className='geoapp-gps-visits__day-toggle' onClick={() => this.toggleDay(day.day)}
                         aria-expanded={!collapsed}>
                         <span className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                         <span className='geoapp-gps-visits__day-label'>{formatDayLabel(day.day)}</span>
                         <span className='geoapp-gps-visits__day-summary'>{summarizeDay(day)}</span>
                     </button>
+                    {day.zone && (
+                        <span className='geoapp-gps-visits__day-zone' title='Zone de la sortie de ce jour'>📁 {day.zone.name}</span>
+                    )}
                     <div className='geoapp-gps-visits__day-actions'>
-                        {pending.length > 0 && (
-                            <button className='theia-button' disabled={this.busy !== undefined || this.prepareState !== undefined}
-                                title={'Importe les caches manquantes puis ouvre l\'éditeur de logs pré-rempli'}
-                                onClick={() => { void this.prepareDay(day.day); }}>
-                                {this.busy === 'prepare' ? '⏳' : '✍️'} Préparer les logs
+                        {selectable > 0 && (
+                            <button className='theia-button' disabled={busy}
+                                title={day.zone
+                                    ? "Rouvre la préparation : changer de zone, compléter, ouvrir l'éditeur de logs"
+                                    : "Choisir la zone de la sortie, y ajouter les caches, puis ouvrir l'éditeur de logs"}
+                                onClick={() => this.prepareDay(day)}>
+                                ✍️ {day.zone ? 'Préparer / changer la zone' : 'Préparer les logs'}
                             </button>
                         )}
                         {pending.length > 0 && (
@@ -893,7 +1002,13 @@ export class GpsVisitsWidget extends ReactWidget {
         const passes = describePasses(entry);
         const known = entry.geocaches[0];
         return (
-            <div key={entry.key} className={`geoapp-gps-visits__entry is-${entry.state}${entry.gc_code ? '' : ' is-without-code'}`}>
+            <div key={entry.key} className={`geoapp-gps-visits__entry is-${entry.state}${entry.gc_code ? '' : ' is-without-code'}${this.selection.has(entry.key) ? ' is-selected' : ''}`}>
+                <span className='geoapp-gps-visits__check'>
+                    {isSelectable(entry) && (
+                        <input type='checkbox' checked={this.selection.has(entry.key)} onChange={() => this.toggleEntry(entry)}
+                            title='Cocher pour la sortie' />
+                    )}
+                </span>
                 <span className='geoapp-gps-visits__time'>{entry.time}</span>
                 <span className='geoapp-gps-visits__status' title={entry.status_raw}>
                     {status.icon} {statusLabel(entry)}
