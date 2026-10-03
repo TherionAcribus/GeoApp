@@ -30,6 +30,7 @@ from .garmin_visits import (
     local_day,
     local_midnight_utc,
     occurrence_keys,
+    offset_tz,
     reduce_by_cache_day,
 )
 
@@ -81,6 +82,10 @@ class ImportReport:
     last_visit_day: Optional[date]
     needs_cutoff: bool
     source: str
+    # Visites déjà connues complétées par le XML (décalage, secondes).
+    enriched: int = 0
+    # Lecture du GPS : traces, positions, caches des GPX.
+    device: Optional[dict] = None
 
     def to_dict(self) -> dict:
         landmarks = None
@@ -102,6 +107,8 @@ class ImportReport:
             'needs_cutoff': self.needs_cutoff,
             'landmarks': landmarks,
             'source': self.source,
+            'enriched': self.enriched,
+            'device': self.device,
         }
 
 
@@ -125,22 +132,59 @@ def get_last_import() -> Optional[dict]:
         return None
 
 
-def import_visits(parsed: ParseResult, *, source: str, tz: Optional[tzinfo] = None) -> ImportReport:
-    """Ajoute les visites inconnues. Idempotent : réimporter le même fichier n'ajoute rien."""
-    keys = occurrence_keys(parsed.visits)
-    existing = {
-        tuple(row) for row in db.session.query(
-            GpsVisit.raw_code, GpsVisit.visited_at, GpsVisit.status_raw, GpsVisit.occurrence
-        ).all()
-    }
-    cutoff = get_cutoff()
-    boundary = local_midnight_utc(cutoff, tz) if cutoff else None
+def row_local_day(visited_at: datetime, utc_offset_minutes: Optional[int], tz: Optional[tzinfo]) -> date:
+    """Jour local d'une visite : avec son décalage noté par le GPS (XML), sinon le fuseau par défaut."""
+    return local_day(visited_at, offset_tz(utc_offset_minutes, tz))
 
+
+def _utc_window(from_day: date, to_day: date, tz: Optional[tzinfo]) -> tuple[datetime, datetime]:
+    """Fenêtre UTC large qui contient ces jours locaux quel que soit le décalage de chaque visite (±14 h)."""
+    return (local_midnight_utc(from_day, tz) - timedelta(hours=14),
+            local_midnight_utc(to_day + timedelta(days=1), tz) + timedelta(hours=14))
+
+
+def import_visits(parsed: ParseResult, *, source: str, tz: Optional[tzinfo] = None) -> ImportReport:
+    """
+    Ajoute les visites inconnues. Idempotent : réimporter le même fichier n'ajoute rien.
+
+    Le XML et le TXT décrivent les mêmes visites : une visite déjà connue (même code
+    — lu, ou absent —, même résultat, même minute à une minute près) est **complétée**
+    (décalage, secondes) au lieu d'être recréée. Mesuré sur le GPS réel : 14 620
+    visites communes, 4 seulement dans le TXT, une seule minute d'écart.
+    """
+    keys = occurrence_keys(parsed.visits)
+    rows = db.session.query(
+        GpsVisit.id, GpsVisit.raw_code, GpsVisit.visited_at, GpsVisit.status_raw, GpsVisit.occurrence,
+        GpsVisit.gc_code, GpsVisit.status, GpsVisit.utc_offset_minutes,
+    ).all()
+    by_key = {(r.raw_code, r.visited_at, r.status_raw, r.occurrence): r for r in rows}
+    by_match: dict[tuple, list] = {}
+    for row in rows:
+        by_match.setdefault((row.visited_at, row.status, row.gc_code or ''), []).append(row)
+    used: set[int] = set()
+
+    def matching_row(key, visit):
+        row = by_key.get(key)
+        if row is not None and row.id not in used:
+            return row
+        for delta in (0, -1, 1):
+            for candidate in by_match.get((key[1] + timedelta(minutes=delta), visit.status, visit.gc_code or ''), []):
+                if candidate.id not in used:
+                    return candidate
+        return None
+
+    cutoff = get_cutoff()
     new_rows = []
+    enrich = []
     for visit, key in zip(parsed.visits, keys):
-        if key in existing:
+        row = matching_row(key, visit)
+        if row is not None:
+            used.add(row.id)
+            if visit.utc_offset_minutes is not None and row.utc_offset_minutes is None:
+                enrich.append({'id': row.id, 'utc_offset_minutes': visit.utc_offset_minutes, 'seconds': visit.seconds})
             continue
         raw_code, visited_at, status_raw, occurrence = key
+        day = row_local_day(visit.visited_at, visit.utc_offset_minutes, tz)
         new_rows.append(GpsVisit(
             raw_code=raw_code,
             gc_code=visit.gc_code,
@@ -149,13 +193,18 @@ def import_visits(parsed: ParseResult, *, source: str, tz: Optional[tzinfo] = No
             occurrence=occurrence,
             status=visit.status,
             comment=visit.comment or None,
-            state='history' if boundary is not None and visited_at < boundary else 'pending',
+            utc_offset_minutes=visit.utc_offset_minutes,
+            seconds=visit.seconds,
+            state='history' if cutoff is not None and day < cutoff else 'pending',
         ))
     if new_rows:
         db.session.add_all(new_rows)
+    if enrich:
+        db.session.bulk_update_mappings(GpsVisit, enrich)
 
-    first_day = local_day(parsed.visits[0].visited_at, tz) if parsed.visits else None
-    last_day = local_day(parsed.visits[-1].visited_at, tz) if parsed.visits else None
+    first, last = (parsed.visits[0], parsed.visits[-1]) if parsed.visits else (None, None)
+    first_day = row_local_day(first.visited_at, first.utc_offset_minutes, tz) if first else None
+    last_day = row_local_day(last.visited_at, last.utc_offset_minutes, tz) if last else None
     report = ImportReport(
         total=len(parsed.visits),
         new=len(new_rows),
@@ -166,6 +215,7 @@ def import_visits(parsed: ParseResult, *, source: str, tz: Optional[tzinfo] = No
         last_visit_day=last_day,
         needs_cutoff=cutoff is None and bool(parsed.visits),
         source=source,
+        enriched=len(enrich),
     )
     AppConfig.set_value(LAST_IMPORT_KEY, json.dumps({
         'at': datetime.now(timezone.utc).isoformat(),
@@ -175,7 +225,8 @@ def import_visits(parsed: ParseResult, *, source: str, tz: Optional[tzinfo] = No
         'last_visit_day': last_day.isoformat() if last_day else None,
     }))
     db.session.commit()
-    logger.info('Visites GPS importées depuis %s : %d nouvelles sur %d', source, report.new, report.total)
+    logger.info('Visites GPS importées depuis %s : %d nouvelles, %d complétées, sur %d',
+                source, report.new, report.enriched, report.total)
     return report
 
 
@@ -184,18 +235,20 @@ def apply_cutoff(since: date, *, tz: Optional[tzinfo] = None) -> dict:
     Point de départ : ce qui précède passe en historique, ce qui suit redevient à loguer.
 
     Rappelable pour avancer ou reculer le point de départ. Les visites loguées
-    ou ignorées gardent leur état.
+    ou ignorées gardent leur état. Le jour de chaque visite tient compte de son décalage.
     """
-    boundary = local_midnight_utc(since, tz)
-    to_history = GpsVisit.query.filter(
-        GpsVisit.state == 'pending', GpsVisit.visited_at < boundary
-    ).update({'state': 'history'}, synchronize_session=False)
-    to_pending = GpsVisit.query.filter(
-        GpsVisit.state == 'history', GpsVisit.visited_at >= boundary
-    ).update({'state': 'pending'}, synchronize_session=False)
+    rows = db.session.query(GpsVisit.id, GpsVisit.visited_at, GpsVisit.utc_offset_minutes, GpsVisit.state).filter(
+        GpsVisit.state.in_(('pending', 'history'))
+    ).all()
+    to_history = [r.id for r in rows if r.state == 'pending' and row_local_day(r.visited_at, r.utc_offset_minutes, tz) < since]
+    to_pending = [r.id for r in rows if r.state == 'history' and row_local_day(r.visited_at, r.utc_offset_minutes, tz) >= since]
+    for ids, state in ((to_history, 'history'), (to_pending, 'pending')):
+        for chunk_start in range(0, len(ids), 500):
+            GpsVisit.query.filter(GpsVisit.id.in_(ids[chunk_start:chunk_start + 500])).update(
+                {'state': state}, synchronize_session=False)
     AppConfig.set_value(CUTOFF_KEY, since.isoformat())
     db.session.commit()
-    return {'cutoff': since.isoformat(), 'to_history': to_history, 'to_pending': to_pending}
+    return {'cutoff': since.isoformat(), 'to_history': len(to_history), 'to_pending': len(to_pending)}
 
 
 def set_state(visit_ids: Iterable[int], state: str) -> int:
@@ -221,6 +274,7 @@ def _records(rows: Iterable[GpsVisit]) -> list[VisitRecord]:
             status_raw=row.status_raw,
             comment=row.comment or '',
             state=row.state,
+            utc_offset_minutes=row.utc_offset_minutes,
         )
         for row in rows
     ]
@@ -244,10 +298,21 @@ def _geocaches_by_code(codes: set[str]) -> dict[str, list]:
     return by_code
 
 
-def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches_by_code: dict[str, list]) -> dict:
+def _device_caches_for(codes: set[str], geocaches_by_code: dict[str, list]) -> dict:
+    """Caches des GPX du GPS pour les codes absents de l'App (nom, type, coordonnées avant import)."""
+    from .gps_device import device_caches
+
+    return device_caches(code for code in codes if code not in geocaches_by_code)
+
+
+def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches_by_code: dict[str, list],
+               device_by_code: Optional[dict] = None) -> dict:
     first_row = rows_by_id[reduced.visit_ids[0]]
     known = geocaches_by_code.get(reduced.gc_code or '', [])
     found_dates = [g.found_date for g, _ in known if g.found_date]
+    device = (device_by_code or {}).get(reduced.gc_code or '') if not known else None
+    positioned = next((rows_by_id[i] for i in reduced.visit_ids if rows_by_id[i].latitude is not None), None)
+    tried = any(rows_by_id[i].position_source for i in reduced.visit_ids)
     return {
         'key': reduced.key,
         'visit_ids': reduced.visit_ids,
@@ -267,8 +332,13 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
         'raw_count': reduced.raw_count,
         'passes': reduced.passes,
         'state': reduced.state,
-        'name': known[0][0].name if known else None,
-        'cache_type': known[0][0].type if known else None,
+        'name': known[0][0].name if known else (device.name if device else None),
+        'cache_type': known[0][0].type if known else (device.cache_type if device else None),
+        'device': device.to_dict() if device else None,
+        # Position de la visite sur la trace du GPS ; « no_track » : cherchée, pas trouvée.
+        'position': ({'latitude': positioned.latitude, 'longitude': positioned.longitude}
+                     if positioned else None),
+        'position_source': 'track' if positioned else ('no_track' if tried else None),
         'geocaches': [
             {'id': g.id, 'zone_id': g.zone_id, 'zone_name': zone_name, 'name': g.name}
             for g, zone_name in known
@@ -302,14 +372,16 @@ def list_grouped(
     query = GpsVisit.query.filter(GpsVisit.state != 'history')
     if 'history' in wanted:
         query = GpsVisit.query
-    if from_day:
-        query = query.filter(GpsVisit.visited_at >= local_midnight_utc(from_day, tz))
-    if to_day:
-        query = query.filter(GpsVisit.visited_at < local_midnight_utc(to_day + timedelta(days=1), tz))
+    if from_day or to_day:
+        lo, hi = _utc_window(from_day or date(2000, 1, 1), to_day or date(2100, 1, 1), tz)
+        query = query.filter(GpsVisit.visited_at >= lo, GpsVisit.visited_at < hi)
     rows = query.order_by(GpsVisit.visited_at, GpsVisit.id).all()
     rows_by_id = {row.id: row for row in rows}
 
-    reduced = reduce_by_cache_day(_records(rows), tz)
+    reduced = [
+        r for r in reduce_by_cache_day(_records(rows), tz)
+        if (from_day is None or r.day >= from_day) and (to_day is None or r.day <= to_day)
+    ]
     counts = Counter(r.state for r in reduced)
     selected = [r for r in reduced if r.state in wanted]
 
@@ -322,13 +394,14 @@ def list_grouped(
 
     codes = {e.gc_code for d in ordered_days for e in days[d] if e.gc_code}
     geocaches_by_code = _geocaches_by_code(codes)
+    device_by_code = _device_caches_for(codes, geocaches_by_code)
     day_zones = _day_zone_names()
 
     return {
         'days': [
             {
                 'day': d.isoformat(),
-                'entries': [entry_dict(e, rows_by_id, geocaches_by_code) for e in days[d]],
+                'entries': [entry_dict(e, rows_by_id, geocaches_by_code, device_by_code) for e in days[d]],
                 # Zone de la sortie, si ce jour a déjà été préparé.
                 'zone': day_zones.get(d.isoformat()),
             }
@@ -364,23 +437,33 @@ def entries_for_visits(visit_ids: Iterable[int], tz: Optional[tzinfo] = None) ->
     ).all()
     rows_by_id = {row.id: row for row in rows}
     reduced = reduce_by_cache_day(_records(rows), tz)
-    geocaches_by_code = _geocaches_by_code({r.gc_code for r in reduced if r.gc_code})
-    return [entry_dict(r, rows_by_id, geocaches_by_code) for r in reduced]
+    codes = {r.gc_code for r in reduced if r.gc_code}
+    geocaches_by_code = _geocaches_by_code(codes)
+    device_by_code = _device_caches_for(codes, geocaches_by_code)
+    return [entry_dict(r, rows_by_id, geocaches_by_code, device_by_code) for r in reduced]
 
 
 def pending_visit_ids_of_day(day: date, tz: Optional[tzinfo] = None) -> list[int]:
-    return [
-        visit_id for (visit_id,) in db.session.query(GpsVisit.id).filter(
-            GpsVisit.state == 'pending',
-            GpsVisit.visited_at >= local_midnight_utc(day, tz),
-            GpsVisit.visited_at < local_midnight_utc(day + timedelta(days=1), tz),
-        ).all()
-    ]
+    lo, hi = _utc_window(day, day, tz)
+    rows = db.session.query(GpsVisit.id, GpsVisit.visited_at, GpsVisit.utc_offset_minutes).filter(
+        GpsVisit.state == 'pending', GpsVisit.visited_at >= lo, GpsVisit.visited_at < hi,
+    ).all()
+    return [r.id for r in rows if row_local_day(r.visited_at, r.utc_offset_minutes, tz) == day]
 
 
 PLAN_EXISTING = 'existing'   # déjà dans la zone de la sortie
 PLAN_COPY = 'copy'           # dans une autre zone : y sera ajoutée (copiée)
 PLAN_DOWNLOAD = 'download'   # absente de l'App : sera téléchargée
+PLAN_GPS = 'gps'             # absente de l'App, mais dans un GPX du GPS : créée sans réseau
+
+
+def _device_file_available(gc_code: str) -> bool:
+    import os
+
+    from ..models import GpsDeviceCache
+
+    row = db.session.get(GpsDeviceCache, gc_code)
+    return row is not None and os.path.isfile(row.gpx_file)
 
 
 def prepare_selection(visit_ids: Iterable[int], *, zone_id: Optional[int] = None,
@@ -405,7 +488,12 @@ def prepare_selection(visit_ids: Iterable[int], *, zone_id: Optional[int] = None
             excluded.append({**entry, 'reason': 'unattempted'})
             continue
         in_zone = next((g for g in entry['geocaches'] if zone_id is not None and g['zone_id'] == zone_id), None)
-        plan = PLAN_EXISTING if in_zone else (PLAN_COPY if entry['geocaches'] else PLAN_DOWNLOAD)
+        if in_zone:
+            plan = PLAN_EXISTING
+        elif entry['geocaches']:
+            plan = PLAN_COPY
+        else:
+            plan = PLAN_GPS if _device_file_available(entry['gc_code']) else PLAN_DOWNLOAD
         included.append({**entry, 'plan': plan, 'target_geocache_id': in_zone['id'] if in_zone else None})
 
     days = sorted({entry['day'] for entry in entries})
@@ -421,7 +509,7 @@ def prepare_selection(visit_ids: Iterable[int], *, zone_id: Optional[int] = None
         'entries': included,
         'excluded': excluded,
         'counts': {key: counts.get(key, 0) for key in
-                   (PLAN_EXISTING, PLAN_COPY, PLAN_DOWNLOAD, 'without_code', 'unattempted')},
+                   (PLAN_EXISTING, PLAN_COPY, PLAN_GPS, PLAN_DOWNLOAD, 'without_code', 'unattempted')},
         'zone_id': zone_id,
         'suggested_zone_id': suggested,
         'day_zones': {d: day_zones[d] for d in days if d in day_zones},
@@ -438,14 +526,13 @@ def mark_logged(gc_code: str, log_date: date, *, log_reference_code: Optional[st
     code = (gc_code or '').strip().upper()
     if not code:
         return 0
-    start = local_midnight_utc(log_date, tz)
-    end = local_midnight_utc(log_date + timedelta(days=1), tz)
-    rows = GpsVisit.query.filter(
+    start, end = _utc_window(log_date, log_date, tz)
+    rows = [r for r in GpsVisit.query.filter(
         db.or_(GpsVisit.gc_code == code, GpsVisit.resolved_gc_code == code),
         GpsVisit.state == 'pending',
         GpsVisit.visited_at >= start,
         GpsVisit.visited_at < end,
-    ).all()
+    ).all() if row_local_day(r.visited_at, r.utc_offset_minutes, tz) == log_date]
     for row in rows:
         row.state = 'logged'
         if log_reference_code:
@@ -460,14 +547,13 @@ def mark_nm_logged(gc_code: str, log_date: date, log_reference_code: str, *, tz:
     code = (gc_code or '').strip().upper()
     if not code or not log_reference_code:
         return 0
-    start = local_midnight_utc(log_date, tz)
-    end = local_midnight_utc(log_date + timedelta(days=1), tz)
-    rows = GpsVisit.query.filter(
+    start, end = _utc_window(log_date, log_date, tz)
+    rows = [r for r in GpsVisit.query.filter(
         db.or_(GpsVisit.gc_code == code, GpsVisit.resolved_gc_code == code),
         GpsVisit.status == 'needs_maintenance',
         GpsVisit.visited_at >= start,
         GpsVisit.visited_at < end,
-    ).all()
+    ).all() if row_local_day(r.visited_at, r.utc_offset_minutes, tz) == log_date]
     for row in rows:
         row.nm_log_reference_code = log_reference_code
     if rows:

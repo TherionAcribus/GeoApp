@@ -26,7 +26,7 @@ import { GpsVisitsService } from './gps-visits-service';
 import { BackendApiError } from './backend-api-client';
 import { OutingPreparationPanel, OutingPreparationState, OutingRunState } from './gps-outing-preparation';
 import {
-    DetectedVisitsFile,
+    DetectedDevice,
     GPS_STATUS_LABELS,
     GpsImportLandmarks,
     GpsImportReport,
@@ -86,7 +86,7 @@ export class GpsVisitsWidget extends ReactWidget {
     /** Bilan du dernier import ou de la dernière détection. */
     protected statusLine: string | undefined;
     /** Plusieurs GPS branchés : l'utilisateur choisit. */
-    protected detectedFiles: DetectedVisitsFile[] = [];
+    protected detectedDevices: DetectedDevice[] = [];
     /** Panneau du point de départ (premier import, ou changement demandé). */
     protected cutoffPrompt: GpsImportLandmarks | undefined;
     protected cutoffChoice = '';
@@ -178,25 +178,25 @@ export class GpsVisitsWidget extends ReactWidget {
         if (this.busy) {
             return;
         }
-        let files: DetectedVisitsFile[];
+        let devices: DetectedDevice[];
         try {
-            files = await this.service.detect();
+            devices = await this.service.detect();
         } catch {
             return;
         }
-        const paths = new Set(files.map(f => f.path));
+        const roots = new Set(devices.map(d => d.root));
         const previous = this.knownGpsPaths;
-        this.knownGpsPaths = paths;
+        this.knownGpsPaths = roots;
         if (!previous) {
             return;
         }
-        const appeared = files.filter(f => !previous.has(f.path));
+        const appeared = devices.filter(d => !previous.has(d.root));
         if (appeared.length === 0) {
             return;
         }
-        const action = await this.messages.info(`GPS détecté : ${appeared[0].path}`, 'Importer les visites');
+        const action = await this.messages.info(`GPS détecté : ${appeared[0].root}`, 'Importer les visites');
         if (action === 'Importer les visites') {
-            await this.importPath(appeared[0].path);
+            await this.importDevice(appeared[0].root);
         }
     }
 
@@ -254,36 +254,42 @@ export class GpsVisitsWidget extends ReactWidget {
     }
 
     protected detectGps = async (): Promise<void> => {
-        const files = await this.runBusy('detect', () => this.service.detect());
-        if (!files) {
+        const devices = await this.runBusy('detect', () => this.service.detect());
+        if (!devices) {
             return;
         }
-        this.detectedFiles = [];
-        if (files.length === 0) {
-            this.statusLine = 'Aucun GPS détecté. Si ton GPS n\'apparaît pas comme une clé USB, '
-                + 'copie Garmin\\geocache_visits.txt et dépose‑le ici.';
+        this.detectedDevices = [];
+        if (devices.length === 0) {
+            this.statusLine = "Aucun GPS détecté. Si ton GPS n'apparaît pas comme une clé USB, copie son dossier "
+                + 'Garmin (geocache_logs.xml, et si possible GPX\\Archive) et dépose les fichiers ici.';
             this.update();
             return;
         }
-        if (files.length > 1) {
-            this.detectedFiles = files;
-            this.statusLine = `${files.length} GPS détectés : choisis celui à importer.`;
+        if (devices.length > 1) {
+            this.detectedDevices = devices;
+            this.statusLine = `${devices.length} GPS détectés : choisis celui à importer.`;
             this.update();
             return;
         }
-        await this.importPath(files[0].path);
+        await this.importDevice(devices[0].root);
     };
 
-    protected importPath = async (path: string): Promise<void> => {
-        this.detectedFiles = [];
-        const report = await this.runBusy('import', () => this.service.importPath(path));
+    /** Tout le GPS : visites, caches des GPX, positions sur les traces (la lecture des GPX peut prendre ~30 s la 1re fois). */
+    protected importDevice = async (root: string): Promise<void> => {
+        this.detectedDevices = [];
+        this.statusLine = 'Lecture du GPS… (la première lecture des GPX peut prendre une trentaine de secondes)';
+        this.update();
+        const report = await this.runBusy('import', () => this.service.importDevice(root));
         if (report) {
             await this.handleImportReport(report);
         }
     };
 
-    protected importFile = async (file: File): Promise<void> => {
-        const report = await this.runBusy('import', () => this.service.importFile(file));
+    protected importFiles = async (files: File[]): Promise<void> => {
+        if (files.length === 0) {
+            return;
+        }
+        const report = await this.runBusy('import', () => this.service.importFiles(files));
         if (report) {
             await this.handleImportReport(report);
         }
@@ -318,8 +324,25 @@ export class GpsVisitsWidget extends ReactWidget {
         if (result) {
             this.cutoffPrompt = undefined;
             await this.reload();
+            // Le positionnement attendait le point de départ (sinon 14 ans de traces à lire).
+            await this.positionPending(true);
         }
     };
+
+    /** Positionne sur les traces du GPS les visites à loguer qui ne le sont pas encore. */
+    protected async positionPending(quiet: boolean): Promise<void> {
+        try {
+            const result = await this.service.position();
+            if (result.positioned > 0) {
+                this.statusLine = `${result.positioned} visite(s) positionnée(s) sur la trace du GPS.`;
+                await this.reload();
+            }
+        } catch (e) {
+            if (!quiet) {
+                this.messages.warn(this.describeError(e));
+            }
+        }
+    }
 
     protected setEntriesState = async (entries: GpsVisitEntry[], state: 'pending' | 'ignored' | 'logged'): Promise<void> => {
         const ids = visitIdsOf(entries);
@@ -654,20 +677,18 @@ export class GpsVisitsWidget extends ReactWidget {
         e.preventDefault();
         e.stopPropagation();
         this.dragOver = false;
-        const file = e.dataTransfer.files && e.dataTransfer.files[0];
-        if (file) {
-            void this.importFile(file);
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length > 0) {
+            void this.importFiles(files);
         } else {
             this.update();
         }
     };
 
     protected onFileChosen = (e: React.ChangeEvent<HTMLInputElement>): void => {
-        const file = e.target.files && e.target.files[0];
+        const files = Array.from(e.target.files ?? []);
         e.target.value = '';
-        if (file) {
-            void this.importFile(file);
-        }
+        void this.importFiles(files);
     };
 
     /* ------------------------------------------------------------------ rendu */
@@ -709,7 +730,8 @@ export class GpsVisitsWidget extends ReactWidget {
                     <input
                         ref={el => { this.fileInput = el; }}
                         type='file'
-                        accept='.txt'
+                        accept='.txt,.xml,.gpx'
+                        multiple
                         style={{ display: 'none' }}
                         onChange={this.onFileChosen}
                     />
@@ -717,12 +739,12 @@ export class GpsVisitsWidget extends ReactWidget {
                 <div className='geoapp-gps-visits__drop-hint'>
                     ou dépose ici le fichier <code>geocache_visits.txt</code>
                 </div>
-                {this.detectedFiles.length > 0 && (
+                {this.detectedDevices.length > 0 && (
                     <div className='geoapp-gps-visits__detected'>
-                        {this.detectedFiles.map(file => (
-                            <button key={file.path} className='theia-button secondary' disabled={busy}
-                                onClick={() => { void this.importPath(file.path); }}>
-                                {file.path}
+                        {this.detectedDevices.map(device => (
+                            <button key={device.root} className='theia-button secondary' disabled={busy}
+                                onClick={() => { void this.importDevice(device.root); }}>
+                                {device.root} ({device.tracks_count} traces, {device.gpx_count} GPX)
                             </button>
                         ))}
                     </div>
@@ -1010,6 +1032,9 @@ export class GpsVisitsWidget extends ReactWidget {
                     )}
                 </span>
                 <span className='geoapp-gps-visits__time'>{entry.time}</span>
+                {entry.position && (
+                    <span className='geoapp-gps-visits__located' title="Position relevée sur la trace du GPS à l'heure de la visite">📍</span>
+                )}
                 <span className='geoapp-gps-visits__status' title={entry.status_raw}>
                     {status.icon} {statusLabel(entry)}
                     {entry.has_nm && entry.status !== 'needs_maintenance' && <span title='Needs Maintenance signalé sur le GPS'> ⚠️</span>}

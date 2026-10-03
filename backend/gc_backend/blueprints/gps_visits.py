@@ -1,9 +1,12 @@
-"""Blueprint des visites GPS Garmin (`geocache_visits.txt`).
+"""Blueprint des visites GPS Garmin.
 
 Routes :
-- ``GET  /api/gps-visits/detect``   fichiers de visites trouvés sur les lecteurs branchés
-- ``POST /api/gps-visits/import``   import d'un fichier (multipart ``visitsFile``) ou d'un
-  chemin renvoyé par ``detect`` (``{"path": "…"}``)
+- ``GET  /api/gps-visits/detect``   GPS branchés (dossier ``Garmin`` : visites, traces, GPX)
+- ``POST /api/gps-visits/import``   import du GPS (``{"device": "<racine Garmin>"}``), de
+  fichiers déposés (multipart ``files`` : visites XML/TXT, traces et GPX de caches), ou
+  d'un chemin renvoyé par ``detect`` (``{"path": "…"}``)
+- ``POST /api/gps-visits/position`` positionner des visites sur les traces du GPS
+  (``{"days"?: [...]}``) ; ``GET /api/gps-visits/tracks?days=`` tracés des jours
 - ``POST /api/gps-visits/cutoff``   point de départ : ``{"since": "AAAA-MM-JJ"}``
 - ``GET  /api/gps-visits``          visites réduites et groupées par jour
   (``?state=pending,logged,ignored&from=&to=&max_days=``)
@@ -27,17 +30,22 @@ from datetime import date, datetime, timezone
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from ..database import db
-from ..models import Zone
-from ..services import gps_visit_store
-from ..services.garmin_visits import normalize_code, parse_visits
+from ..models import AppConfig, GpsTrackDay, Zone
+from ..services import gps_device, gps_visit_store
+from ..services.garmin_tracks import file_start_date
+from ..services.garmin_visits import is_logs_xml, normalize_code, parse_any
 
 bp = Blueprint('gps_visits', __name__, url_prefix='/api/gps-visits')
 logger = logging.getLogger(__name__)
 
 # Un fichier de 14 000 visites pèse ~1,4 Mo en UTF-16 : la borne laisse une large marge.
 MAX_VISITS_FILE_BYTES = 20 * 1024 * 1024
+# GPX déposés (traces, Pocket Queries) : le plus gros fichier du GPS réel fait 8 Mo.
+MAX_GPX_FILE_BYTES = 50 * 1024 * 1024
 
-VISITS_RELATIVE_PATH = os.path.join('Garmin', 'geocache_visits.txt')
+GARMIN_DIR = 'Garmin'
+VISITS_FILE_NAMES = ('geocache_logs.xml', 'geocache_visits.txt')
+LAST_DEVICE_KEY = 'gps_visits.last_device_root'
 
 # GetDriveTypeW : 2 = amovible, 3 = fixe. Les lecteurs réseau (4) et optiques (5)
 # sont ignorés : un lecteur réseau déconnecté peut bloquer plusieurs secondes.
@@ -66,40 +74,60 @@ def _mount_points() -> list[str]:
     return mounts
 
 
-def detect_visit_files() -> list[dict]:
-    """Fichiers ``Garmin/geocache_visits.txt`` présents sur les lecteurs branchés."""
-    found: list[dict] = []
+def _same_path(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def detect_devices() -> list[dict]:
+    """GPS branchés : dossiers ``Garmin`` qui contiennent un fichier de visites."""
+    devices: list[dict] = []
     seen: set[str] = set()
     for mount in _mount_points():
-        path = os.path.join(mount, VISITS_RELATIVE_PATH)
-        key = os.path.normcase(os.path.abspath(path))
+        root = os.path.join(mount, GARMIN_DIR)
+        key = os.path.normcase(os.path.abspath(root))
         if key in seen:
             continue
         seen.add(key)
         try:
-            if not os.path.isfile(path):
+            if not os.path.isdir(root):
                 continue
-            stat = os.stat(path)
+            info = gps_device.layout(root)
+            if not info.visits_file:
+                continue
+            modified = os.path.getmtime(info.visits_file)
         except OSError:
             continue
-        found.append({
-            'path': path,
-            'size': stat.st_size,
-            'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        devices.append({
+            **info.to_dict(),
+            'modified': datetime.fromtimestamp(modified, tz=timezone.utc).isoformat(),
         })
-    return found
+    return devices
+
+
+def detect_visit_files() -> list[dict]:
+    """Fichiers de visites (XML, TXT) présents sur les GPS branchés."""
+    files: list[dict] = []
+    for mount in _mount_points():
+        for name in VISITS_FILE_NAMES:
+            path = os.path.join(mount, GARMIN_DIR, name)
+            try:
+                if os.path.isfile(path):
+                    stat = os.stat(path)
+                    files.append({'path': path, 'size': stat.st_size,
+                                  'modified': datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()})
+            except OSError:
+                continue
+    return files
 
 
 @bp.get('/detect')
 def detect():
-    return jsonify({'files': detect_visit_files()})
+    return jsonify({'devices': detect_devices(), 'files': detect_visit_files()})
 
 
 def _read_detected_path(raw_path: str) -> tuple[bytes | None, tuple | None]:
     """Lit un chemin, seulement s'il fait partie de ce que ``detect`` trouve à cet instant."""
-    wanted = os.path.normcase(os.path.abspath(raw_path))
-    allowed = {os.path.normcase(os.path.abspath(f['path'])) for f in detect_visit_files()}
-    if wanted not in allowed:
+    if not any(_same_path(raw_path, f['path']) for f in detect_visit_files()):
         return None, _error('path_not_detected', "Ce fichier n'est pas un fichier de visites détecté sur un GPS branché.", 400)
     try:
         if os.path.getsize(raw_path) > MAX_VISITS_FILE_BYTES:
@@ -111,34 +139,160 @@ def _read_detected_path(raw_path: str) -> tuple[bytes | None, tuple | None]:
         return None, _error('read_failed', "Le fichier n'a pas pu être lu (GPS débranché ?).", 400)
 
 
+def _uploaded_gpx_dir() -> str:
+    """GPX de caches déposés (GPS en MTP) : gardés pour créer les caches sans réseau."""
+    from ..config import Config
+
+    path = os.path.join(Config.DATA_DIR, 'gps_device_gpx')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+_SAFE_NAME_RE = re.compile(r'[^A-Za-z0-9._ -]')
+
+
+def _collect_uploads() -> tuple[list[tuple[str, bytes]], list[gps_device.TrackSource], list[str], tuple | None]:
+    """Fichiers déposés : (visites [nom, contenu]), traces, GPX de caches enregistrés."""
+    uploads = request.files.getlist('files') + ([request.files['visitsFile']] if 'visitsFile' in request.files else [])
+    visits: list[tuple[str, bytes]] = []
+    tracks: list[gps_device.TrackSource] = []
+    cache_gpx: list[str] = []
+    for upload in uploads:
+        name = os.path.basename(upload.filename or 'fichier')
+        data = upload.read(MAX_GPX_FILE_BYTES + 1)
+        if len(data) > MAX_GPX_FILE_BYTES:
+            return [], [], [], _error('file_too_large', f'Fichier trop volumineux : {name}.', 413)
+        lowered = name.lower()
+        if lowered.endswith('.gpx'):
+            if b'<trk' in data:
+                tracks.append(gps_device.TrackSource(name, (lambda d=data: d), archive=file_start_date(name) is not None))
+            elif b'groundspeak' in data[:5000].lower() or b'<groundspeak:cache' in data:
+                path = os.path.join(_uploaded_gpx_dir(), _SAFE_NAME_RE.sub('_', name))
+                with open(path, 'wb') as handle:
+                    handle.write(data)
+                cache_gpx.append(path)
+            continue
+        if len(data) > MAX_VISITS_FILE_BYTES:
+            return [], [], [], _error('file_too_large', 'Fichier de visites trop volumineux.', 413)
+        visits.append((name, data))
+    # Le XML d'abord : il porte le décalage et les secondes, le TXT complète ensuite.
+    visits.sort(key=lambda item: 0 if is_logs_xml(item[1]) else 1)
+    return visits, tracks, cache_gpx, None
+
+
+def _import_visit_sources(visits: list[tuple[str, bytes]], tz) -> tuple[dict | None, tuple | None]:
+    report = None
+    for name, data in visits:
+        parsed = parse_any(data)
+        if not parsed.visits and parsed.unreadable:
+            if report is None and len(visits) == 1:
+                return None, _error('not_a_visits_file', "Ce fichier ne ressemble pas à un fichier de visites Garmin.", 400)
+            continue
+        current = gps_visit_store.import_visits(parsed, source=name, tz=tz).to_dict()
+        if report is None:
+            report = current
+        else:
+            report['new'] += current['new']
+            report['enriched'] += current['enriched']
+    if report is None:
+        return None, _error('missing_file', 'Aucun fichier de visites fourni.', 400)
+    return report, None
+
+
 @bp.post('/import')
 def import_visits():
-    upload = request.files.get('visitsFile')
-    if upload is not None:
-        data = upload.read(MAX_VISITS_FILE_BYTES + 1)
-        if len(data) > MAX_VISITS_FILE_BYTES:
-            return _error('file_too_large', 'Fichier de visites trop volumineux.', 413)
-        source = upload.filename or 'fichier déposé'
-    else:
-        body = request.get_json(silent=True) or {}
-        raw_path = body.get('path')
-        if not isinstance(raw_path, str) or not raw_path.strip():
-            return _error('missing_file', 'Aucun fichier de visites fourni.', 400)
-        data, error = _read_detected_path(raw_path.strip())
+    tz = gps_visit_store.get_local_tz()
+    tracks: list[gps_device.TrackSource] = []
+    cache_gpx: list[str] = []
+    body = request.get_json(silent=True) or {}
+    try:
+        if request.files:
+            visits, tracks, cache_gpx, error = _collect_uploads()
+            if error:
+                return error
+            source = 'fichiers déposés'
+        elif isinstance(body.get('device'), str) and body['device'].strip():
+            root = body['device'].strip()
+            if not any(_same_path(root, d['root']) for d in detect_devices()):
+                return _error('device_not_detected', "Ce GPS n'est pas (ou plus) branché.", 400)
+            info = gps_device.layout(root)
+            visits = []
+            for path in (info.logs_xml, info.visits_txt):
+                if path and os.path.getsize(path) <= MAX_VISITS_FILE_BYTES:
+                    with open(path, 'rb') as handle:
+                        visits.append((path, handle.read()))
+            tracks = gps_device.device_track_sources(info)
+            cache_gpx = info.cache_gpx
+            AppConfig.set_value(LAST_DEVICE_KEY, root)
+            source = root
+        else:
+            raw_path = body.get('path')
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                return _error('missing_file', 'Aucun fichier de visites fourni.', 400)
+            data, error = _read_detected_path(raw_path.strip())
+            if error:
+                return error
+            visits = [(raw_path.strip(), data)]
+            source = raw_path.strip()
+
+        report, error = _import_visit_sources(visits, tz)
         if error:
             return error
-        source = raw_path.strip()
-
-    parsed = parse_visits(data)
-    if not parsed.visits and parsed.unreadable:
-        return _error('not_a_visits_file', "Ce fichier ne ressemble pas à un fichier de visites Garmin.", 400)
-
-    try:
-        report = gps_visit_store.import_visits(parsed, source=source, tz=gps_visit_store.get_local_tz())
+        device_report: dict = {'source': source}
+        if cache_gpx:
+            device_report['gpx_indexed'] = gps_device.index_cache_gpx(cache_gpx)
+        if tracks:
+            if report['needs_cutoff']:
+                # Avant le point de départ, tout est « à loguer » : on ne lit pas 14 ans de traces.
+                device_report['positioning'] = 'after_cutoff'
+            else:
+                device_report.update(gps_device.position_visits(tracks, tz=tz))
+                device_report['positioning'] = 'done'
+        report['device'] = device_report
+        return jsonify(report)
     except Exception:
         db.session.rollback()
         raise
-    return jsonify(report.to_dict())
+
+
+def _parse_days(raw) -> tuple[list[date] | None, tuple | None]:
+    if raw is None:
+        return None, None
+    if not isinstance(raw, list):
+        return None, _error('invalid_days', 'days doit être une liste de dates.', 400)
+    days = []
+    for value in raw:
+        try:
+            days.append(date.fromisoformat(str(value)))
+        except ValueError:
+            return None, _error('invalid_date', f'Date invalide : {value}', 400)
+    return days, None
+
+
+@bp.post('/position')
+def position_visits():
+    """
+    Positionne des visites sur les traces du GPS branché (le dernier importé, ou ``device``).
+    Sans ``days`` : les visites à loguer pas encore positionnées ; avec : toutes celles
+    de ces jours (pour le rattachement des visites anciennes).
+    """
+    body = request.get_json(silent=True) or {}
+    days, error = _parse_days(body.get('days'))
+    if error:
+        return error
+    root = body.get('device') or AppConfig.get_value(LAST_DEVICE_KEY)
+    if not root or not any(_same_path(root, d['root']) for d in detect_devices()):
+        return _error('device_not_connected', 'Branche le GPS : ses traces sont nécessaires pour positionner les visites.', 409)
+    sources = gps_device.device_track_sources(gps_device.layout(root))
+    result = gps_device.position_visits(sources, days=days, tz=gps_visit_store.get_local_tz())
+    return jsonify(result)
+
+
+@bp.get('/tracks')
+def day_tracks():
+    raw = [d.strip() for d in (request.args.get('days') or '').split(',') if d.strip()]
+    rows = GpsTrackDay.query.filter(GpsTrackDay.day.in_(raw)).all() if raw else []
+    return jsonify({'tracks': [row.to_dict() for row in rows]})
 
 
 def _parse_day(raw, field: str) -> tuple[date | None, tuple | None]:
@@ -294,13 +448,20 @@ def start_zone_operation():
         prepared = gps_visit_store.prepare_selection(visit_ids, zone_id=zone_id, tz=tz)
         codes = list(dict.fromkeys(entry['gc_code'] for entry in prepared['entries']))
         operation = operations.start(operation_id, zone_id, zone_created=zone_created, days=prepared['days'])
-        counts = {'existing': 0, 'copied': 0, 'created': 0, 'errors': 0}
+        counts = {'existing': 0, 'copied': 0, 'created': 0, 'from_gps': 0, 'errors': 0}
         importer: GeocacheImporter | None = None
+        created_from: dict[str, str] = {}
 
         def create(code: str, target_zone_id: int):
             nonlocal importer
             importer = importer or GeocacheImporter()
-            # Absente de toute zone (vérifié par add_to_zone) : import_by_code ne déplace rien.
+            # Absente de toute zone (vérifié par add_to_zone) : ni import_from_scraped ni
+            # import_by_code ne déplacent quoi que ce soit. Le GPX du GPS d'abord : sans réseau.
+            scraped = gps_device.scraped_from_device(code)
+            if scraped is not None:
+                created_from[code] = 'gps'
+                return importer.import_from_scraped(target_zone_id, scraped)
+            created_from[code] = 'site'
             return importer.import_by_code(target_zone_id, code)
 
         total = len(codes)
@@ -315,9 +476,13 @@ def start_zone_operation():
                     geocache, action = add_to_zone(code, zone_id, create=create)
                     operations.record(operation, code, geocache.id, action)
                     counts[action] += 1
-                    label = {'existing': 'Déjà dans la zone', 'copied': 'Ajoutée (copie)', 'created': 'Téléchargée'}[action]
+                    from_gps = action == ACTION_CREATED and created_from.get(code) == 'gps'
+                    if from_gps:
+                        counts['from_gps'] += 1
+                    label = {'existing': 'Déjà dans la zone', 'copied': 'Ajoutée (copie)',
+                             'created': 'Créée depuis le GPS' if from_gps else 'Téléchargée'}[action]
                     message = f'{label} : {code} ({index}/{total})'
-                    if action == ACTION_CREATED:
+                    if action == ACTION_CREATED and not from_gps:
                         time.sleep(DOWNLOAD_INTERVAL_SECONDS)
                 except Exception as exc:  # noqa: BLE001 - une cache en échec ne bloque pas les autres
                     db.session.rollback()

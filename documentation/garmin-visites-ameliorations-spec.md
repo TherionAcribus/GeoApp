@@ -124,7 +124,15 @@ et de contrôle :
   lignes du même code GC**, dans `submit_geocache_log`.
 - Le refus « déjà trouvée » consulte toutes ces lignes.
 
-### Lot 2 : lire tout ce que contient le GPS
+### Lot 2 : lire tout ce que contient le GPS — livré le 2026-10-03
+
+> Mise en œuvre :
+> - le XML porte des octets de contrôle interdits (comme le TXT) : ils sont retirés avant la
+>   lecture ;
+> - ses libellés (`did not find`, `needs repair`) sont ramenés à ceux du TXT ;
+> - le rapprochement XML ↔ TXT se fait sur (code, résultat, minute UTC ± 1) ;
+> - avant le premier point de départ, le positionnement est reporté (`after_cutoff`), puis
+>   lancé par le widget dès que le point de départ est choisi.
 
 **Source « dossier Garmin »**
 - `detect` renvoie le **GPS** plutôt qu'un fichier :

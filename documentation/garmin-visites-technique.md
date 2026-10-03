@@ -655,3 +655,89 @@ Vérifié sur une copie de la base réelle (27/09/2026) :
 Tests :
 - `backend/tests/test_gps_zone_operations.py` ;
 - `tests/gps-visits-model.test.ts`.
+
+## 13. Lire tout le GPS : XML, traces, GPX des caches
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 2.
+
+### 13.1 `geocache_logs.xml`
+
+`parse_logs_xml` (`garmin_visits.py`) :
+- **Octets de contrôle** : le GPS les écrit dans `<code>` (``…), ils sont interdits en
+  XML. Ils sont retirés avant `ElementTree`, sinon : `not well-formed (invalid token)`.
+- **Libellés** : `did not find` et `needs repair` sont ramenés aux libellés du TXT
+  (`CANONICAL_STATUS_LABELS`).
+- **Heure** : `visited_at` est la minute UTC, comme dans le TXT. Le décalage
+  (`utc_offset_minutes`) et les secondes sont gardés à part.
+- **Comparaison avec le TXT sur le GPS réel** : 14 625 visites contre 14 629, dont
+  14 620 communes. 4 visites n'existent que dans le TXT, et une seule heure diffère d'une
+  minute.
+- **Fuseaux** : UTC+1 (4 350), UTC+2 (10 069), **UTC+4 (206, un voyage)**.
+
+Le jour local d'une visite utilise **son** décalage (`offset_tz`), sinon la préférence de
+fuseau, sinon le fuseau de l'OS. Les calculs par jour (point de départ, liste,
+`pending_visit_ids_of_day`, `mark_logged`) lisent une fenêtre UTC élargie de ±14 h, puis
+filtrent ligne par ligne.
+
+`import_visits` **complète** une visite connue au lieu de la recréer : même code (lu ou
+vide), même résultat, minute UTC à une minute près. Le rapport compte ces visites dans
+`enriched`. Résultat sur le GPS réel : 14 625 lignes complétées, aucun doublon.
+
+### 13.2 Traces → position des visites
+
+- **Lecteur pur** `garmin_tracks.py` : `trkpt` lus par expressions régulières.
+- **Position** (`position_at`) : interpolation entre les deux points qui encadrent la
+  visite (≤ 5 min d'écart), sinon le point le plus proche à moins de 2 min.
+- **Fichiers lus** : seules les archives commencées le jour même ou la veille
+  (`files_for_days`, d'après leur nom), plus `Current.gpx`.
+- **`gps_device.position_visits`** : renseigne `latitude`, `longitude` et
+  `position_source` (`track`, ou `no_track` pour ne pas réessayer), et enregistre le
+  tracé du jour (`gps_track_day` : Douglas‑Peucker à 10 m, distance, début, fin).
+
+Mesures sur le GPS réel :
+
+| Jour | Résultat | Durée | Tracé |
+|---|---|---|---|
+| 27/09/2026 | 46 visites sur 46 positionnées | 0,4 s | 506 points, 140 km (trajets en voiture compris) |
+| 13/06 et 23/10/2021 | 110 visites positionnées, dont les **78 visites sans code** du 23/10 | 0,2 s | — |
+
+### 13.3 Caches des GPX du GPS
+
+- Les **Pocket Queries** chargées sur le GPS sont les fichiers `GPX/<n>.gpx`, hors
+  `-wpts`, `Waypoints_*` et traces.
+- **Index léger** (`light_index`, par expressions régulières) dans `gps_device_cache` :
+  code, nom, type, coordonnées, fichier, date du fichier. Seuls les fichiers dont la date
+  de modification a changé sont relus (`AppConfig` `gps_visits.device_gpx_mtimes`).
+  Mesure : 19 fichiers, 9 989 caches, 30 s à la première lecture sur la clé USB, 0,3 s
+  ensuite.
+- Une entrée de liste absente de l'App porte `device` (nom, type, date du GPX) : le
+  widget affiche « Sur le GPS » et le nom de la cache.
+- **Ajout à la zone** : le plan `gps` crée la cache depuis le GPX
+  (`scraped_from_device` → `import_from_scraped`), avec les waypoints du `-wpts.gpx`,
+  **sans réseau**. Le dernier fichier analysé reste en mémoire. Le téléchargement reste le
+  repli.
+
+### 13.4 API
+
+| Route | Changement |
+|---|---|
+| `GET /api/gps-visits/detect` | `devices` : `root`, `visits_file`, `has_logs_xml`, `has_visits_txt`, `tracks_count`, `gpx_count` (`files` reste pour compatibilité) |
+| `POST /api/gps-visits/import` | `{"device": root}` lit visites (XML puis TXT), GPX et traces ; multipart `files` pour un GPS en MTP (les GPX de caches déposés sont gardés dans `data/gps_device_gpx`) ; `{"path"}` reste accepté. Rapport : `enriched`, `device` (`gpx_indexed`, `positioned`, `no_track`, `positioning`). |
+| `POST /api/gps-visits/position` | `{"days"?: [...]}`, sur le GPS du dernier import (409 `device_not_connected` s'il est débranché) |
+| `GET /api/gps-visits/tracks?days=` | Tracés enregistrés |
+
+Pour ne pas lire 14 ans de traces au premier import, le positionnement attend le point
+de départ (`positioning: after_cutoff`). Le widget le lance juste après.
+
+### 13.5 Interface
+
+- « Détecter le GPS » importe tout le dossier `Garmin`. Avec plusieurs GPS branchés, un
+  bouton par GPS, avec le nombre de traces et de GPX.
+- Le choix de fichiers et le dépôt acceptent plusieurs fichiers `.xml`, `.txt` et
+  `.gpx`.
+- 📍 marque une visite positionnée sur la trace.
+- Le récapitulatif annonce « 📟 N caches créées depuis les GPX du GPS ».
+
+Tests :
+- `backend/tests/test_gps_device.py` (faux dossier Garmin) ;
+- `tests/gps-visits-model.test.ts`.

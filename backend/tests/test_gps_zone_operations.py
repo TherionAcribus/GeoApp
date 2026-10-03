@@ -89,7 +89,7 @@ def test_prepare_summarizes_what_will_happen(app):
                                   json={'day': '2026-09-27', 'zone_id': app.slovenie_id}).get_json()
     plans = {e['gc_code']: e['plan'] for e in body['entries']}
     assert plans == {'GC4NKAY': 'existing', 'GC2BBBB': 'download', 'GC5EEEE': 'download'}
-    assert body['counts'] == {'existing': 1, 'copy': 0, 'download': 2, 'without_code': 1, 'unattempted': 1}
+    assert body['counts'] == {'existing': 1, 'copy': 0, 'gps': 0, 'download': 2, 'without_code': 1, 'unattempted': 1}
     assert body['days'] == ['2026-09-27']
     # Ordre de visite gardé (il numérote @cache_count dans l'éditeur).
     assert [e['gc_code'] for e in body['entries']] == ['GC4NKAY', 'GC2BBBB', 'GC5EEEE']

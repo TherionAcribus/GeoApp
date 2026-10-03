@@ -152,7 +152,7 @@ function testLogEditorOpenings(): void {
             prepared({ key: 'd', gc_code: 'GC4', day: '2026-09-26', time: '16:00' }, 'existing', 3),
         ],
         excluded: [],
-        counts: { existing: 2, copy: 1, download: 1, without_code: 0, unattempted: 0 },
+        counts: { existing: 2, copy: 1, gps: 0, download: 1, without_code: 0, unattempted: 0 },
         zone_id: 1,
         suggested_zone_id: null,
     });
@@ -180,11 +180,12 @@ function testOutingZoneName(): void {
 }
 
 function testPreparationSummary(): void {
-    const lines = describePreparation({ existing: 1, copy: 43, download: 2, without_code: 1, unattempted: 0 }, true);
+    const lines = describePreparation({ existing: 1, copy: 43, gps: 3, download: 2, without_code: 1, unattempted: 0 }, true);
     assert.deepEqual(lines, [
         '🆕 La zone sera créée.',
         '✔️ 1 cache déjà dans la zone',
         '➕ 43 caches connues ailleurs, ajoutées à la zone (elles restent aussi dans leurs zones)',
+        '📟 3 caches créées depuis les GPX du GPS (sans téléchargement)',
         '⬇️ 2 caches à télécharger',
         "⏭️ 1 visite sans code laissée de côté (à rattacher d'abord)",
     ]);
@@ -229,8 +230,22 @@ function testResolutionDisplay(): void {
         'Aucune visite codée à moins d\'1 h 30 ce jour-là : la recherche de proximité est impossible.');
 }
 
+function testDeviceData(): void {
+    const onGps = describeCacheKnowledge(entry({
+        device: { gc_code: 'GC4NKAY', name: 'X', cache_type: 'Traditional Cache', latitude: 49, longitude: 5, gpx_date: '2026-09-26' },
+    }));
+    assert.equal(onGps.kind, 'on-gps');
+    assert.equal(onGps.tooltip, 'Décrite par les GPX du GPS (chargés le 26/09) : ajoutée sans téléchargement');
+    assert.equal(describeImportReport({
+        total: 14625, new: 0, known: 14625, without_code: 367, unreadable_count: 0, unreadable: [], needs_cutoff: false,
+        landmarks: null, source: 'H:\\Garmin', enriched: 14625, device: { positioned: 46, gpx_indexed: 9989 },
+    }), 'Aucune nouvelle visite · 14625 dans le fichier · 14625 complétées (fuseau) · 46 positionnées sur la trace'
+        + ' · 9989 caches lues dans les GPX');
+}
+
 testPasses();
 testStatusLabel();
+testDeviceData();
 testLogEditorOpenings();
 testOutingZoneName();
 testPreparationSummary();

@@ -373,3 +373,13 @@
 .geoapp-gps-outing__plan.is-download {
     border-style: dashed;
 }
+
+.geoapp-gps-visits__located {
+    font-size: 11px;
+}
+
+.geoapp-gps-visits__knowledge.is-on-gps {
+    background: transparent;
+    color: var(--theia-textLink-foreground);
+    border: 1px solid var(--theia-textLink-foreground);
+}

@@ -21,15 +21,24 @@ Format constaté (voir documentation/garmin-visites-spec.md) :
 - le commentaire, tapé au clavier du GPS, peut s'étendre sur plusieurs lignes ;
 - le code peut être vide ou abîmé (``8``, ``#``, octet de contrôle) : la visite
   est gardée, sans code, pour être rattachée plus tard.
+
+Le GPS écrit aussi ``geocache_logs.xml`` : les mêmes visites, avec l'heure locale,
+son décalage et les secondes (``<time>2021-06-13T10:37:36+02:00</time>``). C'est la
+meilleure source : le jour local d'une visite y est exact, même en voyage (206 visites
+du fichier réel sont en UTC+4). Ses libellés diffèrent (``did not find``,
+``needs repair``) : ils sont ramenés à ceux du TXT, pour qu'un import de l'un après
+l'autre ne crée pas de doublons. Il contient les mêmes octets de contrôle que le TXT,
+interdits en XML : ils sont retirés avant la lecture.
 """
 from __future__ import annotations
 
 import csv
 import io
 import re
+import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone, tzinfo
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import Iterable, Optional
 
 GC_CODE_RE = re.compile(r'^GC[0-9A-Z]{1,8}$')
@@ -51,8 +60,19 @@ _STATUS_BY_LABEL = {
     "didn't find it": STATUS_DNF,
     'didn’t find it': STATUS_DNF,
     'didnt find it': STATUS_DNF,
+    # Libellés de geocache_logs.xml.
+    'did not find': STATUS_DNF,
     'unattempted': STATUS_UNATTEMPTED,
     'needs maintenance': STATUS_NEEDS_MAINTENANCE,
+    'needs repair': STATUS_NEEDS_MAINTENANCE,
+}
+
+# Libellé affiché et stocké pour chaque statut : celui du TXT, quelle que soit la source.
+CANONICAL_STATUS_LABELS = {
+    STATUS_FOUND: 'Found it',
+    STATUS_DNF: "Didn't find it",
+    STATUS_UNATTEMPTED: 'Unattempted',
+    STATUS_NEEDS_MAINTENANCE: 'Needs Maintenance',
 }
 
 # Résultat retenu quand une cache a plusieurs lignes le même jour : la trouvaille
@@ -89,6 +109,9 @@ class RawVisit:
     status_raw: str
     status: str
     comment: str
+    # geocache_logs.xml seulement : décalage de l'heure locale (minutes) et secondes.
+    utc_offset_minutes: Optional[int] = None
+    seconds: Optional[int] = None
 
 
 @dataclass
@@ -109,6 +132,7 @@ class VisitRecord:
     status_raw: str
     comment: str = ''
     state: str = 'pending'
+    utc_offset_minutes: Optional[int] = None
 
 
 @dataclass
@@ -240,6 +264,63 @@ def occurrence_keys(visits: Iterable[RawVisit]) -> list[tuple[str, datetime, str
     return keys
 
 
+_XML_INVALID_CHARS = re.compile(rb'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def parse_logs_xml(data: bytes) -> ParseResult:
+    """Lit ``geocache_logs.xml`` : mêmes visites que le TXT, avec décalage et secondes."""
+    result = ParseResult()
+    try:
+        root = ET.fromstring(_XML_INVALID_CHARS.sub(b'', data))
+    except ET.ParseError as exc:
+        result.unreadable.append((0, f'XML illisible : {exc}'))
+        return result
+    for index, log in enumerate(el for el in root.iter() if el.tag.rsplit('}', 1)[-1] == 'log'):
+        fields = {child.tag.rsplit('}', 1)[-1]: (child.text or '') for child in log}
+        raw_time = fields.get('time', '').strip()
+        try:
+            local = datetime.fromisoformat(raw_time)
+        except ValueError:
+            local = None
+        if local is None or local.utcoffset() is None:
+            result.unreadable.append((index + 1, raw_time[:60]))
+            continue
+        utc = local.astimezone(timezone.utc)
+        label = fields.get('result', '').strip()
+        status = map_status(label)
+        result.visits.append(RawVisit(
+            line_no=index + 1,
+            raw_code=clean_raw_code(fields.get('code', '')),
+            gc_code=normalize_code(fields.get('code', '')),
+            # Minute UTC, comme le TXT : c'est elle qui rapproche les deux sources.
+            visited_at=utc.replace(second=0, microsecond=0),
+            status_raw=CANONICAL_STATUS_LABELS.get(status, label)[:60],
+            status=status,
+            comment=fields.get('comment', '').strip(),
+            utc_offset_minutes=int(local.utcoffset().total_seconds() // 60),
+            seconds=utc.second,
+        ))
+    result.visits.sort(key=lambda v: (v.visited_at, v.line_no))
+    return result
+
+
+def is_logs_xml(data: bytes) -> bool:
+    head = data[:600].lstrip(b'\xef\xbb\xbf')
+    return head.startswith(b'<?xml') or b'<logs' in head
+
+
+def parse_any(data: bytes) -> ParseResult:
+    """TXT ou XML du GPS, d'après le contenu."""
+    return parse_logs_xml(data) if is_logs_xml(data) else parse_visits(data)
+
+
+def offset_tz(utc_offset_minutes: Optional[int], fallback: Optional[tzinfo] = None) -> Optional[tzinfo]:
+    """Fuseau d'une visite : son décalage noté par le GPS, sinon le fuseau par défaut."""
+    if utc_offset_minutes is None:
+        return fallback
+    return timezone(timedelta(minutes=utc_offset_minutes))
+
+
 def as_utc(value: datetime) -> datetime:
     """Les dates de la base sont naïves en UTC ; celles du lecteur portent leur fuseau."""
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
@@ -274,7 +355,7 @@ def reduce_by_cache_day(records: Iterable[VisitRecord], tz: Optional[tzinfo] = N
     """
     groups: dict[tuple, list[VisitRecord]] = {}
     for record in sorted(records, key=lambda r: (as_utc(r.visited_at), r.id)):
-        day = local_day(record.visited_at, tz)
+        day = local_day(record.visited_at, offset_tz(record.utc_offset_minutes, tz))
         key = (record.gc_code, day) if record.gc_code else ('visit', record.id)
         groups.setdefault(key, []).append(record)
 
@@ -283,7 +364,7 @@ def reduce_by_cache_day(records: Iterable[VisitRecord], tz: Optional[tzinfo] = N
         winner = min(members, key=lambda r: (STATUS_PRIORITY.get(r.status, 99), as_utc(r.visited_at)))
         statuses = {m.status for m in members}
         comments = [m.comment.strip() for m in members if m.comment and m.comment.strip()]
-        local_winner = to_local(winner.visited_at, tz)
+        local_winner = to_local(winner.visited_at, offset_tz(winner.utc_offset_minutes, tz))
         reduced.append(ReducedVisit(
             key=f'{winner.gc_code}:{local_winner.date().isoformat()}' if winner.gc_code else f'visit:{winner.id}',
             gc_code=winner.gc_code,
@@ -298,7 +379,8 @@ def reduce_by_cache_day(records: Iterable[VisitRecord], tz: Optional[tzinfo] = N
             raw_count=len(members),
             visit_ids=[m.id for m in members],
             passes=[
-                {'time': to_local(m.visited_at, tz).strftime('%H:%M'), 'status_raw': m.status_raw}
+                {'time': to_local(m.visited_at, offset_tz(m.utc_offset_minutes, tz)).strftime('%H:%M'),
+                 'status_raw': m.status_raw}
                 for m in members
             ],
             states={m.state for m in members},

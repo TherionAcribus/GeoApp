@@ -475,6 +475,15 @@ class GpsVisit(db.Model):
     log_reference_code = db.Column(db.String(64))
     nm_log_reference_code = db.Column(db.String(64))
 
+    # geocache_logs.xml : décalage de l'heure locale (minutes) et secondes de la visite.
+    utc_offset_minutes = db.Column(db.Integer)
+    seconds = db.Column(db.Integer)
+    # Position sur la trace du GPS à l'heure de la visite. ``position_source`` :
+    # 'track', ou 'no_track' quand la trace a été cherchée sans succès (pas de nouvel essai).
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    position_source = db.Column(db.String(20))
+
     imported_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(
         db.DateTime,
@@ -504,6 +513,10 @@ class GpsVisit(db.Model):
             'state': self.state,
             'log_reference_code': self.log_reference_code,
             'nm_log_reference_code': self.nm_log_reference_code,
+            'utc_offset_minutes': self.utc_offset_minutes,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'position_source': self.position_source,
         }
 
 
@@ -557,3 +570,60 @@ class GpsZoneOperationItem(db.Model):
     gc_code = db.Column(db.String(20), nullable=False)
     geocache_id = db.Column(db.Integer)
     action = db.Column(db.String(10), nullable=False)
+
+
+class GpsTrackDay(db.Model):
+    """
+    Tracé d'une journée de visites, lu dans les traces du GPS (``GPX/Current``,
+    ``GPX/Archive``) et simplifié : il sert à la carte de la sortie et au résumé du
+    jour, et reste disponible une fois le GPS débranché.
+    """
+    __tablename__ = 'gps_track_day'
+
+    day = db.Column(db.String(10), primary_key=True)
+    # [[lat, lon, epoch_s], …], simplifié (Douglas-Peucker ~10 m).
+    points = db.Column(db.Text, nullable=False)
+    distance_m = db.Column(db.Float)
+    started_at = db.Column(db.DateTime)
+    ended_at = db.Column(db.DateTime)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            'day': self.day,
+            'points': json.loads(self.points) if self.points else [],
+            'distance_m': self.distance_m,
+            'started_at': self.started_at.isoformat() + 'Z' if self.started_at else None,
+            'ended_at': self.ended_at.isoformat() + 'Z' if self.ended_at else None,
+        }
+
+
+class GpsDeviceCache(db.Model):
+    """
+    Une cache présente dans les GPX du GPS (Pocket Queries chargées) : nom, type et
+    coordonnées avant tout import, et le fichier d'où la créer sans réseau.
+    """
+    __tablename__ = 'gps_device_cache'
+
+    gc_code = db.Column(db.String(20), primary_key=True)
+    name = db.Column(db.String(255))
+    cache_type = db.Column(db.String(100))
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    gpx_file = db.Column(db.String(500), nullable=False)
+    gpx_mtime = db.Column(db.Float)
+
+    def to_dict(self) -> dict:
+        return {
+            'gc_code': self.gc_code,
+            'name': self.name,
+            'cache_type': self.cache_type,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'gpx_date': datetime.fromtimestamp(self.gpx_mtime, tz=timezone.utc).date().isoformat()
+            if self.gpx_mtime else None,
+        }

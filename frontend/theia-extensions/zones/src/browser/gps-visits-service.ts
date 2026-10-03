@@ -1,7 +1,7 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { BackendApiClient } from './backend-api-client';
 import {
-    DetectedVisitsFile,
+    DetectedDevice,
     GpsImportReport,
     GpsPreparation,
     GpsResolutionResult,
@@ -16,18 +16,40 @@ export class GpsVisitsService {
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient
     ) {}
 
-    async detect(): Promise<DetectedVisitsFile[]> {
-        const body = await this.apiClient.requestJson<{ files: DetectedVisitsFile[] }>(
+    /** GPS branchés (dossier Garmin : visites, traces, GPX des caches). */
+    async detect(): Promise<DetectedDevice[]> {
+        const body = await this.apiClient.requestJson<{ devices?: DetectedDevice[] }>(
             '/api/gps-visits/detect', {}, 'Erreur lors de la recherche du GPS'
         );
-        return body.files || [];
+        return body.devices || [];
     }
 
-    async importFile(file: File): Promise<GpsImportReport> {
-        const formData = new FormData();
-        formData.append('visitsFile', file);
+    /** Tout le GPS : visites (XML puis TXT), GPX des caches, positionnement sur les traces. */
+    async importDevice(root: string): Promise<GpsImportReport> {
         return this.apiClient.requestJson<GpsImportReport>(
-            '/api/gps-visits/import', { method: 'POST', body: formData }, 'Erreur lors de l\'import des visites'
+            '/api/gps-visits/import',
+            this.apiClient.createJsonInit('POST', { device: root }),
+            "Erreur lors de l'import du GPS"
+        );
+    }
+
+    /** Fichiers déposés (GPS sans lettre de lecteur) : visites XML/TXT, traces et GPX de caches. */
+    async importFiles(files: File[]): Promise<GpsImportReport> {
+        const formData = new FormData();
+        for (const file of files) {
+            formData.append('files', file);
+        }
+        return this.apiClient.requestJson<GpsImportReport>(
+            '/api/gps-visits/import', { method: 'POST', body: formData }, "Erreur lors de l'import des visites"
+        );
+    }
+
+    /** Positionne les visites sur les traces du GPS branché (toutes celles à loguer, ou ces jours). */
+    async position(days?: string[]): Promise<{ positioned: number; no_track: number; days: number }> {
+        return this.apiClient.requestJson(
+            '/api/gps-visits/position',
+            this.apiClient.createJsonInit('POST', days ? { days } : {}),
+            'Erreur lors du positionnement des visites'
         );
     }
 

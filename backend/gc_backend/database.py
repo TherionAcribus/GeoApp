@@ -14,7 +14,7 @@ def init_db(app):
     db.init_app(app)
 
     with app.app_context():
-        from .models import Zone, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, GpsVisit, GpsZoneOperation, GpsZoneOperationItem, OutingPlan, Trackable  # noqa
+        from .models import Zone, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, GpsDeviceCache, GpsTrackDay, GpsVisit, GpsZoneOperation, GpsZoneOperationItem, OutingPlan, Trackable  # noqa
         from .geocaches.models import (  # noqa: F401
             EarthCoachImageContext,
             EarthCoachImageGroup,
@@ -39,6 +39,24 @@ def init_db(app):
         db.create_all()
 
         run_geocache_images_v2_backfill_once(AppConfig)
+
+        try:
+            # Visites GPS : fuseau, secondes et position (geocache_logs.xml, traces du GPS).
+            existing_cols = {row[1] for row in db.session.execute(text("PRAGMA table_info('gps_visit')"))}
+            for col, col_type in {
+                'utc_offset_minutes': 'INTEGER',
+                'seconds': 'INTEGER',
+                'latitude': 'REAL',
+                'longitude': 'REAL',
+                'position_source': 'VARCHAR(20)',
+            }.items():
+                if existing_cols and col not in existing_cols:
+                    logger.info('Adding missing column gps_visit.%s (%s)', col, col_type)
+                    db.session.execute(text(f'ALTER TABLE gps_visit ADD COLUMN {col} {col_type}'))
+            db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (gps_visit): %s', error)
+            db.session.rollback()
 
         try:
             logger.info('Running lightweight SQLite migrations for geocache columns...')

@@ -48,6 +48,22 @@ export interface GpsVisitEntry {
     geocaches: GpsKnownGeocache[];
     found: boolean;
     found_date: string | null;
+    /** La cache telle que les GPX du GPS la décrivent, quand elle n'est pas encore dans l'App. */
+    device?: GpsDeviceCacheInfo | null;
+    /** Position de la visite sur la trace du GPS. */
+    position?: { latitude: number; longitude: number } | null;
+    /** `track` : positionnée ; `no_track` : trace cherchée, pas trouvée ; nul : pas encore cherchée. */
+    position_source?: 'track' | 'no_track' | null;
+}
+
+export interface GpsDeviceCacheInfo {
+    gc_code: string;
+    name: string | null;
+    cache_type: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    /** Date du GPX (chargement de la Pocket Query sur le GPS). */
+    gpx_date: string | null;
 }
 
 export interface GpsVisitDay {
@@ -90,11 +106,36 @@ export interface GpsImportReport {
     needs_cutoff: boolean;
     landmarks: GpsImportLandmarks | null;
     source: string;
+    /** Visites déjà connues complétées par geocache_logs.xml (fuseau, secondes). */
+    enriched?: number;
+    /** Lecture du GPS : caches des GPX, positionnement sur les traces. */
+    device?: GpsDeviceReport | null;
+}
+
+export interface GpsDeviceReport {
+    source?: string;
+    gpx_indexed?: number;
+    positioned?: number;
+    no_track?: number;
+    tracks_read?: number;
+    /** `after_cutoff` : positionnement reporté au choix du point de départ. */
+    positioning?: 'done' | 'after_cutoff';
 }
 
 export interface DetectedVisitsFile {
     path: string;
     size: number;
+    modified: string;
+}
+
+/** Un GPS branché (dossier Garmin), tel que `detect` le décrit. */
+export interface DetectedDevice {
+    root: string;
+    visits_file: string | null;
+    has_logs_xml: boolean;
+    has_visits_txt: boolean;
+    tracks_count: number;
+    gpx_count: number;
     modified: string;
 }
 
@@ -136,7 +177,7 @@ export function isAlreadyLoggedSameDay(entry: Pick<GpsVisitEntry, 'found' | 'fou
     return entry.found && dayOf(entry.found_date) === entry.day;
 }
 
-export type CacheKnowledgeKind = 'no-code' | 'logged-same-day' | 'found-before' | 'in-app' | 'to-import';
+export type CacheKnowledgeKind = 'no-code' | 'logged-same-day' | 'found-before' | 'in-app' | 'on-gps' | 'to-import';
 
 /** Ce que l'App sait de la cache, pour l'indicateur de chaque ligne. */
 export function describeCacheKnowledge(entry: GpsVisitEntry): { kind: CacheKnowledgeKind; label: string; tooltip?: string } {
@@ -152,6 +193,14 @@ export function describeCacheKnowledge(entry: GpsVisitEntry): { kind: CacheKnowl
     }
     if (zones.length > 0) {
         return { kind: 'in-app', label: `Zone ${zones[0]}`, tooltip: zones.length > 1 ? `Présente dans : ${zones.join(', ')}` : undefined };
+    }
+    if (entry.device) {
+        const date = entry.device.gpx_date ? formatShortDay(entry.device.gpx_date) : undefined;
+        return {
+            kind: 'on-gps',
+            label: 'Sur le GPS',
+            tooltip: `Décrite par les GPX du GPS${date ? ` (chargés le ${date})` : ''} : ajoutée sans téléchargement`,
+        };
     }
     return { kind: 'to-import', label: 'À importer' };
 }
@@ -219,8 +268,18 @@ export function describeImportReport(report: GpsImportReport): string {
             : `${report.new} nouvelle${report.new > 1 ? 's' : ''} visite${report.new > 1 ? 's' : ''}`,
         `${report.total} dans le fichier`,
     ];
+    if (report.enriched) {
+        parts.push(`${report.enriched} complétée${report.enriched > 1 ? 's' : ''} (fuseau)`);
+    }
     if (report.unreadable_count > 0) {
         parts.push(`${report.unreadable_count} ligne${report.unreadable_count > 1 ? 's' : ''} illisible${report.unreadable_count > 1 ? 's' : ''}`);
+    }
+    const device = report.device;
+    if (device?.positioned) {
+        parts.push(`${device.positioned} positionnée${device.positioned > 1 ? 's' : ''} sur la trace`);
+    }
+    if (device?.gpx_indexed) {
+        parts.push(`${device.gpx_indexed} cache${device.gpx_indexed > 1 ? 's' : ''} lue${device.gpx_indexed > 1 ? 's' : ''} dans les GPX`);
     }
     return parts.join(' · ');
 }
@@ -256,7 +315,7 @@ export function buildCutoffLandmarks(lastVisitDay: string, firstVisitDay: string
 }
 
 /** Ce qui arrivera à une cache dans la zone de la sortie. */
-export type GpsPreparationPlan = 'existing' | 'copy' | 'download';
+export type GpsPreparationPlan = 'existing' | 'copy' | 'gps' | 'download';
 
 /** Une cache retenue pour la sortie (`POST /api/gps-visits/prepare`). */
 export type GpsPreparedEntry = GpsVisitEntry & {
@@ -312,6 +371,9 @@ export function describePreparation(counts: GpsPreparation['counts'], newZone: b
     if (counts.copy) {
         lines.push(`➕ ${plural(counts.copy, 'cache connue ailleurs, ajoutée', 'caches connues ailleurs, ajoutées')} à la zone`
             + ' (elles restent aussi dans leurs zones)');
+    }
+    if (counts.gps) {
+        lines.push(`📟 ${plural(counts.gps, 'cache créée', 'caches créées')} depuis les GPX du GPS (sans téléchargement)`);
     }
     if (counts.download) {
         lines.push(`⬇️ ${plural(counts.download, 'cache à télécharger', 'caches à télécharger')}`);

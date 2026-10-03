@@ -20,7 +20,7 @@ export interface OutingRunState {
     operationId: string;
     progress: number;
     message: string;
-    counts?: { existing?: number; copied?: number; created?: number; errors?: number };
+    counts?: { existing?: number; copied?: number; created?: number; from_gps?: number; errors?: number };
     errors: string[];
     cancelling: boolean;
 }
@@ -51,6 +51,7 @@ export interface OutingPreparationPanelProps {
 const PLAN_LABELS: Record<GpsPreparationPlan, string> = {
     existing: 'Déjà dans la zone',
     copy: 'Ajoutée (copie)',
+    gps: 'Depuis le GPS',
     download: 'À télécharger',
 };
 
@@ -155,7 +156,9 @@ export const OutingPreparationPanel: React.FC<OutingPreparationPanelProps> = pro
                     {run.counts && (
                         <div className='geoapp-gps-visits__cutoff-help'>
                             {run.counts.existing ?? 0} déjà dans la zone · {run.counts.copied ?? 0} ajoutée(s)
-                            · {run.counts.created ?? 0} téléchargée(s) · {run.counts.errors ?? 0} erreur(s)
+                            · {run.counts.from_gps ?? 0} créée(s) depuis le GPS
+                            · {(run.counts.created ?? 0) - (run.counts.from_gps ?? 0)} téléchargée(s)
+                            · {run.counts.errors ?? 0} erreur(s)
                         </div>
                     )}
                 </>
