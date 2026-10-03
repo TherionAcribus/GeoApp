@@ -34,7 +34,7 @@ from ..services.geocaching_logs import (
 )
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient, LogSubmitNetworkError
 from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_public_code, normalize_code
-from ..services import gps_visit_store, trackable_store
+from ..services import gps_visit_store, my_found_dates, trackable_store
 from ..services.log_problems import PROBLEM_CATEGORIES, PROBLEM_LOG_TYPE_LABELS, validate_problem
 from ..services.zone_membership import found_row, mark_found_everywhere
 
@@ -697,6 +697,17 @@ def submit_geocache_log(geocache_id: int):
 
         # Une cache peut vivre dans plusieurs zones : trouvée dans l'une, elle l'est partout.
         already_found = geocache if geocache.found else (found_row(gc_code) if is_find_log else None)
+        if is_find_log and already_found is None:
+            # La base locale peut ignorer une trouvaille (log posté depuis le téléphone) :
+            # la fiche de la cache la connaît (~0,2 s). Sans réponse, on envoie quand même.
+            remote_found_on = my_found_dates.remote_found_date(gc_code)
+            if remote_found_on is not None:
+                geocache.found = True
+                geocache.found_date = datetime.combine(remote_found_on, time_type.min)
+                mark_found_everywhere(gc_code, geocache.found_date)
+                db.session.commit()
+                ArchiveService.sync_from_geocache(geocache)
+                already_found = geocache
         if is_find_log and already_found is not None:
             # Trouvée le jour même : la visite GPS de ce jour est réglée.
             if already_found.found_date and already_found.found_date.date() == visited_date:

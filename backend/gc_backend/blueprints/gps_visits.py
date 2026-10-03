@@ -10,7 +10,11 @@ Routes :
 - ``POST /api/gps-visits/cutoff``   point de départ : ``{"since": "AAAA-MM-JJ"}``
 - ``GET  /api/gps-visits``          visites réduites et groupées par jour
   (``?state=pending,logged,ignored&from=&to=&max_days=``)
-- ``POST /api/gps-visits/state``    ``{"ids": [...], "state": "pending|logged|ignored"}``
+- ``POST /api/gps-visits/state``    ``{"ids": [...], "state": "pending|logged|ignored"}`` ; comme
+  ``cutoff``, ``resolve`` et ``resolve-batch``, renvoie l'état d'avant pour « Annuler »
+- ``POST /api/gps-visits/restore``  ``{"items": [...], "cutoff"?: …}`` : annule une action de la liste
+- ``POST /api/gps-visits/check-found``  ``{"visit_ids" | "day"}`` : ma date de trouvaille sur
+  Geocaching.com (déjà loguée le jour même ?)
 - ``POST /api/gps-visits/prepare``  récapitulatif de la sortie : ``{"visit_ids" | "day", "zone_id"?}``
 - ``POST /api/gps-visits/zone-operations``  ajout en flux des caches à la zone de la sortie
   (copie si connue ailleurs, jamais de déplacement) ; ``GET …/<id>``, ``POST …/<id>/cancel``
@@ -31,7 +35,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from ..database import db
 from ..models import AppConfig, GpsTrackDay, Zone
-from ..services import gps_device, gps_visit_store
+from ..services import gps_device, gps_visit_store, my_found_dates
 from ..services.garmin_tracks import file_start_date
 from ..services.garmin_visits import is_logs_xml, normalize_code, parse_any
 
@@ -312,7 +316,10 @@ def set_cutoff():
         return error
     if since is None:
         return _error('missing_since', 'Point de départ manquant.', 400)
+    previous = gps_visit_store.get_cutoff()
     result = gps_visit_store.apply_cutoff(since, tz=gps_visit_store.get_local_tz())
+    # Pour « Annuler » : POST /restore {"cutoff": previous_cutoff} (nul : aucun point de départ).
+    result['previous_cutoff'] = previous.isoformat() if previous else None
     return jsonify(result)
 
 
@@ -347,8 +354,79 @@ def set_state():
         return _error('invalid_ids', 'ids doit être une liste d\'entiers.', 400)
     if state not in gps_visit_store.USER_SETTABLE_STATES:
         return _error('invalid_state', 'État attendu : pending, logged ou ignored.', 400)
+    # Visites réellement changées, telles qu'avant : de quoi annuler (POST /restore).
+    previous = [item for item in gps_visit_store.snapshot(ids) if item['state'] not in ('history', state)]
     updated = gps_visit_store.set_state(ids, state)
-    return jsonify({'updated': updated, 'state': state})
+    return jsonify({'updated': updated, 'state': state, 'previous': previous})
+
+
+@bp.post('/restore')
+def restore_visits():
+    """
+    Annule une action de la liste : ``{"items": [<previous>]}`` remet l'état et le
+    rattachement d'avant ; ``{"cutoff": "AAAA-MM-JJ" | null}`` remet le point de départ.
+    """
+    body = request.get_json(silent=True) or {}
+    result: dict = {}
+    if 'cutoff' in body:
+        raw = body.get('cutoff')
+        if raw is None:
+            result.update(gps_visit_store.clear_cutoff())
+        else:
+            since, error = _parse_day(raw, 'cutoff')
+            if error:
+                return error
+            result.update(gps_visit_store.apply_cutoff(since, tz=gps_visit_store.get_local_tz()))
+    items = body.get('items')
+    if items is not None:
+        if not isinstance(items, list) or not all(isinstance(i, dict) and isinstance(i.get('id'), int) for i in items):
+            return _error('invalid_items', 'items doit être une liste de visites ({id, state, …}).', 400)
+        result['restored'] = gps_visit_store.restore(items)
+    if not result:
+        return _error('nothing_to_restore', 'Rien à restaurer (items ou cutoff).', 400)
+    return jsonify(result)
+
+
+@bp.post('/check-found')
+def check_found():
+    """
+    « Vérifier sur Geocaching.com » (``{visit_ids | day}``) : ma date de trouvaille de
+    chaque cache à loguer, lue sur sa fiche. Trouvée le jour de la visite = déjà loguée.
+    Un DNF déjà logué n'est pas détectable de cette façon.
+    """
+    from ..services.geocaching_auth import get_auth_service
+    from ..services.geocaching_friends import NotAuthenticatedError
+
+    ids, error = _parse_visit_ids(request.get_json(silent=True) or {})
+    if error:
+        return error
+    entries = [e for e in gps_visit_store.entries_for_visits(ids, gps_visit_store.get_local_tz()) if e['gc_code']]
+    auth = get_auth_service()
+    state = auth.get_auth_state()
+    if not state or not getattr(state, 'user_info', None):
+        return _error('not_authenticated', 'Connecte-toi à Geocaching.com pour vérifier tes trouvailles.', 401)
+    try:
+        found, unknown, skipped = my_found_dates.check_codes(
+            [e['gc_code'] for e in entries], _geocache_sheet_lookup(auth.get_session()))
+    except NotAuthenticatedError:
+        return _error('not_authenticated', 'Session Geocaching.com expirée : reconnecte-toi.', 401)
+    gps_visit_store.record_remote_check(found)
+
+    def item(entry: dict) -> dict:
+        found_on = found[entry['gc_code']]
+        return {'key': entry['key'], 'gc_code': entry['gc_code'], 'name': entry['name'], 'day': entry['day'],
+                'visit_ids': entry['visit_ids'], 'found_on': found_on.isoformat() if found_on else None}
+
+    checked = [e for e in entries if e['gc_code'] in found]
+    found_ones = [e for e in checked if found[e['gc_code']] is not None]
+    return jsonify({
+        'checked': len(found),
+        'same_day': [item(e) for e in found_ones if found[e['gc_code']].isoformat() == e['day']],
+        'other_day': [item(e) for e in found_ones if found[e['gc_code']].isoformat() != e['day']],
+        'not_found': len(checked) - len(found_ones),
+        'unknown': unknown,
+        'skipped': skipped,
+    })
 
 
 def _parse_visit_ids(body: dict) -> tuple[list[int] | None, tuple | None]:
@@ -548,28 +626,8 @@ def cancel_zone_operation(operation_id: str):
     return jsonify({**result, 'state': 'cancelled', 'operation': operation.to_dict()})
 
 
-GEOCACHE_SHEET_URL = 'https://www.geocaching.com/api/proxy/web/v1/geocache/{code}'
-
-
-def _geocache_sheet_lookup(session):
-    """Fiche JSON d'une cache (coordonnées, ma date de trouvaille), ou None."""
-    def lookup(code: str):
-        try:
-            response = session.get(GEOCACHE_SHEET_URL.format(code=code), timeout=20,
-                                   headers={'Accept': 'application/json'})
-        except Exception as exc:  # noqa: BLE001 - un candidat sans fiche reste proposé
-            logger.warning('Fiche de %s illisible : %s', code, exc)
-            return None
-        if response.status_code in (401, 403):
-            from ..services.geocaching_friends import NotAuthenticatedError
-            raise NotAuthenticatedError('Session Geocaching.com expirée')
-        if not response.ok:
-            return None
-        try:
-            return response.json()
-        except ValueError:
-            return None
-    return lookup
+# Fiche JSON d'une cache (coordonnées, ma date de trouvaille) ; remplaçable dans les tests.
+_geocache_sheet_lookup = my_found_dates.sheet_lookup
 
 
 @bp.get('/<int:visit_id>/candidates')
@@ -623,6 +681,7 @@ def resolve_visit(visit_id: int):
     if visit.gc_code:
         return _error('visit_has_code', 'Cette visite a déjà un code lu sur le GPS.', 400)
     body = request.get_json(silent=True) or {}
+    previous = gps_visit_store.snapshot([visit.id])
     raw_code = body.get('gc_code')
     if raw_code is None:
         visit.resolved_gc_code = None
@@ -637,7 +696,7 @@ def resolve_visit(visit_id: int):
         visit.resolved_gc_code = code
         visit.resolution_source = source
     db.session.commit()
-    return jsonify(visit.to_dict())
+    return jsonify({**visit.to_dict(), 'previous': previous})
 
 
 def _position_if_possible(visits) -> None:
@@ -714,6 +773,8 @@ def resolve_batch():
     if not isinstance(items, list) or not items:
         return _error('invalid_items', 'items doit être une liste non vide.', 400)
     resolved = []
+    previous = gps_visit_store.snapshot(
+        [i['visit_id'] for i in items if isinstance(i, dict) and isinstance(i.get('visit_id'), int)])
     for item in items:
         if not isinstance(item, dict) or not isinstance(item.get('visit_id'), int):
             return _error('invalid_items', 'Chaque élément doit porter visit_id et gc_code.', 400)
@@ -727,4 +788,4 @@ def resolve_batch():
         visit.resolved_gc_code, visit.resolution_source = code, source
         resolved.append(visit.id)
     db.session.commit()
-    return jsonify({'resolved': len(resolved)})
+    return jsonify({'resolved': len(resolved), 'previous': previous})

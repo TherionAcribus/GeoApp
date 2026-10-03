@@ -41,7 +41,8 @@ def init_db(app):
         run_geocache_images_v2_backfill_once(AppConfig)
 
         try:
-            # Visites GPS : fuseau, secondes et position (geocache_logs.xml, traces du GPS).
+            # Visites GPS : fuseau, secondes et position (geocache_logs.xml, traces du GPS),
+            # date de trouvaille lue sur Geocaching.com.
             existing_cols = {row[1] for row in db.session.execute(text("PRAGMA table_info('gps_visit')"))}
             for col, col_type in {
                 'utc_offset_minutes': 'INTEGER',
@@ -49,6 +50,8 @@ def init_db(app):
                 'latitude': 'REAL',
                 'longitude': 'REAL',
                 'position_source': 'VARCHAR(20)',
+                'remote_found_on': 'DATE',
+                'remote_checked_at': 'DATETIME',
             }.items():
                 if existing_cols and col not in existing_cols:
                     logger.info('Adding missing column gps_visit.%s (%s)', col, col_type)

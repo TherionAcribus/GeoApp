@@ -423,3 +423,30 @@
     outline: 1px solid var(--theia-focusBorder);
     background: var(--theia-list-inactiveSelectionBackground);
 }
+
+/* Bandeau d'annulation ou de bilan (« 12 visites ignorées — Annuler »). */
+.geoapp-gps-visits__notice {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-editorWidget-background);
+}
+
+.geoapp-gps-visits__notice-text {
+    flex: 1 1 200px;
+}
+
+.geoapp-gps-visits__notice .theia-button {
+    margin: 0;
+}
+
+.geoapp-gps-visits__notice-close {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 2px;
+}

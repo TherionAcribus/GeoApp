@@ -32,6 +32,7 @@ import { DayResolutionPanel, DayResolutionState, defaultDayChoices } from './gps
 import {
     DetectedDevice,
     GPS_STATUS_LABELS,
+    GpsFoundCheckItem,
     GpsImportLandmarks,
     GpsImportReport,
     GpsPreparation,
@@ -39,6 +40,7 @@ import {
     GpsResolutionResult,
     GpsVisitDay,
     GpsVisitEntry,
+    GpsUndo,
     GpsVisitsListing,
     buildCutoffLandmarks,
     GpsMapPoint,
@@ -51,10 +53,12 @@ import {
     defaultOutingZoneName,
     describeCacheKnowledge,
     describeCandidateDay,
+    describeFoundCheck,
     describeImportReport,
     describeNeighbours,
     formatDistance,
     describePasses,
+    describeStateChange,
     formatDayLabel,
     isSelectable,
     pendingEntries,
@@ -63,7 +67,16 @@ import {
     visitIdsOf,
 } from './gps-visits-model';
 
-type BusyAction = 'detect' | 'import' | 'cutoff' | 'state' | 'prepare' | 'resolve';
+type BusyAction = 'detect' | 'import' | 'cutoff' | 'state' | 'prepare' | 'resolve' | 'check';
+
+/** Bandeau sous l'en-tête : « 12 visites ignorées — Annuler », bilan d'une vérification… */
+interface ListNotice {
+    text: string;
+    actions: { label: string; primary?: boolean; run: () => Promise<void> }[];
+}
+
+const CHECK_FOUND_TITLE = 'Lit ta date de trouvaille sur Geocaching.com (0,2 s par cache) : une cache trouvée '
+    + "le jour même est déjà loguée. Un DNF déjà logué n'est pas détectable de cette façon.";
 
 /** Intervalle de la détection au branchement, quand le widget est visible. */
 const GPS_WATCH_INTERVAL_MS = 10_000;
@@ -96,6 +109,9 @@ export class GpsVisitsWidget extends ReactWidget {
     protected busy: BusyAction | undefined;
     /** Bilan du dernier import ou de la dernière détection. */
     protected statusLine: string | undefined;
+    /** Bandeau d'annulation ou de bilan, remplacé par l'action suivante. */
+    protected notice: ListNotice | undefined;
+    protected noticeTimer: number | undefined;
     /** Plusieurs GPS branchés : l'utilisateur choisit. */
     protected detectedDevices: DetectedDevice[] = [];
     /** Panneau du point de départ (premier import, ou changement demandé). */
@@ -143,13 +159,18 @@ export class GpsVisitsWidget extends ReactWidget {
         void this.reload();
         // Un log envoyé depuis l'éditeur fait passer les visites du jour en « loguée »
         // côté backend : on recharge, une fois le lot calmé.
-        const onLogSubmitted = (): void => this.scheduleReload();
+        const onLogSubmitted = (): void => {
+            // Un « Annuler » remettrait à loguer une visite que le log vient de régler.
+            this.showNotice(undefined);
+            this.scheduleReload();
+        };
         window.addEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
         // Ctrl+clic et menu contextuel de la carte des visites : ils cochent dans cette liste.
         this.toDispose.push(this.mapService.onDidRequestListSelection(request => this.handleMapSelectionRequest(request)));
         this.toDispose.push(Disposable.create(() => {
             window.removeEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
             window.clearTimeout(this.reloadTimer);
+            window.clearTimeout(this.noticeTimer);
         }));
     }
 
@@ -348,6 +369,9 @@ export class GpsVisitsWidget extends ReactWidget {
         if (result) {
             this.cutoffPrompt = undefined;
             await this.reload();
+            if (result.previous_cutoff !== result.cutoff) {
+                this.offerListUndo(`Point de départ : ${formatDayLabel(result.cutoff)}.`, { cutoff: result.previous_cutoff });
+            }
             // Le positionnement attendait le point de départ (sinon 14 ans de traces à lire).
             await this.positionPending(true);
         }
@@ -373,11 +397,87 @@ export class GpsVisitsWidget extends ReactWidget {
         if (ids.length === 0) {
             return;
         }
-        const updated = await this.runBusy('state', () => this.service.setState(ids, state));
-        if (updated !== undefined) {
+        const result = await this.runBusy('state', () => this.service.setState(ids, state));
+        if (result !== undefined) {
             await this.reload();
+            this.offerListUndo(describeStateChange(state, result.updated), { items: result.previous });
         }
     };
+
+    /* ------------------------------------------------------------ annulation */
+
+    /** Affiche le bandeau (`undefined` le retire) ; `timeoutMs` à 0 : jusqu'à fermeture. */
+    protected showNotice(notice: ListNotice | undefined, timeoutMs = 60_000): void {
+        window.clearTimeout(this.noticeTimer);
+        this.notice = notice;
+        if (notice && timeoutMs > 0) {
+            this.noticeTimer = window.setTimeout(() => {
+                this.notice = undefined;
+                this.update();
+            }, timeoutMs);
+        }
+        this.update();
+    }
+
+    /** « 12 visites ignorées — Annuler » : remplacé par l'action suivante, retiré après une minute. */
+    protected offerListUndo(text: string, undo: GpsUndo): void {
+        const undoable = (undo.items?.length ?? 0) > 0 || undo.cutoff !== undefined;
+        this.showNotice({
+            text,
+            actions: undoable ? [{ label: 'Annuler', run: () => this.undoListAction(undo) }] : [],
+        });
+    }
+
+    protected async undoListAction(undo: GpsUndo): Promise<void> {
+        const done = await this.runBusy('state', async () => {
+            await this.service.restore(undo);
+            return true;
+        });
+        if (!done) {
+            return;
+        }
+        this.showNotice({ text: 'Action annulée.', actions: [] }, 5_000);
+        await this.reload();
+        if (undo.cutoff === null) {
+            // Le tout premier point de départ est annulé : il en faut un autre.
+            this.openCutoffPrompt();
+        }
+    }
+
+    /* ------------------------------------------------- vérification en ligne */
+
+    /** « Vérifier sur Geocaching.com » : ma date de trouvaille des caches à loguer. */
+    protected checkFound = async (entries: GpsVisitEntry[]): Promise<void> => {
+        const toCheck = entries.filter(entry => entry.gc_code && entry.state === 'pending');
+        if (toCheck.length === 0) {
+            this.messages.info('Aucune cache à vérifier : seules les caches à loguer qui ont un code le sont.');
+            return;
+        }
+        this.statusLine = `Vérification de ${toCheck.length} cache(s) sur Geocaching.com…`;
+        const result = await this.runBusy('check', () => this.service.checkFound(visitIdsOf(toCheck)));
+        this.statusLine = undefined;
+        if (!result) {
+            this.update();
+            return;
+        }
+        await this.reload();
+        const sameDay = result.same_day;
+        this.showNotice({
+            text: describeFoundCheck(result),
+            actions: sameDay.length > 0
+                ? [{ label: `Marquer loguées (${sameDay.length})`, primary: true, run: () => this.markCheckedLogged(sameDay) }]
+                : [],
+        }, 0);
+    };
+
+    protected async markCheckedLogged(items: GpsFoundCheckItem[]): Promise<void> {
+        const ids = items.flatMap(item => item.visit_ids);
+        const result = await this.runBusy('state', () => this.service.setState(ids, 'logged'));
+        if (result) {
+            await this.reload();
+            this.offerListUndo(describeStateChange('logged', result.updated), { items: result.previous });
+        }
+    }
 
     protected toggleAllStates = (): void => {
         this.showAllStates = !this.showAllStates;
@@ -810,10 +910,13 @@ export class GpsVisitsWidget extends ReactWidget {
         state.applying = true;
         this.update();
         try {
-            const resolved = await this.service.resolveBatch(items);
-            this.messages.info(`${resolved} visite(s) rattachée(s). Elles se préparent maintenant comme des visites codées.`);
+            const { resolved, previous } = await this.service.resolveBatch(items);
             this.dayResolution = undefined;
             await this.reload();
+            this.offerListUndo(
+                `${resolved} visite(s) rattachée(s) : elles se préparent maintenant comme des visites codées.`,
+                { items: previous }
+            );
         } catch (e) {
             state.error = this.describeError(e);
         } finally {
@@ -828,23 +931,19 @@ export class GpsVisitsWidget extends ReactWidget {
         if (visitId === undefined) {
             return;
         }
-        const done = await this.runBusy('resolve', async () => {
-            await this.service.resolve(visitId, gcCode, source);
-            return true;
-        });
-        if (done) {
+        const previous = await this.runBusy('resolve', () => this.service.resolve(visitId, gcCode, source));
+        if (previous) {
             this.resolveState = undefined;
             await this.reload();
+            this.offerListUndo(`Visite de ${entry!.time} rattachée à ${gcCode}.`, { items: previous });
         }
     };
 
     protected detach = async (entry: GpsVisitEntry): Promise<void> => {
-        const done = await this.runBusy('resolve', async () => {
-            await this.service.resolve(entry.visit_ids[0], null);
-            return true;
-        });
-        if (done) {
+        const previous = await this.runBusy('resolve', () => this.service.resolve(entry.visit_ids[0], null));
+        if (previous) {
             await this.reload();
+            this.offerListUndo(`Visite de ${entry.time} détachée de ${entry.gc_code}.`, { items: previous });
         }
     };
 
@@ -900,6 +999,7 @@ export class GpsVisitsWidget extends ReactWidget {
                 onDrop={this.onDrop}
             >
                 {this.renderHeader()}
+                {this.notice && this.renderNotice(this.notice)}
                 {this.cutoffPrompt && this.renderCutoffPrompt(this.cutoffPrompt)}
                 {this.renderSelectionBar()}
                 {this.preparation && this.renderPreparationPanel(this.preparation)}
@@ -1031,6 +1131,23 @@ export class GpsVisitsWidget extends ReactWidget {
         );
     }
 
+    protected renderNotice(notice: ListNotice): React.ReactNode {
+        return (
+            <div className='geoapp-gps-visits__notice' role='status'>
+                <span className='geoapp-gps-visits__notice-text'>{notice.text}</span>
+                {notice.actions.map(action => (
+                    <button key={action.label} className={`theia-button${action.primary ? '' : ' secondary'}`}
+                        disabled={this.busy !== undefined} onClick={() => { void action.run(); }}>
+                        {action.label}
+                    </button>
+                ))}
+                <button className='geoapp-gps-visits__notice-close' title='Fermer' onClick={() => this.showNotice(undefined)}>
+                    <span className='codicon codicon-close' />
+                </button>
+            </div>
+        );
+    }
+
     /** Barre d'action de la sélection, visible dès qu'une cache est cochée. */
     protected renderSelectionBar(): React.ReactNode {
         const selected = this.selectedEntries();
@@ -1045,6 +1162,10 @@ export class GpsVisitsWidget extends ReactWidget {
                     {selected.length} cache{selected.length > 1 ? 's' : ''} sur {days} jour{days > 1 ? 's' : ''}
                 </span>
                 <button className='theia-button' disabled={busy} onClick={this.prepareSelection}>✍️ Préparer les logs</button>
+                <button className='theia-button secondary' disabled={busy} title={CHECK_FOUND_TITLE}
+                    onClick={() => { void this.checkFound(selected); }}>
+                    {this.busy === 'check' ? '⏳ Vérification…' : '🌐 Vérifier sur Geocaching.com'}
+                </button>
                 <button className='theia-button secondary' disabled={busy} onClick={() => { void this.ignoreSelection(); }}>Ignorer</button>
                 <button className='theia-button secondary' disabled={busy} onClick={this.clearSelection}>Vider la sélection</button>
             </div>
@@ -1187,6 +1308,7 @@ export class GpsVisitsWidget extends ReactWidget {
         const pending = pendingEntries(day);
         const selectable = day.entries.filter(isSelectable).length;
         const withoutCode = day.entries.filter(entry => !entry.gc_code && entry.state === 'pending').length;
+        const toCheck = day.entries.filter(entry => entry.gc_code && entry.state === 'pending').length;
         const selectionState = daySelectionState(day, this.selection);
         const busy = this.busy !== undefined || this.preparation?.run !== undefined;
         return (
@@ -1225,6 +1347,12 @@ export class GpsVisitsWidget extends ReactWidget {
                                 title="Proposer une cache pour chaque visite sans code, d'après sa position sur la trace"
                                 onClick={() => { void this.openDayResolution(day.day); }}>
                                 🔗 Rattacher {withoutCode} sans code
+                            </button>
+                        )}
+                        {toCheck > 0 && (
+                            <button className='theia-button secondary' disabled={busy} title={CHECK_FOUND_TITLE}
+                                onClick={() => { void this.checkFound(day.entries); }}>
+                                🌐 Vérifier
                             </button>
                         )}
                         {pending.length > 0 && (

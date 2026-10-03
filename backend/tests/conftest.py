@@ -35,3 +35,14 @@ def clear_user_token_cache():
     _USER_TOKEN_CACHE.clear()
     yield
     _USER_TOKEN_CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_remote_found_check(monkeypatch):
+    """
+    Avant un « Found it », ``logs/submit`` lit ma date de trouvaille sur Geocaching.com.
+    Jamais en test : un test qui en a besoin remplace ``remote_found_date`` lui-même.
+    """
+    from gc_backend.services import my_found_dates
+
+    monkeypatch.setattr(my_found_dates, 'remote_found_date', lambda gc_code: None)

@@ -243,20 +243,23 @@ et de contrôle :
     laissée de côté.
   - Cible : la journée du 23/10/2021 et ses 78 visites sans code.
 
-### Lot 5 : annulations immédiates et « déjà loguée » fiable
+### Lot 5 : annulations immédiates et « déjà loguée » fiable — livré le 2026-10-03
 
 - **Annuler une action de la liste** : Ignorer, Marquer loguée, Rattacher, Détacher,
   changer le point de départ.
   - Le backend renvoie l'état précédent des lignes touchées.
-  - Une notification « 12 visites ignorées — Annuler » le restaure, via
+  - Un bandeau « 12 visites ignorées — Annuler » le restaure, via
     `POST /api/gps-visits/restore {items: [{id, state, resolved_gc_code, …}]}`.
+  - Bandeau dans le widget plutôt que notification Theia : une notification qui porte
+    une action reste affichée jusqu'à sa fermeture, elles s'empileraient. Le bandeau est
+    remplacé par l'action suivante et disparaît au bout d'une minute.
 - **« Vérifier sur Geocaching.com »**, par jour ou pour la sélection :
   - lit ma date de trouvaille (`callerSpecific.found`, 0,2 s par cache, mise en cache) ;
   - une cache trouvée le jour même s'affiche « déjà loguée sur Geocaching.com » ;
   - « Marquer loguées (N) » les sort de la liste, avec annulation.
   - Un DNF déjà logué n'est pas détectable de cette façon : le dire dans l'aide.
 - La même vérification sert dans l'éditeur, avant envoi, pour éviter un second « Found
-  it ».
+  it ». Elle est faite par `logs/submit` lui-même, donc pour tout envoi.
 
 ### Lot 6 : confort
 
@@ -282,6 +285,7 @@ et de contrôle :
 | Widget | `frontend/theia-extensions/zones/src/browser/gps-visits-widget.tsx`, `gps-visits-model.ts`, `gps-visits-service.ts` |
 | Carte | `map/map-widget-factory.ts`, `map/map-widget.tsx`, `map/map-view.tsx`, `map/map-layer-manager.ts`, `map/map-service.ts` |
 | Rattachement | `backend/gc_backend/services/gps_visit_resolution.py` |
+| Ma date de trouvaille | `backend/gc_backend/services/my_found_dates.py` (lot 5) |
 
 ## Vérification
 

@@ -29,6 +29,7 @@ from .garmin_visits import (
     VisitRecord,
     local_day,
     local_midnight_utc,
+    normalize_code,
     occurrence_keys,
     offset_tz,
     reduce_by_cache_day,
@@ -264,6 +265,72 @@ def set_state(visit_ids: Iterable[int], state: str) -> int:
     return updated
 
 
+# Champs qu'une action de la liste peut changer (Ignorer, Marquer loguée, Rattacher…).
+UNDO_FIELDS = ('state', 'resolved_gc_code', 'resolution_source')
+RESOLUTION_SOURCES = ('neighbours', 'my_finds', 'track', 'manual')
+
+
+def snapshot(visit_ids: Iterable[int]) -> list[dict]:
+    """État des visites avant une action de la liste : ce que ``restore`` remet en place."""
+    ids = [int(i) for i in visit_ids]
+    rows = GpsVisit.query.filter(GpsVisit.id.in_(ids)).all() if ids else []
+    return [{'id': row.id, **{field: getattr(row, field) for field in UNDO_FIELDS}} for row in rows]
+
+
+def restore(items: Iterable[dict]) -> int:
+    """
+    Annule une action de la liste : remet l'état et le rattachement d'avant. Seuls ces
+    champs sont touchés ; une visite au code lu sur le GPS n'est jamais rattachée.
+    """
+    restored = 0
+    for item in items:
+        row = db.session.get(GpsVisit, int(item['id']))
+        if row is None:
+            continue
+        state = item.get('state')
+        if state in STATES:
+            row.state = state
+        if not row.gc_code and 'resolved_gc_code' in item:
+            code = normalize_code(str(item['resolved_gc_code'])) if item['resolved_gc_code'] else None
+            source = item.get('resolution_source')
+            row.resolved_gc_code = code
+            row.resolution_source = (source if source in RESOLUTION_SOURCES else 'manual') if code else None
+        restored += 1
+    db.session.commit()
+    return restored
+
+
+def clear_cutoff() -> dict:
+    """Annule le tout premier point de départ : l'historique redevient à loguer."""
+    updated = GpsVisit.query.filter(GpsVisit.state == 'history').update(
+        {'state': 'pending'}, synchronize_session=False)
+    AppConfig.set_value(CUTOFF_KEY, None)
+    db.session.commit()
+    return {'cutoff': None, 'to_history': 0, 'to_pending': updated}
+
+
+def record_remote_check(found_dates: dict[str, Optional[date]], *, checked_at: Optional[datetime] = None) -> int:
+    """
+    Garde sur les visites ma date de trouvaille lue sur Geocaching.com, et marque trouvées
+    les géocaches de l'App qui ne l'étaient pas (toutes zones : une trouvaille vaut partout).
+    """
+    from ..geocaches.models import Geocache
+
+    checked_at = checked_at or datetime.now(timezone.utc).replace(tzinfo=None)
+    updated = 0
+    for code, found_on in found_dates.items():
+        updated += GpsVisit.query.filter(
+            (GpsVisit.gc_code == code) | ((GpsVisit.gc_code.is_(None)) & (GpsVisit.resolved_gc_code == code))
+        ).update({'remote_found_on': found_on, 'remote_checked_at': checked_at}, synchronize_session=False)
+        if found_on is not None:
+            not_found = (Geocache.found.is_(None)) | (Geocache.found.is_(False))
+            for geocache in Geocache.query.filter(Geocache.gc_code == code, not_found).all():
+                geocache.found = True
+                geocache.found_date = datetime(found_on.year, found_on.month, found_on.day)
+    db.session.commit()
+    return updated
+
+
 def _records(rows: Iterable[GpsVisit]) -> list[VisitRecord]:
     return [
         VisitRecord(
@@ -324,6 +391,10 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
     device = (device_by_code or {}).get(reduced.gc_code or '') if not known else None
     positioned = next((rows_by_id[i] for i in reduced.visit_ids if rows_by_id[i].latitude is not None), None)
     tried = any(rows_by_id[i].position_source for i in reduced.visit_ids)
+    rows = [rows_by_id[i] for i in reduced.visit_ids]
+    remote_found_on = next((r.remote_found_on for r in rows if r.remote_found_on), None)
+    remote_checked_at = max((r.remote_checked_at for r in rows if r.remote_checked_at), default=None)
+    app_found = any(bool(g.found) for g, _ in known)
     return {
         'key': reduced.key,
         'visit_ids': reduced.visit_ids,
@@ -356,8 +427,12 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
             {'id': g.id, 'zone_id': g.zone_id, 'zone_name': zone_name, 'name': g.name}
             for g, zone_name in known
         ],
-        'found': any(bool(g.found) for g, _ in known),
-        'found_date': found_dates[0].isoformat() if found_dates else None,
+        # L'App d'abord, sinon ma date de trouvaille lue sur Geocaching.com.
+        'found': app_found or remote_found_on is not None,
+        'found_date': (found_dates[0].isoformat() if found_dates
+                       else remote_found_on.isoformat() if remote_found_on else None),
+        'remote_found_on': remote_found_on.isoformat() if remote_found_on else None,
+        'remote_checked_at': remote_checked_at.isoformat() + 'Z' if remote_checked_at else None,
     }
 
 

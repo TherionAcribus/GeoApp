@@ -866,3 +866,92 @@ Tests :
 - backend : `tests/test_gps_visit_resolution.py` (recherche autour de la position,
   attribution sans doublon, groupes de positions) ;
 - frontend : `tests/gps-visits-model.test.ts` (`testDayResolution`).
+
+## 16. Annulations immédiates et « déjà loguée » fiable
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 5.
+
+### 16.1 Annuler une action de la liste
+
+- **Ce que renvoient les routes** :
+  - `POST /state`, `/<id>/resolve` et `/resolve-batch` renvoient `previous` : l'état,
+    le code rattaché et la source de chaque visite **avant** l'action
+    (`gps_visit_store.snapshot`). Pour `/state`, seules les visites réellement changées
+    y figurent.
+  - `POST /cutoff` renvoie `previous_cutoff` (nul : aucun point de départ).
+- **`POST /restore`** :
+  - `{items}` remet ces trois champs et rien d'autre ;
+  - une visite au code lu sur le GPS n'est jamais rattachée ;
+  - `{cutoff: "AAAA-MM-JJ"}` réapplique l'ancien point de départ ;
+  - `{cutoff: null}` annule le tout premier : l'historique redevient à loguer, et le
+    widget redemande un point de départ.
+- **Bandeau** sous l'en-tête du widget (`showNotice`, `offerListUndo`) : « 12 visites
+  ignorées. [Annuler] ».
+  - Il est remplacé par l'action suivante et disparaît au bout d'une minute.
+  - Pas de notification Theia : avec une action, elle reste affichée jusqu'à sa
+    fermeture, et elles s'empileraient.
+  - Un log envoyé depuis l'éditeur retire le bandeau : « Annuler » remettrait à loguer
+    une visite que le log vient de régler.
+- **Actions concernées** :
+  - Ignorer, Marquer loguée, Remettre à loguer (ligne, jour ou sélection) ;
+  - Rattacher, Détacher, rattachement d'une journée ;
+  - changement du point de départ.
+
+### 16.2 « Vérifier sur Geocaching.com »
+
+- **Service** `services/my_found_dates.py` : la fiche JSON de la cache porte
+  `callerSpecific.found`, la date de **ma** trouvaille.
+  - `sheet_lookup` lit la fiche (déplacé du blueprint) ;
+  - `check_codes` lit des fiches **fraîches** (0,15 s entre deux, 150 au plus), puis
+    les range dans le cache du rattachement (`remember_sheet`).
+- **Route `POST /check-found {visit_ids | day}`** :
+  - seules les caches à loguer qui ont un code sont lues ;
+  - 401 sans session Geocaching.com : sans elle, la fiche ne dit rien de mes
+    trouvailles ;
+  - réponse : `same_day` (trouvée le jour de la visite, donc déjà loguée), `other_day`,
+    `not_found`, `unknown` (fiche illisible), `skipped` (au-delà de 150).
+- **Ce qui est gardé** :
+  - sur les visites, colonnes `remote_found_on` et `remote_checked_at`
+    (`record_remote_check`, migration `add_gps_visit_remote_check`) ;
+  - les géocaches de l'App qui n'étaient pas trouvées le deviennent, dans toutes les
+    zones.
+  - `entry_dict` prend la date de l'App, sinon celle du site : le badge « Déjà loguée sur
+    Geocaching.com » vaut aussi pour une cache absente de l'App.
+  - Une cache vérifiée mais pas trouvée le dit dans l'infobulle de son indicateur
+    (`remoteCheckNote`).
+- **Widget** : « 🌐 Vérifier » sur chaque jour et dans la barre de sélection.
+  - Le bilan reste affiché jusqu'à sa fermeture (`describeFoundCheck`).
+  - « Marquer loguées (N) » sort les caches déjà loguées le jour même ; cette action
+    s'annule comme les autres.
+- **Limite** : un DNF ou une note déjà postés ne se voient pas sur la fiche. L'infobulle
+  du bouton le dit.
+
+### 16.3 Avant l'envoi d'un « Found it »
+
+- `logs/submit` refusait déjà un second log de trouvaille (409 `ALREADY_LOGGED`) quand la
+  base locale savait la cache trouvée.
+- **Nouveau** : si elle l'ignore, il lit ma date de trouvaille sur la fiche
+  (`my_found_dates.remote_found_date`, 5 s au plus).
+  - **Trouvée** : la cache est marquée trouvée dans toutes ses zones, les visites GPS du
+    jour sont réglées, et l'envoi répond 409 `ALREADY_LOGGED` **sans rien poster**.
+    L'éditeur gère déjà cette réponse.
+  - **Pas de session, réseau ou fiche illisible** : l'envoi se fait comme avant. La
+    vérification ne bloque jamais un log.
+- Seuls les types de trouvaille (Found it, Attended, Webcam) sont vérifiés.
+- **Tests** : `tests/conftest.py` remplace `remote_found_date` pour tous les tests, aucun
+  test ne contacte le site. `test_gps_visits_log_submit.py` vérifie qu'une trouvaille
+  connue du seul site n'est pas postée une seconde fois, et qu'un DNF n'est pas vérifié.
+
+### 16.4 Mesures (copie de la base, lecture seule sur le site)
+
+| Jour | Caches vérifiées | Résultat | Durée |
+|---|---|---|---|
+| 13/06/2021 | 12 | 9 déjà loguées le jour même, 3 pas trouvées | 4,9 s |
+| 27/09/2026 | 46 | 1 déjà loguée le jour même (GC9CGW6), 45 pas encore trouvées | 20,3 s |
+
+- « Marquer loguées » puis « Annuler » remet les visites à l'identique.
+- La vérification avant envoi répond en 0,25 s.
+
+Tests :
+- backend : `tests/test_gps_visits_undo.py` et `tests/test_gps_visits_log_submit.py` ;
+- frontend : `tests/gps-visits-model.test.ts` (`testUndoAndFoundCheck`).

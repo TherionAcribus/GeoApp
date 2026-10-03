@@ -56,6 +56,10 @@ export interface GpsVisitEntry {
     position_source?: 'track' | 'no_track' | null;
     /** Où placer la cache sur la carte : l'App, sinon les GPX du GPS, sinon la visite sur la trace. */
     map_position?: { latitude: number; longitude: number; source: 'app' | 'gps' | 'visit' } | null;
+    /** « Vérifier sur Geocaching.com » : ma date de trouvaille lue sur la fiche (nulle : pas trouvée). */
+    remote_found_on?: string | null;
+    /** Heure de la dernière vérification (nulle : jamais vérifiée). */
+    remote_checked_at?: string | null;
 }
 
 export interface GpsDeviceCacheInfo {
@@ -193,18 +197,34 @@ export function describeCacheKnowledge(entry: GpsVisitEntry): { kind: CacheKnowl
     if (entry.found) {
         return { kind: 'found-before', label: 'Déjà trouvée', tooltip: entry.found_date ? `Trouvée le ${dayOf(entry.found_date)}` : undefined };
     }
+    const remote = remoteCheckNote(entry);
+    const withRemote = (tooltip: string | undefined): string | undefined =>
+        [tooltip, remote].filter(Boolean).join('\n') || undefined;
     if (zones.length > 0) {
-        return { kind: 'in-app', label: `Zone ${zones[0]}`, tooltip: zones.length > 1 ? `Présente dans : ${zones.join(', ')}` : undefined };
+        return {
+            kind: 'in-app',
+            label: `Zone ${zones[0]}`,
+            tooltip: withRemote(zones.length > 1 ? `Présente dans : ${zones.join(', ')}` : undefined),
+        };
     }
     if (entry.device) {
         const date = entry.device.gpx_date ? formatShortDay(entry.device.gpx_date) : undefined;
         return {
             kind: 'on-gps',
             label: 'Sur le GPS',
-            tooltip: `Décrite par les GPX du GPS${date ? ` (chargés le ${date})` : ''} : ajoutée sans téléchargement`,
+            tooltip: withRemote(`Décrite par les GPX du GPS${date ? ` (chargés le ${date})` : ''} : ajoutée sans téléchargement`),
         };
     }
-    return { kind: 'to-import', label: 'À importer' };
+    return { kind: 'to-import', label: 'À importer', tooltip: withRemote(undefined) };
+}
+
+/** « Vérifiée sur Geocaching.com le 27/09 : pas encore trouvée » (rien si jamais vérifiée ou trouvée). */
+export function remoteCheckNote(entry: Pick<GpsVisitEntry, 'remote_checked_at' | 'remote_found_on'>): string | undefined {
+    const checkedDay = dayOf(entry.remote_checked_at);
+    if (!checkedDay || entry.remote_found_on) {
+        return undefined;
+    }
+    return `Vérifiée sur Geocaching.com le ${formatShortDay(checkedDay)} : pas encore trouvée`;
 }
 
 /** Résumé d'un jour : « 12 trouvées · 1 non trouvée · 1 sans code ». */
@@ -713,4 +733,84 @@ export function defaultDayChoices(result: GpsDayResolution): Record<number, stri
             : '';
     }
     return choices;
+}
+
+/** État d'une visite avant une action de la liste, renvoyé par le backend et rejoué par « Annuler ». */
+export interface GpsVisitSnapshot {
+    id: number;
+    state: GpsVisitState;
+    resolved_gc_code: string | null;
+    resolution_source: string | null;
+}
+
+/** De quoi annuler une action de la liste (`POST /api/gps-visits/restore`). */
+export interface GpsUndo {
+    items?: GpsVisitSnapshot[];
+    /** Point de départ d'avant ; `null` : il n'y en avait pas. */
+    cutoff?: string | null;
+}
+
+/** Une cache vérifiée sur Geocaching.com et ma date de trouvaille. */
+export interface GpsFoundCheckItem {
+    key: string;
+    gc_code: string;
+    name: string | null;
+    day: string;
+    visit_ids: number[];
+    found_on: string | null;
+}
+
+/** Résultat de « Vérifier sur Geocaching.com » (`POST /api/gps-visits/check-found`). */
+export interface GpsFoundCheck {
+    checked: number;
+    /** Trouvées le jour de la visite : déjà loguées. */
+    same_day: GpsFoundCheckItem[];
+    other_day: GpsFoundCheckItem[];
+    not_found: number;
+    /** Fiches illisibles. */
+    unknown: string[];
+    /** Au-delà de la limite d'une vérification : non lues. */
+    skipped: string[];
+}
+
+function count(n: number, singular: string, plural = `${singular}s`): string {
+    return `${n} ${n > 1 ? plural : singular}`;
+}
+
+/** Message d'une action de la liste, suivi de « Annuler » : « 12 visites ignorées. » */
+export function describeStateChange(state: Exclude<GpsVisitState, 'history'>, updated: number): string {
+    switch (state) {
+        case 'ignored':
+            return `${count(updated, 'visite ignorée', 'visites ignorées')}.`;
+        case 'logged':
+            return `${count(updated, 'visite marquée loguée', 'visites marquées loguées')}.`;
+        default:
+            return `${count(updated, 'visite remise', 'visites remises')} à loguer.`;
+    }
+}
+
+/** Bilan d'une vérification : « 46 caches vérifiées sur Geocaching.com : 40 déjà loguées le jour même, … ». */
+export function describeFoundCheck(result: GpsFoundCheck): string {
+    if (result.checked === 0 && result.unknown.length === 0 && result.skipped.length === 0) {
+        return 'Aucune cache à vérifier : seules les caches à loguer qui ont un code le sont.';
+    }
+    const details: string[] = [];
+    if (result.same_day.length) {
+        details.push(`${count(result.same_day.length, 'déjà loguée', 'déjà loguées')} le jour même`);
+    }
+    if (result.other_day.length) {
+        details.push(`${count(result.other_day.length, 'trouvée', 'trouvées')} un autre jour`);
+    }
+    if (result.not_found) {
+        details.push(`${count(result.not_found, 'pas encore trouvée', 'pas encore trouvées')}`);
+    }
+    let text = `${count(result.checked, 'cache vérifiée', 'caches vérifiées')} sur Geocaching.com`;
+    text += details.length ? ` : ${details.join(', ')}.` : '.';
+    if (result.unknown.length) {
+        text += ` ${count(result.unknown.length, 'fiche illisible', 'fiches illisibles')} (${result.unknown.join(', ')}).`;
+    }
+    if (result.skipped.length) {
+        text += ` ${count(result.skipped.length, 'cache non vérifiée', 'caches non vérifiées')} : relance la vérification.`;
+    }
+    return text;
 }

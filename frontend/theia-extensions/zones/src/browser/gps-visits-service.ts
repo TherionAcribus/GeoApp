@@ -4,8 +4,11 @@ import {
     DetectedDevice,
     GpsImportReport,
     GpsDayResolution,
+    GpsFoundCheck,
     GpsPreparation,
     GpsResolutionResult,
+    GpsUndo,
+    GpsVisitSnapshot,
     GpsVisitState,
     GpsVisitsListing,
 } from './gps-visits-model';
@@ -62,7 +65,8 @@ export class GpsVisitsService {
         );
     }
 
-    async setCutoff(since: string): Promise<{ cutoff: string; to_history: number; to_pending: number }> {
+    /** `previous_cutoff` : point de départ d'avant, pour « Annuler » (nul : il n'y en avait pas). */
+    async setCutoff(since: string): Promise<{ cutoff: string; to_history: number; to_pending: number; previous_cutoff: string | null }> {
         return this.apiClient.requestJson(
             '/api/gps-visits/cutoff',
             this.apiClient.createJsonInit('POST', { since }),
@@ -122,12 +126,33 @@ export class GpsVisitsService {
         );
     }
 
-    /** Rattache une visite sans code à une cache, ou la détache (`gcCode` nul). */
-    async resolve(visitId: number, gcCode: string | null, source: 'neighbours' | 'my_finds' | 'track' | 'manual' = 'manual'): Promise<void> {
-        await this.apiClient.requestJson(
+    /** Rattache une visite sans code à une cache, ou la détache (`gcCode` nul). Renvoie l'état d'avant. */
+    async resolve(
+        visitId: number, gcCode: string | null, source: 'neighbours' | 'my_finds' | 'track' | 'manual' = 'manual'
+    ): Promise<GpsVisitSnapshot[]> {
+        const body = await this.apiClient.requestJson<{ previous?: GpsVisitSnapshot[] }>(
             `/api/gps-visits/${visitId}/resolve`,
             this.apiClient.createJsonInit('POST', { gc_code: gcCode, source }),
             'Erreur lors du rattachement de la visite'
+        );
+        return body.previous ?? [];
+    }
+
+    /** Annule une action de la liste : état, rattachement ou point de départ d'avant. */
+    async restore(undo: GpsUndo): Promise<void> {
+        await this.apiClient.requestJson(
+            '/api/gps-visits/restore',
+            this.apiClient.createJsonInit('POST', undo),
+            "Erreur lors de l'annulation"
+        );
+    }
+
+    /** « Vérifier sur Geocaching.com » : ma date de trouvaille des caches à loguer données. */
+    async checkFound(visitIds: number[]): Promise<GpsFoundCheck> {
+        return this.apiClient.requestJson<GpsFoundCheck>(
+            '/api/gps-visits/check-found',
+            this.apiClient.createJsonInit('POST', { visit_ids: visitIds }),
+            'Erreur lors de la vérification sur Geocaching.com'
         );
     }
 
@@ -152,21 +177,24 @@ export class GpsVisitsService {
     }
 
     /** Rattache plusieurs visites sans code d'un coup. */
-    async resolveBatch(items: { visit_id: number; gc_code: string; source: 'track' | 'manual' }[]): Promise<number> {
-        const body = await this.apiClient.requestJson<{ resolved: number }>(
+    async resolveBatch(
+        items: { visit_id: number; gc_code: string; source: 'track' | 'manual' }[]
+    ): Promise<{ resolved: number; previous: GpsVisitSnapshot[] }> {
+        const body = await this.apiClient.requestJson<{ resolved: number; previous?: GpsVisitSnapshot[] }>(
             '/api/gps-visits/resolve-batch',
             this.apiClient.createJsonInit('POST', { items }),
             'Erreur lors du rattachement des visites'
         );
-        return body.resolved;
+        return { resolved: body.resolved, previous: body.previous ?? [] };
     }
 
-    async setState(ids: number[], state: Exclude<GpsVisitState, 'history'>): Promise<number> {
-        const body = await this.apiClient.requestJson<{ updated: number }>(
+    /** Renvoie aussi l'état d'avant des visites changées, pour « Annuler ». */
+    async setState(ids: number[], state: Exclude<GpsVisitState, 'history'>): Promise<{ updated: number; previous: GpsVisitSnapshot[] }> {
+        const body = await this.apiClient.requestJson<{ updated: number; previous?: GpsVisitSnapshot[] }>(
             '/api/gps-visits/state',
             this.apiClient.createJsonInit('POST', { ids, state }),
             'Erreur lors de la mise à jour des visites'
         );
-        return body.updated;
+        return { updated: body.updated, previous: body.previous ?? [] };
     }
 }

@@ -11,6 +11,7 @@ import {
     buildCutoffLandmarks,
     GPS_STATUS_COLORS,
     GpsDayResolution,
+    GpsFoundCheck,
     GpsPreparationPlan,
     GpsPreparedEntry,
     buildLogEditorOpenings,
@@ -27,9 +28,12 @@ import {
     isSelectable,
     describeCacheKnowledge,
     describeCandidateDay,
+    describeFoundCheck,
     describeImportReport,
     describeNeighbours,
     describePasses,
+    describeStateChange,
+    remoteCheckNote,
     formatDistance,
     formatDayLabel,
     formatFullDay,
@@ -309,8 +313,37 @@ function testDayResolution(): void {
     assert.equal(candidateLetter(26), '27');
 }
 
+function testUndoAndFoundCheck(): void {
+    assert.equal(describeStateChange('ignored', 12), '12 visites ignorées.');
+    assert.equal(describeStateChange('logged', 1), '1 visite marquée loguée.');
+    assert.equal(describeStateChange('pending', 2), '2 visites remises à loguer.');
+
+    const item = (code: string, foundOn: string) => ({ key: code, gc_code: code, name: null, day: '2026-09-27', visit_ids: [1], found_on: foundOn });
+    const check: GpsFoundCheck = {
+        checked: 46, same_day: [item('GCA', '2026-09-27'), item('GCB', '2026-09-27')], other_day: [item('GCC', '2020-01-01')],
+        not_found: 43, unknown: [], skipped: [],
+    };
+    assert.equal(describeFoundCheck(check),
+        '46 caches vérifiées sur Geocaching.com : 2 déjà loguées le jour même, 1 trouvée un autre jour, 43 pas encore trouvées.');
+    assert.equal(describeFoundCheck({ ...check, checked: 1, same_day: [], other_day: [], not_found: 0, unknown: ['GCX'], skipped: ['GCY'] }),
+        '1 cache vérifiée sur Geocaching.com. 1 fiche illisible (GCX). 1 cache non vérifiée : relance la vérification.');
+    assert.match(describeFoundCheck({ ...check, checked: 0, same_day: [], other_day: [], not_found: 0 }), /^Aucune cache à vérifier/);
+
+    // Vérifiée, pas trouvée : la note s'ajoute à l'infobulle ; trouvée : la date suffit.
+    assert.equal(remoteCheckNote({ remote_checked_at: '2026-10-03T08:00:00Z', remote_found_on: null }),
+        'Vérifiée sur Geocaching.com le 03/10 : pas encore trouvée');
+    assert.equal(remoteCheckNote({ remote_checked_at: '2026-10-03T08:00:00Z', remote_found_on: '2026-09-27' }), undefined);
+    assert.equal(remoteCheckNote({}), undefined);
+    const checked = entry({ remote_checked_at: '2026-10-03T08:00:00Z', remote_found_on: null });
+    assert.equal(describeCacheKnowledge(checked).tooltip, 'Vérifiée sur Geocaching.com le 03/10 : pas encore trouvée');
+    // Trouvée le jour même d'après Geocaching.com (le backend remplit found / found_date).
+    const loggedOnline = entry({ day: '2026-09-27', found: true, found_date: '2026-09-27', remote_found_on: '2026-09-27' });
+    assert.equal(describeCacheKnowledge(loggedOnline).kind, 'logged-same-day');
+}
+
 testPasses();
 testStatusLabel();
+testUndoAndFoundCheck();
 testDeviceData();
 testMapPoints();
 testDayResolution();

@@ -483,6 +483,10 @@ class GpsVisit(db.Model):
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     position_source = db.Column(db.String(20))
+    # « Vérifier sur Geocaching.com » : ma date de trouvaille lue sur la fiche (nulle si
+    # pas trouvée) et l'heure de la vérification (nulle : jamais vérifiée).
+    remote_found_on = db.Column(db.Date)
+    remote_checked_at = db.Column(db.DateTime)
 
     imported_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(
@@ -517,6 +521,8 @@ class GpsVisit(db.Model):
             'latitude': self.latitude,
             'longitude': self.longitude,
             'position_source': self.position_source,
+            'remote_found_on': self.remote_found_on.isoformat() if self.remote_found_on else None,
+            'remote_checked_at': self.remote_checked_at.isoformat() + 'Z' if self.remote_checked_at else None,
         }
 
 

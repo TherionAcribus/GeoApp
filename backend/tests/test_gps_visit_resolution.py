@@ -308,7 +308,7 @@ def test_day_resolution_and_batch_endpoints(app, monkeypatch):
     assert body['visits'][0]['proposal']['gc_code'] == 'GCA'
     assert body['unpositioned'] == 0
     assert client.post('/api/gps-visits/resolve-batch', json={'items': [
-        {'visit_id': ids[0], 'gc_code': 'gca', 'source': 'track'}]}).get_json() == {'resolved': 1}
+        {'visit_id': ids[0], 'gc_code': 'gca', 'source': 'track'}]}).get_json()['resolved'] == 1
     with app.app_context():
         visit = db.session.get(GpsVisit, ids[0])
         assert (visit.resolved_gc_code, visit.resolution_source) == ('GCA', 'track')

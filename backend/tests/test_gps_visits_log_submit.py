@@ -107,3 +107,37 @@ def test_found_on_another_day_does_not_mark_visits(app, monkeypatch):
                            json={'text': 'Trouvée !', 'date': '2026-09-27', 'logType': 'found'})
     assert response.status_code == 409
     assert all(state == 'pending' for _, state, _ in _states(app))
+
+
+def test_a_find_known_only_on_geocaching_is_not_posted_twice(app, monkeypatch):
+    from datetime import date
+
+    from gc_backend.services import my_found_dates
+
+    # Loguée depuis le téléphone : la base locale l'ignore, la fiche de la cache le sait.
+    monkeypatch.setattr(my_found_dates, 'remote_found_date', lambda gc_code: date(2026, 9, 27))
+    posted = []
+    client = _client_returning(app, monkeypatch, {'logReferenceCode': 'never'})
+    monkeypatch.setattr(logs_bp, 'GeocachingSubmitLogsClient',
+                        lambda *a, **k: type('C', (), {'submit_geocache_log': lambda self, *a, **k: posted.append(a)})())
+    response = client.post(f'/api/geocaches/{app.geocache_id}/logs/submit',
+                           json={'text': 'Trouvée !', 'date': '2026-09-27', 'logType': 'found'})
+    assert response.status_code == 409
+    assert response.get_json()['error_code'] == 'ALREADY_LOGGED'
+    assert posted == []
+    geocache = db.session.get(Geocache, app.geocache_id)
+    assert geocache.found and geocache.found_date == datetime(2026, 9, 27)
+    assert ('2026-09-27T09:45:00', 'logged', None) in _states(app)
+
+
+def test_a_dnf_is_never_checked_on_geocaching(app, monkeypatch):
+    from gc_backend.services import my_found_dates
+
+    def fail(gc_code):
+        raise AssertionError('pas de vérification pour un DNF')
+
+    monkeypatch.setattr(my_found_dates, 'remote_found_date', fail)
+    client = _client_returning(app, monkeypatch, {'logReferenceCode': 'GL0002'})
+    response = client.post(f'/api/geocaches/{app.geocache_id}/logs/submit',
+                           json={'text': 'Pas trouvée', 'date': '2026-09-27', 'logType': 'dnf'})
+    assert response.status_code == 200

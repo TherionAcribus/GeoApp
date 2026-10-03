@@ -386,6 +386,11 @@ def cached_lookup(lookup: LookupFn, code: str) -> tuple[Optional[dict], bool]:
     return sheet, False
 
 
+def remember_sheet(code: str, sheet: Optional[dict]) -> None:
+    """Fiche lue ailleurs (« Vérifier sur Geocaching.com ») : le rattachement en profite."""
+    _sheets[code] = (time_module.monotonic(), sheet)
+
+
 def confirm_found_dates(candidates: list[Candidate], day: date, lookup: LookupFn,
                         sleep: Callable[[float], None] = time_module.sleep,
                         max_lookups: int = MAX_FOUND_DATE_LOOKUPS) -> None:
