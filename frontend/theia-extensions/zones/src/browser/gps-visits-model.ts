@@ -462,9 +462,11 @@ export interface GpsResolutionCandidate {
     found_by_me: boolean | null;
     /** Ma date de trouvaille (AAAA-MM-JJ), lue sur Geocaching.com. */
     found_on: string | null;
-    sources: ('neighbours' | 'my_finds')[];
+    sources: ('neighbours' | 'my_finds' | 'track')[];
     day_confidence: GpsCandidateConfidence;
     distance_m: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
 }
 
 export interface GpsResolutionResult {
@@ -477,6 +479,54 @@ export interface GpsResolutionResult {
     finds_state: 'not_requested' | 'ok' | 'out_of_reach' | 'empty' | 'unavailable';
     candidates: GpsResolutionCandidate[];
     authenticated: boolean;
+    /** `track` : recherche autour de la position de la visite sur la trace ; `neighbours` : milieu des voisines. */
+    position_source?: 'track' | 'neighbours' | null;
+    position?: { latitude: number; longitude: number } | null;
+}
+
+/** Une visite sans code d'une journée et la cache proposée (`POST /api/gps-visits/day-resolution`). */
+export interface GpsDayResolutionVisit {
+    visit_id: number;
+    time: string;
+    position: { latitude: number; longitude: number } | null;
+    proposal: GpsResolutionCandidate | null;
+    alternatives: GpsResolutionCandidate[];
+}
+
+export interface GpsDayResolution {
+    day: string;
+    visits: GpsDayResolutionVisit[];
+    boxes: number;
+    candidates: number;
+    /** Visites sans position (pas de trace ce jour-là) : rien à proposer pour elles. */
+    unpositioned?: number;
+}
+
+/** Bilan des propositions d'une journée : « 17 trouvées ce jour-là · 1 à vérifier · 2 sans proposition ». */
+export function summarizeDayResolution(resolution: GpsDayResolution): string {
+    let confirmed = 0;
+    let other = 0;
+    let none = 0;
+    for (const visit of resolution.visits) {
+        if (!visit.proposal) {
+            none += 1;
+        } else if (visit.proposal.day_confidence === 'confirmed') {
+            confirmed += 1;
+        } else {
+            other += 1;
+        }
+    }
+    const parts = [];
+    if (confirmed) {
+        parts.push(`${confirmed} trouvée${confirmed > 1 ? 's' : ''} ce jour-là`);
+    }
+    if (other) {
+        parts.push(`${other} à vérifier`);
+    }
+    if (none) {
+        parts.push(`${none} sans proposition`);
+    }
+    return parts.join(' · ') || 'Aucune visite sans code';
 }
 
 /** « 129 m », « 1,7 km ». */
@@ -510,11 +560,14 @@ export function describeCandidateDay(candidate: GpsResolutionCandidate): { kind:
 
 /** Phrase sur les voisines utilisées pour situer la visite. */
 export function describeNeighbours(result: GpsResolutionResult): string {
+    const radius = result.search_radius_m ? `, recherche dans un rayon d'environ ${formatDistance(result.search_radius_m)}` : '';
+    if (result.position_source === 'track') {
+        return `📍 Position de la visite relevée sur la trace du GPS${radius}.`;
+    }
     if (result.neighbours.length === 0) {
         return 'Aucune visite codée à moins d\'1 h 30 ce jour-là : la recherche de proximité est impossible.';
     }
     const names = result.neighbours.map(n => `${n.gc_code}${n.name ? ` (${n.name})` : ''}${n.located ? '' : ' — non située'}`);
-    const radius = result.search_radius_m ? `, recherche dans un rayon d'environ ${formatDistance(result.search_radius_m)}` : '';
     return `Situé grâce à ${names.join(' et ')}${radius}.`;
 }
 
@@ -598,4 +651,66 @@ export function mapDays(days: GpsVisitDay[], selected: ReadonlySet<string>, coll
         }
     }
     return days.filter(day => !collapsed.has(day.day));
+}
+
+/** Couleur d'un candidat sur la carte, selon ce qu'on sait de son jour de trouvaille. */
+export function candidateColor(candidate: GpsResolutionCandidate): string {
+    switch (candidate.day_confidence) {
+        case 'confirmed':
+            return '#2e7d32';
+        case 'close_day':
+        case 'same_day':
+            return '#1565c0';
+        default:
+            return candidate.found_by_me ? '#757575' : '#c62828';
+    }
+}
+
+/**
+ * Carte d'un rattachement : la visite (« ? ») à sa position, et les candidats lettrés
+ * A, B, C… comme dans le panneau. Identifiants négatifs : ce ne sont pas des visites.
+ */
+export function buildResolutionPoints(
+    position: { latitude: number; longitude: number } | null | undefined,
+    candidates: GpsResolutionCandidate[]
+): GpsMapPoint[] {
+    const points: GpsMapPoint[] = [];
+    if (position) {
+        points.push({
+            id: -1, gc_code: '?', name: 'Visite sans code', cache_type: 'Unknown Cache',
+            latitude: position.latitude, longitude: position.longitude, found: false,
+            badgeText: '?', badgeColor: '#6a1b9a', popupNote: 'Position de la visite sur la trace', openGeocacheId: null,
+            entryKey: '',
+        });
+    }
+    candidates.forEach((candidate, index) => {
+        if (candidate.latitude === null || candidate.latitude === undefined
+            || candidate.longitude === null || candidate.longitude === undefined) {
+            return;
+        }
+        points.push({
+            id: -2 - index, gc_code: candidate.gc_code, name: candidate.name ?? '',
+            cache_type: candidate.cache_type ?? 'Unknown Cache',
+            latitude: candidate.latitude, longitude: candidate.longitude, found: false,
+            badgeText: candidateLetter(index), badgeColor: candidateColor(candidate),
+            popupNote: describeCandidateDay(candidate).label, openGeocacheId: null, entryKey: '',
+        });
+    });
+    return points;
+}
+
+export function candidateLetter(index: number): string {
+    return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+}
+
+/** Choix cochés d'office : seulement les caches trouvées ce jour-là (ou à quelques jours près). */
+export function defaultDayChoices(result: GpsDayResolution): Record<number, string> {
+    const choices: Record<number, string> = {};
+    for (const visit of result.visits) {
+        const confidence = visit.proposal?.day_confidence;
+        choices[visit.visit_id] = visit.proposal && (confidence === 'confirmed' || confidence === 'close_day')
+            ? visit.proposal.gc_code
+            : '';
+    }
+    return choices;
 }

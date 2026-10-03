@@ -221,7 +221,7 @@ et de contrôle :
   - un point sans géocache GeoApp porte un identifiant négatif (l'id de sa première
     visite, en négatif) ; « Ouvrir la cache » est alors masqué.
 
-### Lot 4 : rattachement par la trace
+### Lot 4 : rattachement par la trace — livré le 2026-10-03
 
 - **Visite positionnée** :
   - la recherche se fait autour de la **position réelle** : boîte d'environ 300 m, puis
@@ -231,12 +231,16 @@ et de contrôle :
 - **Sur la carte**, pendant le rattachement :
   - la position de la visite est marquée ;
   - les candidats sont affichés (couche temporaire) ;
-  - un clic sur un candidat le choisit.
+  - un Ctrl+clic sur un candidat le **pointe** dans la liste ; « Choisir » confirme.
+    Un clic de travers sur la carte ne rattache donc rien.
 - **« Rattacher les visites sans code du jour »** :
   - pour chaque visite, dans l'ordre horaire, l'App propose le candidat confirmé le plus
     proche, **pas encore attribué** à une autre visite du jour ;
   - le résultat s'affiche en tableau (visite, cache proposée, distance, confiance) ;
-  - on peut « Tout valider », ou valider, changer ou ignorer ligne à ligne.
+  - les propositions trouvées ce jour-là (ou à quelques jours près) sont cochées
+    d'office, les autres attendent un choix ;
+  - « Rattacher N visites » valide tout d'un coup ; chaque ligne peut être changée ou
+    laissée de côté.
   - Cible : la journée du 23/10/2021 et ses 78 visites sans code.
 
 ### Lot 5 : annulations immédiates et « déjà loguée » fiable

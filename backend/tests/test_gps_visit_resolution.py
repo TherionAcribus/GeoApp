@@ -232,3 +232,84 @@ def test_candidates_endpoint_uses_the_search_and_sheets(app, monkeypatch):
     assert body['candidates'][0]['gc_code'] == 'GCNEAR'
     assert body['candidates'][0]['found_on'] == '2021-06-13'
     assert body['authenticated'] is True
+
+
+# ------------------------------------------------- lot 4 : par la trace
+
+def test_a_positioned_visit_is_searched_around_its_real_position(app):
+    with app.app_context():
+        visit = db.session.get(GpsVisit, app.visit_id)
+        visit.latitude, visit.longitude, visit.position_source = 48.5, 7.5, 'track'
+        db.session.commit()
+    fakes = _Fakes(boxes=[[_record('GCHERE', 48.5001, 7.5001, found=True)]],
+                   sheets={'GCHERE': _sheet(48.5001, 7.5001, '2021-06-13')})
+    result = _find(app, fakes)
+    assert result['position_source'] == 'track'
+    assert result['position'] == {'latitude': 48.5, 'longitude': 7.5}
+    # Boîte de ~300 m autour de la position, pas autour des voisines.
+    assert fakes.box_calls == ['48.503,7.497,48.497,7.503']
+    assert result['candidates'][0]['gc_code'] == 'GCHERE'
+    assert result['candidates'][0]['distance_m'] < 20
+    # Rattachée avec la source « trace », pas « voisines ».
+    assert result['candidates'][0]['sources'] == ['track']
+    # Les voisines ne sont pas situées : inutile.
+    assert 'GCAFTER' not in fakes.lookups
+
+
+def _day_visits(app, positions):
+    with app.app_context():
+        GpsVisit.query.delete()
+        rows = []
+        for minute, (lat, lon) in positions:
+            rows.append(GpsVisit(raw_code='', gc_code=None, visited_at=datetime(2021, 10, 23, 8, minute),
+                                 status_raw='Found it', status='found', latitude=lat, longitude=lon,
+                                 position_source='track'))
+        db.session.add_all(rows)
+        db.session.commit()
+        return [row.id for row in rows]
+
+
+def test_resolve_day_assigns_each_visit_once(app):
+    ids = _day_visits(app, [(0, (48.0, 7.0)), (10, (48.0005, 7.0)), (20, (48.01, 7.01))])
+    fakes = _Fakes(
+        boxes=[[
+            _record('GCA', 48.0, 7.0001, found=True),       # au plus près des deux premières visites
+            _record('GCB', 48.0006, 7.0, found=True),
+            _record('GCOLD', 48.01, 7.0101, found=True),     # trouvée une autre année, tout près de la 3e
+        ]],
+        sheets={'GCA': _sheet(48.0, 7.0001, '2021-10-23'), 'GCB': _sheet(48.0006, 7.0, '2021-10-23'),
+                'GCOLD': _sheet(48.01, 7.0101, '2015-01-01')},
+    )
+    with app.app_context():
+        visits = GpsVisit.query.order_by(GpsVisit.visited_at).all()
+        result = resolution.resolve_day(visits, request=fakes.request, lookup=fakes.lookup, tz=CEST, sleep=lambda s: None)
+    by_visit = {v['visit_id']: v for v in result['visits']}
+    assert by_visit[ids[0]]['proposal']['gc_code'] == 'GCA'
+    # GCA est déjà prise : la 2e visite reçoit GCB, jamais deux fois la même cache.
+    assert by_visit[ids[1]]['proposal']['gc_code'] == 'GCB'
+    # Trouvée par moi à 8 m mais un autre jour : proposée faute de mieux, marquée comme telle.
+    assert by_visit[ids[2]]['proposal']['gc_code'] == 'GCOLD'
+    assert by_visit[ids[2]]['proposal']['day_confidence'] == 'other_day'
+    # Une recherche par groupe de positions (la 3e visite est à 1,3 km) : pas une par visite.
+    assert len(fakes.box_calls) == 2
+
+
+def test_day_resolution_and_batch_endpoints(app, monkeypatch):
+    ids = _day_visits(app, [(0, (48.0, 7.0))])
+    fakes = _Fakes(boxes=[[_record('GCA', 48.0, 7.0001, found=True)]], sheets={'GCA': _sheet(48.0, 7.0001, '2021-10-23')})
+    monkeypatch.setattr(gps_visits_bp, '_geocache_sheet_lookup', lambda session: fakes.lookup)
+    from gc_backend.services import geocaching_friend_finds, geocaching_auth
+    monkeypatch.setattr(geocaching_friend_finds, 'get_friend_finds_client',
+                        lambda: type('C', (), {'_request': staticmethod(fakes.request)})())
+    monkeypatch.setattr(geocaching_auth, 'get_auth_service', lambda: type('S', (), {'get_session': lambda self: None})())
+    monkeypatch.setattr(resolution.time_module, 'sleep', lambda s: None)
+    client = app.test_client()
+    body = client.post('/api/gps-visits/day-resolution', json={'day': '2021-10-23'}).get_json()
+    assert body['visits'][0]['proposal']['gc_code'] == 'GCA'
+    assert body['unpositioned'] == 0
+    assert client.post('/api/gps-visits/resolve-batch', json={'items': [
+        {'visit_id': ids[0], 'gc_code': 'gca', 'source': 'track'}]}).get_json() == {'resolved': 1}
+    with app.app_context():
+        visit = db.session.get(GpsVisit, ids[0])
+        assert (visit.resolved_gc_code, visit.resolution_source) == ('GCA', 'track')
+    assert client.post('/api/gps-visits/resolve-batch', json={'items': [{'visit_id': ids[0], 'gc_code': 'x'}]}).status_code == 400

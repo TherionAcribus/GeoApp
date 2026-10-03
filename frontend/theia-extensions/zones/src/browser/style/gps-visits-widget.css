@@ -392,3 +392,34 @@
 .geoapp-gps-visits__time.is-locatable:hover {
     color: var(--theia-textLink-foreground);
 }
+
+.geoapp-gps-visits__candidate-letter {
+    min-width: 16px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.geoapp-gps-day-resolution__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.geoapp-gps-day-resolution__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.geoapp-gps-day-resolution__row .theia-select {
+    flex: 1 1 260px;
+    min-width: 0;
+}
+
+.geoapp-gps-visits__candidate.is-pointed {
+    outline: 1px solid var(--theia-focusBorder);
+    background: var(--theia-list-inactiveSelectionBackground);
+}

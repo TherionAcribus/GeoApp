@@ -792,3 +792,77 @@ Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.
 - La carte suit les rechargements, la sélection et le dépliage des jours.
 
 Tests : `tests/gps-visits-model.test.ts` (`buildMapPoints`, `mapDays`).
+
+## 15. Rattacher par la trace
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 4.
+
+### 15.1 Une visite (`find_candidates`)
+
+- **Position d'abord** : une visite placée sur la trace (§ 13.2) est cherchée autour de
+  **sa** position, dans une boîte d'environ 300 m, puis 1 km si rien n'est confirmé
+  (`POSITION_BOX_MARGINS`). La seconde boîte sert pour une mystery dont les coordonnées
+  publiées sont loin de la boîte.
+- **Repli** : sans position, la recherche se fait comme au § 10 (milieu des voisines,
+  1 km puis 3 km).
+- **Distances** : depuis la position de la visite.
+- **Réponse** : `position_source` (`track` ou `neighbours`) et `position`. Les
+  candidats ont leurs coordonnées et la source `track`, qui est enregistrée comme
+  `resolution_source` au rattachement.
+- `GET /<id>/candidates` positionne d'abord la visite si le GPS est branché et qu'elle
+  n'a pas encore été cherchée sur les traces (`_position_if_possible`, 0,2 s par jour).
+
+### 15.2 Une journée (`resolve_day`)
+
+`POST /api/gps-visits/day-resolution {day}` ne rattache rien. Il propose seulement :
+
+1. **Recherche** : les positions du jour sont groupées à moins d'1 km
+   (`zone_boxes_from_coordinates`, marge ~400 m), avec **une** recherche paginée par
+   groupe (`search_box`, 10 pages au plus). Une recherche par visite coûterait 6 s
+   chacune, à cause de la limite de Geocaching.com.
+2. **Confirmation** : la date de trouvaille de chaque cache trouvée par moi est lue sur
+   sa fiche (`callerSpecific.found`, 150 fiches au plus, en cache).
+3. **Attribution**, dans l'ordre horaire :
+   - la cache confirmée (ce jour-là ou à quelques jours près) la plus proche, à moins de
+     1 500 m ;
+   - sinon une cache trouvée par moi à moins de 150 m ;
+   - **jamais deux fois la même cache** dans la journée.
+4. **Réponse** : pour chaque visite, `proposal` et jusqu'à 5 `alternatives` (avec
+   distance), plus `boxes`, `candidates` et `unpositioned` (visites sans trace).
+
+`POST /resolve-batch {items: [{visit_id, gc_code, source}]}` valide les choix en un appel.
+
+Mesures sur le GPS réel (base copiée, lecture seule sur le site) :
+
+| Jour | Visites sans code | Proposées « trouvée ce jour-là » | Durée |
+|---|---|---|---|
+| 13/06/2021 | 18 | 17, à 8–25 m de la visite | 8 s |
+| 23/10/2021 | 78 | 50, aucun doublon | 26 s |
+
+Les 28 autres visites du 23/10 n'ont pas de proposition « trouvée ce jour-là » et se
+traitent une par une. Rappel : les Adventure Labs et les caches archivées n'apparaissent
+pas dans la recherche.
+
+### 15.3 Interface
+
+- **Ligne de jour** : « 🔗 Rattacher N sans code » ouvre le panneau du jour
+  (`gps-day-resolution.tsx`). Le panneau propose une liste déroulante par visite :
+  ★ proposition, alternatives, « — ne pas rattacher — ».
+- **Choix cochés d'office** (`defaultDayChoices`) : seulement les propositions trouvées
+  ce jour-là ou à quelques jours près. Une cache trouvée un autre jour attend un choix
+  explicite.
+- **Bilan** (`summarizeDayResolution`) : « N trouvées ce jour-là · N à vérifier ·
+  N sans proposition ».
+- **Panneau d'une visite** :
+  - les candidats portent une lettre (A, B…) ;
+  - « 🗺️ Voir sur la carte » charge dans la carte des visites la position de la visite
+    (« ? », violet) et les candidats lettrés, colorés selon leur jour de trouvaille
+    (`buildResolutionPoints`, `candidateColor`, identifiants négatifs) ;
+  - un Ctrl+clic sur un candidat le **pointe** : la ligne est mise en évidence et
+    l'anneau s'affiche sur la carte. « Choisir » confirme.
+  - Fermer le panneau remet la carte des visites.
+
+Tests :
+- backend : `tests/test_gps_visit_resolution.py` (recherche autour de la position,
+  attribution sans doublon, groupes de positions) ;
+- frontend : `tests/gps-visits-model.test.ts` (`testDayResolution`).

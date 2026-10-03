@@ -38,7 +38,7 @@ from typing import Callable, Optional
 
 from ..database import db
 from ..models import GpsVisit
-from .garmin_visits import STATUS_FOUND, local_day
+from .garmin_visits import STATUS_FOUND, local_day, offset_tz
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,18 @@ NEIGHBOUR_WINDOW = timedelta(minutes=90)
 # Demi-côtés des boîtes de recherche autour des voisines (~1 km, puis ~3 km si rien
 # n'est confirmé : la cache visitée peut être loin d'une voisine notée 1 h avant).
 BOX_MARGINS_DEGREES = (0.01, 0.03)
+# Visite positionnée sur la trace : la cache est tout près (~300 m, puis ~1 km pour
+# une mystery dont les coordonnées publiées sont fausses).
+POSITION_BOX_MARGINS = (0.003, 0.01)
+# Rattachement d'une journée : groupes de positions à moins d'1 km, boîte + ~400 m.
+DAY_CLUSTER_RADIUS_KM = 1.0
+DAY_BOX_MARGIN = 0.004
+DAY_MAX_PAGES = 10
+DAY_MAX_FOUND_DATE_LOOKUPS = 150
+# Proposition d'une journée : cache confirmée à moins de tant de la visite…
+DAY_CONFIRMED_MAX_M = 1500
+# … sinon une cache trouvée par moi tout près.
+DAY_NEARBY_MAX_M = 150
 MAX_CANDIDATES = 15
 # Fiches lues pour connaître ma date de trouvaille des caches de la boîte.
 MAX_FOUND_DATE_LOOKUPS = 30
@@ -95,6 +107,8 @@ class Candidate:
             'sources': sorted(self.sources),
             'day_confidence': self.day_confidence,
             'distance_m': round(self.distance_m) if self.distance_m is not None else None,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
         }
 
 
@@ -204,13 +218,14 @@ class MyFindsPager:
 def known_found_days(tz: Optional[tzinfo]) -> dict[str, date]:
     """Jour local de trouvaille de chaque cache que le GPS connaît (sa dernière ligne « Found it »)."""
     days: dict[str, date] = {}
-    rows = db.session.query(GpsVisit.gc_code, GpsVisit.resolved_gc_code, GpsVisit.visited_at).filter(
+    rows = db.session.query(GpsVisit.gc_code, GpsVisit.resolved_gc_code, GpsVisit.visited_at,
+                            GpsVisit.utc_offset_minutes).filter(
         GpsVisit.status == STATUS_FOUND
     ).order_by(GpsVisit.visited_at).all()
-    for gc_code, resolved, visited_at in rows:
+    for gc_code, resolved, visited_at, offset in rows:
         code = gc_code or resolved
         if code:
-            days[code] = local_day(visited_at, tz)
+            days[code] = local_day(visited_at, offset_tz(offset, tz))
     return days
 
 
@@ -309,13 +324,14 @@ class Neighbour:
 
 def neighbour_visits(visit: GpsVisit, tz: Optional[tzinfo]) -> list[Neighbour]:
     """Visites codées du même jour juste avant et juste après (à moins de 90 min)."""
-    day = local_day(visit.visited_at, tz)
+    day = local_day(visit.visited_at, offset_tz(visit.utc_offset_minutes, tz))
     rows = GpsVisit.query.filter(
         GpsVisit.visited_at >= visit.visited_at - NEIGHBOUR_WINDOW,
         GpsVisit.visited_at <= visit.visited_at + NEIGHBOUR_WINDOW,
         GpsVisit.id != visit.id,
     ).order_by(GpsVisit.visited_at).all()
-    coded = [r for r in rows if r.effective_gc_code and local_day(r.visited_at, tz) == day]
+    coded = [r for r in rows if r.effective_gc_code
+             and local_day(r.visited_at, offset_tz(r.utc_offset_minutes, tz)) == day]
     before = [r for r in coded if r.visited_at <= visit.visited_at]
     after = [r for r in coded if r.visited_at > visit.visited_at]
     chosen = ([before[-1]] if before else []) + ([after[0]] if after else [])
@@ -371,7 +387,8 @@ def cached_lookup(lookup: LookupFn, code: str) -> tuple[Optional[dict], bool]:
 
 
 def confirm_found_dates(candidates: list[Candidate], day: date, lookup: LookupFn,
-                        sleep: Callable[[float], None] = time_module.sleep) -> None:
+                        sleep: Callable[[float], None] = time_module.sleep,
+                        max_lookups: int = MAX_FOUND_DATE_LOOKUPS) -> None:
     """Ma date de trouvaille des candidats trouvés par moi, les plus vraisemblables d'abord."""
     to_check = [c for c in candidates if c.found_by_me and c.found_on is None]
     to_check.sort(key=lambda c: (
@@ -379,7 +396,7 @@ def confirm_found_dates(candidates: list[Candidate], day: date, lookup: LookupFn
         c.distance_m if c.distance_m is not None else float('inf'),
     ))
     fetched = 0
-    for candidate in to_check[:MAX_FOUND_DATE_LOOKUPS]:
+    for candidate in to_check[:max_lookups]:
         if fetched:
             sleep(LOOKUP_INTERVAL_SECONDS)
         sheet, from_cache = cached_lookup(lookup, candidate.gc_code)
@@ -409,11 +426,16 @@ def gps_codes() -> set[str]:
 def find_candidates(visit: GpsVisit, *, request: RequestFn, lookup: LookupFn, username: Optional[str],
                     deep: bool = False, tz: Optional[tzinfo] = None,
                     sleep: Callable[[float], None] = time_module.sleep) -> dict:
-    day = local_day(visit.visited_at, tz)
+    day = local_day(visit.visited_at, offset_tz(visit.utc_offset_minutes, tz))
     excluded = gps_codes()
     neighbours = neighbour_visits(visit, tz)
-    locate_neighbours(neighbours, lookup)
-    point = midpoint(neighbours)
+    # Position réelle sur la trace : bien meilleure que le milieu des voisines.
+    position = (visit.latitude, visit.longitude) if visit.latitude is not None else None
+    if position is None:
+        locate_neighbours(neighbours, lookup)
+    point = position or midpoint(neighbours)
+    margins = POSITION_BOX_MARGINS if position else BOX_MARGINS_DEGREES
+    area_source = 'track' if position else 'neighbours'
 
     merged: dict[str, Candidate] = {}
     finds_state = 'not_requested'
@@ -424,18 +446,19 @@ def find_candidates(visit: GpsVisit, *, request: RequestFn, lookup: LookupFn, us
             merged.update({c.gc_code: c for c in finds})
 
     searched_margin = None
-    for margin in (BOX_MARGINS_DEGREES if point is not None else ()):
+    for margin in (margins if point is not None else ()):
         searched_margin = margin
         for nearby in caches_near(request, point, margin):
             if nearby.gc_code in excluded:
                 continue
             existing = merged.get(nearby.gc_code)
             if existing:
-                existing.sources.add('neighbours')
+                existing.sources.add(area_source)
                 existing.latitude = existing.latitude if existing.latitude is not None else nearby.latitude
                 existing.longitude = existing.longitude if existing.longitude is not None else nearby.longitude
                 existing.found_by_me = existing.found_by_me or nearby.found_by_me
             else:
+                nearby.sources = {area_source}
                 merged[nearby.gc_code] = nearby
         for candidate in merged.values():
             if candidate.latitude is not None and candidate.longitude is not None:
@@ -461,8 +484,109 @@ def find_candidates(visit: GpsVisit, *, request: RequestFn, lookup: LookupFn, us
             for n in neighbours
         ],
         'located': point is not None,
+        # 'track' : position de la visite sur la trace ; 'neighbours' : milieu des voisines.
+        'position_source': 'track' if position else ('neighbours' if point else None),
+        'position': {'latitude': point[0], 'longitude': point[1]} if point else None,
         # Rayon de la dernière recherche autour des voisines, en mètres (≈ 111 km par degré).
         'search_radius_m': round(searched_margin * 111_000) if searched_margin else None,
         'finds_state': finds_state,
         'candidates': [c.to_dict() for c in ranked],
     }
+
+
+# ------------------------------------------------------ toute une journée
+
+def search_box(request: RequestFn, box, max_pages: int = DAY_MAX_PAGES) -> list[Candidate]:
+    """Toutes les caches d'une boîte (paginé), avec ``userFound``."""
+    found: list[Candidate] = []
+    skip = 0
+    for _ in range(max_pages):
+        payload = request({'box': box.box_param, 'origin': box.origin_param, 'take': PAGE_SIZE, 'skip': skip})
+        results = payload.get('results') or []
+        found.extend(c for c in (record_to_candidate(r) for r in results) if c)
+        skip += len(results)
+        if len(results) < PAGE_SIZE or skip >= (payload.get('total') or 0):
+            break
+    for candidate in found:
+        candidate.sources.add('track')
+    return found
+
+
+def resolve_day(visits: list[GpsVisit], *, request: RequestFn, lookup: LookupFn, tz: Optional[tzinfo] = None,
+                sleep: Callable[[float], None] = time_module.sleep) -> dict:
+    """
+    Propose une cache pour chaque visite sans code d'une journée, d'après sa position
+    sur la trace. Une seule recherche par groupe de positions (au lieu d'une par visite,
+    à 6 s chacune), puis attribution dans l'ordre horaire : la cache confirmée (trouvée
+    ce jour-là) la plus proche, pas encore attribuée ; sinon une cache trouvée par moi
+    tout près. Rien n'est rattaché : l'utilisateur valide.
+    """
+    from .geocaching_friend_finds import zone_boxes_from_coordinates
+
+    visits = sorted(visits, key=lambda v: v.visited_at)
+    positioned = [v for v in visits if v.latitude is not None]
+    if not visits:
+        return {'day': None, 'visits': [], 'boxes': 0, 'candidates': 0}
+    day = local_day(visits[0].visited_at, offset_tz(visits[0].utc_offset_minutes, tz))
+    excluded = gps_codes()
+
+    pool: dict[str, Candidate] = {}
+    boxes = zone_boxes_from_coordinates(
+        [(v.latitude, v.longitude) for v in positioned], radius_km=DAY_CLUSTER_RADIUS_KM, margin=DAY_BOX_MARGIN,
+    ) if positioned else []
+    for box in boxes:
+        for candidate in search_box(request, box):
+            if candidate.gc_code in excluded:
+                continue
+            existing = pool.get(candidate.gc_code)
+            if existing is None:
+                pool[candidate.gc_code] = candidate
+            else:
+                existing.found_by_me = existing.found_by_me or candidate.found_by_me
+
+    def nearest_distance(candidate: Candidate) -> float:
+        if candidate.latitude is None or not positioned:
+            return float('inf')
+        return min(_haversine_m(v.latitude, v.longitude, candidate.latitude, candidate.longitude) for v in positioned)
+
+    for candidate in pool.values():
+        candidate.distance_m = nearest_distance(candidate)
+    confirm_found_dates(list(pool.values()), day, lookup, sleep, max_lookups=DAY_MAX_FOUND_DATE_LOOKUPS)
+
+    taken: set[str] = set()
+    proposals = []
+    for visit in visits:
+        options: list[tuple[float, Candidate]] = []
+        if visit.latitude is not None:
+            for candidate in pool.values():
+                if candidate.gc_code in taken or candidate.latitude is None:
+                    continue
+                options.append((_haversine_m(visit.latitude, visit.longitude, candidate.latitude, candidate.longitude), candidate))
+        options.sort(key=lambda item: (CONFIDENCE_RANK.get(item[1].day_confidence, 4), item[0]))
+        chosen = next(((d, c) for d, c in options
+                       if c.day_confidence in ('confirmed', 'close_day') and d <= DAY_CONFIRMED_MAX_M), None)
+        if chosen is None:
+            nearby = sorted((item for item in options if item[1].found_by_me and item[0] <= DAY_NEARBY_MAX_M),
+                            key=lambda item: item[0])
+            chosen = nearby[0] if nearby else None
+        if chosen is not None:
+            taken.add(chosen[1].gc_code)
+
+        def as_dict(distance: float, candidate: Candidate) -> dict:
+            return {**candidate.to_dict(), 'distance_m': round(distance)}
+
+        alternatives = sorted(options, key=lambda item: item[0])[:5]
+        proposals.append({
+            'visit_id': visit.id,
+            'time': to_local_time(visit, tz),
+            'position': {'latitude': visit.latitude, 'longitude': visit.longitude} if visit.latitude is not None else None,
+            'proposal': as_dict(*chosen) if chosen else None,
+            'alternatives': [as_dict(d, c) for d, c in alternatives if not chosen or c.gc_code != chosen[1].gc_code],
+        })
+    return {'day': day.isoformat(), 'visits': proposals, 'boxes': len(boxes), 'candidates': len(pool)}
+
+
+def to_local_time(visit: GpsVisit, tz: Optional[tzinfo]) -> str:
+    from .garmin_visits import to_local
+
+    return to_local(visit.visited_at, offset_tz(visit.utc_offset_minutes, tz)).strftime('%H:%M')

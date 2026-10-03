@@ -3,6 +3,7 @@ import { BackendApiClient } from './backend-api-client';
 import {
     DetectedDevice,
     GpsImportReport,
+    GpsDayResolution,
     GpsPreparation,
     GpsResolutionResult,
     GpsVisitState,
@@ -122,7 +123,7 @@ export class GpsVisitsService {
     }
 
     /** Rattache une visite sans code à une cache, ou la détache (`gcCode` nul). */
-    async resolve(visitId: number, gcCode: string | null, source: 'neighbours' | 'my_finds' | 'manual' = 'manual'): Promise<void> {
+    async resolve(visitId: number, gcCode: string | null, source: 'neighbours' | 'my_finds' | 'track' | 'manual' = 'manual'): Promise<void> {
         await this.apiClient.requestJson(
             `/api/gps-visits/${visitId}/resolve`,
             this.apiClient.createJsonInit('POST', { gc_code: gcCode, source }),
@@ -139,6 +140,25 @@ export class GpsVisitsService {
             `/api/gps-visits/tracks?days=${encodeURIComponent(days.join(','))}`, {}, 'Erreur lors du chargement des tracés'
         );
         return Object.fromEntries(body.tracks.map(track => [track.day, track.points.map(([lat, lon]) => [lat, lon] as [number, number])]));
+    }
+
+    /** Une cache proposée pour chaque visite sans code du jour, d'après la trace (jusqu'à une minute). */
+    async dayResolution(day: string): Promise<GpsDayResolution> {
+        return this.apiClient.requestJson<GpsDayResolution>(
+            '/api/gps-visits/day-resolution',
+            this.apiClient.createJsonInit('POST', { day }),
+            'Erreur lors de la recherche des caches du jour'
+        );
+    }
+
+    /** Rattache plusieurs visites sans code d'un coup. */
+    async resolveBatch(items: { visit_id: number; gc_code: string; source: 'track' | 'manual' }[]): Promise<number> {
+        const body = await this.apiClient.requestJson<{ resolved: number }>(
+            '/api/gps-visits/resolve-batch',
+            this.apiClient.createJsonInit('POST', { items }),
+            'Erreur lors du rattachement des visites'
+        );
+        return body.resolved;
     }
 
     async setState(ids: number[], state: Exclude<GpsVisitState, 'history'>): Promise<number> {

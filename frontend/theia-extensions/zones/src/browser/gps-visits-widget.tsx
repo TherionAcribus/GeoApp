@@ -28,6 +28,7 @@ import { ListSelectionRequest, MapService } from './map/map-service';
 import { MapWidget } from './map/map-widget';
 import { BackendApiError } from './backend-api-client';
 import { OutingPreparationPanel, OutingPreparationState, OutingRunState } from './gps-outing-preparation';
+import { DayResolutionPanel, DayResolutionState, defaultDayChoices } from './gps-day-resolution';
 import {
     DetectedDevice,
     GPS_STATUS_LABELS,
@@ -43,6 +44,8 @@ import {
     GpsMapPoint,
     buildLogEditorOpenings,
     buildMapPoints,
+    buildResolutionPoints,
+    candidateLetter,
     mapDays,
     daySelectionState,
     defaultOutingZoneName,
@@ -72,6 +75,8 @@ interface ResolveState {
     result: GpsResolutionResult | undefined;
     error: string | undefined;
     manualCode: string;
+    /** Candidat pointé sur la carte (Ctrl+clic) : mis en évidence, « Choisir » confirme. */
+    pointed?: string;
 }
 
 /** Identifiant d'un ajout à une zone, fourni au backend (journal et annulation). */
@@ -106,9 +111,13 @@ export class GpsVisitsWidget extends ReactWidget {
     protected selection = new Set<string>();
     /** Points affichés sur la carte des visites GPS (id = première visite de l'entrée). */
     protected mapPoints: GpsMapPoint[] = [];
+    /** Points de la carte d'un rattachement (visite « ? » et candidats lettrés). */
+    protected resolutionPoints: GpsMapPoint[] = [];
     /** Tracés déjà chargés, par jour. */
     protected trackCache = new Map<string, Array<[number, number]>>();
     protected resolveState: ResolveState | undefined;
+    /** Panneau « Rattacher les visites sans code du jour ». */
+    protected dayResolution: DayResolutionState | undefined;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -482,6 +491,7 @@ export class GpsVisitsWidget extends ReactWidget {
         }
         const lines = dayIds.map(day => this.trackCache.get(day) ?? []).filter(line => line.length >= 2);
         this.mapPoints = points;
+        this.resolutionPoints = [];
         if (open) {
             const map = await this.mapWidgetFactory.openGpsVisitsMap(points, lines);
             map.setSelectedGeocaches(this.selectedPointIds());
@@ -504,6 +514,10 @@ export class GpsVisitsWidget extends ReactWidget {
         if (request.mapId !== MapWidget.GPS_VISITS_ID) {
             return;
         }
+        if (this.resolutionPoints.length > 0) {
+            this.pointCandidate(request);
+            return;
+        }
         if (request.mode === 'clear') {
             this.selection.clear();
         } else {
@@ -523,6 +537,24 @@ export class GpsVisitsWidget extends ReactWidget {
             }
         }
         this.selectionChanged();
+    }
+
+    /** Carte d'un rattachement : Ctrl+clic sur un candidat le pointe dans le panneau. */
+    protected pointCandidate(request: ListSelectionRequest): void {
+        const candidates = this.resolveState?.result?.candidates ?? [];
+        const point = this.resolutionPoints.find(p => request.geocacheIds.includes(p.id) && p.id <= -2);
+        const candidate = point ? candidates[-2 - point.id] : undefined;
+        if (!this.resolveState || request.mode === 'clear' || !candidate || this.resolveState.pointed === candidate.gc_code) {
+            if (this.resolveState) {
+                this.resolveState.pointed = undefined;
+            }
+        } else {
+            this.resolveState.pointed = candidate.gc_code;
+        }
+        this.mapWidgetFactory.findGpsVisitsMap()?.setSelectedGeocaches(
+            this.resolveState?.pointed && point ? [point.id] : []
+        );
+        this.update();
     }
 
     /** Centre la carte des visites sur une ligne (et l'ouvre au besoin). */
@@ -736,7 +768,61 @@ export class GpsVisitsWidget extends ReactWidget {
         }
     }
 
-    protected resolveWith = async (gcCode: string | null, source: 'neighbours' | 'my_finds' | 'manual'): Promise<void> => {
+    /** Carte d'un rattachement : la visite et ses candidats lettrés, dans la carte des visites. */
+    protected async showResolutionOnMap(result: GpsResolutionResult): Promise<void> {
+        const points = buildResolutionPoints(result.position, result.candidates);
+        if (points.length === 0) {
+            return;
+        }
+        this.mapPoints = [];
+        const map = await this.mapWidgetFactory.openGpsVisitsMap(points, []);
+        this.resolutionPoints = points;
+        if (this.resolveState) {
+            this.resolveState.pointed = undefined;
+        }
+        map.setSelectedGeocaches([]);
+        this.messages.info('Carte du rattachement : « ? » marque la visite, les lettres les candidats. Ctrl+clic sur un candidat le pointe dans la liste.');
+    }
+
+    protected async openDayResolution(day: string): Promise<void> {
+        const state: DayResolutionState = { day, loading: true, result: undefined, error: undefined, choices: {}, applying: false };
+        this.dayResolution = state;
+        this.update();
+        try {
+            state.result = await this.service.dayResolution(day);
+            state.choices = defaultDayChoices(state.result);
+        } catch (e) {
+            state.error = this.describeError(e);
+        } finally {
+            state.loading = false;
+            this.update();
+        }
+    }
+
+    protected async applyDayResolution(): Promise<void> {
+        const state = this.dayResolution;
+        if (!state?.result) {
+            return;
+        }
+        const items = state.result.visits
+            .filter(visit => state.choices[visit.visit_id])
+            .map(visit => ({ visit_id: visit.visit_id, gc_code: state.choices[visit.visit_id], source: 'track' as const }));
+        state.applying = true;
+        this.update();
+        try {
+            const resolved = await this.service.resolveBatch(items);
+            this.messages.info(`${resolved} visite(s) rattachée(s). Elles se préparent maintenant comme des visites codées.`);
+            this.dayResolution = undefined;
+            await this.reload();
+        } catch (e) {
+            state.error = this.describeError(e);
+        } finally {
+            state.applying = false;
+            this.update();
+        }
+    }
+
+    protected resolveWith = async (gcCode: string | null, source: 'neighbours' | 'my_finds' | 'track' | 'manual'): Promise<void> => {
         const entry = this.resolveState?.entry;
         const visitId = entry?.visit_ids[0];
         if (visitId === undefined) {
@@ -818,6 +904,14 @@ export class GpsVisitsWidget extends ReactWidget {
                 {this.renderSelectionBar()}
                 {this.preparation && this.renderPreparationPanel(this.preparation)}
                 {this.resolveState && this.renderResolvePanel(this.resolveState)}
+                {this.dayResolution && (
+                    <DayResolutionPanel
+                        state={this.dayResolution}
+                        onChoose={(visitId, code) => { this.dayResolution!.choices[visitId] = code; this.update(); }}
+                        onApply={() => { void this.applyDayResolution(); }}
+                        onClose={() => { this.dayResolution = undefined; this.update(); }}
+                    />
+                )}
                 {this.renderBody()}
                 {this.renderFooter()}
             </div>
@@ -975,7 +1069,14 @@ export class GpsVisitsWidget extends ReactWidget {
                 {state.error && <div className='geoapp-gps-visits__errors'>{state.error}</div>}
                 {result && (
                     <>
-                        <div className='geoapp-gps-visits__cutoff-help'>{describeNeighbours(result)}</div>
+                        <div className='geoapp-gps-visits__cutoff-help'>
+                            {describeNeighbours(result)}{' '}
+                            {(result.position || result.candidates.some(c => c.latitude !== null && c.latitude !== undefined)) && (
+                                <button className='geoapp-gps-outing__detail-toggle' onClick={() => { void this.showResolutionOnMap(result); }}>
+                                    🗺️ Voir sur la carte
+                                </button>
+                            )}
+                        </div>
                         {!result.authenticated && (
                             <div className='geoapp-gps-visits__cutoff-help'>Connecte-toi à Geocaching.com pour une recherche complète.</div>
                         )}
@@ -983,7 +1084,7 @@ export class GpsVisitsWidget extends ReactWidget {
                             ? <div className='geoapp-gps-visits__cutoff-help'>Aucun candidat.</div>
                             : (
                                 <div className='geoapp-gps-visits__candidates'>
-                                    {result.candidates.map(candidate => this.renderCandidate(candidate, busy))}
+                                    {result.candidates.map((candidate, index) => this.renderCandidate(candidate, busy, index))}
                                 </div>
                             )}
                         {result.finds_state === 'not_requested' && (
@@ -1023,7 +1124,7 @@ export class GpsVisitsWidget extends ReactWidget {
                     sur Geocaching.com : dans ce cas, ignore la visite.
                 </div>
                 <div className='geoapp-gps-visits__actions'>
-                    <button className='theia-button secondary' onClick={() => { this.resolveState = undefined; this.update(); }}>
+                    <button className='theia-button secondary' onClick={() => { this.resolveState = undefined; this.update(); void this.refreshMap(false); }}>
                         Fermer
                     </button>
                 </div>
@@ -1031,16 +1132,19 @@ export class GpsVisitsWidget extends ReactWidget {
         );
     }
 
-    protected renderCandidate(candidate: GpsResolutionCandidate, busy: boolean): React.ReactNode {
+    protected renderCandidate(candidate: GpsResolutionCandidate, busy: boolean, index: number): React.ReactNode {
         const day = describeCandidateDay(candidate);
         const distance = formatDistance(candidate.distance_m);
-        const source = candidate.sources.includes('neighbours') ? 'neighbours' : 'my_finds';
+        const source = candidate.sources.includes('track') ? 'track'
+            : candidate.sources.includes('neighbours') ? 'neighbours' : 'my_finds';
+        const pointed = this.resolveState?.pointed === candidate.gc_code;
         return (
-            <div key={candidate.gc_code} className='geoapp-gps-visits__candidate'>
+            <div key={candidate.gc_code} className={`geoapp-gps-visits__candidate${pointed ? ' is-pointed' : ''}`}>
                 <button className='theia-button secondary' disabled={busy}
                     onClick={() => { void this.resolveWith(candidate.gc_code, source); }}>
                     Choisir
                 </button>
+                <span className='geoapp-gps-visits__candidate-letter' title='Lettre du candidat sur la carte'>{candidateLetter(index)}</span>
                 <span className='geoapp-gps-visits__code'>{candidate.gc_code}</span>
                 <span className='geoapp-gps-visits__name' title={candidate.name ?? undefined}>{candidate.name ?? ''}</span>
                 {candidate.cache_type && <span className='geoapp-gps-visits__passes'>{candidate.cache_type}</span>}
@@ -1082,6 +1186,7 @@ export class GpsVisitsWidget extends ReactWidget {
         const collapsed = this.collapsedDays.has(day.day);
         const pending = pendingEntries(day);
         const selectable = day.entries.filter(isSelectable).length;
+        const withoutCode = day.entries.filter(entry => !entry.gc_code && entry.state === 'pending').length;
         const selectionState = daySelectionState(day, this.selection);
         const busy = this.busy !== undefined || this.preparation?.run !== undefined;
         return (
@@ -1113,6 +1218,13 @@ export class GpsVisitsWidget extends ReactWidget {
                                     : "Choisir la zone de la sortie, y ajouter les caches, puis ouvrir l'éditeur de logs"}
                                 onClick={() => this.prepareDay(day)}>
                                 ✍️ {day.zone ? 'Préparer / changer la zone' : 'Préparer les logs'}
+                            </button>
+                        )}
+                        {withoutCode > 0 && (
+                            <button className='theia-button secondary' disabled={busy || this.dayResolution !== undefined}
+                                title="Proposer une cache pour chaque visite sans code, d'après sa position sur la trace"
+                                onClick={() => { void this.openDayResolution(day.day); }}>
+                                🔗 Rattacher {withoutCode} sans code
                             </button>
                         )}
                         {pending.length > 0 && (

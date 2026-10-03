@@ -589,6 +589,7 @@ def resolution_candidates(visit_id: int):
         return _error('visit_not_found', 'Visite introuvable.', 404)
     if visit.gc_code:
         return _error('visit_has_code', 'Cette visite a déjà un code lu sur le GPS.', 400)
+    _position_if_possible([visit])
 
     state = get_auth_service().get_auth_state()
     username = state.user_info.username if state and state.user_info else None
@@ -631,9 +632,99 @@ def resolve_visit(visit_id: int):
         if code is None:
             return _error('invalid_code', 'Code GC invalide (ex. GC1A2B3).', 400)
         source = body.get('source')
-        if source not in ('neighbours', 'my_finds', 'manual'):
+        if source not in ('neighbours', 'my_finds', 'track', 'manual'):
             source = 'manual'
         visit.resolved_gc_code = code
         visit.resolution_source = source
     db.session.commit()
     return jsonify(visit.to_dict())
+
+
+def _position_if_possible(visits) -> None:
+    """
+    Une visite pas encore cherchée sur les traces l'est maintenant si le GPS est branché
+    (0,2 s pour un jour) : la recherche se fera autour de sa position réelle.
+    """
+    pending = [v for v in visits if v.latitude is None and v.position_source is None]
+    root = AppConfig.get_value(LAST_DEVICE_KEY)
+    if not pending or not root:
+        return
+    try:
+        if not any(_same_path(root, d['root']) for d in detect_devices()):
+            return
+        tz = gps_visit_store.get_local_tz()
+        days = {gps_visit_store.row_local_day(v.visited_at, v.utc_offset_minutes, tz) for v in pending}
+        gps_device.position_visits(gps_device.device_track_sources(gps_device.layout(root)), days=days, tz=tz)
+    except Exception as exc:  # noqa: BLE001 - sans position, la recherche passe par les voisines
+        logger.warning('Positionnement à la volée impossible : %s', exc)
+        db.session.rollback()
+
+
+@bp.post('/day-resolution')
+def day_resolution():
+    """
+    Propose une cache pour chaque visite sans code d'un jour (``{"day"}``), d'après sa
+    position sur la trace. Rien n'est rattaché : ``POST /resolve-batch`` valide.
+    """
+    from ..models import GpsVisit
+    from ..services import gps_visit_resolution
+    from ..services.geocaching_auth import get_auth_service
+    from ..services.geocaching_friend_finds import FriendFindsError, RateLimitedError, get_friend_finds_client
+    from ..services.geocaching_friends import NotAuthenticatedError
+
+    body = request.get_json(silent=True) or {}
+    day, error = _parse_day(body.get('day'), 'day')
+    if error:
+        return error
+    if day is None:
+        return _error('missing_day', 'Jour manquant.', 400)
+    tz = gps_visit_store.get_local_tz()
+    lo, hi = gps_visit_store._utc_window(day, day, tz)
+    visits = [v for v in GpsVisit.query.filter(
+        GpsVisit.gc_code.is_(None), GpsVisit.resolved_gc_code.is_(None), GpsVisit.state == 'pending',
+        GpsVisit.visited_at >= lo, GpsVisit.visited_at < hi,
+    ).all() if gps_visit_store.row_local_day(v.visited_at, v.utc_offset_minutes, tz) == day]
+    if not visits:
+        return jsonify({'day': day.isoformat(), 'visits': [], 'boxes': 0, 'candidates': 0})
+    _position_if_possible(visits)
+    try:
+        result = gps_visit_resolution.resolve_day(
+            visits,
+            request=get_friend_finds_client()._request,
+            lookup=_geocache_sheet_lookup(get_auth_service().get_session()),
+            tz=tz,
+        )
+    except NotAuthenticatedError:
+        return _error('not_authenticated', 'Connecte-toi à Geocaching.com pour chercher des candidats.', 401)
+    except RateLimitedError:
+        return _error('rate_limited', 'Geocaching.com limite les recherches : réessaie dans quelques minutes.', 429)
+    except FriendFindsError as exc:
+        return _error('search_failed', str(exc), 502)
+    result['unpositioned'] = sum(1 for v in visits if v.latitude is None)
+    return jsonify(result)
+
+
+@bp.post('/resolve-batch')
+def resolve_batch():
+    """Rattache plusieurs visites sans code d'un coup : ``{"items": [{"visit_id", "gc_code", "source"}]}``."""
+    from ..models import GpsVisit
+
+    body = request.get_json(silent=True) or {}
+    items = body.get('items')
+    if not isinstance(items, list) or not items:
+        return _error('invalid_items', 'items doit être une liste non vide.', 400)
+    resolved = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get('visit_id'), int):
+            return _error('invalid_items', 'Chaque élément doit porter visit_id et gc_code.', 400)
+        code = normalize_code(str(item.get('gc_code') or ''))
+        if code is None:
+            return _error('invalid_code', f"Code GC invalide : {item.get('gc_code')}", 400)
+        visit = db.session.get(GpsVisit, item['visit_id'])
+        if visit is None or visit.gc_code:
+            return _error('visit_not_resolvable', f"Visite {item['visit_id']} introuvable ou déjà codée.", 400)
+        source = item.get('source') if item.get('source') in ('neighbours', 'my_finds', 'track', 'manual') else 'manual'
+        visit.resolved_gc_code, visit.resolution_source = code, source
+        resolved.append(visit.id)
+    db.session.commit()
+    return jsonify({'resolved': len(resolved)})

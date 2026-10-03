@@ -10,10 +10,16 @@ import {
     GpsVisitEntry,
     buildCutoffLandmarks,
     GPS_STATUS_COLORS,
+    GpsDayResolution,
     GpsPreparationPlan,
     GpsPreparedEntry,
     buildLogEditorOpenings,
     buildMapPoints,
+    buildResolutionPoints,
+    candidateColor,
+    candidateLetter,
+    defaultDayChoices,
+    summarizeDayResolution,
     mapDays,
     daySelectionState,
     defaultOutingZoneName,
@@ -280,10 +286,34 @@ function testMapPoints(): void {
     assert.deepEqual(mapDays([day, other], new Set(), new Set(['2026-09-20'])).map(d => d.day), ['2026-09-27']);
 }
 
+function testDayResolution(): void {
+    const candidate = (code: string, confidence: GpsResolutionCandidate['day_confidence']): GpsResolutionCandidate => ({
+        gc_code: code, name: code, cache_type: 'Traditional', found_by_me: true, found_on: null,
+        sources: ['track'], day_confidence: confidence, distance_m: 12, latitude: 48, longitude: 7,
+    });
+    const resolution: GpsDayResolution = {
+        day: '2021-10-23', boxes: 1, candidates: 3, unpositioned: 0,
+        visits: [
+            { visit_id: 1, time: '10:00', position: null, proposal: candidate('GCA', 'confirmed'), alternatives: [] },
+            { visit_id: 2, time: '10:10', position: null, proposal: candidate('GCB', 'other_day'), alternatives: [] },
+            { visit_id: 3, time: '10:20', position: null, proposal: null, alternatives: [] },
+        ],
+    };
+    assert.equal(summarizeDayResolution(resolution), '1 trouvée ce jour-là · 1 à vérifier · 1 sans proposition');
+    // Trouvée un autre jour : jamais cochée d'office.
+    assert.deepEqual(defaultDayChoices(resolution), { 1: 'GCA', 2: '', 3: '' });
+
+    const points = buildResolutionPoints({ latitude: 48.1, longitude: 7.1 }, [candidate('GCA', 'confirmed'), candidate('GCB', null)]);
+    assert.deepEqual(points.map(p => [p.id, p.badgeText, p.openGeocacheId]), [[-1, '?', null], [-2, 'A', null], [-3, 'B', null]]);
+    assert.equal(points[1].badgeColor, candidateColor(candidate('GCA', 'confirmed')));
+    assert.equal(candidateLetter(26), '27');
+}
+
 testPasses();
 testStatusLabel();
 testDeviceData();
 testMapPoints();
+testDayResolution();
 testLogEditorOpenings();
 testOutingZoneName();
 testPreparationSummary();
