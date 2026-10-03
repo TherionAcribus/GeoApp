@@ -160,6 +160,8 @@ export interface MapViewProps {
     preferences?: MapViewPreferences;
     onPreferenceChange?: (key: string, value: unknown) => void;
     onNotify?: (kind: MapNotifyKind, message: string) => void;
+    /** Tracés à dessiner sous les géocaches (carte des visites GPS) : lignes de [lat, lon]. */
+    trackLines?: Array<Array<[number, number]>>;
 }
 
 /**
@@ -182,7 +184,8 @@ export const MapView: React.FC<MapViewProps> = ({
     onImportAround,
     preferences,
     onPreferenceChange,
-    onNotify
+    onNotify,
+    trackLines
 }) => {
     const mapRef = React.useRef<HTMLDivElement>(null);
     const popupRef = React.useRef<HTMLDivElement>(null);
@@ -1364,6 +1367,14 @@ export const MapView: React.FC<MapViewProps> = ({
         layerManagerRef.current.setListSelection(selectedGeocacheIds ?? []);
     }, [selectedGeocacheIds, geocaches, isInitialized]);
 
+    // Tracés des sorties (carte des visites GPS).
+    React.useEffect(() => {
+        if (!layerManagerRef.current) {
+            return;
+        }
+        layerManagerRef.current.setTrackLines(trackLines ?? []);
+    }, [trackLines, isInitialized]);
+
     // Cercles de regroupement. Réappliqués après chaque synchronisation : les
     // waypoints sont recréés dès que leur cache change, et repartiraient sans couleur.
     React.useEffect(() => {
@@ -1756,6 +1767,19 @@ export const MapView: React.FC<MapViewProps> = ({
                                 }}>
                                     {popupData.gc_code}
                                     {popupData.name ? ` - ${popupData.name}` : ''}
+                                </div>
+                            )}
+
+                            {/* Visite GPS : heure, résultat, commentaire */}
+                            {popupData.popupNote && (
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: 'var(--theia-foreground)',
+                                    marginTop: '2px',
+                                    marginBottom: '2px',
+                                    whiteSpace: 'pre-wrap'
+                                }}>
+                                    📟 {popupData.popupNote}
                                 </div>
                             )}
 

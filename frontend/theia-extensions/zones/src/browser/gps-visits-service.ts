@@ -130,6 +130,17 @@ export class GpsVisitsService {
         );
     }
 
+    /** Tracés enregistrés de ces jours : lignes de [lat, lon]. */
+    async tracks(days: string[]): Promise<Record<string, Array<[number, number]>>> {
+        if (days.length === 0) {
+            return {};
+        }
+        const body = await this.apiClient.requestJson<{ tracks: { day: string; points: [number, number, number][] }[] }>(
+            `/api/gps-visits/tracks?days=${encodeURIComponent(days.join(','))}`, {}, 'Erreur lors du chargement des tracés'
+        );
+        return Object.fromEntries(body.tracks.map(track => [track.day, track.points.map(([lat, lon]) => [lat, lon] as [number, number])]));
+    }
+
     async setState(ids: number[], state: Exclude<GpsVisitState, 'history'>): Promise<number> {
         const body = await this.apiClient.requestJson<{ updated: number }>(
             '/api/gps-visits/state',

@@ -383,3 +383,12 @@
     color: var(--theia-textLink-foreground);
     border: 1px solid var(--theia-textLink-foreground);
 }
+
+.geoapp-gps-visits__time.is-locatable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+}
+
+.geoapp-gps-visits__time.is-locatable:hover {
+    color: var(--theia-textLink-foreground);
+}

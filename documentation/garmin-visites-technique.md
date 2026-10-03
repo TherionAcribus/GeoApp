@@ -741,3 +741,54 @@ de départ (`positioning: after_cutoff`). Le widget le lance juste après.
 Tests :
 - `backend/tests/test_gps_device.py` (faux dossier Garmin) ;
 - `tests/gps-visits-model.test.ts`.
+
+## 14. Carte des visites GPS
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 3.
+
+### 14.1 Une carte comme les autres
+
+- Nouveau contexte `gps-visits` de `MapWidget`, identifiant fixe
+  `MapWidget.GPS_VISITS_ID` (`geoapp-map-gps-visits`), libellé « Carte des visites GPS ».
+- `MapWidgetFactory.openGpsVisitsMap(points, tracés)` l'ouvre dans le **panneau des
+  cartes** (bas), comme la carte des amis. L'utilisateur peut la déplacer.
+- `findGpsVisitsMap()` permet de la recharger en place sans voler le focus.
+- Le gestionnaire de cartes l'affiche avec le type « Visites GPS ».
+- Adaptations de la carte :
+  - `MapGeocache` gagne `badgeText` et `badgeColor` (pastille dessinée par
+    `createGeocacheStyleFromSprite`, en haut à droite de l'icône), `popupNote` (ligne
+    📟 de la popup) et `openGeocacheId` ;
+  - `MapLayerManager.setTrackLines` gère une couche de tracés, en pointillés bleus
+    sous les géocaches ; `MapView` reçoit `trackLines` ;
+  - sur cette carte : sélection depuis la carte autorisée (comme pour une carte de zone),
+    ni voisines ni « Importer autour », car les points sont des visites.
+
+### 14.2 Contenu (`buildMapPoints`, `mapDays`)
+
+- **Jours affichés** : ceux qui contiennent la sélection, sinon les jours dépliés.
+- **Un point par entrée** :
+  - identifiant : celui de la **première visite** (unique), qui sert aussi de clé à la
+    sélection ;
+  - pastille numérotée **par jour** dans l'ordre de visite, colorée selon le résultat
+    (`GPS_STATUS_COLORS`) ; une visite sans code porte « N? » en violet ;
+  - une visite loguée ou ignorée est estompée (`found`).
+- **Position**, renvoyée par le backend dans `map_position` : la géocache de l'App
+  (`app`), sinon les GPX du GPS (`gps`), sinon la visite sur la trace (`visit`). Une
+  entrée sans position n'est pas placée, mais garde son numéro.
+- **Popup** : « 27/09 11:45 — Trouvée — « Horse » ». « Ouvrir la cache » ouvre la
+  géocache GeoApp (`openGeocacheId`) ; sinon un message explique qu'elle n'est pas
+  encore dans l'App.
+- **Tracés** : `GET /api/gps-visits/tracks`, gardés en mémoire par jour.
+
+### 14.3 Sélection partagée
+
+- Cocher dans la liste trace l'anneau sur la carte (`setSelectedGeocaches`, ids des
+  points).
+- Ctrl+clic ou menu contextuel sur la carte → `MapService.requestListSelection` avec
+  l'identifiant de la carte des visites. Le widget l'écoute et coche ou décoche. Le
+  tableau d'une zone ignore ces demandes : il filtre sur l'identifiant de sa carte.
+- Un clic sur l'heure d'une ligne recentre la carte et met le point en évidence
+  (`MapService.selectGeocache` avec `mapId`). La carte s'ouvre au besoin.
+- La carte suit les rechargements, la sélection et le dépliage des jours.
+
+Tests : `tests/gps-visits-model.test.ts` (`buildMapPoints`, `mapDays`).

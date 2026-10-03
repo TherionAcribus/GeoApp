@@ -305,6 +305,17 @@ def _device_caches_for(codes: set[str], geocaches_by_code: dict[str, list]) -> d
     return device_caches(code for code in codes if code not in geocaches_by_code)
 
 
+def _map_position(known: list, device, positioned) -> Optional[dict]:
+    for geocache, _zone in known:
+        if geocache.latitude is not None and geocache.longitude is not None:
+            return {'latitude': geocache.latitude, 'longitude': geocache.longitude, 'source': 'app'}
+    if device is not None and device.latitude is not None:
+        return {'latitude': device.latitude, 'longitude': device.longitude, 'source': 'gps'}
+    if positioned is not None:
+        return {'latitude': positioned.latitude, 'longitude': positioned.longitude, 'source': 'visit'}
+    return None
+
+
 def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches_by_code: dict[str, list],
                device_by_code: Optional[dict] = None) -> dict:
     first_row = rows_by_id[reduced.visit_ids[0]]
@@ -339,6 +350,8 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
         'position': ({'latitude': positioned.latitude, 'longitude': positioned.longitude}
                      if positioned else None),
         'position_source': 'track' if positioned else ('no_track' if tried else None),
+        # Où placer la cache sur la carte : l'App, sinon les GPX du GPS, sinon la visite sur la trace.
+        'map_position': _map_position(known, device, positioned),
         'geocaches': [
             {'id': g.id, 'zone_id': g.zone_id, 'zone_name': zone_name, 'name': g.name}
             for g, zone_name in known

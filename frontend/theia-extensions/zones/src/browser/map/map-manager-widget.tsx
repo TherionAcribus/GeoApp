@@ -234,6 +234,8 @@ export class MapManagerWidget extends ReactWidget {
                 return 'Carte libre';
             case 'friends':
                 return 'Amis';
+            case 'gps-visits':
+                return 'Visites GPS';
             default:
                 return 'Générale';
         }

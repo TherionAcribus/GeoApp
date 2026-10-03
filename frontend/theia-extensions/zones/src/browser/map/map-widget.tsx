@@ -26,7 +26,7 @@ export interface MapContext {
      * (une seule carte des amis) : un changement de filtre la recharge en place au
      * lieu d'ouvrir un nouvel onglet.
      */
-    type: 'zone' | 'geocache' | 'general' | 'custom' | 'friends';
+    type: 'zone' | 'geocache' | 'general' | 'custom' | 'friends' | 'gps-visits';
     id?: number;
     label: string;
     /**
@@ -59,6 +59,8 @@ export class MapWidget extends ReactWidget {
     static readonly ID = 'geoapp-map';
     /** Identifiant unique de la carte des amis : une seule, rechargée en place. */
     static readonly FRIENDS_ID = 'geoapp-map-friends';
+    /** Carte des visites GPS : une seule, rechargée en place par le widget Visites GPS. */
+    static readonly GPS_VISITS_ID = 'geoapp-map-gps-visits';
     static readonly LABEL = 'GeoApp - Carte';
 
     private mapInstance: any = null;
@@ -66,6 +68,8 @@ export class MapWidget extends ReactWidget {
     private geocaches: MapGeocache[] = [];
     /** Géocaches cochées dans la liste associée (anneau noir sur la carte). */
     private selectedGeocacheIds: number[] = [];
+    /** Tracés des sorties (carte des visites GPS) : lignes de [lat, lon]. */
+    private trackLines: Array<Array<[number, number]>> = [];
     private mapPreferences: MapViewPreferences;
     /** Etat du dialog « Importer autour… » ouvert depuis le menu contextuel de la carte. */
     private importAround: {
@@ -174,6 +178,8 @@ export class MapWidget extends ReactWidget {
                 return `geoapp-map-custom-${this.context.id}`;
             case 'friends':
                 return MapWidget.FRIENDS_ID;
+            case 'gps-visits':
+                return MapWidget.GPS_VISITS_ID;
             default:
                 return MapWidget.ID;
         }
@@ -230,6 +236,11 @@ export class MapWidget extends ReactWidget {
     ): void => {
         this.mapService.requestListSelection({ mapId: this.id, geocacheIds, mode });
     };
+
+    setTrackLines(lines: Array<Array<[number, number]>>): void {
+        this.trackLines = lines;
+        this.update();
+    }
 
     setSelectedGeocaches(geocacheIds: number[]): void {
         const unchanged = geocacheIds.length === this.selectedGeocacheIds.length
@@ -318,6 +329,9 @@ export class MapWidget extends ReactWidget {
         const isBatchOrGeneralMap = this.context.type === 'general' || this.context.type === 'custom';
         // Seule une carte de zone a un tableau de géocaches en face d'elle.
         const isZoneMap = this.context.type === 'zone';
+        // La carte des visites GPS a la liste des visites en face d'elle. Ses points sont
+        // des visites (`id` de visite) : pas de voisines ni d'import autour d'une cache.
+        const isGpsMap = this.context.type === 'gps-visits';
         const onSetDetectedAsCorrectedCoords = isBatchOrGeneralMap ? this.handleSetDetectedAsCorrectedCoords : undefined;
         const onAddWaypointFromDetected = isBatchOrGeneralMap ? this.handleAddWaypointFromDetected : undefined;
 
@@ -328,19 +342,20 @@ export class MapWidget extends ReactWidget {
                     mapService={this.mapService}
                     geocaches={this.geocaches}
                     selectedGeocacheIds={this.selectedGeocacheIds}
-                    onChangeListSelection={isZoneMap ? this.handleChangeListSelection : undefined}
+                    onChangeListSelection={isZoneMap || isGpsMap ? this.handleChangeListSelection : undefined}
                     onMapReady={this.handleMapReady}
-                    onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
+                    onLoadNearbyGeocaches={isGpsMap ? undefined : this.handleLoadNearbyGeocaches}
                     onAddWaypoint={onAddWaypoint}
                     onAddWaypointFromDetected={onAddWaypointFromDetected}
                     onDeleteWaypoint={onDeleteWaypoint}
                     onSetWaypointAsCorrectedCoords={onSetWaypointAsCorrectedCoords}
                     onSetDetectedAsCorrectedCoords={onSetDetectedAsCorrectedCoords}
                     onOpenGeocacheDetails={this.handleOpenGeocacheDetails}
-                    onImportAround={this.handleImportAround}
+                    onImportAround={isGpsMap ? undefined : this.handleImportAround}
                     preferences={this.mapPreferences}
                     onPreferenceChange={this.handlePreferenceUpdate}
                     onNotify={this.handleNotify}
+                    trackLines={this.trackLines}
                 />
                 {this.importAround && (
                     <ImportAroundDialog
@@ -754,9 +769,16 @@ export class MapWidget extends ReactWidget {
     };
 
     private handleOpenGeocacheDetails = async (geocacheId: number, geocacheName: string): Promise<void> => {
+        // Carte des visites GPS : le point est une visite, la géocache à ouvrir est ailleurs.
+        const point = this.geocaches.find(geocache => geocache.id === geocacheId);
+        const target = point && point.openGeocacheId !== undefined ? point.openGeocacheId : geocacheId;
+        if (target === null) {
+            this.messageService.info("Cette cache n'est pas encore dans l'App : prépare la sortie pour l'ajouter à une zone.");
+            return;
+        }
         try {
             await this.geocacheTabsManager.openGeocacheDetails({
-                geocacheId,
+                geocacheId: target,
                 name: geocacheName
             });
         } catch (error) {

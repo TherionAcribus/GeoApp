@@ -179,7 +179,16 @@ et de contrôle :
   affichée (« données du GPS du 26/09 ») ; un rafraîchissement depuis le site reste
   possible après l'ajout.
 
-### Lot 3 : carte de la sortie (zone des cartes)
+### Lot 3 : carte de la sortie (zone des cartes) — livré le 2026-10-03
+
+> Mise en œuvre :
+> - les coordonnées viennent de l'App, puis des GPX du GPS, puis de la position de la
+>   visite sur la trace. Le lot 2 positionne presque toutes les visites, d'où l'absence
+>   de lecture des fiches à l'affichage ;
+> - l'ouverture de la fiche passe par `MapGeocache.openGeocacheId`, traduit dans
+>   `MapWidget` ;
+> - le recentrage passe par `MapService.selectGeocache`, car `centerOnCoordinates`
+>   n'est écouté par aucune carte.
 
 - **Nouveau contexte de carte `gps-visits`** dans `MapWidgetFactory`, identifiant fixe
   (`geoapp-map-gps-visits`, « Carte des visites GPS »), sur le modèle de la carte des amis.

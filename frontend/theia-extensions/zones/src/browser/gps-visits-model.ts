@@ -54,6 +54,8 @@ export interface GpsVisitEntry {
     position?: { latitude: number; longitude: number } | null;
     /** `track` : positionnée ; `no_track` : trace cherchée, pas trouvée ; nul : pas encore cherchée. */
     position_source?: 'track' | 'no_track' | null;
+    /** Où placer la cache sur la carte : l'App, sinon les GPX du GPS, sinon la visite sur la trace. */
+    map_position?: { latitude: number; longitude: number; source: 'app' | 'gps' | 'visit' } | null;
 }
 
 export interface GpsDeviceCacheInfo {
@@ -514,4 +516,86 @@ export function describeNeighbours(result: GpsResolutionResult): string {
     const names = result.neighbours.map(n => `${n.gc_code}${n.name ? ` (${n.name})` : ''}${n.located ? '' : ' — non située'}`);
     const radius = result.search_radius_m ? `, recherche dans un rayon d'environ ${formatDistance(result.search_radius_m)}` : '';
     return `Situé grâce à ${names.join(' et ')}${radius}.`;
+}
+
+/* ------------------------------------------------------------------ carte */
+
+/** Couleur de la pastille d'une visite sur la carte, selon son résultat. */
+export const GPS_STATUS_COLORS: Record<GpsVisitStatus, string> = {
+    found: '#2e7d32',
+    dnf: '#c62828',
+    needs_maintenance: '#ef6c00',
+    unattempted: '#757575',
+    other: '#5e35b1',
+};
+const WITHOUT_CODE_COLOR = '#6a1b9a';
+
+/** Un point de la carte des visites GPS (forme attendue par la carte : `MapGeocache`). */
+export interface GpsMapPoint {
+    /** Identifiant de la première visite de l'entrée : unique, et clé de la sélection. */
+    id: number;
+    gc_code: string;
+    name: string;
+    cache_type: string;
+    latitude: number;
+    longitude: number;
+    /** Estompée : déjà loguée ou ignorée. */
+    found: boolean;
+    badgeText: string;
+    badgeColor: string;
+    popupNote: string;
+    /** Géocache GeoApp à ouvrir, ou `null` (pas encore dans l'App, visite sans code). */
+    openGeocacheId: number | null;
+    /** Entrée de la liste correspondante. */
+    entryKey: string;
+}
+
+/**
+ * Points de la carte pour ces jours : numérotés **par jour** dans l'ordre de visite,
+ * colorés selon le résultat. Une entrée sans position connue n'est pas placée.
+ */
+export function buildMapPoints(days: GpsVisitDay[]): GpsMapPoint[] {
+    const points: GpsMapPoint[] = [];
+    for (const day of days) {
+        day.entries.forEach((entry, index) => {
+            const position = entry.map_position;
+            if (!position) {
+                return;
+            }
+            const number = String(index + 1);
+            const details = [`${formatShortDay(entry.day)} ${entry.time}`, statusLabel(entry)];
+            if (entry.comment) {
+                details.push(`« ${entry.comment} »`);
+            }
+            if (position.source === 'visit') {
+                details.push('position de la visite sur la trace');
+            }
+            points.push({
+                id: entry.visit_ids[0],
+                gc_code: entry.gc_code ?? '?',
+                name: entry.name ?? (entry.gc_code ? '' : 'Visite sans code'),
+                cache_type: entry.cache_type ?? entry.device?.cache_type ?? 'Unknown Cache',
+                latitude: position.latitude,
+                longitude: position.longitude,
+                found: entry.state !== 'pending',
+                badgeText: entry.gc_code ? number : `${number}?`,
+                badgeColor: entry.gc_code ? GPS_STATUS_COLORS[entry.status] : WITHOUT_CODE_COLOR,
+                popupNote: details.join(' — '),
+                openGeocacheId: entry.geocaches[0]?.id ?? null,
+                entryKey: entry.key,
+            });
+        });
+    }
+    return points;
+}
+
+/** Jours à montrer sur la carte : ceux de la sélection, sinon ceux qui sont dépliés. */
+export function mapDays(days: GpsVisitDay[], selected: ReadonlySet<string>, collapsed: ReadonlySet<string>): GpsVisitDay[] {
+    if (selected.size > 0) {
+        const withSelection = days.filter(day => day.entries.some(entry => selected.has(entry.key)));
+        if (withSelection.length > 0) {
+            return withSelection;
+        }
+    }
+    return days.filter(day => !collapsed.has(day.day));
 }

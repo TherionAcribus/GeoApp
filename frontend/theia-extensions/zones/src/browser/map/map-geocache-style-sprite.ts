@@ -26,6 +26,11 @@ export interface GeocacheFeatureProperties {
     geocacheLabel?: string;
     showLabel?: boolean;
     friendsNote?: string;   // Ligne « Trouvée par … » de la carte des amis
+    /** Ligne libre de la popup (carte des visites GPS : heure, résultat, commentaire). */
+    popupNote?: string;
+    /** Pastille posée sur l'icône (numéro de visite), et sa couleur (résultat). */
+    badgeText?: string;
+    badgeColor?: string;
     bruteForceId?: string; // ✅ ID pour les points brute force (suppression)
     /**
      * Couleur du cercle de regroupement « cache + ses waypoints » (menu contextuel).
@@ -216,6 +221,40 @@ function composeGeocacheStyles(
  * Crée le style pour une feature géocache individuelle en utilisant le sprite sheet
  */
 export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolution: number, options?: GeocacheStyleOptions): Style | Style[] {
+    const base = createBaseGeocacheStyle(feature, resolution, options);
+    const properties = feature.getProperties() as GeocacheFeatureProperties;
+    if (!properties.badgeText || base === EMPTY_STYLE) {
+        return base;
+    }
+    return [...(Array.isArray(base) ? base : [base]), getBadgeStyle(properties.badgeText, properties.badgeColor)];
+}
+
+const badgeStyleCache = new Map<string, Style>();
+
+/** Pastille (numéro de visite) en haut à droite de l'icône, colorée selon le résultat. */
+function getBadgeStyle(text: string, color: string | undefined): Style {
+    const key = `${text}|${color ?? ''}`;
+    let style = badgeStyleCache.get(key);
+    if (!style) {
+        style = new Style({
+            text: new Text({
+                text,
+                offsetX: 12,
+                offsetY: -13,
+                font: 'bold 10px sans-serif',
+                fill: new Fill({ color: '#ffffff' }),
+                backgroundFill: new Fill({ color: color ?? 'rgba(60, 60, 60, 0.9)' }),
+                backgroundStroke: new Stroke({ color: '#ffffff', width: 1 }),
+                padding: [1, 3, 0, 3],
+            }),
+            zIndex: 1001,
+        });
+        badgeStyleCache.set(key, style);
+    }
+    return style;
+}
+
+function createBaseGeocacheStyle(feature: Feature<Geometry>, resolution: number, options?: GeocacheStyleOptions): Style | Style[] {
     const properties = feature.getProperties() as GeocacheFeatureProperties;
     const isSelected = properties.selected === true;
     const isListSelected = properties.listSelected === true;

@@ -23,6 +23,9 @@ import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager
 import { ZonesService } from './zones-service';
 import { consumeImportStream } from './import-stream';
 import { GpsVisitsService } from './gps-visits-service';
+import { MapWidgetFactory } from './map/map-widget-factory';
+import { ListSelectionRequest, MapService } from './map/map-service';
+import { MapWidget } from './map/map-widget';
 import { BackendApiError } from './backend-api-client';
 import { OutingPreparationPanel, OutingPreparationState, OutingRunState } from './gps-outing-preparation';
 import {
@@ -37,7 +40,10 @@ import {
     GpsVisitEntry,
     GpsVisitsListing,
     buildCutoffLandmarks,
+    GpsMapPoint,
     buildLogEditorOpenings,
+    buildMapPoints,
+    mapDays,
     daySelectionState,
     defaultOutingZoneName,
     describeCacheKnowledge,
@@ -98,6 +104,10 @@ export class GpsVisitsWidget extends ReactWidget {
     protected preparation: OutingPreparationState | undefined;
     /** Lignes cochées (clé d'entrée), éventuellement sur plusieurs jours. */
     protected selection = new Set<string>();
+    /** Points affichés sur la carte des visites GPS (id = première visite de l'entrée). */
+    protected mapPoints: GpsMapPoint[] = [];
+    /** Tracés déjà chargés, par jour. */
+    protected trackCache = new Map<string, Array<[number, number]>>();
     protected resolveState: ResolveState | undefined;
 
     constructor(
@@ -106,6 +116,8 @@ export class GpsVisitsWidget extends ReactWidget {
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(GeocacheLogEditorTabsManager) protected readonly logEditorTabsManager: GeocacheLogEditorTabsManager,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
+        @inject(MapWidgetFactory) protected readonly mapWidgetFactory: MapWidgetFactory,
+        @inject(MapService) protected readonly mapService: MapService,
     ) {
         super();
         this.id = GpsVisitsWidget.ID;
@@ -124,6 +136,8 @@ export class GpsVisitsWidget extends ReactWidget {
         // côté backend : on recharge, une fois le lot calmé.
         const onLogSubmitted = (): void => this.scheduleReload();
         window.addEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
+        // Ctrl+clic et menu contextuel de la carte des visites : ils cochent dans cette liste.
+        this.toDispose.push(this.mapService.onDidRequestListSelection(request => this.handleMapSelectionRequest(request)));
         this.toDispose.push(Disposable.create(() => {
             window.removeEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
             window.clearTimeout(this.reloadTimer);
@@ -219,6 +233,7 @@ export class GpsVisitsWidget extends ReactWidget {
         try {
             this.listing = await this.service.list(this.showAllStates ? ['pending', 'logged', 'ignored'] : ['pending']);
             this.pruneSelection();
+            void this.refreshMap(false);
         } catch (e) {
             this.error = this.describeError(e);
         } finally {
@@ -367,6 +382,7 @@ export class GpsVisitsWidget extends ReactWidget {
             this.collapsedDays.add(day);
         }
         this.update();
+        void this.refreshMap(false);
     }
 
     protected openGeocache(entry: GpsVisitEntry): void {
@@ -426,12 +442,107 @@ export class GpsVisitsWidget extends ReactWidget {
 
     protected selectionChanged(): void {
         this.update();
+        void this.refreshMap(false);
     }
 
     protected ignoreSelection = async (): Promise<void> => {
         await this.setEntriesState(this.selectedEntries(), 'ignored');
         this.clearSelection();
     };
+
+    /* ------------------------------------------------------------------ carte */
+
+    /** Ouvre (ou recharge) la carte des visites dans le panneau des cartes. */
+    protected showMap = async (): Promise<void> => {
+        await this.refreshMap(true);
+    };
+
+    /**
+     * Points des jours sélectionnés (ou dépliés) et leurs tracés. Sans `open`, ne fait
+     * rien si la carte est fermée, et la recharge en place sinon (sans voler le focus).
+     */
+    protected async refreshMap(open: boolean): Promise<void> {
+        const existing = this.mapWidgetFactory.findGpsVisitsMap();
+        if (!open && !existing) {
+            return;
+        }
+        const days = mapDays(this.listing?.days ?? [], this.selection, this.collapsedDays);
+        const points = buildMapPoints(days);
+        const dayIds = days.map(day => day.day);
+        const missing = dayIds.filter(day => !this.trackCache.has(day));
+        if (missing.length > 0) {
+            try {
+                const tracks = await this.service.tracks(missing);
+                for (const day of missing) {
+                    this.trackCache.set(day, tracks[day] ?? []);
+                }
+            } catch (e) {
+                console.warn('[GpsVisits] tracés indisponibles', e);
+            }
+        }
+        const lines = dayIds.map(day => this.trackCache.get(day) ?? []).filter(line => line.length >= 2);
+        this.mapPoints = points;
+        if (open) {
+            const map = await this.mapWidgetFactory.openGpsVisitsMap(points, lines);
+            map.setSelectedGeocaches(this.selectedPointIds());
+            if (points.length === 0) {
+                this.messages.info("Aucune position connue pour ces visites : importe le GPS (traces et GPX) ou prépare la sortie.");
+            }
+        } else if (existing) {
+            existing.loadGeocaches(points);
+            existing.setTrackLines(lines);
+            existing.setSelectedGeocaches(this.selectedPointIds());
+        }
+    }
+
+    protected selectedPointIds(): number[] {
+        return this.mapPoints.filter(point => this.selection.has(point.entryKey)).map(point => point.id);
+    }
+
+    /** Ctrl+clic / menu contextuel sur la carte des visites : la sélection vit ici. */
+    protected handleMapSelectionRequest(request: ListSelectionRequest): void {
+        if (request.mapId !== MapWidget.GPS_VISITS_ID) {
+            return;
+        }
+        if (request.mode === 'clear') {
+            this.selection.clear();
+        } else {
+            const entries = new Map(this.allEntries().map(entry => [entry.key, entry]));
+            for (const id of request.geocacheIds) {
+                const point = this.mapPoints.find(candidate => candidate.id === id);
+                const entry = point ? entries.get(point.entryKey) : undefined;
+                if (!entry || !isSelectable(entry)) {
+                    continue;
+                }
+                const selected = this.selection.has(entry.key);
+                if (request.mode === 'add' || (request.mode === 'toggle' && !selected)) {
+                    this.selection.add(entry.key);
+                } else {
+                    this.selection.delete(entry.key);
+                }
+            }
+        }
+        this.selectionChanged();
+    }
+
+    /** Centre la carte des visites sur une ligne (et l'ouvre au besoin). */
+    protected async centerOnEntry(entry: GpsVisitEntry): Promise<void> {
+        if (!entry.map_position) {
+            this.messages.info("Position inconnue pour cette visite : ni dans l'App, ni dans les GPX, ni sur une trace du GPS.");
+            return;
+        }
+        if (!this.mapWidgetFactory.findGpsVisitsMap() || !this.mapPoints.some(point => point.entryKey === entry.key)) {
+            this.collapsedDays.delete(entry.day);
+            await this.refreshMap(true);
+        }
+        const point = this.mapPoints.find(candidate => candidate.entryKey === entry.key);
+        if (point) {
+            this.mapService.selectGeocache({
+                id: point.id, gc_code: point.gc_code, name: point.name, cache_type: point.cache_type,
+                latitude: point.latitude, longitude: point.longitude, mapId: MapWidget.GPS_VISITS_ID,
+            });
+        }
+    }
 
     /* ------------------------------------------------------------- préparation */
 
@@ -723,6 +834,10 @@ export class GpsVisitsWidget extends ReactWidget {
                     <button className='theia-button' disabled={busy} onClick={() => { void this.detectGps(); }}
                         title='Cherche Garmin\geocache_visits.txt sur les lecteurs branchés'>
                         {this.busy === 'detect' || this.busy === 'import' ? '⏳ Lecture…' : '📟 Détecter le GPS'}
+                    </button>
+                    <button className='theia-button secondary' onClick={() => { void this.showMap(); }}
+                        title='Ouvrir la carte des visites dans le panneau des cartes (sélection, ou jours dépliés)'>
+                        🗺️ Carte
                     </button>
                     <button className='theia-button secondary' disabled={busy} onClick={() => this.fileInput?.click()}>
                         Choisir le fichier…
@@ -1031,7 +1146,13 @@ export class GpsVisitsWidget extends ReactWidget {
                             title='Cocher pour la sortie' />
                     )}
                 </span>
-                <span className='geoapp-gps-visits__time'>{entry.time}</span>
+                <span
+                    className={`geoapp-gps-visits__time${entry.map_position ? ' is-locatable' : ''}`}
+                    title={entry.map_position ? 'Voir sur la carte' : undefined}
+                    onClick={entry.map_position ? () => { void this.centerOnEntry(entry); } : undefined}
+                >
+                    {entry.time}
+                </span>
                 {entry.position && (
                     <span className='geoapp-gps-visits__located' title="Position relevée sur la trace du GPS à l'heure de la visite">📍</span>
                 )}

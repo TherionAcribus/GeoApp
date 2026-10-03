@@ -61,6 +61,17 @@ export interface MapGeocache {
      * amis (« Trouvée par Pseudo1, Pseudo2 — 26/07 ») ; vide ailleurs.
      */
     friendsNote?: string;
+    /** Ligne libre de la popup (carte des visites GPS : heure, résultat, commentaire). */
+    popupNote?: string;
+    /** Pastille sur l'icône (numéro de visite) et sa couleur (résultat de la visite). */
+    badgeText?: string;
+    badgeColor?: string;
+    /**
+     * Géocache GeoApp à ouvrir depuis ce point, quand elle diffère de `id` (carte des
+     * visites GPS : `id` est celui de la visite). `null` : rien à ouvrir (cache pas encore
+     * dans l'App, visite sans code).
+     */
+    openGeocacheId?: number | null;
 }
 
 /**
@@ -83,6 +94,9 @@ export class MapLayerManager {
     private exclusionZoneLayer: any;
     private formulaSolverPreviewVectorSource: VectorSource<Feature<Geometry>>;
     private formulaSolverPreviewLayer: any;
+    /** Tracés (carte des visites GPS) : sous les géocaches. */
+    private trackSource = new VectorSource<Feature<LineString>>();
+    private trackLayer: any;
     private searchResultSource: VectorSource<Feature<Point>>;
     private searchResultLayer: any;
     private currentTileProviderId: string;
@@ -148,6 +162,16 @@ export class MapLayerManager {
             zIndex: 10
         });
         this.map.addLayer(this.geocacheLayer);
+
+        this.trackLayer = new VectorLayer({
+            source: this.trackSource as any,
+            style: new Style({
+                stroke: new Stroke({ color: 'rgba(33, 118, 210, 0.75)', width: 3, lineDash: [6, 4] }),
+            }),
+            properties: { name: 'tracks' },
+            zIndex: 5
+        });
+        this.map.addLayer(this.trackLayer);
 
         // Initialiser la couche pour les waypoints (pour usage futur)
         this.waypointVectorSource = new VectorSource<Feature<Point>>();
@@ -551,6 +575,9 @@ export class MapLayerManager {
             geocache.original_latitude,
             geocache.original_longitude,
             geocache.friendsNote,
+            geocache.popupNote,
+            geocache.badgeText,
+            geocache.badgeColor,
             waypoints
         ].join('|');
     }
@@ -568,6 +595,9 @@ export class MapLayerManager {
             terrain: geocache.terrain,
             found: geocache.found,
             friendsNote: geocache.friendsNote,
+            popupNote: geocache.popupNote,
+            badgeText: geocache.badgeText,
+            badgeColor: geocache.badgeColor,
             selected: feature.get('selected') === true,
             listSelected: this.listSelectedIds.has(geocache.id),
             groupColor: this.groupColors.get(geocache.id)
@@ -737,6 +767,19 @@ export class MapLayerManager {
      * noir entoure chaque cache cochée, et celles qui viennent de l'être signalent
      * leur apparition par une brève pulsation.
      */
+    /** Remplace les tracés affichés : chaque ligne est une suite de [lat, lon]. */
+    setTrackLines(lines: Array<Array<[number, number]>>): void {
+        this.trackSource.clear();
+        const features = lines
+            .filter(line => line.length >= 2)
+            .map(line => new Feature<LineString>({
+                geometry: new LineString(line.map(([lat, lon]) => lonLatToMapCoordinate(lon, lat))),
+            }));
+        if (features.length > 0) {
+            this.trackSource.addFeatures(features);
+        }
+    }
+
     setListSelection(geocacheIds: number[]): void {
         const next = new globalThis.Set(geocacheIds);
         const previous = this.listSelectedIds;

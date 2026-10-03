@@ -9,9 +9,12 @@ import {
     GpsVisitDay,
     GpsVisitEntry,
     buildCutoffLandmarks,
+    GPS_STATUS_COLORS,
     GpsPreparationPlan,
     GpsPreparedEntry,
     buildLogEditorOpenings,
+    buildMapPoints,
+    mapDays,
     daySelectionState,
     defaultOutingZoneName,
     describePreparation,
@@ -243,9 +246,44 @@ function testDeviceData(): void {
         + ' · 9989 caches lues dans les GPX');
 }
 
+function testMapPoints(): void {
+    const day: GpsVisitDay = {
+        day: '2026-09-27',
+        entries: [
+            entry({ key: 'a', visit_ids: [10, 11], comment: 'Horse', map_position: { latitude: 49, longitude: 5, source: 'app' },
+                geocaches: [{ id: 3, zone_id: 1, zone_name: 'Z', name: 'Cheval' }], name: 'Cheval', cache_type: 'Traditional' }),
+            // Pas de position : pas de point, mais le numéro suivant reste 3 (ordre de visite du jour).
+            entry({ key: 'b', visit_ids: [12], status: 'dnf', status_raw: "Didn't find it" }),
+            entry({ key: 'c', visit_ids: [13], gc_code: null, raw_code: '', time: '12:00',
+                map_position: { latitude: 49.1, longitude: 5.1, source: 'visit' } }),
+            entry({ key: 'd', visit_ids: [14], gc_code: 'GC2', state: 'logged', status: 'dnf', status_raw: "Didn't find it",
+                map_position: { latitude: 49.2, longitude: 5.2, source: 'gps' }, device: {
+                    gc_code: 'GC2', name: 'Sur le GPS', cache_type: 'Multi-cache', latitude: 49.2, longitude: 5.2, gpx_date: null } }),
+        ],
+    };
+    const points = buildMapPoints([day]);
+    assert.deepEqual(points.map(p => [p.id, p.badgeText, p.openGeocacheId, p.found]), [
+        [10, '1', 3, false],
+        [13, '3?', null, false],
+        [14, '4', null, true],
+    ]);
+    assert.equal(points[0].badgeColor, GPS_STATUS_COLORS.found);
+    assert.equal(points[0].popupNote, '27/09 11:45 — Trouvée — « Horse »');
+    assert.equal(points[1].name, 'Visite sans code');
+    assert.ok(points[1].popupNote.endsWith('position de la visite sur la trace'));
+    assert.equal(points[2].cache_type, 'Multi-cache');
+    assert.equal(points[2].badgeColor, GPS_STATUS_COLORS.dnf);
+
+    const other: GpsVisitDay = { day: '2026-09-20', entries: [entry({ key: 'z', day: '2026-09-20' })] };
+    // Sélection : seulement les jours qui la contiennent ; sinon les jours dépliés.
+    assert.deepEqual(mapDays([day, other], new Set(['z']), new Set()).map(d => d.day), ['2026-09-20']);
+    assert.deepEqual(mapDays([day, other], new Set(), new Set(['2026-09-20'])).map(d => d.day), ['2026-09-27']);
+}
+
 testPasses();
 testStatusLabel();
 testDeviceData();
+testMapPoints();
 testLogEditorOpenings();
 testOutingZoneName();
 testPreparationSummary();

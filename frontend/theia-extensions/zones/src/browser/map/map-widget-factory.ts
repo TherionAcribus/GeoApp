@@ -144,6 +144,21 @@ export class MapWidgetFactory {
     }
 
     /**
+     * Ouvre — ou recharge en place — la carte des visites GPS (panneau des cartes),
+     * avec les tracés des jours affichés.
+     */
+    async openGpsVisitsMap(points: any[], trackLines: Array<Array<[number, number]>>): Promise<MapWidget> {
+        const widget = await this.openMapForContext({ type: 'gps-visits', label: 'Carte des visites GPS' }, points);
+        widget.setTrackLines(trackLines);
+        return widget;
+    }
+
+    /** La carte des visites GPS, si elle est ouverte. */
+    findGpsVisitsMap(): MapWidget | undefined {
+        return this.shell.getWidgets('bottom').find(w => w.id === MapWidget.GPS_VISITS_ID) as MapWidget | undefined;
+    }
+
+    /**
      * Indique si la carte des amis est actuellement ouverte. Permet au widget
      * d'activité de ne recharger les points que si quelqu'un les regarde, sans
      * rouvrir un onglet que l'utilisateur vient de fermer.
@@ -178,6 +193,8 @@ export class MapWidgetFactory {
                 return `geoapp-map-custom-${context.id}`;
             case 'friends':
                 return MapWidget.FRIENDS_ID;
+            case 'gps-visits':
+                return MapWidget.GPS_VISITS_ID;
             default:
                 return MapWidget.ID;
         }
