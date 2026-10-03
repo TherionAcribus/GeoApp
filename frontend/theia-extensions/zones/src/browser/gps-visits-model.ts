@@ -77,6 +77,17 @@ export interface GpsVisitDay {
     entries: GpsVisitEntry[];
     /** Zone de la sortie, si ce jour a déjà été préparé. */
     zone?: { id: number; name: string } | null;
+    /** Début, fin, durée et distance d'après la trace du GPS (nul sans trace). */
+    track?: GpsDayTrack | null;
+}
+
+export interface GpsDayTrack {
+    /** Heures locales HH:MM. */
+    start: string;
+    end: string;
+    minutes: number;
+    /** Distance de la trace, trajets en voiture compris. */
+    distance_m: number | null;
 }
 
 export interface GpsLastImport {
@@ -813,4 +824,152 @@ export function describeFoundCheck(result: GpsFoundCheck): string {
         text += ` ${count(result.skipped.length, 'cache non vérifiée', 'caches non vérifiées')} : relance la vérification.`;
     }
     return text;
+}
+
+/** « 45 min », « 8 h 05 ». */
+export function formatDuration(minutes: number): string {
+    if (minutes < 60) {
+        return `${minutes} min`;
+    }
+    return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+}
+
+function minutesOf(time: string): number | undefined {
+    const match = /^(\d{2}):(\d{2})$/.exec(time);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
+}
+
+/**
+ * Horaires d'un jour : d'après la trace (« 08:55 → 18:03 · 9 h 08 · 42,3 km, trace du
+ * GPS »), sinon de la première à la dernière visite.
+ */
+export function summarizeDayTimes(day: GpsVisitDay): string | undefined {
+    if (day.track) {
+        const distance = formatDistance(day.track.distance_m);
+        return `${day.track.start} → ${day.track.end} · ${formatDuration(day.track.minutes)}`
+            + (distance ? ` · ${distance}` : '');
+    }
+    const times = day.entries.flatMap(entry => [entry.time, ...entry.passes.map(pass => pass.time)])
+        .filter(time => minutesOf(time) !== undefined)
+        .sort();
+    if (times.length === 0) {
+        return undefined;
+    }
+    const first = times[0];
+    const last = times[times.length - 1];
+    if (first === last) {
+        return first;
+    }
+    return `${first} → ${last} · ${formatDuration(minutesOf(last)! - minutesOf(first)!)}`;
+}
+
+/** Plus rien à loguer ce jour-là : replié par défaut. */
+export function isDayProcessed(day: GpsVisitDay): boolean {
+    return day.entries.length > 0 && day.entries.every(entry => entry.state !== 'pending');
+}
+
+/** Jours repliés : le choix de l'utilisateur, sinon les jours entièrement traités. */
+export function collapsedDayKeys(days: GpsVisitDay[], choices: ReadonlyMap<string, boolean>): Set<string> {
+    return new Set(days.filter(day => choices.get(day.day) ?? isDayProcessed(day)).map(day => day.day));
+}
+
+export type GpsResultFilter = 'all' | 'found' | 'dnf' | 'nm' | 'other';
+
+/** Recherche et filtres de la liste : ils ne changent que l'affichage (et ce sur quoi agissent les boutons). */
+export interface GpsListFilter {
+    query: string;
+    result: GpsResultFilter;
+    /** Seulement les visites sans code (pas encore rattachées). */
+    withoutCode: boolean;
+    /** Seulement les caches absentes de l'App. */
+    toImport: boolean;
+}
+
+export const EMPTY_LIST_FILTER: GpsListFilter = { query: '', result: 'all', withoutCode: false, toImport: false };
+
+export function isListFilterActive(filter: GpsListFilter): boolean {
+    return filter.query.trim() !== '' || filter.result !== 'all' || filter.withoutCode || filter.toImport;
+}
+
+/** Minuscules sans accents : « Écluse » se trouve en tapant « ecluse ». */
+function fold(text: string): string {
+    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+export function entryMatchesFilter(entry: GpsVisitEntry, filter: GpsListFilter): boolean {
+    if (filter.withoutCode && entry.gc_code) {
+        return false;
+    }
+    if (filter.toImport && (!entry.gc_code || entry.geocaches.length > 0)) {
+        return false;
+    }
+    switch (filter.result) {
+        case 'found':
+            if (entry.status !== 'found') {
+                return false;
+            }
+            break;
+        case 'dnf':
+            if (entry.status !== 'dnf') {
+                return false;
+            }
+            break;
+        case 'nm':
+            if (!entry.has_nm && entry.status !== 'needs_maintenance') {
+                return false;
+            }
+            break;
+        case 'other':
+            if (entry.status === 'found' || entry.status === 'dnf') {
+                return false;
+            }
+            break;
+    }
+    const query = fold(filter.query.trim());
+    if (!query) {
+        return true;
+    }
+    const haystack = fold([entry.gc_code, entry.raw_code, entry.name, entry.comment].filter(Boolean).join(' '));
+    return haystack.includes(query);
+}
+
+/** Jours filtrés (les jours vides disparaissent) et nombre de lignes masquées. */
+export function filterDays(days: GpsVisitDay[], filter: GpsListFilter): { days: GpsVisitDay[]; hidden: number } {
+    if (!isListFilterActive(filter)) {
+        return { days, hidden: 0 };
+    }
+    let hidden = 0;
+    const kept: GpsVisitDay[] = [];
+    for (const day of days) {
+        const entries = day.entries.filter(entry => entryMatchesFilter(entry, filter));
+        hidden += day.entries.length - entries.length;
+        if (entries.length > 0) {
+            kept.push({ ...day, entries });
+        }
+    }
+    return { days: kept, hidden };
+}
+
+/** Onglet de log ouvert depuis le widget pour un jour : de quoi le « Reprendre ». */
+export interface GpsLogOpening {
+    geocacheIds: number[];
+    title: string;
+    /** Repères GPS de l'éditeur (heure, commentaire) ; le brouillon l'emporte sur le reste. */
+    prefill?: LogEditorPrefill;
+    openedAt: string;
+}
+
+/** Les ouvertures de plus de 90 jours sont oubliées (comme les brouillons de l'éditeur). */
+export function pruneLogOpenings(
+    openings: Record<string, GpsLogOpening>, now: number, maxAgeMs = 90 * 24 * 60 * 60 * 1000
+): Record<string, GpsLogOpening> {
+    const kept: Record<string, GpsLogOpening> = {};
+    for (const [day, opening] of Object.entries(openings)) {
+        const openedAt = Date.parse(opening?.openedAt);
+        if (Array.isArray(opening?.geocacheIds) && opening.geocacheIds.length > 0
+            && !Number.isNaN(openedAt) && now - openedAt < maxAgeMs) {
+            kept[day] = opening;
+        }
+    }
+    return kept;
 }

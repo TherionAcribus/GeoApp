@@ -450,3 +450,44 @@
     cursor: pointer;
     padding: 2px;
 }
+
+/* Recherche et filtres de la liste. */
+.geoapp-gps-visits__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-gps-visits__search {
+    flex: 1 1 180px;
+    min-width: 120px;
+}
+
+.geoapp-gps-visits__filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.geoapp-gps-visits__filters .theia-button {
+    margin: 0;
+}
+
+.geoapp-gps-visits__filters-hidden {
+    opacity: 0.7;
+}
+
+/* Horaires du jour (trace du GPS, sinon première et dernière visite). */
+.geoapp-gps-visits__day-times {
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
+/* Libellé, résumé et horaires du jour passent à la ligne dans une vue étroite. */
+.geoapp-gps-visits__day-toggle {
+    flex-wrap: wrap;
+}

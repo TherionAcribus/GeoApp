@@ -143,3 +143,19 @@ def test_rejects_a_file_that_is_not_a_visits_file(app):
     assert response.status_code == 400
     assert response.get_json()['error'] == 'not_a_visits_file'
 
+
+
+def test_each_day_carries_its_track_summary(app):
+    from datetime import datetime
+
+    from gc_backend.models import GpsTrackDay
+
+    client = app.test_client()
+    _upload(client)
+    client.post('/api/gps-visits/cutoff', json={'since': '2026-09-01'})
+    db.session.add(GpsTrackDay(day='2026-09-27', points='[]', distance_m=42300,
+                               started_at=datetime(2026, 9, 27, 6, 55), ended_at=datetime(2026, 9, 27, 16, 3)))
+    db.session.commit()
+    day = client.get('/api/gps-visits').get_json()['days'][0]
+    # Heures locales (CEST), durée en minutes, distance de la trace (voiture comprise).
+    assert day['track'] == {'start': '08:55', 'end': '18:03', 'minutes': 548, 'distance_m': 42300}

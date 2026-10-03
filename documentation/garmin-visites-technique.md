@@ -955,3 +955,60 @@ Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.
 Tests :
 - backend : `tests/test_gps_visits_undo.py` et `tests/test_gps_visits_log_submit.py` ;
 - frontend : `tests/gps-visits-model.test.ts` (`testUndoAndFoundCheck`).
+
+## 17. Confort : résumé du jour, reprise, filtres
+
+Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.md), lot 6.
+
+### 17.1 Résumé du jour
+
+- **Backend** : chaque jour de `GET /api/gps-visits` porte `track` (`_track_summaries`,
+  une requête pour tous les jours). Il contient `start` et `end` en heure locale (fuseau
+  de la première visite du jour), `minutes` et `distance_m`. Il est nul sans trace.
+- **Frontend** : `summarizeDayTimes` affiche « 🕘 08:55 → 18:03 · 9 h 08 · 42,3 km ».
+  - La trace couvre toute la sortie, trajets en voiture compris (l'infobulle le dit).
+  - Sans trace : de la première à la dernière visite, passages compris.
+- **Mesures** (copie de la base) :
+  - 27/09/2026 : 09:58 → 21:51, 11 h 52, 139,7 km ;
+  - 23/10/2021 : 08:18 → 19:57, 27,2 km ;
+  - liste de 4 jours en 0,05 s.
+
+### 17.2 « Reprendre les logs »
+
+- **Mémoire** : à l'ouverture des onglets de log, le widget garde par jour les
+  géocaches, le titre et le pré-remplissage (`GpsLogOpening`). Clé `StorageService` :
+  `geoApp.gpsVisits.logOpenings.v1`. Les ouvertures sont oubliées après 90 jours
+  (`pruneLogOpenings`), comme les brouillons.
+- **Quand le bouton apparaît** : « ↩️ Reprendre les logs » s'affiche sur un jour si :
+  - un onglet de log est ouvert sur exactement ces géocaches
+    (`GeocacheLogEditorTabsManager.findLogEditor`, comparaison par `getDraftKey`) ;
+  - ou si l'éditeur a un brouillon sous la clé de ces géocaches (`LOG_DRAFTS_STORAGE_KEY`,
+    désormais exportée par `log-history-store.ts`).
+- **Clic** (`resumeLogEditor`) : revient à l'onglet ouvert, sinon rouvre l'éditeur.
+  - Le pré-remplissage remet les repères GPS (heure, commentaire).
+  - Le brouillon l'emporte sur le reste, comme à toute ouverture.
+- **Mise à jour du bouton** : à chaque rechargement, et à l'ouverture ou à la
+  fermeture d'un onglet de log (`onDidChangeLogEditors` du gestionnaire d'onglets,
+  branché sur `ApplicationShell.onDidAddWidget` et `onDidRemoveWidget`).
+
+### 17.3 Recherche et filtres
+
+- **Barre au-dessus des jours** :
+  - recherche dans le code, le code lu, le nom et le commentaire (sans accents ni
+    casse) ;
+  - résultat : trouvées, non trouvées, Needs Maintenance, autres ;
+  - « Sans code » : pas encore rattachées ;
+  - « À importer » : un code, mais absente de l'App.
+- `filterDays` retire les jours vides et compte les lignes masquées, avec « Effacer ».
+- **Portée** : la liste, la carte et les boutons d'un jour portent sur les lignes
+  affichées. Le résumé du jour reste celui du jour entier.
+
+### 17.4 Repli par défaut
+
+Un jour sans rien à loguer est replié par défaut (`isDayProcessed`, visible avec
+« afficher ignorées / loguées »). Le choix de l'utilisateur l'emporte
+(`collapsedDayKeys`, `dayCollapse`).
+
+Tests :
+- backend : `tests/test_gps_visits_api.py` (`test_each_day_carries_its_track_summary`) ;
+- frontend : `tests/gps-visits-model.test.ts` (`testComfort`).

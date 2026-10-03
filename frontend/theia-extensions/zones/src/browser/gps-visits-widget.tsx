@@ -17,6 +17,8 @@ import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { Disposable, MessageService } from '@theia/core';
+import { StorageService } from '@theia/core/lib/browser';
+import { getDraftKey, LOG_DRAFTS_STORAGE_KEY, readDrafts } from './log-editor/log-history-store';
 import '../../src/browser/style/gps-visits-widget.css';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
@@ -33,8 +35,13 @@ import {
     DetectedDevice,
     GPS_STATUS_LABELS,
     GpsFoundCheckItem,
+    EMPTY_LIST_FILTER,
     GpsImportLandmarks,
     GpsImportReport,
+    GpsListFilter,
+    GpsLogOpening,
+    GpsResultFilter,
+    LogEditorOpening,
     GpsPreparation,
     GpsResolutionCandidate,
     GpsResolutionResult,
@@ -43,6 +50,11 @@ import {
     GpsUndo,
     GpsVisitsListing,
     buildCutoffLandmarks,
+    collapsedDayKeys,
+    filterDays,
+    isListFilterActive,
+    pruneLogOpenings,
+    summarizeDayTimes,
     GpsMapPoint,
     buildLogEditorOpenings,
     buildMapPoints,
@@ -118,7 +130,13 @@ export class GpsVisitsWidget extends ReactWidget {
     protected cutoffPrompt: GpsImportLandmarks | undefined;
     protected cutoffChoice = '';
     protected showAllStates = false;
-    protected collapsedDays = new Set<string>();
+    /** Jours dépliés ou repliés à la main ; sans choix, un jour entièrement traité est replié. */
+    protected dayCollapse = new Map<string, boolean>();
+    /** Recherche et filtres : la liste, la carte et les boutons des jours portent sur les lignes affichées. */
+    protected filter: GpsListFilter = { ...EMPTY_LIST_FILTER };
+    /** Jours à « Reprendre » : onglet de log ouvert, ou brouillon. */
+    protected resumable = new Map<string, { opening: GpsLogOpening; tabOpen: boolean }>();
+    protected readonly logOpeningsStorageKey = 'geoApp.gpsVisits.logOpenings.v1';
     protected dragOver = false;
     protected fileInput: HTMLInputElement | null = null;
     /** Panneau « Préparer la sortie ». */
@@ -143,6 +161,7 @@ export class GpsVisitsWidget extends ReactWidget {
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(MapWidgetFactory) protected readonly mapWidgetFactory: MapWidgetFactory,
         @inject(MapService) protected readonly mapService: MapService,
+        @inject(StorageService) protected readonly storageService: StorageService,
     ) {
         super();
         this.id = GpsVisitsWidget.ID;
@@ -167,6 +186,8 @@ export class GpsVisitsWidget extends ReactWidget {
         window.addEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
         // Ctrl+clic et menu contextuel de la carte des visites : ils cochent dans cette liste.
         this.toDispose.push(this.mapService.onDidRequestListSelection(request => this.handleMapSelectionRequest(request)));
+        // Un onglet de log ouvert ou fermé : « Reprendre » apparaît ou disparaît.
+        this.toDispose.push(this.logEditorTabsManager.onDidChangeLogEditors(() => { void this.refreshResumable(); }));
         this.toDispose.push(Disposable.create(() => {
             window.removeEventListener('geoapp-geocache-log-submitted', onLogSubmitted);
             window.clearTimeout(this.reloadTimer);
@@ -264,6 +285,7 @@ export class GpsVisitsWidget extends ReactWidget {
             this.listing = await this.service.list(this.showAllStates ? ['pending', 'logged', 'ignored'] : ['pending']);
             this.pruneSelection();
             void this.refreshMap(false);
+            void this.refreshResumable();
         } catch (e) {
             this.error = this.describeError(e);
         } finally {
@@ -484,12 +506,12 @@ export class GpsVisitsWidget extends ReactWidget {
         void this.reload();
     };
 
-    protected toggleDay(day: string): void {
-        if (this.collapsedDays.has(day)) {
-            this.collapsedDays.delete(day);
-        } else {
-            this.collapsedDays.add(day);
-        }
+    protected isCollapsed(day: GpsVisitDay): boolean {
+        return collapsedDayKeys([day], this.dayCollapse).has(day.day);
+    }
+
+    protected toggleDay(day: GpsVisitDay): void {
+        this.dayCollapse.set(day.day, !this.isCollapsed(day));
         this.update();
         void this.refreshMap(false);
     }
@@ -575,7 +597,8 @@ export class GpsVisitsWidget extends ReactWidget {
         if (!open && !existing) {
             return;
         }
-        const days = mapDays(this.listing?.days ?? [], this.selection, this.collapsedDays);
+        const allDays = this.listing?.days ?? [];
+        const days = mapDays(filterDays(allDays, this.filter).days, this.selection, collapsedDayKeys(allDays, this.dayCollapse));
         const points = buildMapPoints(days);
         const dayIds = days.map(day => day.day);
         const missing = dayIds.filter(day => !this.trackCache.has(day));
@@ -664,7 +687,7 @@ export class GpsVisitsWidget extends ReactWidget {
             return;
         }
         if (!this.mapWidgetFactory.findGpsVisitsMap() || !this.mapPoints.some(point => point.entryKey === entry.key)) {
-            this.collapsedDays.delete(entry.day);
+            this.dayCollapse.set(entry.day, false);
             await this.refreshMap(true);
         }
         const point = this.mapPoints.find(candidate => candidate.entryKey === entry.key);
@@ -838,6 +861,111 @@ export class GpsVisitsWidget extends ReactWidget {
         for (const opening of openings) {
             await this.logEditorTabsManager.openLogEditor(opening);
         }
+        await this.rememberLogOpenings(openings);
+    }
+
+    /* ---------------------------------------------------------------- reprise */
+
+    protected async readLogOpenings(): Promise<Record<string, GpsLogOpening>> {
+        const stored = await this.storageService.getData<Record<string, GpsLogOpening>>(this.logOpeningsStorageKey, {});
+        return pruneLogOpenings(stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}, Date.now());
+    }
+
+    protected async rememberLogOpenings(openings: LogEditorOpening[]): Promise<void> {
+        try {
+            const stored = await this.readLogOpenings();
+            for (const opening of openings) {
+                stored[opening.prefill.logDate] = {
+                    geocacheIds: opening.geocacheIds, title: opening.title, prefill: opening.prefill,
+                    openedAt: new Date().toISOString(),
+                };
+            }
+            await this.storageService.setData(this.logOpeningsStorageKey, stored);
+        } catch (e) {
+            console.warn('[GpsVisits] ouverture des logs non mémorisée', e);
+        }
+        await this.refreshResumable();
+    }
+
+    /** Jours dont l'onglet de log est ouvert, ou dont l'éditeur a gardé un brouillon. */
+    protected async refreshResumable(): Promise<void> {
+        try {
+            const [openings, drafts] = await Promise.all([
+                this.readLogOpenings(),
+                readDrafts(this.storageService, LOG_DRAFTS_STORAGE_KEY),
+            ]);
+            const next = new Map<string, { opening: GpsLogOpening; tabOpen: boolean }>();
+            for (const [day, opening] of Object.entries(openings)) {
+                const tabOpen = this.logEditorTabsManager.findLogEditor(opening.geocacheIds) !== undefined;
+                const draftKey = getDraftKey(opening.geocacheIds);
+                if (tabOpen || (draftKey && drafts[draftKey])) {
+                    next.set(day, { opening, tabOpen });
+                }
+            }
+            this.resumable = next;
+            this.update();
+        } catch (e) {
+            console.warn('[GpsVisits] reprise des logs indisponible', e);
+        }
+    }
+
+    protected async resumeDay(day: string): Promise<void> {
+        const resume = this.resumable.get(day);
+        if (resume) {
+            await this.logEditorTabsManager.resumeLogEditor({
+                geocacheIds: resume.opening.geocacheIds, title: resume.opening.title, prefill: resume.opening.prefill,
+            });
+        }
+    }
+
+    /* ---------------------------------------------------------------- filtres */
+
+    protected setFilter(change: Partial<GpsListFilter>): void {
+        this.filter = { ...this.filter, ...change };
+        this.update();
+        void this.refreshMap(false);
+    }
+
+    protected renderFilterBar(hidden: number): React.ReactNode {
+        const filter = this.filter;
+        const active = isListFilterActive(filter);
+        return (
+            <div className='geoapp-gps-visits__filters'>
+                <input
+                    className='theia-input geoapp-gps-visits__search'
+                    type='search'
+                    placeholder='Rechercher : code, nom, commentaire'
+                    value={filter.query}
+                    onChange={e => this.setFilter({ query: e.target.value })}
+                />
+                <select className='theia-select' value={filter.result} title='Résultat de la visite'
+                    onChange={e => this.setFilter({ result: e.target.value as GpsResultFilter })}>
+                    <option value='all'>Tous les résultats</option>
+                    <option value='found'>Trouvées</option>
+                    <option value='dnf'>Non trouvées</option>
+                    <option value='nm'>Needs Maintenance</option>
+                    <option value='other'>Autres (non tentées…)</option>
+                </select>
+                <label className='geoapp-gps-visits__filter-toggle' title='Visites sans code, pas encore rattachées'>
+                    <input type='checkbox' checked={filter.withoutCode} onChange={e => this.setFilter({ withoutCode: e.target.checked })} />
+                    Sans code
+                </label>
+                <label className='geoapp-gps-visits__filter-toggle' title="Caches absentes de l'App">
+                    <input type='checkbox' checked={filter.toImport} onChange={e => this.setFilter({ toImport: e.target.checked })} />
+                    À importer
+                </label>
+                {active && (
+                    <>
+                        <span className='geoapp-gps-visits__filters-hidden'>
+                            {hidden} ligne{hidden > 1 ? 's' : ''} masquée{hidden > 1 ? 's' : ''}
+                        </span>
+                        <button className='theia-button secondary' onClick={() => this.setFilter({ ...EMPTY_LIST_FILTER })}>
+                            Effacer
+                        </button>
+                    </>
+                )}
+            </div>
+        );
     }
 
     /* ------------------------------------------------------------ rattachement */
@@ -1293,18 +1421,26 @@ export class GpsVisitsWidget extends ReactWidget {
                 </div>
             );
         }
+        const shown = filterDays(days, this.filter);
+        const collapsed = collapsedDayKeys(days, this.dayCollapse);
         return (
-            <div className='geoapp-gps-visits__days'>
-                {days.map(day => this.renderDay(day))}
-                {this.listing?.truncated && (
-                    <div className='geoapp-gps-visits__empty'>Seuls les jours les plus récents sont affichés.</div>
-                )}
-            </div>
+            <>
+                {this.renderFilterBar(shown.hidden)}
+                <div className='geoapp-gps-visits__days'>
+                    {shown.days.length === 0 && <div className='geoapp-gps-visits__empty'>Aucune visite ne correspond au filtre.</div>}
+                    {shown.days.map(day => this.renderDay(days.find(full => full.day === day.day) ?? day, day, collapsed.has(day.day)))}
+                    {this.listing?.truncated && (
+                        <div className='geoapp-gps-visits__empty'>Seuls les jours les plus récents sont affichés.</div>
+                    )}
+                </div>
+            </>
         );
     }
 
-    protected renderDay(day: GpsVisitDay): React.ReactNode {
-        const collapsed = this.collapsedDays.has(day.day);
+    /** `fullDay` : le jour entier (résumé) ; `day` : ses lignes affichées (filtre), sur lesquelles agissent les boutons. */
+    protected renderDay(fullDay: GpsVisitDay, day: GpsVisitDay, collapsed: boolean): React.ReactNode {
+        const times = summarizeDayTimes(fullDay);
+        const resume = this.resumable.get(day.day);
         const pending = pendingEntries(day);
         const selectable = day.entries.filter(isSelectable).length;
         const withoutCode = day.entries.filter(entry => !entry.gc_code && entry.state === 'pending').length;
@@ -1323,16 +1459,31 @@ export class GpsVisitsWidget extends ReactWidget {
                             onChange={() => this.toggleDaySelection(day)}
                         />
                     )}
-                    <button className='geoapp-gps-visits__day-toggle' onClick={() => this.toggleDay(day.day)}
+                    <button className='geoapp-gps-visits__day-toggle' onClick={() => this.toggleDay(fullDay)}
                         aria-expanded={!collapsed}>
                         <span className={`codicon codicon-chevron-${collapsed ? 'right' : 'down'}`} />
                         <span className='geoapp-gps-visits__day-label'>{formatDayLabel(day.day)}</span>
-                        <span className='geoapp-gps-visits__day-summary'>{summarizeDay(day)}</span>
+                        <span className='geoapp-gps-visits__day-summary'>{summarizeDay(fullDay)}</span>
+                        {times && (
+                            <span className='geoapp-gps-visits__day-times'
+                                title={fullDay.track ? 'Début, fin, durée et distance de la trace du GPS (trajets compris)' : 'De la première à la dernière visite'}>
+                                🕘 {times}
+                            </span>
+                        )}
                     </button>
                     {day.zone && (
                         <span className='geoapp-gps-visits__day-zone' title='Zone de la sortie de ce jour'>📁 {day.zone.name}</span>
                     )}
                     <div className='geoapp-gps-visits__day-actions'>
+                        {resume && (
+                            <button className='theia-button' disabled={busy}
+                                title={resume.tabOpen
+                                    ? "Revenir à l'onglet de log de ce jour"
+                                    : "Rouvrir l'éditeur de logs de ce jour : le brouillon est restauré"}
+                                onClick={() => { void this.resumeDay(day.day); }}>
+                                ↩️ Reprendre les logs
+                            </button>
+                        )}
                         {selectable > 0 && (
                             <button className='theia-button' disabled={busy}
                                 title={day.zone

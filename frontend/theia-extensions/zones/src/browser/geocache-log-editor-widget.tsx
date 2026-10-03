@@ -119,6 +119,7 @@ import {
     deleteDraftFromStorage,
     getDraftKey as getDraftKeyPure,
     getLogHistoryMaxItems as getLogHistoryMaxItemsPure,
+    LOG_DRAFTS_STORAGE_KEY,
     hasDraftWorthSaving as hasDraftWorthSavingPure,
     loadLogHistory,
     persistDraftToStorage,
@@ -216,7 +217,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected readonly logHistoryStorageKey = 'geoApp.logs.history.v2';
     protected readonly logHistoryMaxItemsPreferenceKey = 'geoApp.logs.history.maxItems';
 
-    protected readonly draftsStorageKey = 'geoApp.logs.drafts.v1';
+    protected readonly draftsStorageKey = LOG_DRAFTS_STORAGE_KEY;
     /** Délai d'inactivité avant écriture du brouillon : assez court pour ne rien perdre, assez long pour ne pas écrire à chaque frappe. */
     protected readonly draftAutosaveDelayMs = 1000;
     protected readonly draftsMaxItems = 30;
@@ -1140,6 +1141,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             const sel = computePrefixSelection(result, prefix, placeholder);
             nextTa.setSelectionRange(sel.start, sel.end);
         }, 0);
+    }
+
+    /** Géocaches de l'onglet (« Reprendre » du widget Visites GPS retrouve l'onglet par elles). */
+    getGeocacheIds(): number[] {
+        return [...this.geocacheIds];
     }
 
     setContext(params: { geocacheIds: number[]; title?: string; prefill?: LogEditorPrefill }): void {

@@ -261,7 +261,7 @@ et de contrôle :
 - La même vérification sert dans l'éditeur, avant envoi, pour éviter un second « Found
   it ». Elle est faite par `logs/submit` lui-même, donc pour tout envoi.
 
-### Lot 6 : confort
+### Lot 6 : confort — livré le 2026-10-03
 
 - **Résumé du jour** dans l'en‑tête : début et fin, durée, distance (trace), trouvées,
   DNF, NM, sans code.
@@ -269,6 +269,8 @@ et de contrôle :
   affiche « Reprendre ». La clé du brouillon se calcule avec `getDraftKeyPure` sur les
   géocaches de la sortie.
 - Recherche (code, nom, commentaire) et filtres (résultat, sans code, à importer).
+  Les boutons d'un jour (cocher, préparer, ignorer, vérifier) portent sur ses lignes
+  affichées.
 - Un jour entièrement traité est replié par défaut.
 
 ---

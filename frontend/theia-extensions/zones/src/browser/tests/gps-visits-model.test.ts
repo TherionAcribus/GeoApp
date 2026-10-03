@@ -12,7 +12,15 @@ import {
     GPS_STATUS_COLORS,
     GpsDayResolution,
     GpsFoundCheck,
+    EMPTY_LIST_FILTER,
     GpsPreparationPlan,
+    collapsedDayKeys,
+    entryMatchesFilter,
+    filterDays,
+    formatDuration,
+    isDayProcessed,
+    pruneLogOpenings,
+    summarizeDayTimes,
     GpsPreparedEntry,
     buildLogEditorOpenings,
     buildMapPoints,
@@ -341,8 +349,69 @@ function testUndoAndFoundCheck(): void {
     assert.equal(describeCacheKnowledge(loggedOnline).kind, 'logged-same-day');
 }
 
+function testComfort(): void {
+    assert.equal(formatDuration(45), '45 min');
+    assert.equal(formatDuration(548), '9 h 08');
+
+    const day: GpsVisitDay = {
+        day: '2026-09-27',
+        entries: [
+            entry({ key: 'a', time: '09:42', passes: [{ time: '09:38', status_raw: 'Unattempted' }, { time: '09:42', status_raw: 'Found it' }] }),
+            entry({ key: 'b', time: '17:12', passes: [] }),
+        ],
+    };
+    // Sans trace : de la première à la dernière visite (passages compris).
+    assert.equal(summarizeDayTimes(day), '09:38 → 17:12 · 7 h 34');
+    // Avec la trace : ses heures, sa durée et sa distance.
+    assert.equal(summarizeDayTimes({ ...day, track: { start: '08:55', end: '18:03', minutes: 548, distance_m: 42300 } }),
+        '08:55 → 18:03 · 9 h 08 · 42,3 km');
+    assert.equal(summarizeDayTimes({ ...day, entries: [] }), undefined);
+
+    // Repli par défaut : un jour sans rien à loguer ; le choix de l'utilisateur l'emporte.
+    const done: GpsVisitDay = { day: '2026-09-20', entries: [entry({ state: 'logged' }), entry({ state: 'ignored' })] };
+    assert.equal(isDayProcessed(done), true);
+    assert.equal(isDayProcessed(day), false);
+    assert.deepEqual([...collapsedDayKeys([day, done], new Map())], ['2026-09-20']);
+    assert.deepEqual([...collapsedDayKeys([day, done], new Map([['2026-09-20', false], ['2026-09-27', true]]))], ['2026-09-27']);
+
+    // Filtres.
+    const horse = entry({ key: 'h', gc_code: 'GC4NKAY', name: 'La cache du Écluse', comment: 'Horse' });
+    const noCode = entry({ key: 'n', gc_code: null, raw_code: '' });
+    const dnf = entry({ key: 'd', gc_code: 'GC2BBBB', status: 'dnf', geocaches: [{ id: 1, zone_id: 1, zone_name: 'Z', name: 'x' }] });
+    const nm = entry({ key: 'm', gc_code: 'GC3CCCC', status: 'found', has_nm: true });
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'ecluse' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'horse' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'gc4nk' }));
+    assert.ok(!entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, query: 'horse' }));
+    assert.ok(entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, withoutCode: true }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, withoutCode: true }));
+    // « À importer » : un code, et absente de l'App.
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, toImport: true }));
+    assert.ok(!entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, toImport: true }));
+    assert.ok(!entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, toImport: true }));
+    assert.ok(entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, result: 'dnf' }));
+    assert.ok(entryMatchesFilter(nm, { ...EMPTY_LIST_FILTER, result: 'nm' }));
+    assert.ok(!entryMatchesFilter(nm, { ...EMPTY_LIST_FILTER, result: 'other' }));
+
+    const listing: GpsVisitDay[] = [{ day: '2026-09-27', entries: [horse, noCode] }, { day: '2026-09-20', entries: [dnf] }];
+    assert.equal(filterDays(listing, EMPTY_LIST_FILTER).days, listing);
+    const filtered = filterDays(listing, { ...EMPTY_LIST_FILTER, withoutCode: true });
+    assert.deepEqual(filtered.days.map(d => [d.day, d.entries.map(e => e.key)]), [['2026-09-27', ['n']]]);
+    assert.equal(filtered.hidden, 2);
+
+    // Ouvertures d'onglets oubliées après 90 jours, ou illisibles.
+    const now = Date.parse('2026-10-03T12:00:00Z');
+    const openings = pruneLogOpenings({
+        '2026-09-27': { geocacheIds: [1, 2], title: 'Log GPS — 27/09', openedAt: '2026-09-28T10:00:00Z' },
+        '2026-01-01': { geocacheIds: [3], title: 'Log GPS — 01/01', openedAt: '2026-01-02T10:00:00Z' },
+        '2026-09-26': { geocacheIds: [], title: 'vide', openedAt: '2026-09-28T10:00:00Z' },
+    }, now);
+    assert.deepEqual(Object.keys(openings), ['2026-09-27']);
+}
+
 testPasses();
 testStatusLabel();
+testComfort();
 testUndoAndFoundCheck();
 testDeviceData();
 testMapPoints();

@@ -22,12 +22,13 @@ from datetime import date, datetime, timedelta, timezone, tzinfo
 from typing import Iterable, Optional
 
 from ..database import db
-from ..models import AppConfig, GpsVisit, Zone
+from ..models import AppConfig, GpsTrackDay, GpsVisit, Zone
 from .garmin_visits import (
     ParseResult,
     ReducedVisit,
     VisitRecord,
     local_day,
+    as_utc,
     local_midnight_utc,
     normalize_code,
     occurrence_keys,
@@ -436,6 +437,31 @@ def entry_dict(reduced: ReducedVisit, rows_by_id: dict[int, GpsVisit], geocaches
     }
 
 
+def _track_summaries(day_tz: dict[str, Optional[tzinfo]]) -> dict[str, dict]:
+    """
+    Résumé du tracé de chaque jour (``gps_track_day``) : début et fin en heure locale,
+    durée, distance. La trace couvre toute la sortie, trajets en voiture compris.
+    """
+    if not day_tz:
+        return {}
+    rows = db.session.query(
+        GpsTrackDay.day, GpsTrackDay.distance_m, GpsTrackDay.started_at, GpsTrackDay.ended_at,
+    ).filter(GpsTrackDay.day.in_(list(day_tz))).all()
+    summaries = {}
+    for row in rows:
+        if row.started_at is None or row.ended_at is None:
+            continue
+        tz = day_tz.get(row.day)
+        start, end = as_utc(row.started_at).astimezone(tz), as_utc(row.ended_at).astimezone(tz)
+        summaries[row.day] = {
+            'start': start.strftime('%H:%M'),
+            'end': end.strftime('%H:%M'),
+            'minutes': max(0, round((row.ended_at - row.started_at).total_seconds() / 60)),
+            'distance_m': row.distance_m,
+        }
+    return summaries
+
+
 def _day_zone_names() -> dict[str, dict]:
     """Zone de la sortie de chaque jour préparé (zones disparues ignorées)."""
     from .gps_zone_operations import get_day_zones
@@ -484,6 +510,10 @@ def list_grouped(
     geocaches_by_code = _geocaches_by_code(codes)
     device_by_code = _device_caches_for(codes, geocaches_by_code)
     day_zones = _day_zone_names()
+    # Fuseau de chaque jour : celui de sa première visite (voyage en UTC+4…).
+    tracks = _track_summaries({
+        d.isoformat(): offset_tz(rows_by_id[days[d][0].visit_ids[0]].utc_offset_minutes, tz) for d in ordered_days
+    })
 
     return {
         'days': [
@@ -492,6 +522,8 @@ def list_grouped(
                 'entries': [entry_dict(e, rows_by_id, geocaches_by_code, device_by_code) for e in days[d]],
                 # Zone de la sortie, si ce jour a déjà été préparé.
                 'zone': day_zones.get(d.isoformat()),
+                # Début, fin, durée et distance d'après la trace du GPS (nul sans trace).
+                'track': tracks.get(d.isoformat()),
             }
             for d in ordered_days
         ],

@@ -102,6 +102,9 @@ export async function saveHistoryEntry(
     return next;
 }
 
+/** Clé de stockage des brouillons de l'éditeur de logs (lue aussi par le widget Visites GPS). */
+export const LOG_DRAFTS_STORAGE_KEY = 'geoApp.logs.drafts.v1';
+
 /** Clé de brouillon : triée pour que le même ensemble de géocaches retrouve son brouillon. */
 export function getDraftKey(geocacheIds: number[]): string | undefined {
     if (geocacheIds.length === 0) {
