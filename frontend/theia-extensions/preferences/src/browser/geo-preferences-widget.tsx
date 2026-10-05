@@ -406,6 +406,14 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         this.update();
     }
 
+    private openAiSetup = async (): Promise<void> => {
+        try {
+            await this.commandService.executeCommand('geoapp.ai.setup.open');
+        } catch (error) {
+            console.error('[GeoPreferencesWidget] Failed to open AI setup assistant', error);
+        }
+    };
+
     private openAiConfiguration = async (): Promise<void> => {
         try {
             await this.commandService.executeCommand('aiConfiguration:open');
@@ -668,14 +676,24 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
 
         if (category === 'ai') {
             return (
-                <button
-                    className='theia-button secondary'
-                    type='button'
-                    onClick={() => { void this.openAiConfiguration(); }}
-                    title='Ouvrir la configuration IA pour choisir le modèle utilisé par les agents Theia'
-                >
-                    Configurer Agent Theia (IA)
-                </button>
+                <div className='geo-preferences-header-actions'>
+                    <button
+                        className='theia-button'
+                        type='button'
+                        onClick={() => { void this.openAiSetup(); }}
+                        title='Choisir le fournisseur et le modèle utilisés par tous les assistants GeoApp'
+                    >
+                        Assistant de configuration de l'IA
+                    </button>
+                    <button
+                        className='theia-button secondary'
+                        type='button'
+                        onClick={() => { void this.openAiConfiguration(); }}
+                        title='Ouvrir la configuration IA pour choisir le modèle utilisé par les agents Theia'
+                    >
+                        Configurer Agent Theia (IA)
+                    </button>
+                </div>
             );
         }
 

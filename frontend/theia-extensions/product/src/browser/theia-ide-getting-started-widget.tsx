@@ -11,8 +11,9 @@ import * as React from 'react';
 
 import { Message } from '@theia/core/lib/browser';
 import { CommandService, PreferenceService } from '@theia/core/lib/common';
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, optional } from '@theia/core/shared/inversify';
 import { GettingStartedWidget } from '@theia/getting-started/lib/browser/getting-started-widget';
+import { GeoAppAiSetupService, GeoAppAiSetupStatus } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-setup-service';
 
 interface WelcomeCard {
     commandId: string;
@@ -22,6 +23,8 @@ interface WelcomeCard {
     color: string;
 }
 
+const AI_SETUP_COMMAND_ID = 'geoapp.ai.setup.open';
+
 const WELCOME_CARDS: WelcomeCard[] = [
     { commandId: 'zones:open',                  icon: 'codicon-layers',          title: 'Zones',         description: 'Gérer et organiser vos zones de géocaching',    color: '#3b82f6' },
     { commandId: 'geoapp.map.toggle',            icon: 'codicon-map',             title: 'Carte',         description: 'Visualiser les géocaches sur la carte',          color: '#22c55e' },
@@ -29,6 +32,7 @@ const WELCOME_CARDS: WelcomeCard[] = [
     { commandId: 'alphabets.openList',           icon: 'codicon-symbol-text',     title: 'Alphabets',     description: 'Alphabets et codes secrets (66 disponibles)',    color: '#a855f7' },
     { commandId: 'geoapp.documentation.open',    icon: 'codicon-book',            title: 'Documentation', description: 'Aide, tutoriels et référence complète',          color: '#06b6d4' },
     { commandId: 'geoapp.calculator.open',       icon: 'codicon-symbol-operator', title: 'Calculatrice',  description: 'Calculs mathématiques pour coordonnées',         color: '#ec4899' },
+    { commandId: AI_SETUP_COMMAND_ID,            icon: 'codicon-sparkle',         title: 'Configurer l\'IA', description: 'Choisir le fournisseur et le modèle des assistants', color: '#eab308' },
 ];
 
 @injectable()
@@ -40,10 +44,35 @@ export class TheiaIDEGettingStartedWidget extends GettingStartedWidget {
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
 
+    @inject(GeoAppAiSetupService) @optional()
+    protected readonly aiSetupService: GeoAppAiSetupService | undefined;
+
+    /** Indéfini tant que les fournisseurs n'ont pas fini d'enregistrer leurs modèles. */
+    protected aiSetupStatus: GeoAppAiSetupStatus | undefined;
+    /** « Plus tard » : masque le bandeau jusqu'au prochain démarrage. */
+    protected aiSetupPostponed = false;
+
     protected async doInit(): Promise<void> {
         await super.doInit();
         await this.preferenceService.ready;
         this.update();
+        this.watchAiSetup();
+    }
+
+    protected watchAiSetup(): void {
+        const service = this.aiSetupService;
+        if (!service) {
+            return;
+        }
+        // Avant whenSettled, « non prête » serait un faux positif : le bandeau clignoterait.
+        service.whenSettled.then(async () => {
+            this.toDispose.push(service.onDidChangeStatus(status => {
+                this.aiSetupStatus = status;
+                this.update();
+            }));
+            this.aiSetupStatus = await service.getStatus();
+            this.update();
+        }).catch(error => console.debug('[GeoAppWelcome] état de l\'IA indisponible', error));
     }
 
     protected onActivateRequest(msg: Message): void {
@@ -65,6 +94,8 @@ export class TheiaIDEGettingStartedWidget extends GettingStartedWidget {
                     </div>
                 </div>
 
+                {this.renderAiSetup()}
+
                 <p className='geoapp-welcome-section-label'>Accès rapide</p>
 
                 <div className='geoapp-welcome-grid'>
@@ -78,6 +109,45 @@ export class TheiaIDEGettingStartedWidget extends GettingStartedWidget {
 
                 <div className='gs-preference-container'>
                     {this.renderPreferences()}
+                </div>
+            </div>
+        );
+    }
+
+    protected renderAiSetup(): React.ReactNode {
+        const status = this.aiSetupStatus;
+        if (!status || !status.aiEnabled) {
+            return undefined;
+        }
+        const openSetup = (): void => { this.commandService.executeCommand(AI_SETUP_COMMAND_ID); };
+        if (status.ready) {
+            return (
+                <div className='geoapp-welcome-ai-ready'>
+                    <span className='codicon codicon-pass-filled' />
+                    <span>IA prête{status.defaultModelLabel ? ` · ${status.defaultModelLabel}` : ''}</span>
+                    <a href='#' onClick={event => { event.preventDefault(); openSetup(); }}>Modifier</a>
+                </div>
+            );
+        }
+        if (status.dismissed || this.aiSetupPostponed) {
+            return undefined;
+        }
+        return (
+            <div className='geoapp-welcome-ai-banner'>
+                <span className='codicon codicon-sparkle' />
+                <div className='geoapp-welcome-ai-banner-text'>
+                    <strong>L'IA n'est pas encore configurée.</strong>
+                    <span>Deux minutes suffisent pour activer l'assistant @Aide et les analyses.</span>
+                </div>
+                <div className='geoapp-welcome-ai-banner-actions'>
+                    <button className='theia-button' onClick={openSetup}>Configurer l'IA</button>
+                    <button className='theia-button secondary' onClick={() => { this.aiSetupPostponed = true; this.update(); }}>Plus tard</button>
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => { void this.aiSetupService?.setDismissed(true); this.aiSetupPostponed = true; this.update(); }}
+                    >
+                        Ne plus proposer
+                    </button>
                 </div>
             </div>
         );

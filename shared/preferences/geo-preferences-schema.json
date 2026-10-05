@@ -32,6 +32,30 @@
       ],
       "x-backendKey": "ai.enabled"
     },
+    "geoApp.ai.setup.dismissed": {
+      "type": "boolean",
+      "default": false,
+      "title": "Ne plus proposer la configuration de l'IA",
+      "description": "Masque le rappel « L'IA n'est pas encore configurée » (page d'accueil, barre d'état, notification). L'assistant reste accessible par la commande « GeoApp : Configurer l'IA ».",
+      "x-ui": {
+        "section": "Activation",
+        "label": "Ne plus proposer la configuration de l'IA",
+        "order": 15,
+        "keywords": [
+          "assistant",
+          "rappel",
+          "démarrage",
+          "configurer"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "global"
+      ]
+    },
     "geoApp.ai.formulaSolverAssist": {
       "type": "boolean",
       "default": true,

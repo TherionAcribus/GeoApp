@@ -13,6 +13,8 @@ import { TrackablesWidget, TrackablesWidgetContext } from './trackables-widget';
 import { GpsVisitsWidget } from './gps-visits-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { OutingPlanCommandId, OutingPlanWidget } from './outing-plan-widget';
+import { GeoAppAiSetupCommandId, GeoAppAiSetupWidget } from './geoapp-ai-setup-widget';
+import { GEOAPP_AI_SETUP_PROVIDERS } from './geoapp-ai-setup-service';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 
 export const ZonesCommands = {
@@ -31,6 +33,7 @@ export const ZonesCommands = {
     OPEN_TRACKABLES: <Command>{ id: 'geoapp.trackables.open', label: 'GeoApp: Trackables' },
     OPEN_GPS_VISITS: <Command>{ id: 'geoapp.gpsVisits.open', label: 'GeoApp: Visites GPS' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
+    OPEN_AI_SETUP: <Command>{ id: GeoAppAiSetupCommandId, label: 'GeoApp: Configurer l\'IA' },
     OPEN_OUTING_PLAN: <Command>{ id: OutingPlanCommandId, label: 'GeoApp: Checklist de sortie' },
     OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
 };
@@ -178,6 +181,24 @@ export class ZonesCommandContribution implements CommandContribution {
                     this.shell.addWidget(widget, { area: 'main' });
                 }
                 this.shell.activateWidget(widget.id);
+            }
+        });
+
+        // Assistant de configuration de l'IA ; args.provider ouvre directement ce fournisseur
+        commands.registerCommand(ZonesCommands.OPEN_AI_SETUP, {
+            execute: async (args?: { provider?: string }) => {
+                const existing = this.widgetManager.tryGetWidget(GeoAppAiSetupWidget.ID);
+                const widget = await this.widgetManager.getOrCreateWidget(GeoAppAiSetupWidget.ID) as GeoAppAiSetupWidget;
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+                const provider = GEOAPP_AI_SETUP_PROVIDERS.find(candidate => candidate.id === args?.provider);
+                if (provider) {
+                    widget.openProvider(provider.id);
+                } else if (existing) {
+                    void widget.showStart();
+                }
             }
         });
 

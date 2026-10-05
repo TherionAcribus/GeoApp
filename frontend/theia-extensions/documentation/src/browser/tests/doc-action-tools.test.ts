@@ -204,6 +204,58 @@ async function testSetPreferenceValidation(): Promise<void> {
     assert.equal((await call(setPref, { key: 'geoApp.chat.promptPack', value: 'safe' })).success, true);
 }
 
+// Assistant « Configurer l'IA » : @Aide l'ouvre et lit l'état, mais ne voit jamais de clé,
+// y compris celles que Theia range hors du schéma GeoApp (ai-features.*).
+async function testAiSetupTools(): Promise<void> {
+    const secret = 'sk-or-secret-123456';
+    const commands: Array<[string, unknown]> = [];
+    const manager = createManager({
+        commandService: { executeCommand: async (id: string, args: unknown) => { commands.push([id, args]); } },
+        preferenceStore: {
+            schema: { properties: { 'geoApp.ai.openRouter.apiKey': { type: 'string', 'x-sensitive': true } } },
+            getSnapshot: () => ({ 'geoApp.ai.openRouter.apiKey': secret }),
+            setValue: async () => undefined,
+        },
+    });
+    (manager as any).aiSetupService = {
+        getStatus: async () => ({
+            ready: false,
+            aiEnabled: true,
+            dismissed: false,
+            tasks: [
+                { taskLabel: '@Aide', status: 'unavailable', diagnostics: [`refus Bearer ${secret}`] },
+                { taskLabel: 'EarthCoach', status: 'ready', diagnostics: [] },
+            ],
+        }),
+        getProviderState: (id: string) => ({ configured: id === 'openrouter' }),
+        redact: (text: string) => text.split(secret).join('[clé masquée]'),
+    };
+    const tools = manager.buildAllTools();
+
+    const status = await call(findTool(tools, 'aide_get_ai_setup_status'));
+    assert.equal(status.success, true, status.error);
+    assert.equal((status.data as any).ready, false);
+    assert.deepEqual((status.data as any).providers_with_key, ['openrouter']);
+    assert.equal((status.data as any).tasks_not_ready.length, 1);
+    assert.ok(!JSON.stringify(status).includes(secret), 'aucune clé dans l\'état');
+
+    assert.equal((await call(findTool(tools, 'aide_open_ai_setup'), { provider: 'ollama' })).success, true);
+    assert.equal((await call(findTool(tools, 'aide_open_ai_setup'))).success, true);
+    assert.deepEqual(commands, [
+        ['geoapp.ai.setup.open', { provider: 'ollama' }],
+        ['geoapp.ai.setup.open', undefined],
+    ]);
+    assert.equal((await call(findTool(tools, 'aide_open_ai_setup'), { provider: 'inconnu' })).success, false);
+
+    for (const key of ['geoApp.ai.openRouter.apiKey', 'ai-features.anthropic.AnthropicApiKey',
+        'ai-features.openAiOfficial.openAiApiKey', 'ai-features.google.apiKey', 'ai-features.openAiCustom.customOpenAiModels']) {
+        const read = await call(findTool(tools, 'aide_get_preference'), { key });
+        assert.equal(read.success, false, `${key} ne doit pas être lisible`);
+        assert.ok(!JSON.stringify(read).includes(secret));
+        assert.equal((await call(findTool(tools, 'aide_set_preference'), { key, value: 'x' })).success, false, `${key} ne doit pas être modifiable`);
+    }
+}
+
 // §7 : aide_find_geocache résout d'abord par code GC, puis par nom via la
 // recherche globale ; les autres tools acceptent gc_code en relais de geocache_id.
 async function testFindGeocacheByCodeAndName(): Promise<void> {
@@ -812,6 +864,7 @@ async function run(): Promise<void> {
     await testFormulaSolverTools();
     await testAiModelTools();
     await testOfflineChatPresetAppliesLocalModelProfile();
+    await testAiSetupTools();
     // eslint-disable-next-line no-console
     console.log('doc-action-tools tests passed');
 }

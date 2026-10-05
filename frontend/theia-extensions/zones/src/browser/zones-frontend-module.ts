@@ -57,6 +57,9 @@ import { GeoAppChatSkillSeeder } from './geoapp-chat-skill-seeder';
 import { GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatConfigurationService } from './geoapp-chat-configuration-service';
 import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
+import { GeoAppAiSetupService } from './geoapp-ai-setup-service';
+import { GeoAppAiSetupWidget } from './geoapp-ai-setup-widget';
+import { GeoAppAiSetupReminderContribution } from './geoapp-ai-setup-reminder-contribution';
 import { GeoAppAiExecutionHistoryStore, GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { TheiaGeoAppAiExecutionHistoryStore } from './geoapp-ai-execution-history-store';
 import { GeoAppAiOperationRecorder } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
@@ -362,6 +365,7 @@ export default new ContainerModule(bind => {
     bind(GeoAppChatPolicyService).toSelf().inSingletonScope();
     bind(GeoAppChatConfigurationService).toSelf().inSingletonScope();
     bind(GeoAppAiModelResolutionService).toSelf().inSingletonScope();
+    bind(GeoAppAiSetupService).toSelf().inSingletonScope();
     bind(GeoAppAiExecutionHistoryStore).to(TheiaGeoAppAiExecutionHistoryStore).inSingletonScope();
     bind(GeoAppAiExecutionService).toSelf().inSingletonScope();
     bind(GeoAppAiOperationRecorder).toService(GeoAppAiExecutionService);
@@ -377,6 +381,14 @@ export default new ContainerModule(bind => {
         id: GeoAppChatPolicyWidget.ID,
         createWidget: () => ctx.container.get(GeoAppChatPolicyWidget)
     })).inSingletonScope();
+
+    bind(GeoAppAiSetupWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: GeoAppAiSetupWidget.ID,
+        createWidget: () => ctx.container.get(GeoAppAiSetupWidget)
+    })).inSingletonScope();
+    bind(GeoAppAiSetupReminderContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppAiSetupReminderContribution);
 
     bind(GeoAppChatSkillSeeder).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppChatSkillSeeder);

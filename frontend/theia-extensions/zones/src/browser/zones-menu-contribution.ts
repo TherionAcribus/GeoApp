@@ -68,6 +68,12 @@ export class ZonesMenuContribution implements MenuContribution {
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_AI_SETUP.id,
+            label: 'Configurer l\'IA',
+            order: '2.6'
+        });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_SERVER_LOG_TERMINAL.id,
             label: 'Terminal serveur',
             order: '2.6'

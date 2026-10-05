@@ -12,7 +12,7 @@ tags: [dépannage, erreur, problème, aide, support]
 ## Sujets couverts dans ce chapitre
 
 - La carte ne s'affiche pas ou ne charge pas
-- L'IA ne répond pas ou retourne une erreur
+- L'IA ne répond pas ou retourne une erreur — ouvrez l'assistant (`Ctrl+Shift+P` → **GeoApp : Configurer l'IA**) : son écran d'état montre si un modèle est branché, et **Tester à nouveau** donne la cause. Voir [Configurer l'IA](../getting-started/configurer-ia.md)
 - L'import GPX échoue ou les géocaches sont incomplètes
 - Les coordonnées affichées sont incorrectes
 - Un plugin retourne toujours une erreur

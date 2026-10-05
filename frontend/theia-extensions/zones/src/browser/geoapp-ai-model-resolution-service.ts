@@ -953,7 +953,7 @@ export class GeoAppAiModelResolutionService {
         return Object.keys(declared).length ? declared : undefined;
     }
 
-    protected normalizeModelsEndpoint(baseUrl: string): string {
+    normalizeModelsEndpoint(baseUrl: string): string {
         const withoutCompletions = baseUrl.trim().replace(/\/chat\/completions\/?$/i, '').replace(/\/+$/, '');
         if (/\/models$/i.test(withoutCompletions)) {
             return withoutCompletions.replace(/\/models$/i, '');
@@ -961,9 +961,9 @@ export class GeoAppAiModelResolutionService {
         return /\/v\d+$/i.test(withoutCompletions) ? withoutCompletions : `${withoutCompletions}/v1`;
     }
 
-    protected async fetchJson(url: string, init: RequestInit = {}): Promise<unknown> {
+    async fetchJson(url: string, init: RequestInit = {}, timeoutMs = 1500): Promise<unknown> {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 1500);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
             const headers = new Headers(init.headers);
             headers.set('Accept', 'application/json');

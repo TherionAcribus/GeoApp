@@ -2058,3 +2058,70 @@ Le Chat IA GeoApp moderne repose sur une séparation claire :
 - policy widget : diagnostic et contrôle utilisateur.
 
 Cette architecture permet de faire évoluer le chat sans recoder la liste des tools ou le prompt système à chaque changement. Elle garde Theia au centre du système, tout en ajoutant une couche GeoApp spécialisée pour les besoins du géocaching.
+
+## 34. Assistant « Configurer l'IA »
+
+Spécification d'origine : `documentation/assistant-configuration-ia-spec.md`.
+
+### 34.1 Pourquoi
+
+Tous les agents GeoApp demandent l'alias `default/universal`. Ses cibles par défaut, fixées par
+Theia, sont trois modèles Anthropic, OpenAI et Google : avec une seule clé OpenRouter ou un
+modèle local, **aucun agent ne fonctionne** tant que l'alias n'est pas modifié. `@Aide` ne peut
+pas s'amorcer lui-même : il lui faut un modèle, et il refuse de toucher aux clés API.
+
+L'assistant obtient un modèle qui répond, le branche sur `default/universal`, puis passe la main
+à `@Aide`.
+
+### 34.2 Fichiers
+
+| Fichier | Rôle |
+|---|---|
+| `zones/src/browser/geoapp-ai-setup-service.ts` | état, détection locale, liste des modèles, test, application |
+| `zones/src/browser/geoapp-ai-setup-widget.tsx` | widget en 3 étapes + écran d'état (commande `geoapp.ai.setup.open`) |
+| `zones/src/browser/geoapp-ai-setup-reminder-contribution.ts` | barre d'état et notification de rappel |
+| `product/src/browser/theia-ide-getting-started-widget.tsx` | bandeau et carte de la page d'accueil |
+| `documentation/src/browser/doc-action-tools.ts` | tools `aide_open_ai_setup`, `aide_get_ai_setup_status` |
+
+### 34.3 Règles
+
+- **L'état se déduit, il ne se mémorise pas.** « IA prête » = la tâche `aide` se résout au statut
+  `ready` (`GeoAppAiModelResolutionService`). Aucun drapeau « assistant déjà vu » : le rappel
+  disparaît si l'utilisateur configure à la main, et revient si la configuration casse. Seule
+  préférence ajoutée : `geoApp.ai.setup.dismissed` (« Ne plus proposer »).
+- **`whenSettled` avant tout rappel.** Les fournisseurs enregistrent leurs modèles de façon
+  asynchrone au démarrage ; un état lu trop tôt serait « non prête » à tort. `whenSettled` se
+  résout après 3 s sans changement du registre de modèles, 10 s au plus.
+- **Un seul test, par le vrai chemin.** `testModel` passe par `LanguageModelService.sendRequest`,
+  comme un agent. Pas de `fetch` direct vers Anthropic, OpenAI ou Google depuis le navigateur.
+- **L'alias n'est modifié que si le test réussit** (`apply`).
+- **Les clés ne sortent jamais du service.** `getProviderState` dit seulement si une clé existe ;
+  `redact` retire les clés connues de tout message d'erreur avant affichage ou journalisation.
+  Les tools génériques de préférences d'`@Aide` n'acceptent que les clés du schéma GeoApp : les
+  clés Theia `ai-features.*` leur sont inaccessibles (couvert par `testAiSetupTools`).
+
+### 34.4 Ce que l'assistant écrit
+
+| Fournisseur | Préférences écrites | Identifiant branché sur `default/universal` |
+|---|---|---|
+| OpenRouter | `geoApp.ai.openRouter.apiKey`, `.enabled = true`, `.model.strong` | `openrouter/strong` |
+| Anthropic | `ai-features.anthropic.AnthropicApiKey` | `anthropic/<modèle>` |
+| OpenAI | `ai-features.openAiOfficial.openAiApiKey` | `openai/<modèle>` |
+| Google | `ai-features.google.apiKey` | `google/<modèle>` |
+| Ollama | `ai-features.ollama.ollamaHost`, ajout à `ai-features.ollama.ollamaModels` | `ollama/<modèle>` |
+| LM Studio | `geoApp.ocr.lmstudio.baseUrl`, ajout à `ai-features.openAiCustom.customOpenAiModels` | `lmstudio/<modèle>` |
+
+Les listes sont complétées, jamais remplacées. L'alias est écrit par
+`selectModelForAlias`, méthode de l'implémentation `DefaultLanguageModelAliasRegistry` absente de
+l'interface `LanguageModelAliasRegistry` : le service la détecte à l'exécution, à revérifier lors
+d'une montée de version de Theia. Les affectations par agent (`AISettingsService`) et les slots
+OpenRouter `fast`, `web` et `vision` ne sont pas touchés.
+
+### 34.5 Limites connues
+
+- Les clés restent en clair dans les préférences, comme avant.
+- Pour OpenRouter, changer le modèle écrit `geoApp.ai.openRouter.model.strong` : tous les agents
+  déjà affectés à `openrouter/strong` changent de modèle.
+- « Essayer @Aide » ouvre le chat et **envoie** la question (le pont de chat n'a pas de mode
+  « préremplir sans envoyer »).
+- Aucun modèle n'est suggéré pour OpenRouter, Ollama et LM Studio : c'est voulu.

@@ -132,6 +132,60 @@ ul.theia-aboutExtensions {
 }
 
 /* Section label */
+/* État de la configuration de l'IA */
+.geoapp-welcome-ai-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 28px;
+    padding: 14px 16px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-sideBar-background);
+}
+
+.geoapp-welcome-ai-banner > .codicon {
+    font-size: 20px;
+    color: var(--theia-notificationsInfoIcon-foreground);
+}
+
+.geoapp-welcome-ai-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 220px;
+    font-size: 0.86rem;
+}
+
+.geoapp-welcome-ai-banner-text span {
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-welcome-ai-banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.geoapp-welcome-ai-banner-actions .theia-button {
+    margin-left: 0;
+}
+
+.geoapp-welcome-ai-ready {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -16px 0 24px;
+    font-size: 0.8rem;
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-welcome-ai-ready .codicon {
+    color: var(--theia-testing-iconPassed, var(--theia-descriptionForeground));
+}
+
 .geoapp-welcome-section-label {
     font-size: 0.72rem;
     font-weight: 600;

@@ -485,6 +485,8 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_get_agent_models': { registryId: 'aide_get_agent_models', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_set_agent_model': { registryId: 'aide_set_agent_model', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_open_ai_configuration': { registryId: 'aide_open_ai_configuration', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_ai_setup': { registryId: 'aide_open_ai_setup', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_get_ai_setup_status': { registryId: 'aide_get_ai_setup_status', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
 
     // Policy Chat IA avancee
     'aide_get_chat_policy': { registryId: 'aide_get_chat_policy', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

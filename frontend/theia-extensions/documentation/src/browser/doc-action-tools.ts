@@ -140,6 +140,7 @@ import {
 } from 'theia-ide-zones-ext/lib/browser/geocache-chat-prompt-shared';
 import { formatGeocacheVisionPluginModel } from 'theia-ide-zones-ext/lib/browser/geocache-details-preferences-controller';
 import { GeoAppAiModelResolutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-model-resolution-service';
+import { GEOAPP_AI_SETUP_PROVIDERS, GeoAppAiSetupService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-setup-service';
 import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 import {
     checkGeoAppLocalModel,
@@ -390,6 +391,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(GeoAppAiModelResolutionService) @optional()
     protected readonly aiModelResolutionService: GeoAppAiModelResolutionService | undefined;
 
+    @inject(GeoAppAiSetupService) @optional()
+    protected readonly aiSetupService: GeoAppAiSetupService | undefined;
+
     @inject(GeoAppAiExecutionService) @optional()
     protected readonly aiExecutionService: GeoAppAiExecutionService | undefined;
 
@@ -603,7 +607,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
                         if (!def) { return err(`Preference inconnue : "${args.key}".`); }
-                        if (def['x-sensitive']) { return err(`Cette preference est sensible et ne peut pas etre modifiee par @Aide.`); }
+                        if (def['x-sensitive']) { return err(`Cette preference est sensible et ne peut pas etre modifiee par @Aide. Pour une cle de fournisseur d'IA, ouvre l'assistant avec aide_open_ai_setup.`); }
                         if (!('default' in def)) { return err(`La preference "${args.key}" n'a pas de valeur par defaut connue.`); }
                         await this.preferenceStore.reset(args.key);
                         return ok(`Preference "${args.key}" reinitialisee : ${JSON.stringify(def.default)}.`);
@@ -680,7 +684,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
                         if (!def) { return err(`Préférence inconnue : "${args.key}".`); }
-                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être lue par @Aide.`); }
+                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être lue par @Aide. Pour une clé de fournisseur d'IA, aide_get_ai_setup_status indique si elle est renseignée.`); }
                         const snapshot = this.preferenceStore.getSnapshot();
                         return ok({
                             key: args.key,
@@ -715,7 +719,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
                         if (!def) { return err(`Préférence inconnue : "${args.key}".`); }
-                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être modifiée par @Aide.`); }
+                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être modifiée par @Aide. Pour une clé de fournisseur d'IA, ouvre l'assistant avec aide_open_ai_setup.`); }
                         let coerced: unknown = args.value;
                         if (def.type === 'boolean') {
                             coerced = args.value === true || String(args.value).toLowerCase() === 'true';
@@ -7367,6 +7371,71 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
+            {
+                id: 'aide_open_ai_setup',
+                name: 'aide_open_ai_setup',
+                description:
+                    'Ouvre l\'assistant « Configurer l\'IA » : choix du fournisseur (OpenRouter, Anthropic, OpenAI, Google, ' +
+                    'Ollama, LM Studio), saisie de la cle API et du modele par defaut de tous les assistants. ' +
+                    'C\'est le SEUL moyen d\'ajouter ou de changer une cle API : une cle ne se saisit jamais dans le chat. ' +
+                    'provider ouvre directement l\'etape de connexion de ce fournisseur.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    provider: {
+                        type: 'string',
+                        description: 'Fournisseur a ouvrir directement.',
+                        enum: GEOAPP_AI_SETUP_PROVIDERS.map(provider => provider.id),
+                        required: false,
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.commandService.executeCommand(
+                            'geoapp.ai.setup.open',
+                            args.provider ? { provider: args.provider } : undefined
+                        );
+                        return ok('Assistant de configuration de l\'IA ouvert. L\'utilisateur y saisit lui-meme sa cle.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_ai_setup_status',
+                name: 'aide_get_ai_setup_status',
+                description:
+                    'Etat d\'ensemble de la configuration IA : IA prete ou non, fournisseur et modele par defaut ' +
+                    '(alias default/universal), fournisseurs disposant d\'une cle, et taches IA non pretes avec leur raison. ' +
+                    'Ne renvoie jamais de cle API.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    if (!this.aiSetupService) { return err('Service de configuration IA indisponible.'); }
+                    try {
+                        const status = await this.aiSetupService.getStatus();
+                        return ok({
+                            ready: status.ready,
+                            ai_enabled: status.aiEnabled,
+                            provider: status.providerId ?? null,
+                            default_model_id: status.defaultModelId ?? null,
+                            default_model: status.defaultModelLabel ?? null,
+                            providers_with_key: GEOAPP_AI_SETUP_PROVIDERS
+                                .filter(provider => provider.kind === 'cloud' && this.aiSetupService!.getProviderState(provider.id).configured)
+                                .map(provider => provider.id),
+                            tasks_not_ready: status.tasks
+                                .filter(task => task.status !== 'ready')
+                                .map(task => ({
+                                    task: task.taskLabel,
+                                    status: task.status,
+                                    optional: Boolean(task.requiresLocalModel || task.requiredCapabilities?.length || task.optionalCapabilities?.length),
+                                    reason: this.aiSetupService!.redact(task.diagnostics[0] ?? 'Aucun modele pret.'),
+                                })),
+                            hint: status.ready
+                                ? undefined
+                                : 'Propose aide_open_ai_setup pour configurer un fournisseur.',
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 
@@ -8341,7 +8410,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 continue;
                             }
                             if (spec.sensitive) {
-                                errors.push(`${key} : clé sensible — à renseigner dans les préférences de l'application.`);
+                                errors.push(/^geoApp\.ai\./.test(key)
+                                    ? `${key} : clé sensible — à saisir par l'utilisateur dans l'assistant de configuration de l'IA (aide_open_ai_setup).`
+                                    : `${key} : clé sensible — à renseigner dans les préférences de l'application.`);
                                 continue;
                             }
                             if (spec.managed_by) {

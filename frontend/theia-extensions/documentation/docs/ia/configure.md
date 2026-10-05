@@ -7,6 +7,8 @@ tags: [IA, configuration, modèle, changer de modèle, agent, EarthCoach, OpenRo
 
 # Configurer l'intelligence artificielle
 
+> **Première configuration ?** Utilisez l'assistant : `Ctrl+Shift+P` → **GeoApp : Configurer l'IA**. Il enregistre votre clé, teste le modèle et le branche sur tous les assistants en trois étapes (voir « Configurer l'IA » dans Premiers pas). Cette page décrit les réglages fins, agent par agent.
+
 Le réglage se fait à deux niveaux :
 
 1. **Les fournisseurs** (OpenRouter, OpenAI, Anthropic, Ollama...) rendent des **modèles** disponibles dans l'application.
@@ -76,6 +78,8 @@ Pour lui donner un modèle OpenRouter précis :
 
 ## Dépannage
 
+- **Aucun assistant ne répond** : ouvrez l'assistant **GeoApp : Configurer l'IA**. Son écran d'état indique si un modèle par défaut est disponible et quelles fonctions sont prêtes ; **Tester à nouveau** dit pourquoi le modèle ne répond pas (clé refusée, crédit épuisé, serveur local arrêté).
+- **Vous n'avez qu'une clé OpenRouter ou un modèle local** : l'alias `default/universal` ne les vise pas de lui-même. L'assistant fait ce branchement ; à la main, sélectionnez le modèle dans l'onglet **Model Aliases**.
 - **Le modèle voulu n'apparaît pas dans la liste** : le fournisseur n'est pas configuré ou sa clé API manque. Pour OpenRouter, vérifiez **Activer OpenRouter** et **Clé API** dans Préférences GeoApp → IA → OpenRouter.
 - **L'agent répond « aucun modèle »** : le modèle choisi n'est pas prêt (fournisseur indisponible). Choisissez-en un autre, ou remettez l'agent sur son modèle par défaut.
 - **Un outil manque dans le chat** : ce n'est pas un problème de modèle, voir la vue **Policy Chat IA** (`@Aide` : « Ouvre la policy du chat »).
