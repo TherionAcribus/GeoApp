@@ -344,6 +344,14 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_open_friend_activity': { registryId: 'aide_open_friend_activity', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_friend_todo': { registryId: 'aide_open_friend_todo', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
 
+    // Dossiers de zones — regroupements de zones (« superzones » à membres)
+    'aide_list_zone_folders': { registryId: 'aide_list_zone_folders', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_zone_folder': { registryId: 'aide_get_zone_folder', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_create_zone_folder': { registryId: 'aide_create_zone_folder', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_set_zone_folder_members': { registryId: 'aide_set_zone_folder_members', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_add_zone_to_folder': { registryId: 'aide_add_zone_to_folder', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_remove_zone_from_folder': { registryId: 'aide_remove_zone_from_folder', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
     // Fiche géocache — analyses IA, chat contextuel, overrides de contenu, liens
     'aide_analyze_geocache': { registryId: 'aide_analyze_geocache', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_preview_geocache_workflow': { registryId: 'aide_preview_geocache_workflow', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

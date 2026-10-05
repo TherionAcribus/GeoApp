@@ -18,6 +18,7 @@ import {
     ToolCallResult,
 } from '@theia/ai-core';
 import { ZonesService } from 'theia-ide-zones-ext/lib/browser/zones-service';
+import type { ZoneDto } from 'theia-ide-zones-ext/lib/browser/zones-service';
 import { GeocachesService } from 'theia-ide-zones-ext/lib/browser/geocaches-service';
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import { GeocacheTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-tabs-manager';
@@ -339,6 +340,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         return [
             ...this.buildNavigationTools(),
             ...this.buildZoneTools(),
+            ...this.buildZoneFolderTools(),
             ...this.buildGeocacheTools(),
             ...this.buildWaypointTools(),
             ...this.buildNoteTools(),
@@ -1303,6 +1305,191 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 },
             },
         ];
+    }
+
+    // ─── Dossiers de zones ───────────────────────────────────────────────────
+
+    /** Charge une entité et vérifie qu'il s'agit bien d'un dossier. */
+    private async resolveFolder(folderId: number): Promise<ZoneDto> {
+        const zone = await this.zonesService.get<ZoneDto>(folderId);
+        if (!zone?.is_folder) {
+            throw new Error(`La zone ${folderId} n'est pas un dossier.`);
+        }
+        return zone;
+    }
+
+    /** Index id → nom des zones (pour résoudre les membres d'un dossier). */
+    private async zoneNamesById(): Promise<Map<number, string>> {
+        const zones = await this.zonesService.list<ZoneDto>();
+        return new Map(zones.map(z => [z.id, z.name]));
+    }
+
+    /** Dossier + membres résolus (id → {id, name}). */
+    private async folderWithMembers(folderId: number): Promise<Record<string, unknown>> {
+        const folder = await this.resolveFolder(folderId);
+        const names = await this.zoneNamesById();
+        const memberIds = folder.zone_ids ?? [];
+        return {
+            ...folder,
+            members: memberIds.map(id => ({ id, name: names.get(id) ?? `zone ${id}` })),
+        };
+    }
+
+    private buildZoneFolderTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_zone_folders',
+                name: 'aide_list_zone_folders',
+                description: 'Liste les dossiers de zones (« superzones » regroupant les géocaches de ' +
+                    'leurs zones membres) avec leurs membres résolus.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const all = await this.zonesService.list<ZoneDto>(false, true);
+                        const names = await this.zoneNamesById();
+                        const folders = all
+                            .filter(z => z.is_folder)
+                            .map(z => ({
+                                id: z.id,
+                                name: z.name,
+                                description: z.description,
+                                geocaches_count: z.geocaches_count,
+                                members: (z.zone_ids ?? []).map(id => ({ id, name: names.get(id) ?? `zone ${id}` })),
+                            }));
+                        return ok({ total: folders.length, folders });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_zone_folder',
+                name: 'aide_get_zone_folder',
+                description: 'Détail d\'un dossier de zones : membres (zones rangées) résolus par nom.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    folder_id: { type: 'number', description: 'ID du dossier.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.folderWithMembers(Number(args.folder_id)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_create_zone_folder',
+                name: 'aide_create_zone_folder',
+                description: 'Crée un dossier de zones. zone_ids optionnel = zones membres initiales ' +
+                    '(des zones, jamais d\'autres dossiers).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    name: { type: 'string', description: 'Nom du dossier.', required: true },
+                    description: { type: 'string', description: 'Description optionnelle.', required: false },
+                    zone_ids: { type: 'array', description: 'IDs des zones membres initiales.', items: { type: 'number' }, required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const folder = await this.zonesService.create<ZoneDto>({
+                            name: String(args.name ?? ''),
+                            description: args.description ? String(args.description) : undefined,
+                            is_folder: true,
+                        });
+                        const memberIds = this.toNumberList(args.zone_ids);
+                        if (memberIds.length > 0) {
+                            await this.zonesService.setFolderMembers(folder.id, memberIds);
+                        }
+                        this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyZoneListChanged();
+                        return ok(await this.folderWithMembers(folder.id));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_zone_folder_members',
+                name: 'aide_set_zone_folder_members',
+                description: 'Remplace la liste des zones membres d\'un dossier (zone_ids vide = dossier vidé). ' +
+                    'Pour ajouter/retirer une seule zone, préférer aide_add/remove_zone_from_folder.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    folder_id: { type: 'number', description: 'ID du dossier.', required: true },
+                    zone_ids: { type: 'array', description: 'IDs complets des zones membres (remplace l\'existant).', items: { type: 'number' }, required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Remplacer les zones membres de ce dossier ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const folderId = Number(args.folder_id);
+                        await this.resolveFolder(folderId);
+                        const memberIds = this.toNumberList(args.zone_ids);
+                        if (args.dry_run === true) {
+                            const current = await this.folderWithMembers(folderId);
+                            return ok({ would_set: memberIds, current });
+                        }
+                        await this.zonesService.setFolderMembers(folderId, memberIds);
+                        this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyZoneListChanged();
+                        return ok(await this.folderWithMembers(folderId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_add_zone_to_folder',
+                name: 'aide_add_zone_to_folder',
+                description: 'Range une zone dans un dossier (idempotent — déjà membre = sans effet). ' +
+                    'Une zone peut appartenir à plusieurs dossiers ; un dossier ne peut pas contenir un dossier.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    folder_id: { type: 'number', description: 'ID du dossier.', required: true },
+                    zone_id: { type: 'number', description: 'ID de la zone à ranger.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.resolveFolder(Number(args.folder_id));
+                        const zone = await this.zonesService.get<ZoneDto>(Number(args.zone_id));
+                        if (zone?.is_folder) {
+                            return err('Un dossier ne peut pas contenir un autre dossier.');
+                        }
+                        await this.zonesService.addToFolder(Number(args.folder_id), Number(args.zone_id));
+                        this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyZoneListChanged();
+                        return ok(await this.folderWithMembers(Number(args.folder_id)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_remove_zone_from_folder',
+                name: 'aide_remove_zone_from_folder',
+                description: 'Retire une zone d\'un dossier (la zone elle-même n\'est pas supprimée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    folder_id: { type: 'number', description: 'ID du dossier.', required: true },
+                    zone_id: { type: 'number', description: 'ID de la zone à retirer.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.resolveFolder(Number(args.folder_id));
+                        await this.zonesService.removeFromFolder(Number(args.folder_id), Number(args.zone_id));
+                        this.widgetEventsService.requestZonesRefresh();
+                        this.widgetEventsService.notifyZoneListChanged();
+                        return ok(await this.folderWithMembers(Number(args.folder_id)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    /** Liste d'entiers positifs dédupliqués. */
+    private toNumberList(value: unknown): number[] {
+        if (!Array.isArray(value)) {
+            return [];
+        }
+        return Array.from(new Set(
+            value.map(v => Number(v)).filter(n => Number.isFinite(n) && n > 0)
+        ));
     }
 
     // ─── Géocaches ───────────────────────────────────────────────────────────

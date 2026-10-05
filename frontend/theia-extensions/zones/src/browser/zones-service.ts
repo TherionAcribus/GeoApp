@@ -64,6 +64,19 @@ export class ZonesService {
         );
     }
 
+    /**
+     * Remplace la liste des zones membres d'un dossier (`PUT /members`) :
+     * c'est la seule façon de retirer plusieurs zones en une requête, et de
+     * vider un dossier (`zoneIds` vide).
+     */
+    async setFolderMembers<T extends ZoneDto = ZoneDto>(folderId: number, zoneIds: number[]): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${folderId}/members`,
+            this.apiClient.createJsonInit('PUT', { zone_ids: zoneIds }),
+            'Erreur lors de la mise à jour du dossier'
+        );
+    }
+
     async addToFolder<T extends ZoneDto = ZoneDto>(folderId: number, zoneId: number): Promise<T> {
         return this.apiClient.requestJson<T>(
             `/api/zones/${folderId}/members/${zoneId}`,
