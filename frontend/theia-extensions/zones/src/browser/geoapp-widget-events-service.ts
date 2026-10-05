@@ -76,6 +76,17 @@ export class GeoAppWidgetEventsService {
     protected readonly onDidRequestOpenImportDialogEmitter = new Emitter<OpenImportDialogRequest>();
     readonly onDidRequestOpenImportDialog: TheiaEvent<OpenImportDialogRequest> = this.onDidRequestOpenImportDialogEmitter.event;
 
+    /**
+     * Émis quand les sorties amies d'une zone changent hors du widget lui-même
+     * (tools IA) : la table de la zone relit le stockage et applique l'état.
+     */
+    protected readonly onDidChangeFriendOutingsEmitter = new Emitter<number>();
+    readonly onDidChangeFriendOutings: TheiaEvent<number> = this.onDidChangeFriendOutingsEmitter.event;
+
+    /** Émis quand les groupes d'amis globaux changent hors du widget (tools IA). */
+    protected readonly onDidChangeFriendGroupsEmitter = new Emitter<void>();
+    readonly onDidChangeFriendGroups: TheiaEvent<void> = this.onDidChangeFriendGroupsEmitter.event;
+
     requestZonesRefresh(): void {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
@@ -100,6 +111,14 @@ export class GeoAppWidgetEventsService {
         this.onDidRequestOpenImportDialogEmitter.fire(request);
     }
 
+    notifyFriendOutingsChanged(zoneId: number): void {
+        this.onDidChangeFriendOutingsEmitter.fire(zoneId);
+    }
+
+    notifyFriendGroupsChanged(): void {
+        this.onDidChangeFriendGroupsEmitter.fire();
+    }
+
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
         this.onDidRequestOpenZoneEmitter.dispose();
@@ -107,5 +126,7 @@ export class GeoAppWidgetEventsService {
         this.onDidChangeZoneListEmitter.dispose();
         this.onDidRequestTableFilterEmitter.dispose();
         this.onDidRequestOpenImportDialogEmitter.dispose();
+        this.onDidChangeFriendOutingsEmitter.dispose();
+        this.onDidChangeFriendGroupsEmitter.dispose();
     }
 }

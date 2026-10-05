@@ -370,6 +370,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             })
         );
 
+        // Les tools IA peuvent écrire les sorties/groupes pendant que la zone
+        // est ouverte : sans relecture, le prochain persist du widget
+        // écraserait leur écriture.
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeFriendOutings(zoneId => {
+                void this.reloadOutingsFromStorage(zoneId);
+            })
+        );
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeFriendGroups(() => {
+                void this.loadFriendGroups();
+            })
+        );
+
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
 
@@ -1840,6 +1854,26 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
         void this.loadAccountFriends();
         void this.loadFriendGroups();
+    }
+
+    /**
+     * Relit les sorties depuis le stockage après une écriture externe (tools IA).
+     * Contrairement à `restoreOuting`, la sortie courante est toujours remplacée
+     * par l'état lu — le désactiver côté agent doit quitter le mode.
+     */
+    protected async reloadOutingsFromStorage(zoneId: number): Promise<void> {
+        const stored = await loadZoneOutings(this.storageService, zoneId);
+        if (this.zoneId !== zoneId) {
+            return;
+        }
+        this.zoneOutings = stored;
+        const active = stored?.activeName ? findZoneOuting(stored, stored.activeName) : undefined;
+        this.applyOuting(active ?? null);
+        if (!active) {
+            this.friendFilter = 'none';
+            this.outingRestored = false;
+        }
+        this.update();
     }
 
     /**

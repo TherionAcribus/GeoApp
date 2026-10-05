@@ -27,6 +27,25 @@ import { GeocacheDetailsService } from 'theia-ide-zones-ext/lib/browser/geocache
 import { GeocacheLogsFetchService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-fetch-service';
 import { GeocacheLogsAnalysisService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-analysis-service';
 import { FriendsService } from 'theia-ide-zones-ext/lib/browser/friends-service';
+import type { FriendScanStreamEvent } from 'theia-ide-zones-ext/lib/browser/friends-types';
+import { loadFriendGroups, saveFriendGroups } from 'theia-ide-zones-ext/lib/browser/friend-groups-store';
+import { upsertFriendGroup, removeFriendGroup, findFriendGroup } from 'theia-ide-zones-ext/lib/browser/friend-groups-state';
+import { loadZoneOutings, saveZoneOutings, clearZoneOutings } from 'theia-ide-zones-ext/lib/browser/friend-outing-store';
+import {
+    createFriendOuting,
+    updateFriendOuting,
+    findZoneOuting,
+    nextOutingName,
+    upsertZoneOuting,
+    removeZoneOuting,
+    deactivateZoneOutings,
+    outingScopeGcCodes,
+    MAX_ZONE_OUTINGS,
+} from 'theia-ide-zones-ext/lib/browser/friend-outing-state';
+import type { ZoneOutings } from 'theia-ide-zones-ext/lib/browser/friend-outing-state';
+import { outingMatrixCsv } from 'theia-ide-zones-ext/lib/browser/friend-outing-export';
+import { scanCoverage, friendFindCell } from 'theia-ide-zones-ext/lib/browser/friend-scan-state';
+import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
 import { GpsVisitsService } from 'theia-ide-zones-ext/lib/browser/gps-visits-service';
 import type { GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
@@ -305,6 +324,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildStatusAndBatchTools(),
             ...this.buildLogTools(),
             ...this.buildFriendTools(),
+            ...this.buildFriendOutingTools(),
             ...this.buildArchiveTools(),
             ...this.buildMapTools(),
             ...this.buildOutingTools(),
@@ -2519,6 +2539,720 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.commandService.executeCommand('geoapp.friends.activity.open');
                         return ok('Panneau d\'activité des amis ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Sorties entre amis ──────────────────────────────────────────────────
+
+    /** Consomme le flux NDJSON d'un scan de trouvailles d'amis (sync-zone-stream). */
+    private async consumeFriendScanStream(response: Response): Promise<Record<string, unknown>> {
+        const summary = {
+            total_planned: 0,
+            skipped: 0,
+            scanned: 0,
+            with_friends: 0,
+            rate_limited: false,
+            caches_scanned: 0,
+            cache_errors: 0,
+            errors: [] as string[],
+        };
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('Flux d\'analyse indisponible.');
+        }
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const handleLine = (line: string): void => {
+            const trimmed = line.trim();
+            if (!trimmed) { return; }
+            let event: FriendScanStreamEvent;
+            try {
+                event = JSON.parse(trimmed) as FriendScanStreamEvent;
+            } catch {
+                return;
+            }
+            switch (event.phase) {
+                case 'start':
+                    summary.total_planned = event.to_scan ?? 0;
+                    summary.skipped = event.skipped ?? 0;
+                    break;
+                case 'rate_limited':
+                    summary.rate_limited = true;
+                    if (event.message) { summary.errors.push(event.message); }
+                    break;
+                case 'error':
+                    summary.errors.push(event.message ?? 'Erreur inconnue');
+                    break;
+                case 'done':
+                    summary.scanned = event.scanned ?? 0;
+                    summary.with_friends = event.with_friends ?? 0;
+                    summary.rate_limited = summary.rate_limited || event.rate_limited === true;
+                    summary.caches_scanned = event.caches_scanned ?? 0;
+                    summary.cache_errors = event.cache_errors ?? 0;
+                    break;
+            }
+        };
+        for (; ;) {
+            const { done, value } = await reader.read();
+            if (done) { break; }
+            buffer += decoder.decode(value, { stream: true });
+            let index: number;
+            while ((index = buffer.indexOf('\n')) >= 0) {
+                handleLine(buffer.slice(0, index));
+                buffer = buffer.slice(index + 1);
+            }
+        }
+        buffer += decoder.decode();
+        handleLine(buffer);
+        return summary;
+    }
+
+    /** Codes GC de toutes les caches d'une zone (pour `outingScopeGcCodes`). */
+    private async zoneGcCodes(zoneId: number): Promise<string[]> {
+        const geocaches = await this.zonesService.listGeocachesTree<{ gc_code?: string }>(zoneId);
+        return (Array.isArray(geocaches) ? geocaches : [])
+            .map(g => g.gc_code)
+            .filter((code): code is string => typeof code === 'string' && code.length > 0);
+    }
+
+    private toStringList(value: unknown): string[] {
+        return Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            : [];
+    }
+
+    /** Charge l'ensemble des sorties d'une zone (jamais null : ensemble vide). */
+    private async zoneOutingsOrEmpty(zoneId: number): Promise<ZoneOutings> {
+        const stored = await loadZoneOutings(this.storageService, zoneId);
+        return stored ?? { zoneId, outings: [], activeName: null };
+    }
+
+    /** Persiste un ensemble de sorties et prévient la table de zone ouverte. */
+    private async persistFriendOutings(set: ZoneOutings): Promise<void> {
+        if (set.outings.length > 0) {
+            await saveZoneOutings(this.storageService, set);
+        } else {
+            await clearZoneOutings(this.storageService, set.zoneId);
+        }
+        this.widgetEventsService.notifyFriendOutingsChanged(set.zoneId);
+    }
+
+    /**
+     * Résout la sortie visée par `name` : la sortie active si absent/'active',
+     * la sortie de ce nom sinon. `null` → erreur déjà formatée à renvoyer.
+     */
+    private findOutingByRef(set: ZoneOutings, name: unknown): { outing?: ZoneOutings['outings'][number]; error?: string } {
+        const needle = typeof name === 'string' ? name.trim() : '';
+        if (!needle || needle.toLowerCase() === 'active') {
+            if (!set.activeName) {
+                return { error: 'Aucune sortie active sur cette zone.' };
+            }
+            const active = findZoneOuting(set, set.activeName);
+            return active ? { outing: active } : { error: 'Aucune sortie active sur cette zone.' };
+        }
+        const found = findZoneOuting(set, needle);
+        if (!found) {
+            return { error: `Aucune sortie nommée "${needle}" sur cette zone.` };
+        }
+        return { outing: found };
+    }
+
+    private buildFriendOutingTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_friends',
+                name: 'aide_list_friends',
+                description: 'Liste les amis du compte Geocaching.com connecté (pseudos). ' +
+                    'Ces pseudos servent à préparer les sorties entre amis et les analyses de trouvailles.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    refresh: { type: 'boolean', description: 'Recharge depuis le serveur au lieu du cache mémoire (défaut false).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.friendsService.getFriends(Boolean(args.refresh));
+                        return ok({ fetched_at: this.friendsService.getFriendsFetchedAt(), ...result });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_friend_summary',
+                name: 'aide_get_friend_summary',
+                description: 'Fiche synthétique d\'un ami : nombre de trouvailles connues, activité récente ' +
+                    'et couverture d\'analyse par zone (données locales, pas d\'accès Geocaching.com).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    username: { type: 'string', description: 'Pseudo Geocaching.com de l\'ami.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.friendsService.getFriendSummary(String(args.username ?? '').trim()));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_friend_summary',
+                name: 'aide_open_friend_summary',
+                description: 'Ouvre la fiche détaillée d\'un ami (statistiques, activité récente, couverture par zone).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    username: { type: 'string', description: 'Pseudo Geocaching.com de l\'ami.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.commandService.executeCommand('geoapp.friends.summary.open', { username: String(args.username ?? '').trim() });
+                        return ok('Fiche ami ouverte.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_sync_friend_activity',
+                name: 'aide_sync_friend_activity',
+                description: 'Synchronise l\'activité récente des amis depuis Geocaching.com (logs récents). ' +
+                    'Requêtes réseau : préférer un nombre de jours raisonnable.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    days: { type: 'number', description: 'Nombre de jours d\'activité à synchroniser (défaut 30).', required: false },
+                }),
+                confirmAlwaysAllow: 'Synchroniser l\'activité des amis depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const days = Math.min(Math.max(Number(args.days) || 30, 1), 365);
+                        return ok(await this.friendsService.syncActivity(days));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_finds_estimate',
+                name: 'aide_friend_finds_estimate',
+                description: 'Estime le coût d\'une synchronisation complète des trouvailles d\'un ami ' +
+                    '(nombre de caches à parcourir, durée estimée). À appeler avant aide_sync_friend_finds.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    username: { type: 'string', description: 'Pseudo de l\'ami.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const estimate = await this.friendsService.estimateFriendFinds(String(args.username ?? '').trim());
+                        if (!estimate) {
+                            return err('Estimation indisponible (non connecté ou ami inconnu).');
+                        }
+                        return ok(estimate);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_sync_friend_finds',
+                name: 'aide_sync_friend_finds',
+                description: 'Récupère toutes les trouvailles d\'un ami depuis Geocaching.com ' +
+                    '(opération réseau potentiellement longue — estimer d\'abord avec aide_friend_finds_estimate).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    username: { type: 'string', description: 'Pseudo de l\'ami.', required: true },
+                }),
+                confirmAlwaysAllow: 'Synchroniser toutes les trouvailles de cet ami depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.friendsService.syncFriendFinds(String(args.username ?? '').trim()));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_find_suggestions',
+                name: 'aide_friend_find_suggestions',
+                description: 'Caches non trouvées par moi mais trouvées par au moins N amis ' +
+                    '(suggestions de sortie, données locales).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    min_friends: { type: 'number', description: 'Nombre minimum d\'amis ayant trouvé la cache (défaut 2).', required: false },
+                    limit: { type: 'number', description: 'Nombre maximum de suggestions (défaut 50).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const params = new URLSearchParams({
+                            min_friends: String(Math.max(Number(args.min_friends) || 2, 1)),
+                            limit: String(Math.min(Math.max(Number(args.limit) || 50, 1), 200)),
+                        });
+                        return ok(await this.friendsService.loadSuggestions(params));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_notifications',
+                name: 'aide_friend_notifications',
+                description: 'Liste les notifications d\'activité des amis (nouvelles trouvailles détectées). ' +
+                    'mark_seen les marque comme lues.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    limit: { type: 'number', description: 'Nombre maximum de notifications (défaut 50).', required: false },
+                    mark_seen: { type: 'boolean', description: 'Marquer toutes les notifications comme lues (défaut false).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const params = new URLSearchParams({ limit: String(Math.min(Math.max(Number(args.limit) || 50, 1), 200)) });
+                        const notifications = await this.friendsService.loadNotifications(params);
+                        if (args.mark_seen === true) {
+                            await this.friendsService.markNotificationsSeen();
+                        }
+                        return ok({ marked_seen: args.mark_seen === true, ...notifications });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_zone_estimate',
+                name: 'aide_friend_zone_estimate',
+                description: 'Estime le coût d\'une analyse des trouvailles d\'amis sur une zone ' +
+                    '(caches balayées, stratégie recommandée, durée). À appeler avant aide_friend_zone_scan.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.friendsService.estimateZoneScan(Number(args.zone_id)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_zone_scans',
+                name: 'aide_friend_zone_scans',
+                description: 'État de l\'analyse par ami sur une zone : coverage = unscanned (jamais analysé), ' +
+                    'partial (tronqué), stale (obsolète), fresh (à jour). Une absence de trouvaille n\'est ' +
+                    'un « non trouvée » fiable que si coverage = fresh.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const scans = await this.friendsService.loadZoneScans(Number(args.zone_id));
+                        return ok({
+                            zone_id: Number(args.zone_id),
+                            scans: scans.map(s => ({
+                                friend: s.friend,
+                                coverage: scanCoverage(s),
+                                found_count: s.found_count,
+                                zone_matches: s.zone_matches,
+                                scanned_at: s.scanned_at,
+                                is_stale: s.is_stale,
+                                truncated: s.truncated,
+                            })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_zone_scan',
+                name: 'aide_friend_zone_scan',
+                description: 'Analyse les trouvailles des amis sur une zone (requêtes Geocaching.com, ' +
+                    'opération potentiellement longue et limitée par le site). Par défaut seuls les amis ' +
+                    'jamais analysés ou obsolètes sont scannés ; force_all rescanne tout. ' +
+                    'outing_name réutilise les amis et le périmètre d\'une sortie enregistrée. ' +
+                    'Estimer d\'abord avec aide_friend_zone_estimate.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    friends: { type: 'array', description: 'Pseudos à analyser (défaut : tous les amis du compte).', items: { type: 'string' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC à cibler (défaut : toute la zone).', items: { type: 'string' }, required: false },
+                    outing_name: { type: 'string', description: 'Nom d\'une sortie enregistrée (ou "active") : prend ses amis et son périmètre.', required: false },
+                    force_all: { type: 'boolean', description: 'Rescanner même les amis déjà à jour (défaut false).', required: false },
+                }),
+                confirmAlwaysAllow: 'Lancer l\'analyse des trouvailles d\'amis sur cette zone ? Des requêtes Geocaching.com seront effectuées.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        let friends = this.toStringList(args.friends);
+                        let gcCodes = this.toStringList(args.gc_codes);
+                        let outingName: string | undefined;
+                        if (args.outing_name !== undefined) {
+                            const set = await this.zoneOutingsOrEmpty(zoneId);
+                            const resolved = this.findOutingByRef(set, args.outing_name);
+                            if (!resolved.outing) {
+                                return err(resolved.error ?? 'Sortie introuvable.');
+                            }
+                            outingName = resolved.outing.name;
+                            friends = resolved.outing.friends;
+                            gcCodes = outingScopeGcCodes(resolved.outing, await this.zoneGcCodes(zoneId)) ?? [];
+                        }
+                        const response = await this.friendsService.startZoneScanStream(zoneId, {
+                            force_all: Boolean(args.force_all),
+                            ...(friends.length > 0 ? { friends } : {}),
+                            ...(gcCodes.length > 0 ? { gc_codes: gcCodes } : {}),
+                        });
+                        const summary = await this.consumeFriendScanStream(response);
+                        return ok({ zone_id: zoneId, outing: outingName, ...summary });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_friend_finds',
+                name: 'aide_import_friend_finds',
+                description: 'Importe en base les trouvailles des amis manquantes détectées par l\'activité ' +
+                    '(flux long, requêtes Geocaching.com).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                confirmAlwaysAllow: 'Importer les trouvailles d\'amis manquantes depuis Geocaching.com ?',
+                handler: async () => {
+                    try {
+                        const response = await this.friendsService.startImportStream(new AbortController().signal);
+                        const summary = await this.consumeFriendScanStream(response);
+                        return ok(summary);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_friend_outings',
+                name: 'aide_list_friend_outings',
+                description: 'Liste les sorties entre amis enregistrées sur une zone ' +
+                    '(nom, amis emmenés, périmètre de caches, sortie active).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const set = await loadZoneOutings(this.storageService, Number(args.zone_id));
+                        return ok({
+                            zone_id: Number(args.zone_id),
+                            active: set?.activeName ?? null,
+                            outings: set?.outings ?? [],
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_upsert_friend_outing',
+                name: 'aide_upsert_friend_outing',
+                description: 'Crée ou remplace une sortie entre amis sur une zone (même nom = remplacement, ' +
+                    `maximum ${MAX_ZONE_OUTINGS} par zone). name omis = nom automatique ("Sortie", "Sortie 2"…). ` +
+                    'gc_codes vide ou omis = toute la zone. Par défaut la sortie devient active.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    name: { type: 'string', description: 'Nom de la sortie (défaut : nom automatique).', required: false },
+                    friends: { type: 'array', description: 'Pseudos des amis emmenés (omis = inchangé, vide = aucun).', items: { type: 'string' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC du périmètre (omis = inchangé, vide = toute la zone).', items: { type: 'string' }, required: false },
+                    activate: { type: 'boolean', description: 'Rendre la sortie active (défaut true).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const set = await this.zoneOutingsOrEmpty(zoneId);
+                        const name = String(args.name ?? '').trim() || nextOutingName(set.outings);
+                        const existing = findZoneOuting(set, name);
+                        const base = existing ?? createFriendOuting(zoneId, name);
+                        const outing = updateFriendOuting(base, {
+                            friends: Array.isArray(args.friends) ? this.toStringList(args.friends) : undefined,
+                            gcCodes: Array.isArray(args.gc_codes) ? this.toStringList(args.gc_codes) : undefined,
+                        });
+                        let nextSet = upsertZoneOuting(set, outing);
+                        if (!nextSet) {
+                            return err(`Maximum ${MAX_ZONE_OUTINGS} sorties par zone atteint.`);
+                        }
+                        if (args.activate === false) {
+                            nextSet = deactivateZoneOutings(nextSet);
+                        }
+                        await this.persistFriendOutings(nextSet);
+                        return ok({ zone_id: zoneId, active: nextSet.activeName, outing });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_friend_outing_active',
+                name: 'aide_set_friend_outing_active',
+                description: 'Active une sortie enregistrée (le mode sortie s\'applique à la table de la zone) ' +
+                    'ou quitte le mode sortie avec name vide.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    name: { type: 'string', description: 'Nom de la sortie à activer ; vide = quitter le mode sortie.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const stored = await loadZoneOutings(this.storageService, zoneId);
+                        if (!stored) {
+                            return err('Aucune sortie enregistrée sur cette zone.');
+                        }
+                        const name = String(args.name ?? '').trim();
+                        let nextSet: ZoneOutings;
+                        if (!name) {
+                            nextSet = deactivateZoneOutings(stored);
+                        } else {
+                            const found = findZoneOuting(stored, name);
+                            if (!found) {
+                                return err(`Aucune sortie nommée "${name}" sur cette zone.`);
+                            }
+                            nextSet = { ...stored, activeName: found.name };
+                        }
+                        await this.persistFriendOutings(nextSet);
+                        return ok({ zone_id: zoneId, active: nextSet.activeName });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_friend_outing',
+                name: 'aide_delete_friend_outing',
+                description: 'Supprime une sortie entre amis enregistrée sur une zone ' +
+                    '(si c\'était la sortie active, le mode sortie est quitté).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    name: { type: 'string', description: 'Nom de la sortie à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer cette sortie entre amis ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const stored = await loadZoneOutings(this.storageService, zoneId);
+                        if (!stored) {
+                            return err('Aucune sortie enregistrée sur cette zone.');
+                        }
+                        const name = String(args.name ?? '');
+                        const found = findZoneOuting(stored, name);
+                        if (!found) {
+                            return err(`Aucune sortie nommée "${name.trim()}" sur cette zone.`);
+                        }
+                        if (args.dry_run === true) {
+                            return ok({ would_delete: found, was_active: stored.activeName === found.name });
+                        }
+                        await this.persistFriendOutings(removeZoneOuting(stored, name));
+                        return ok({ deleted: found.name });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_friend_outing_matrix',
+                name: 'aide_friend_outing_matrix',
+                description: 'Matrice ami × cache d\'une sortie : pour chaque cache du périmètre, ' +
+                    'la cellule par ami est found / not_found (confirmé, couverture à jour) / unknown ' +
+                    '(à vérifier). Les « unknown » ne sont JAMAIS des « non trouvée ».',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    name: { type: 'string', description: 'Nom de la sortie (défaut : la sortie active).', required: false },
+                    limit: { type: 'number', description: 'Nombre maximum de lignes (défaut 300).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const set = await this.zoneOutingsOrEmpty(zoneId);
+                        const resolved = this.findOutingByRef(set, args.name);
+                        if (!resolved.outing) {
+                            return err(resolved.error ?? 'Sortie introuvable.');
+                        }
+                        const outing = resolved.outing;
+                        const [finds, scans, geocaches] = await Promise.all([
+                            this.friendsService.loadZoneFinds(zoneId),
+                            this.friendsService.loadZoneScans(zoneId),
+                            this.zonesService.listGeocachesTree<{ id: number; gc_code: string; name: string }>(zoneId),
+                        ]);
+                        const scope = outing.gcCodes.length > 0 ? new Set(outing.gcCodes) : undefined;
+                        const all = (Array.isArray(geocaches) ? geocaches : [])
+                            .filter(g => !scope || scope.has(g.gc_code));
+                        const scanByFriend = new Map(scans.map(s => [s.friend, s]));
+                        const limit = Math.min(Math.max(Number(args.limit) || 300, 1), 1000);
+                        const rows = all.slice(0, limit).map(g => {
+                            const finders = finds[g.gc_code] ?? [];
+                            const cells: Record<string, string> = {};
+                            for (const friend of outing.friends) {
+                                cells[friend] = friendFindCell(
+                                    finders.includes(friend),
+                                    scanCoverage(scanByFriend.get(friend)),
+                                );
+                            }
+                            return { gc_code: g.gc_code, name: g.name, cells };
+                        });
+                        return ok({
+                            zone_id: zoneId,
+                            outing: outing.name,
+                            friends: outing.friends,
+                            coverage: Object.fromEntries(
+                                outing.friends.map(f => [f, scanCoverage(scanByFriend.get(f))])
+                            ),
+                            total: all.length,
+                            truncated: all.length > rows.length,
+                            rows,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_export_friend_outing',
+                name: 'aide_export_friend_outing',
+                description: 'Exporte la matrice ami × cache d\'une sortie en CSV ' +
+                    '(séparateur « ; », cellules oui/non/?, colonnes nouvelle_pour et a_verifier). ' +
+                    'file_path écrit le fichier, sinon le CSV est retourné.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    name: { type: 'string', description: 'Nom de la sortie (défaut : la sortie active).', required: false },
+                    file_path: { type: 'string', description: 'Chemin local du fichier CSV à écrire.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const set = await this.zoneOutingsOrEmpty(zoneId);
+                        const resolved = this.findOutingByRef(set, args.name);
+                        if (!resolved.outing) {
+                            return err(resolved.error ?? 'Sortie introuvable.');
+                        }
+                        const outing = resolved.outing;
+                        const [finds, scans, geocaches] = await Promise.all([
+                            this.friendsService.loadZoneFinds(zoneId),
+                            this.friendsService.loadZoneScans(zoneId),
+                            this.zonesService.listGeocachesTree<{
+                                gc_code: string; name: string;
+                                cache_type?: string; difficulty?: number; terrain?: number;
+                            }>(zoneId),
+                        ]);
+                        const scope = outing.gcCodes.length > 0 ? new Set(outing.gcCodes) : undefined;
+                        const rows = (Array.isArray(geocaches) ? geocaches : [])
+                            .filter(g => !scope || scope.has(g.gc_code));
+                        const csv = outingMatrixCsv(
+                            rows as never,
+                            outing.friends,
+                            finds,
+                            scans,
+                        );
+                        const filePath = String(args.file_path ?? '').trim();
+                        if (filePath) {
+                            if (!this.fileService) {
+                                return err('Écriture de fichier indisponible dans cet environnement.');
+                            }
+                            await this.fileService.writeFile(URI.fromFilePath(filePath), BinaryBuffer.fromString(csv));
+                            return ok({ file_path: filePath, rows: rows.length, friends: outing.friends });
+                        }
+                        return ok({ outing: outing.name, rows: rows.length, csv });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_friend_groups',
+                name: 'aide_list_friend_groups',
+                description: 'Liste les groupes d\'amis réutilisables (enregistrés globalement, ' +
+                    'applicables à n\'importe quelle sortie).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok({ groups: await loadFriendGroups(this.storageService) });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_save_friend_group',
+                name: 'aide_save_friend_group',
+                description: 'Crée ou remplace un groupe d\'amis réutilisable ' +
+                    '(même nom = remplacement, insensible à la casse ; maximum 50 groupes).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    name: { type: 'string', description: 'Nom du groupe.', required: true },
+                    friends: { type: 'array', description: 'Pseudos des membres du groupe.', items: { type: 'string' }, required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const groups = await loadFriendGroups(this.storageService);
+                        const next = upsertFriendGroup(groups, String(args.name ?? ''), this.toStringList(args.friends));
+                        if (!next) {
+                            return err('Nom vide ou limite de 50 groupes atteinte.');
+                        }
+                        await saveFriendGroups(this.storageService, next);
+                        this.widgetEventsService.notifyFriendGroupsChanged();
+                        return ok({ saved: String(args.name).trim(), group_count: next.length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_friend_group',
+                name: 'aide_delete_friend_group',
+                description: 'Supprime un groupe d\'amis réutilisable (les sorties qui l\'utilisent gardent leurs membres).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    name: { type: 'string', description: 'Nom du groupe à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer ce groupe d\'amis ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const groups = await loadFriendGroups(this.storageService);
+                        const name = String(args.name ?? '');
+                        const found = findFriendGroup(groups, name);
+                        if (!found) {
+                            return err(`Aucun groupe nommé "${name.trim()}".`);
+                        }
+                        if (args.dry_run === true) {
+                            return ok({ would_delete: found });
+                        }
+                        await saveFriendGroups(this.storageService, removeFriendGroup(groups, name));
+                        this.widgetEventsService.notifyFriendGroupsChanged();
+                        return ok({ deleted: found.name });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_apply_friend_group',
+                name: 'aide_apply_friend_group',
+                description: 'Applique les membres d\'un groupe d\'amis à une sortie ' +
+                    '(sortie active par défaut ; la crée si aucune n\'existe).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    group_name: { type: 'string', description: 'Nom du groupe à appliquer.', required: true },
+                    outing_name: { type: 'string', description: 'Sortie cible (défaut : la sortie active, ou une nouvelle sortie).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        const groups = await loadFriendGroups(this.storageService);
+                        const group = findFriendGroup(groups, String(args.group_name ?? ''));
+                        if (!group) {
+                            return err(`Aucun groupe nommé "${String(args.group_name ?? '').trim()}".`);
+                        }
+                        const set = await this.zoneOutingsOrEmpty(zoneId);
+                        let target: ReturnType<typeof createFriendOuting> | undefined;
+                        if (args.outing_name !== undefined && String(args.outing_name).trim()) {
+                            target = findZoneOuting(set, String(args.outing_name));
+                            if (!target) {
+                                return err(`Aucune sortie nommée "${String(args.outing_name).trim()}" sur cette zone.`);
+                            }
+                        } else if (set.activeName) {
+                            target = findZoneOuting(set, set.activeName);
+                        }
+                        if (!target) {
+                            target = createFriendOuting(zoneId, nextOutingName(set.outings));
+                        }
+                        const outing = updateFriendOuting(target, { friends: group.friends });
+                        const nextSet = upsertZoneOuting(set, outing);
+                        if (!nextSet) {
+                            return err(`Maximum ${MAX_ZONE_OUTINGS} sorties par zone atteint.`);
+                        }
+                        await this.persistFriendOutings(nextSet);
+                        return ok({ zone_id: zoneId, outing: outing.name, friends: outing.friends, active: nextSet.activeName });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

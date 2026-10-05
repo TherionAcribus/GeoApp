@@ -16,6 +16,7 @@ import type {
     FriendZoneScanEntry,
     FriendScanStreamEvent,
     FriendFinder,
+    FriendSummaryResponse,
 } from './friends-types';
 
 /**
@@ -370,6 +371,20 @@ export class FriendsService {
             `/api/friends/finds/zone/${zoneId}/estimate`,
             {},
             'Estimation indisponible.',
+        );
+    }
+
+    // -------------------------------------------------- Fiche ami
+
+    /**
+     * Fiche synthétique d'un ami : compteurs, activité récente et couverture de
+     * scan par zone. Données locales — aucun accès geocaching.com.
+     */
+    async getFriendSummary(username: string): Promise<FriendSummaryResponse> {
+        return this.apiClient.requestJson<FriendSummaryResponse>(
+            `/api/friends/${encodeURIComponent(username)}/summary`,
+            {},
+            'Impossible de charger la fiche de cet ami.',
         );
     }
 
