@@ -115,12 +115,23 @@ import { BackendApiClient } from 'theia-ide-zones-ext/lib/browser/backend-api-cl
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import {
+    GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
     GEOAPP_CHAT_PRESET_OPTIONS,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_SKILL_PACK_PREF,
+    GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
+    GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
+import { GeoAppChatPolicyService } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-policy-service';
+import { GeoAppChatConfigurationService, GEOAPP_CHAT_POLICY_DEFAULTS } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-configuration-service';
+import { GeoAppAiToolCatalog } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-tool-catalog';
+import { GeoAppChatSkills } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-skills';
 import {
     buildGeocacheFullListingContext,
     GeocachePromptData,
@@ -291,6 +302,15 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(StorageService)
     protected readonly storageService!: StorageService;
 
+    @inject(GeoAppChatPolicyService)
+    protected readonly chatPolicyService!: GeoAppChatPolicyService;
+
+    @inject(GeoAppChatConfigurationService)
+    protected readonly chatConfigurationService!: GeoAppChatConfigurationService;
+
+    @inject(GeoAppAiToolCatalog)
+    protected readonly aiToolCatalog!: GeoAppAiToolCatalog;
+
     @inject(GeocacheImagesService)
     protected readonly geocacheImagesService!: GeocacheImagesService;
 
@@ -374,6 +394,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildSystemAndImportTools(),
             ...this.buildImportTools(),
             ...this.buildAiModelTools(),
+            ...this.buildChatPolicyTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -7197,6 +7218,321 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.commandService.executeCommand('aiConfiguration:open');
                         return ok('Vue Configuration IA ouverte.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Policy Chat IA avancée ───────────────────────────────────────────────
+
+    private static readonly CHAT_BEHAVIOR_WORKFLOW_PREFS: Record<string, string> = {
+        default: GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+        secret_code: GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
+        formula: GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF,
+        checker: GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF,
+        hidden_content: GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF,
+        image_puzzle: GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
+    };
+
+    private readOverridesMap(pref: string): Record<string, unknown> {
+        const raw = this.preferenceService.get<unknown>(pref, {});
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            return raw as Record<string, unknown>;
+        }
+        if (typeof raw === 'string' && raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return parsed as Record<string, unknown>;
+                }
+            } catch { /* ignore */ }
+        }
+        return {};
+    }
+
+    private buildChatPolicyTools(): ToolRequest[] {
+        const workflowEnum = Object.keys(DocActionToolsManager.CHAT_BEHAVIOR_WORKFLOW_PREFS);
+        const behaviorEnum = ['guided', 'safe', 'offline', 'automation', 'debug'];
+        return [
+            {
+                id: 'aide_get_chat_policy',
+                name: 'aide_get_chat_policy',
+                description: 'Policy Chat IA effective (même résolution que le widget « Policy Chat IA ») : profil ' +
+                    'comportemental, prompt pack, skill pack, skills actives, compteurs de tools ' +
+                    'actifs/confirmation/bloqués et overrides enregistrés. include_tools liste les ids.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    include_tools: { type: 'boolean', description: 'Inclure les listes de tools (enabled/confirm/disabled).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const policy = this.chatPolicyService.resolvePolicy();
+                        const data: Record<string, unknown> = {
+                            behavior_profile: policy.behaviorProfile,
+                            prompt_pack: policy.promptPack,
+                            skill_pack: policy.skillPack,
+                            workflow_kind: policy.workflowKind ?? 'general',
+                            session_kind: policy.sessionKind ?? 'auto',
+                            tools: {
+                                total: policy.entries.length,
+                                enabled: policy.enabledToolIds.size,
+                                confirm: policy.confirmToolIds.size,
+                                disabled: policy.disabledToolIds.size,
+                            },
+                            skills: {
+                                recommended: policy.recommendedSkillNames,
+                                disabled: [...policy.disabledSkillNames],
+                            },
+                            tool_overrides: this.readOverridesMap(GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF),
+                            skill_overrides: this.readOverridesMap(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF),
+                        };
+                        if (args.include_tools === true) {
+                            data['enabled_tools'] = policy.entries
+                                .filter(e => policy.enabledToolIds.has(e.registryId)).map(e => e.registryId).sort();
+                            data['confirm_tools'] = policy.entries
+                                .filter(e => policy.confirmToolIds.has(e.registryId)).map(e => e.registryId).sort();
+                            data['disabled_tools'] = policy.entries
+                                .filter(e => policy.disabledToolIds.has(e.registryId)).map(e => e.registryId).sort();
+                        }
+                        return ok(data);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_chat_policy_diagnostics',
+                name: 'aide_chat_policy_diagnostics',
+                description: 'Diagnostics de la policy Chat IA : tools attendus non enregistrés, tools recommandés ' +
+                    'par skill absents ou bloqués par la policy, getSkillFileContent manquant.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const policy = this.chatPolicyService.resolvePolicy();
+                        return ok({
+                            diagnostics: this.chatPolicyService.getRuntimeDiagnostics(policy),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_chat_behavior_profile',
+                name: 'aide_set_chat_behavior_profile',
+                description: 'Règle le profil comportemental du chat IA (guided | safe | offline | automation | debug) : ' +
+                    'globalement (workflow=default) ou par workflow (secret_code, formula, checker, hidden_content, ' +
+                    'image_puzzle — « default » y rend le profil global).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    workflow: { type: 'string', description: 'default | secret_code | formula | checker | hidden_content | image_puzzle.', enum: workflowEnum, required: true },
+                    profile: { type: 'string', description: 'guided | safe | offline | automation | debug ; « default » autorisé pour les workflows.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const workflow = String(args.workflow ?? '');
+                        const prefKey = DocActionToolsManager.CHAT_BEHAVIOR_WORKFLOW_PREFS[workflow];
+                        if (!prefKey) {
+                            return err(`Workflow inconnu : "${workflow}". Valides : ${workflowEnum.join(', ')}.`);
+                        }
+                        const profile = String(args.profile ?? '');
+                        const valid = workflow === 'default' ? behaviorEnum : [...behaviorEnum, 'default'];
+                        if (!valid.includes(profile)) {
+                            return err(`Profil invalide : "${profile}". Valides ici : ${valid.join(', ')}.`);
+                        }
+                        await this.preferenceService.set(prefKey, profile, PreferenceScope.User);
+                        return ok({ workflow, preference: prefKey, profile });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_chat_packs',
+                name: 'aide_set_chat_packs',
+                description: 'Règle le prompt pack et/ou le skill pack du chat IA (mêmes réglages que la vue Policy).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    prompt_pack: { type: 'string', description: 'guided | safe | offline | automation | debug.', enum: behaviorEnum, required: false },
+                    skill_pack: { type: 'string', description: 'workflow | minimal | full | disabled.', enum: ['workflow', 'minimal', 'full', 'disabled'], required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const applied: Record<string, string> = {};
+                        if (args.prompt_pack !== undefined) {
+                            const pack = String(args.prompt_pack);
+                            if (!behaviorEnum.includes(pack)) {
+                                return err(`Prompt pack invalide : "${pack}". Valides : ${behaviorEnum.join(', ')}.`);
+                            }
+                            await this.preferenceService.set(GEOAPP_CHAT_PROMPT_PACK_PREF, pack, PreferenceScope.User);
+                            applied.prompt_pack = pack;
+                        }
+                        if (args.skill_pack !== undefined) {
+                            const pack = String(args.skill_pack);
+                            if (!['workflow', 'minimal', 'full', 'disabled'].includes(pack)) {
+                                return err(`Skill pack invalide : "${pack}".`);
+                            }
+                            await this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, pack, PreferenceScope.User);
+                            applied.skill_pack = pack;
+                        }
+                        if (!Object.keys(applied).length) {
+                            return err('Fournissez prompt_pack et/ou skill_pack.');
+                        }
+                        return ok({ applied });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_chat_tool_override',
+                name: 'aide_set_chat_tool_override',
+                description: 'Force l\'état d\'un tool du chat IA (matrice « Tools » de la Policy) : enabled, disabled, ' +
+                    'confirm (demande toujours confirmation) ou default (retire l\'override). Accepte l\'id interne ' +
+                    'ou le nom public du tool.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    tool: { type: 'string', description: 'Id ou nom du tool (ex: "aide_map_search").', required: true },
+                    override: { type: 'string', description: 'enabled | disabled | confirm | default.', enum: ['enabled', 'disabled', 'confirm', 'default'], required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const name = String(args.tool ?? '').trim();
+                        const entry = this.aiToolCatalog.getEntries()
+                            .find(e => e.registryId === name || e.publicName === name);
+                        if (!entry) {
+                            return err(`Tool inconnu du catalogue GeoApp : "${name}".`);
+                        }
+                        const override = String(args.override ?? 'default');
+                        const overrides = { ...this.readOverridesMap(GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF) };
+                        delete overrides[entry.publicName];
+                        if (override === 'default') {
+                            delete overrides[entry.registryId];
+                        } else {
+                            overrides[entry.registryId] = override;
+                        }
+                        await this.preferenceService.set(GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF, overrides, PreferenceScope.User);
+                        return ok({ tool: entry.registryId, override, total_overrides: Object.keys(overrides).length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_chat_skill_override',
+                name: 'aide_set_chat_skill_override',
+                description: 'Force l\'état d\'une skill GeoApp du chat (enabled | disabled | default = retrait de ' +
+                    'l\'override). Les skills actives dépendent du skill pack et du workflow.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    skill: { type: 'string', description: 'Nom de la skill.', enum: GeoAppChatSkills.map(s => s.name), required: true },
+                    override: { type: 'string', description: 'enabled | disabled | default.', enum: ['enabled', 'disabled', 'default'], required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const name = String(args.skill ?? '').trim();
+                        if (!GeoAppChatSkills.some(s => s.name === name)) {
+                            return err(`Skill inconnue : "${name}". Valides : ${GeoAppChatSkills.map(s => s.name).join(', ')}.`);
+                        }
+                        const override = String(args.override ?? 'default');
+                        const overrides = { ...this.readOverridesMap(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF) };
+                        if (override === 'default') {
+                            delete overrides[name];
+                        } else {
+                            overrides[name] = override;
+                        }
+                        await this.preferenceService.set(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF, overrides, PreferenceScope.User);
+                        return ok({ skill: name, override, total_overrides: Object.keys(overrides).length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_export_chat_configuration',
+                name: 'aide_export_chat_configuration',
+                description: 'Exporte la configuration complète du chat IA (policy + prompt packs personnalisés + ' +
+                    'skills personnalisées) en JSON — vers file_path ou retournée. Réimportable via ' +
+                    'aide_import_chat_configuration ou la vue Policy.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    file_path: { type: 'string', description: 'Chemin du fichier JSON à écrire. Omettre = retourne le JSON.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const config = await this.chatConfigurationService.getFullConfigurationExport();
+                        const serialized = JSON.stringify(config, null, 2);
+                        if (args.file_path) {
+                            if (!this.fileService) {
+                                return err('Écriture de fichiers indisponible.');
+                            }
+                            await this.fileService.writeFile(
+                                URI.fromFilePath(String(args.file_path)),
+                                BinaryBuffer.fromString(serialized)
+                            );
+                            return ok({ file_path: String(args.file_path), policy_keys: Object.keys(config.policy).length });
+                        }
+                        return ok(config);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_chat_configuration',
+                name: 'aide_import_chat_configuration',
+                description: 'Importe une configuration chat IA exportée (policy, prompt packs personnalisés, skills). ' +
+                    'dry_run=true affiche l\'aperçu sans rien changer. Écrase les préférences et personnalisations existantes.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    config_json: { type: 'string', description: 'JSON de configuration (export complet ou ancienne policy).', required: false },
+                    file_path: { type: 'string', description: 'Chemin d\'un fichier JSON de configuration.', required: false },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Importer cette configuration Chat IA ? Elle remplace les préférences policy, les prompt packs personnalisés et les skills personnalisées.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        let serialized: string | undefined;
+                        if (args.config_json) {
+                            serialized = String(args.config_json);
+                        } else if (args.file_path) {
+                            if (!this.fileService) {
+                                return err('Lecture de fichiers indisponible.');
+                            }
+                            const content = await this.fileService.readFile(URI.fromFilePath(String(args.file_path)));
+                            serialized = content.value.toString();
+                        }
+                        if (!serialized) {
+                            return err('Fournissez config_json ou file_path.');
+                        }
+                        if (args.dry_run === true) {
+                            return ok({ dry_run: true, preview: this.chatConfigurationService.previewConfiguration(serialized) });
+                        }
+                        const result = await this.chatConfigurationService.importConfiguration(serialized, {
+                            confirmPromptPacks: () => true,
+                            confirmSkills: () => true,
+                            confirmOverwriteSkill: () => true,
+                        });
+                        return ok({ imported: result });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_reset_chat_policy',
+                name: 'aide_reset_chat_policy',
+                description: 'Réinitialise la policy Chat IA (profils comportementaux, packs, overrides de tools et ' +
+                    'skills, profil modèle) aux valeurs par défaut — comme « Réinitialiser » de la vue Policy. ' +
+                    'dry_run liste les préférences qui seront remises.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Réinitialiser toute la policy Chat IA aux valeurs par défaut ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.dry_run === true) {
+                            return ok({ dry_run: true, preferences: GEOAPP_CHAT_POLICY_DEFAULTS });
+                        }
+                        await Promise.all(Object.entries(GEOAPP_CHAT_POLICY_DEFAULTS).map(([key, value]) =>
+                            this.preferenceService.set(key, value, PreferenceScope.User)
+                        ));
+                        return ok({ reset: Object.keys(GEOAPP_CHAT_POLICY_DEFAULTS) });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

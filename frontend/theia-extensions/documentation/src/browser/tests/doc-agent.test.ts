@@ -13,7 +13,7 @@ require.extensions['.css'] = () => undefined;
 // dans ce test ils ne servent que de token d'injection — un stub de classe suffit.
 const Module = require('module');
 const originalLoad = Module._load;
-const STUBBED_MODULE_PATTERN = /lib\/browser\/(geocache-tabs-manager|zone-tabs-manager|plugin-tabs-manager|alphabet-tabs-manager)$/;
+const STUBBED_MODULE_PATTERN = /lib\/browser\/(geocache-tabs-manager|zone-tabs-manager|plugin-tabs-manager|alphabet-tabs-manager|geoapp-chat-configuration-service)$/;
 const stubbedModuleExports = new Proxy({}, {
     get: (_target, prop) => prop === '__esModule' ? true : class {},
 });
