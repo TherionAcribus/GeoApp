@@ -202,6 +202,15 @@ class GeocacheImporter:
         g.placed_at = s.placed_at
         g.status = s.status or 'active'
 
+        # Même règle monotone que ``refresh_geocache`` : le scrape ne produit
+        # ``found=True`` que lorsque le bandeau « Found It » est présent ; on
+        # ne revient jamais sur un found posé localement (log envoyé depuis
+        # GeoApp, archive restaurée).
+        if getattr(s, 'found', None):
+            g.found = True
+            if getattr(s, 'found_date', None):
+                g.found_date = s.found_date
+
         # Coordonnées : ne pas écraser une solution locale non poussée sur GC.
         scrape_has_corrected = bool(getattr(s, 'is_corrected', False))
         preserve_local_coords = bool(g.is_corrected) and not scrape_has_corrected

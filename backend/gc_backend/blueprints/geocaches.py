@@ -1605,7 +1605,10 @@ def add_geocache():
         
         # Utiliser l'importer existant
         importer = GeocacheImporter()
-        geocache = importer.import_by_code(zone_id, code)
+        # ``update_existing`` : un « Importer » explicite rafraîchit la fiche
+        # quand la géocache existe déjà — sans cela l'early-return laissait les
+        # lignes créées sans scraping (GPX, GPS) privées de trouvaille/favoris.
+        geocache = importer.import_by_code(zone_id, code, update_existing=True)
         
         logger.info(f"Successfully added geocache {code} (id={geocache.id})")
         
