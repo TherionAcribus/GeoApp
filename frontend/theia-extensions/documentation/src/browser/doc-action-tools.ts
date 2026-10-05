@@ -29,6 +29,38 @@ import { GpsVisitsService } from 'theia-ide-zones-ext/lib/browser/gps-visits-ser
 import type { GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
 import { TrackablesService } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import type { TrackableLogSubmission } from 'theia-ide-zones-ext/lib/browser/trackables-service';
+import { GeocacheLogEditorTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-log-editor-tabs-manager';
+import { StorageService } from '@theia/core/lib/browser';
+import { submitOneLog, uploadOneLogImage } from 'theia-ide-zones-ext/lib/browser/log-editor/log-submit-service';
+import type { SubmitLogPayload } from 'theia-ide-zones-ext/lib/browser/log-editor/log-submit-service';
+import { fetchGeocachesBatch, fetchUserStats } from 'theia-ide-zones-ext/lib/browser/log-editor/geocache-loader';
+import { resolveAllPatterns, buildPatternsIndex } from 'theia-ide-zones-ext/lib/browser/log-editor/pattern-resolver';
+import type { PatternResolutionContext } from 'theia-ide-zones-ext/lib/browser/log-editor/pattern-resolver';
+import { loadCustomPatterns } from 'theia-ide-zones-ext/lib/browser/log-editor/pattern-store';
+import {
+    readDrafts,
+    persistDraftToStorage,
+    deleteDraftFromStorage,
+    getDraftKey,
+    loadLogHistory,
+    LOG_DRAFTS_STORAGE_KEY,
+} from 'theia-ide-zones-ext/lib/browser/log-editor/log-history-store';
+import { submitProblemReport, PROBLEM_CATEGORIES, defaultProblemText, PROBLEM_TEXTS_PREF } from 'theia-ide-zones-ext/lib/browser/log-editor/problem-report';
+import { improveLogWithAi } from 'theia-ide-zones-ext/lib/browser/log-editor/log-improver';
+import { translateLogWithAi } from 'theia-ide-zones-ext/lib/browser/log-editor/log-translator';
+import type { LogTranslationMode } from 'theia-ide-zones-ext/lib/browser/log-editor/log-translator';
+import { GC_LOG_MAX_LENGTH, DEFAULT_TRANSLATION_NOTICE } from 'theia-ide-zones-ext/lib/browser/log-editor/constants';
+import { resolveLexicon } from 'theia-ide-zones-ext/lib/browser/geocaching-lexicon';
+import type { LexiconEntry } from 'theia-ide-zones-ext/lib/browser/geocaching-lexicon';
+import { sanitizeLogTypeForGeocache, todayIsoDate } from 'theia-ide-zones-ext/lib/browser/log-editor/helpers';
+import { LOG_DRAFT_VERSION } from 'theia-ide-zones-ext/lib/browser/log-editor/types';
+import type {
+    LogDraft,
+    LogTypeValue,
+    ProblemCategory,
+    SelectedLogImage,
+} from 'theia-ide-zones-ext/lib/browser/log-editor/types';
+import type { TrackablePayloadEntry } from 'theia-ide-zones-ext/lib/browser/log-editor/trackables';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
 import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
@@ -192,6 +224,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(TrackablesService)
     protected readonly trackablesService!: TrackablesService;
 
+    @inject(GeocacheLogEditorTabsManager)
+    protected readonly logEditorTabsManager!: GeocacheLogEditorTabsManager;
+
+    @inject(StorageService)
+    protected readonly storageService!: StorageService;
+
     @inject(MapService)
     protected readonly mapService!: MapService;
 
@@ -264,6 +302,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildOutingTools(),
             ...this.buildTrackableTools(),
             ...this.buildGpsVisitsTools(),
+            ...this.buildLogEditorTools(),
             ...this.buildSystemAndImportTools(),
             ...this.buildImportTools(),
             ...this.buildAiModelTools(),
@@ -3491,6 +3530,712 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             return ok(await this.gpsVisitsService.cancelZoneOperation(operationId));
                         }
                         return ok(await this.gpsVisitsService.getZoneOperation(operationId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Editeur de logs ────────────────────────────────────────────────────
+
+    /** Résout geocache_ids | gc_codes (ou le couple unitaire) en liste ordonnée d'ids. */
+    protected async resolveGeocacheIds(args: Record<string, any>): Promise<number[] | string> {
+        const ids: number[] = [];
+        if (Array.isArray(args.geocache_ids)) {
+            for (const value of args.geocache_ids) {
+                const id = Number(value);
+                if (Number.isFinite(id) && id > 0) { ids.push(id); }
+            }
+        }
+        if (Array.isArray(args.gc_codes)) {
+            for (const rawCode of args.gc_codes) {
+                const code = String(rawCode).trim();
+                const found = await this.geocachesService.getByCode<Record<string, unknown>>(code);
+                const id = Number(found?.['id']);
+                if (!Number.isFinite(id) || id <= 0) {
+                    return `Aucune géocache trouvée pour le code "${code}".`;
+                }
+                ids.push(id);
+            }
+        }
+        if (ids.length === 0) {
+            try {
+                ids.push(await this.resolveGeocacheId(args));
+            } catch {
+                return 'Fournissez geocache_ids, gc_codes, ou le couple geocache_id / gc_code.';
+            }
+        }
+        return [...new Set(ids)];
+    }
+
+    /** ID d'une référence `{geocache_id|gc_code}` (éléments per_cache des logs). */
+    protected async resolveGeocacheRefId(ref: Record<string, unknown>): Promise<number | undefined> {
+        const direct = Number(ref.geocache_id);
+        if (Number.isFinite(direct) && direct > 0) {
+            return direct;
+        }
+        const code = typeof ref.gc_code === 'string' ? ref.gc_code.trim() : '';
+        if (!code) {
+            return undefined;
+        }
+        const found = await this.geocachesService.getByCode<Record<string, unknown>>(code);
+        const id = Number(found?.['id']);
+        return Number.isFinite(id) && id > 0 ? id : undefined;
+    }
+
+    /**
+     * Contexte de résolution des @patterns : géocaches chargées, types de log
+     * assainis, trouvailles du profil (base de @cache_count), patterns perso.
+     * Les stats du profil peuvent manquer hors ligne : le compteur démarre alors à 1.
+     */
+    protected async loadPatternContext(geocacheIds: number[], logType: LogTypeValue, logDate: string): Promise<PatternResolutionContext> {
+        const { geocaches, perCacheLogType } = await fetchGeocachesBatch(
+            this.apiClient.getBaseUrl(), geocacheIds, {}, logType
+        );
+        let userFindsCount = 0;
+        try {
+            userFindsCount = (await fetchUserStats(this.apiClient.getBaseUrl())).findsCount;
+        } catch { /* profil indisponible : @cache_count démarre à 1 */ }
+        const customPatterns = await loadCustomPatterns(this.storageService, 'geoApp.logs.patterns.v1');
+        return { geocaches, perCacheLogType, logType, userFindsCount, logDate, customPatterns };
+    }
+
+    /** Lexique géocaching effectif, même règle que l'éditeur (préférences lues à chaque appel). */
+    protected getLogLexicon(): LexiconEntry[] {
+        if (this.preferenceService.get<boolean>('geoApp.ai.lexicon.enabled', true) === false) {
+            return [];
+        }
+        const entries = this.preferenceService.get<LexiconEntry[]>('geoApp.ai.lexicon.entries', []);
+        return resolveLexicon(Array.isArray(entries) ? entries : []);
+    }
+
+    /** Langue de traduction par défaut, comme l'éditeur : préférence, sinon première de la liste. */
+    protected getDefaultTranslationLanguage(): string {
+        const raw = this.preferenceService.get<unknown>('geoApp.logs.translation.languages', undefined);
+        const languages = (Array.isArray(raw) ? raw : [])
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map(entry => entry.trim())
+            .filter(entry => entry !== '');
+        if (languages.length === 0) {
+            return '';
+        }
+        const preferred = (this.preferenceService.get<string>('geoApp.logs.translation.defaultLanguage', '') || '').trim();
+        const match = languages.find(entry => entry.toLowerCase() === preferred.toLowerCase());
+        return match ?? languages[0];
+    }
+
+    /** Parse le paramètre `trackables` : [{code, action}] → entrées du payload ou message d'erreur. */
+    protected parseTrackablesArg(raw: unknown): TrackablePayloadEntry[] | string {
+        if (!Array.isArray(raw)) {
+            return [];
+        }
+        const out: TrackablePayloadEntry[] = [];
+        for (const item of raw as Array<Record<string, unknown>>) {
+            const code = typeof item?.code === 'string' ? item.code.trim() : '';
+            const action = item?.action;
+            if (!code || (action !== 'none' && action !== 'visit' && action !== 'drop')) {
+                return 'trackables invalide : attendu [{code, action: "none"|"visit"|"drop"}].';
+            }
+            out.push({ code, action });
+        }
+        return out;
+    }
+
+    private buildLogEditorTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_open_log_editor',
+                name: 'aide_open_log_editor',
+                description: 'Ouvre un onglet de l\'éditeur de logs pour ces géocaches (rédaction, ' +
+                    'envoi vers Geocaching.com). Un brouillon existant pour le même ensemble est restauré.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs des géocaches, dans l\'ordre des logs.', required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC, alternatif à geocache_ids.', required: false },
+                    title: { type: 'string', description: 'Titre de l\'onglet.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = await this.resolveGeocacheIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        await this.logEditorTabsManager.openLogEditor({
+                            geocacheIds: ids,
+                            title: args.title ? String(args.title) : undefined,
+                        });
+                        return ok({ geocache_ids: ids, editor_opened: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_draft_log',
+                name: 'aide_draft_log',
+                description: 'Prépare un brouillon de log puis ouvre l\'éditeur pour relecture et envoi ' +
+                    'par l\'utilisateur — jamais d\'envoi direct. text = texte commun ; per_cache pour ' +
+                    'des textes/types différents. Les @patterns sont résolus à l\'envoi par l\'éditeur.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs des géocaches, dans l\'ordre des logs.', required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC, alternatif à geocache_ids.', required: false },
+                    text: {
+                        type: 'string', required: true,
+                        description: 'Texte commun du log (Markdown ; @patterns autorisés : @date, @cache_count, @gc_code…).',
+                    },
+                    log_type: {
+                        type: 'string', required: false,
+                        enum: ['found', 'dnf', 'note', 'skip'],
+                        description: 'Type de log par défaut du lot (défaut found).',
+                    },
+                    date: { type: 'string', description: 'Date de visite YYYY-MM-DD (défaut aujourd\'hui).', required: false },
+                    favorite: { type: 'boolean', description: 'Point favori sur les logs « found ».', required: false },
+                    per_cache: {
+                        type: 'array', required: false,
+                        description: 'Par cache : [{geocache_id|gc_code, text?, log_type?, favorite?}].',
+                    },
+                    trackables: {
+                        type: 'array', required: false,
+                        description: 'Actions sur les TBs de l\'inventaire : [{code, action: "none"|"visit"|"drop", drop_geocache_id?}].',
+                    },
+                    title: { type: 'string', description: 'Titre de l\'onglet ouvert.', required: false },
+                    open: { type: 'boolean', description: 'Ouvrir l\'éditeur après écriture (défaut true).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = await this.resolveGeocacheIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        const { geocaches, missingIds } = await fetchGeocachesBatch(
+                            this.apiClient.getBaseUrl(), ids, {}, 'found'
+                        );
+                        if (geocaches.length === 0) {
+                            return err('Aucune géocache trouvée.');
+                        }
+                        const draftKey = getDraftKey(geocaches.map(gc => gc.id));
+                        if (!draftKey) { return err('Aucune géocache.'); }
+
+                        const perCacheText: Record<number, string> = {};
+                        const perCacheLogType: Record<number, LogTypeValue> = {};
+                        const perCacheFavorite: Record<number, boolean> = {};
+                        if (Array.isArray(args.per_cache)) {
+                            for (const item of args.per_cache as Array<Record<string, unknown>>) {
+                                const refId = await this.resolveGeocacheRefId(item);
+                                if (refId === undefined || !geocaches.some(gc => gc.id === refId)) { continue; }
+                                if (typeof item.text === 'string') { perCacheText[refId] = item.text; }
+                                if (item.log_type === 'found' || item.log_type === 'dnf' || item.log_type === 'note' || item.log_type === 'skip') {
+                                    perCacheLogType[refId] = item.log_type;
+                                }
+                                if (item.favorite === true) { perCacheFavorite[refId] = true; }
+                            }
+                        }
+                        if (args.favorite === true) {
+                            for (const gc of geocaches) { perCacheFavorite[gc.id] = true; }
+                        }
+
+                        let trackables: LogDraft['trackables'];
+                        if (Array.isArray(args.trackables) && args.trackables.length) {
+                            const actions: Record<string, 'none' | 'visit' | 'drop'> = {};
+                            const dropTargets: Record<string, number> = {};
+                            for (const item of args.trackables as Array<Record<string, unknown>>) {
+                                const code = typeof item?.code === 'string' ? item.code.trim() : '';
+                                const action = item?.action;
+                                if (!code || (action !== 'none' && action !== 'visit' && action !== 'drop')) {
+                                    return err('trackables invalide : attendu [{code, action: "none"|"visit"|"drop"}].');
+                                }
+                                actions[code] = action;
+                                if (action === 'drop' && item.drop_geocache_id !== undefined) {
+                                    dropTargets[code] = Number(item.drop_geocache_id);
+                                }
+                            }
+                            trackables = { actions, dropTargets };
+                        }
+
+                        const draft: LogDraft = {
+                            version: LOG_DRAFT_VERSION,
+                            savedAt: new Date().toISOString(),
+                            geocacheIds: geocaches.map(gc => gc.id),
+                            logDate: /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? '')) ? String(args.date) : todayIsoDate(),
+                            logType: (args.log_type as LogTypeValue) || 'found',
+                            useSameTextForAll: !Array.isArray(args.per_cache) || args.per_cache.length === 0,
+                            globalText: String(args.text),
+                            perCacheText,
+                            perCacheLogType,
+                            perCacheFavorite,
+                            perCacheSubmitStatus: {},
+                            perCacheSubmitReference: {},
+                            trackables,
+                        };
+                        await persistDraftToStorage(
+                            this.storageService, LOG_DRAFTS_STORAGE_KEY, draftKey, draft,
+                            90 * 24 * 60 * 60 * 1000, 30
+                        );
+                        if (args.open !== false) {
+                            await this.logEditorTabsManager.resumeLogEditor({
+                                geocacheIds: geocaches.map(gc => gc.id),
+                                title: args.title ? String(args.title) : undefined,
+                            });
+                        }
+                        return ok({
+                            draft_key: draftKey,
+                            geocache_ids: geocaches.map(gc => gc.id),
+                            missing_ids: missingIds,
+                            editor_opened: args.open !== false,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_submit_log',
+                name: 'aide_submit_log',
+                description: 'Publie un log sur Geocaching.com pour UNE géocache — ACTION PUBLIQUE ' +
+                    'IRRÉVERSIBLE. Les @patterns du texte sont résolus avant envoi ; image_guids vient ' +
+                    'de aide_upload_log_image ; trackables = actions sur les TBs de l\'inventaire. ' +
+                    'Pour un lot de caches, préférer aide_draft_log (l\'éditeur orchestre l\'envoi).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    text: {
+                        type: 'string', required: true,
+                        description: 'Texte du log (Markdown ; @patterns résolus avant envoi).',
+                    },
+                    log_type: {
+                        type: 'string', required: false,
+                        enum: ['found', 'dnf', 'note'],
+                        description: 'Type de log (défaut found).',
+                    },
+                    date: { type: 'string', description: 'Date de visite YYYY-MM-DD (défaut aujourd\'hui).', required: false },
+                    favorite: { type: 'boolean', description: 'Point favori (logs « found » seulement).', required: false },
+                    image_guids: {
+                        type: 'array', required: false,
+                        description: 'GUIDs de photos envoyées via aide_upload_log_image.',
+                    },
+                    trackables: {
+                        type: 'array', required: false,
+                        description: 'Actions TB : [{code, action: "none"|"visit"|"drop"}] — drop exige un log « found ».',
+                    },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Publier ce log sur Geocaching.com ? Action publique et irréversible.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const logType = (args.log_type as LogTypeValue) || 'found';
+                        const logDate = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? '')) ? String(args.date) : todayIsoDate();
+                        const ctx = await this.loadPatternContext([geocacheId], logType, logDate);
+                        const gc = ctx.geocaches[0];
+                        if (!gc) { return err('Géocache introuvable.'); }
+                        const effectiveType = ctx.perCacheLogType[gc.id] ?? sanitizeLogTypeForGeocache(logType, gc);
+                        if (effectiveType === 'skip') {
+                            return err(`${gc.gc_code} est déjà trouvée : un nouveau log « found » serait refusé. ` +
+                                'Utilisez log_type note ou dnf.');
+                        }
+                        const trackables = this.parseTrackablesArg(args.trackables);
+                        if (typeof trackables === 'string') { return err(trackables); }
+                        const imageGuids = Array.isArray(args.image_guids)
+                            ? (args.image_guids as unknown[]).map(String).filter(Boolean)
+                            : [];
+                        const resolvedText = resolveAllPatterns(String(args.text), gc.id, ctx);
+                        if (!resolvedText.trim()) { return err('Le texte du log est vide.'); }
+                        if (resolvedText.length > GC_LOG_MAX_LENGTH) {
+                            return err(`Texte final trop long : ${resolvedText.length} caractères (limite ${GC_LOG_MAX_LENGTH}).`);
+                        }
+                        const payload: SubmitLogPayload = {
+                            text: resolvedText,
+                            date: logDate,
+                            logType: effectiveType,
+                            favorite: effectiveType === 'found' && args.favorite === true,
+                        };
+                        if (imageGuids.length) { payload.images = imageGuids; }
+                        if (trackables.length) { payload.trackables = trackables; }
+                        if (args.dry_run) {
+                            return this.dryRunOk('submit_log', {
+                                geocache_id: gc.id,
+                                gc_code: gc.gc_code,
+                                resolved_text: resolvedText,
+                                payload,
+                                consequence: 'Le log serait publié publiquement sur Geocaching.com.',
+                            });
+                        }
+                        const result = await submitOneLog(this.apiClient.getBaseUrl(), gc.id, payload);
+                        if (result.ok) {
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new CustomEvent('geoapp-geocache-log-submitted', {
+                                    detail: {
+                                        geocacheId: gc.id,
+                                        gcCode: gc.gc_code,
+                                        logType: effectiveType,
+                                        logDate,
+                                        found: effectiveType === 'found',
+                                        logReferenceCode: result.logReferenceCode,
+                                    },
+                                }));
+                            }
+                            this.widgetEventsService.notifyGeocacheChanged({
+                                geocacheId: gc.id, reason: 'log-submitted', source: 'chat',
+                            });
+                            return ok({
+                                submitted: true,
+                                geocache_id: gc.id,
+                                gc_code: gc.gc_code,
+                                log_reference_code: result.logReferenceCode,
+                            });
+                        }
+                        if (result.alreadyLogged) {
+                            return err(`Déjà loguée sur Geocaching.com` +
+                                `${result.foundDate ? ` (trouvaille du ${result.foundDate})` : ''}.`);
+                        }
+                        if (result.ambiguous) {
+                            return err(`${result.error ?? 'Résultat distant incertain : le log a peut-être été créé.'} ` +
+                                'Ne réessayez pas à l\'aveugle : vérifiez la fiche de la cache.');
+                        }
+                        return err(result.error ?? 'Échec de l\'envoi du log.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_upload_log_image',
+                name: 'aide_upload_log_image',
+                description: 'Envoie une photo sur Geocaching.com pour le log d\'une géocache ' +
+                    '(compression côté client). Renvoie image_guid à passer à aide_submit_log : ' +
+                    'une photo seule n\'apparaît pas sans log.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    file_path: { type: 'string', description: 'Chemin complet du fichier image.', required: true },
+                }),
+                confirmAlwaysAllow: 'Envoyer cette photo sur Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        if (!this.fileService) {
+                            return err('Lecture de fichiers indisponible.');
+                        }
+                        const uri = URI.fromFilePath(String(args.file_path));
+                        const content = await this.fileService.readFile(uri);
+                        const file = new File(
+                            [new Uint8Array(content.value.buffer)],
+                            uri.path.base || 'photo.jpg'
+                        );
+                        const image: SelectedLogImage = { id: 'aide-1', file, status: 'pending' };
+                        const uploaded = await uploadOneLogImage(this.apiClient.getBaseUrl(), geocacheId, image);
+                        if (uploaded.status === 'ok' && uploaded.imageGuid) {
+                            return ok({ image_guid: uploaded.imageGuid, geocache_id: geocacheId });
+                        }
+                        return err(uploaded.error ?? 'Échec de l\'envoi de la photo.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_report_problem',
+                name: 'aide_report_problem',
+                description: 'Publie un signalement sur Geocaching.com — ACTION PUBLIQUE, le propriétaire ' +
+                    'est prévenu : needsMaintenance, logFull, logWet, damaged, missing, other (tous ' +
+                    'Needs Maintenance) ou archive (Needs Archived). text à défaut du texte de la catégorie.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    category: {
+                        type: 'string', required: true,
+                        enum: PROBLEM_CATEGORIES.map(c => c.code),
+                        description: 'Catégorie du problème.',
+                    },
+                    text: {
+                        type: 'string', required: false,
+                        description: 'Texte du signalement (défaut : texte de la catégorie / préférences).',
+                    },
+                    date: { type: 'string', description: 'Date du signalement YYYY-MM-DD (défaut aujourd\'hui).', required: false },
+                    main_log_type: {
+                        type: 'string', required: false,
+                        enum: ['found', 'dnf', 'note', 'skip'],
+                        description: 'Type du log principal associé (défaut found) — sert aux incompatibilités.',
+                    },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Publier ce signalement sur Geocaching.com ? ' +
+                    'Public : le propriétaire de la cache est prévenu.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const category = args.category as ProblemCategory;
+                        const info = PROBLEM_CATEGORIES.find(c => c.code === category);
+                        if (!info) {
+                            return err(`Catégorie invalide : ${String(args.category)} ` +
+                                `(${PROBLEM_CATEGORIES.map(c => c.code).join(', ')}).`);
+                        }
+                        const overrides = this.preferenceService.get<Record<string, unknown>>(PROBLEM_TEXTS_PREF, {});
+                        const text = args.text ? String(args.text) : defaultProblemText(category, overrides);
+                        const logDate = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? '')) ? String(args.date) : todayIsoDate();
+                        if (args.dry_run) {
+                            return this.dryRunOk('report_problem', {
+                                geocache_id: geocacheId,
+                                category,
+                                log_type: info.logTypeLabel,
+                                text,
+                                consequence: `Un log « ${info.logTypeLabel} » serait publié ; le propriétaire est prévenu.`,
+                            });
+                        }
+                        const result = await submitProblemReport(this.apiClient.getBaseUrl(), geocacheId, {
+                            category,
+                            text,
+                            date: logDate,
+                            mainLogType: (args.main_log_type as LogTypeValue) || 'found',
+                        });
+                        if (result.status === 'ok') {
+                            return ok({
+                                submitted: true,
+                                geocache_id: geocacheId,
+                                log_type: info.logTypeLabel,
+                                log_reference_code: result.logReferenceCode,
+                            });
+                        }
+                        if (result.status === 'uncertain') {
+                            return err(`${result.error ?? 'Résultat incertain : le signalement a peut-être été créé.'} ` +
+                                'Ne réessayez pas à l\'aveugle : vérifiez la fiche de la cache.');
+                        }
+                        return err(result.error ?? 'Échec de l\'envoi du signalement.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_improve_log_text',
+                name: 'aide_improve_log_text',
+                description: 'Améliore un texte de log par IA : proofread (corrige les fautes, ne ' +
+                    'reformule pas) ou rewrite (transforme des notes en texte suivi). Ne rajoute ' +
+                    'rien : seules les idées du texte sont reprises ; @patterns et lexique préservés.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    text: { type: 'string', description: 'Texte à améliorer.', required: true },
+                    mode: {
+                        type: 'string', required: false,
+                        enum: ['proofread', 'rewrite'],
+                        description: 'proofread (défaut) = correction ; rewrite = rédaction à partir des notes.',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (!this.aiExecutionService) {
+                            return err('Service d\'exécution IA indisponible.');
+                        }
+                        const customPatterns = await loadCustomPatterns(this.storageService, 'geoApp.logs.patterns.v1');
+                        const names = buildPatternsIndex(customPatterns).names;
+                        const result = await improveLogWithAi(
+                            this.aiExecutionService,
+                            String(args.text),
+                            (args.mode as 'proofread' | 'rewrite') || 'proofread',
+                            names,
+                            this.getLogLexicon()
+                        );
+                        if (!result) {
+                            return err('L\'IA n\'a renvoyé aucun texte.');
+                        }
+                        return ok({ text: result.text, lost_patterns: result.lostPatterns });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_translate_log_text',
+                name: 'aide_translate_log_text',
+                description: 'Traduit un texte de log par IA vers target_language (ou la langue de ' +
+                    'traduction configurée : préférences geoApp.logs.translation). mode replace ' +
+                    '(défaut) ou bilingual (original + traduction). @patterns et lexique préservés.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    text: { type: 'string', description: 'Texte à traduire.', required: true },
+                    target_language: {
+                        type: 'string', required: false,
+                        description: 'Langue cible (défaut : langue de traduction configurée).',
+                    },
+                    mode: {
+                        type: 'string', required: false,
+                        enum: ['replace', 'bilingual'],
+                        description: 'replace (défaut) ou bilingual (original conservé avant la traduction).',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (!this.aiExecutionService) {
+                            return err('Service d\'exécution IA indisponible.');
+                        }
+                        const language = args.target_language
+                            ? String(args.target_language).trim()
+                            : this.getDefaultTranslationLanguage();
+                        if (!language) {
+                            return err('Aucune langue configurée : target_language ou Préférences → Logs → Traduction.');
+                        }
+                        const customPatterns = await loadCustomPatterns(this.storageService, 'geoApp.logs.patterns.v1');
+                        const names = buildPatternsIndex(customPatterns).names;
+                        const mode: LogTranslationMode = args.mode === 'replace' || args.mode === 'bilingual'
+                            ? args.mode
+                            : this.preferenceService.get<string>('geoApp.logs.translation.mode', 'replace') === 'bilingual'
+                                ? 'bilingual'
+                                : 'replace';
+                        const separator = this.preferenceService.get<string>('geoApp.logs.translation.bilingualSeparator', '---') ?? '---';
+                        const addNotice = this.preferenceService.get<boolean>('geoApp.logs.translation.addNotice', true) !== false;
+                        const noticeText = this.preferenceService.get<string>(
+                            'geoApp.logs.translation.noticeText', DEFAULT_TRANSLATION_NOTICE) ?? DEFAULT_TRANSLATION_NOTICE;
+                        const result = await translateLogWithAi(
+                            this.aiExecutionService,
+                            String(args.text),
+                            language,
+                            names,
+                            mode,
+                            separator,
+                            addNotice,
+                            noticeText,
+                            this.getLogLexicon()
+                        );
+                        if (!result) {
+                            return err('L\'IA n\'a renvoyé aucune traduction.');
+                        }
+                        return ok({
+                            text: result.text,
+                            target_language: language,
+                            lost_patterns: result.lostPatterns,
+                            lexicon_deviations: result.lexiconDeviations,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_resolve_log_text',
+                name: 'aide_resolve_log_text',
+                description: 'Résout les @patterns d\'un texte de log : aperçu du texte final. ' +
+                    '@cache_count est numéroté d\'après le nombre de trouvailles du profil et l\'ordre ' +
+                    'des caches du lot (geocache_ids/gc_codes dans l\'ordre, for_geocache_id la cache visée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    text: { type: 'string', description: 'Texte avec @patterns à résoudre.', required: true },
+                    geocache_ids: { type: 'array', description: 'Lot ordonné de caches (numérotation @cache_count).', required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC du lot, alternatif.', required: false },
+                    for_geocache_id: { type: 'number', description: 'Cache pour laquelle résoudre (défaut : texte global).', required: false },
+                    date: { type: 'string', description: 'Date du lot YYYY-MM-DD pour @date (défaut aujourd\'hui).', required: false },
+                    log_type: {
+                        type: 'string', required: false,
+                        enum: ['found', 'dnf', 'note', 'skip'],
+                        description: 'Type de log par défaut du lot (défaut found).',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = await this.resolveGeocacheIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        const logDate = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date ?? '')) ? String(args.date) : todayIsoDate();
+                        const ctx = await this.loadPatternContext(
+                            ids, (args.log_type as LogTypeValue) || 'found', logDate
+                        );
+                        const forId = args.for_geocache_id !== undefined && ctx.geocaches.some(gc => gc.id === Number(args.for_geocache_id))
+                            ? Number(args.for_geocache_id)
+                            : null;
+                        return ok({
+                            resolved_text: resolveAllPatterns(String(args.text), forId, ctx),
+                            user_finds_count: ctx.userFindsCount,
+                            geocache_ids: ctx.geocaches.map(gc => gc.id),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_log_patterns',
+                name: 'aide_list_log_patterns',
+                description: 'Liste les @patterns utilisables dans les textes de log : intégrés ' +
+                    '(@date, @cache_count, @cache_name, @cache_owner, @gc_code, @visit_time) et ' +
+                    'personnalisés (nom + contenu).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const customPatterns = await loadCustomPatterns(this.storageService, 'geoApp.logs.patterns.v1');
+                        const index = buildPatternsIndex(customPatterns);
+                        return ok({
+                            builtin: index.all.filter(p => p.isBuiltin).map(p => `@${p.name}`),
+                            custom: customPatterns.map(p => ({ name: `@${p.name}`, content: p.content })),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_log_drafts',
+                name: 'aide_list_log_drafts',
+                description: 'Liste les brouillons de l\'éditeur de logs : ensemble de géocaches, ' +
+                    'date, type, extrait du texte. Reprendre avec aide_open_log_editor sur les mêmes geocache_ids.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const drafts = await readDrafts(this.storageService, LOG_DRAFTS_STORAGE_KEY);
+                        return ok(Object.entries(drafts).map(([key, draft]) => ({
+                            key,
+                            geocache_ids: draft.geocacheIds,
+                            saved_at: draft.savedAt,
+                            log_date: draft.logDate,
+                            log_type: draft.logType,
+                            text_excerpt: (draft.globalText || Object.values(draft.perCacheText ?? {})[0] || '').slice(0, 120),
+                        })));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_log_draft',
+                name: 'aide_delete_log_draft',
+                description: 'Supprime le brouillon de logs associé à cet ensemble de géocaches ' +
+                    '(la clé du brouillon est l\'ensemble trié de leurs ids).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs des géocaches du brouillon.', required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC, alternatif.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = await this.resolveGeocacheIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        const key = getDraftKey(ids);
+                        if (!key) { return err('Aucune géocache.'); }
+                        const drafts = await readDrafts(this.storageService, LOG_DRAFTS_STORAGE_KEY);
+                        if (!(key in drafts)) {
+                            return err(`Aucun brouillon pour cet ensemble (${key}).`);
+                        }
+                        await deleteDraftFromStorage(this.storageService, LOG_DRAFTS_STORAGE_KEY, key);
+                        return ok({ deleted: key });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_log_history',
+                name: 'aide_log_history',
+                description: 'Historique des envois de logs : date, géocaches, type, extrait du texte ' +
+                    'et statut par cache (ok/failed/skipped).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    limit: { type: 'number', description: 'Nombre max d\'entrées (défaut 10).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const history = await loadLogHistory(
+                            this.storageService,
+                            'geoApp.logs.history.v2',
+                            'geoApp.logs.history.v1',
+                            () => `aide-${Date.now()}`
+                        );
+                        const limit = Math.max(1, Math.min(Number(args.limit) || 10, 50));
+                        return ok(history.slice(0, limit).map(entry => ({
+                            created_at: entry.createdAt,
+                            log_date: entry.logDate,
+                            log_type: entry.logType,
+                            geocache_count: Object.keys(entry.perCacheLogType ?? {}).length
+                                || Object.keys(entry.perCacheText ?? {}).length,
+                            per_cache_status: entry.perCacheSubmitStatus,
+                            text_excerpt: (entry.globalText || '').slice(0, 120),
+                        })));
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

@@ -370,6 +370,20 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_gps_visits_add_to_zone': { registryId: 'aide_gps_visits_add_to_zone', category: 'app', risk: 'network', network: true, requiresAuth: true, writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_gps_visits_zone_operation': { registryId: 'aide_gps_visits_zone_operation', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
 
+    // Editeur de logs (redaction, envoi, signalements, patterns)
+    'aide_open_log_editor': { registryId: 'aide_open_log_editor', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_draft_log': { registryId: 'aide_draft_log', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_submit_log': { registryId: 'aide_submit_log', category: 'app', risk: 'high', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_upload_log_image': { registryId: 'aide_upload_log_image', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_report_problem': { registryId: 'aide_report_problem', category: 'app', risk: 'high', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_improve_log_text': { registryId: 'aide_improve_log_text', category: 'app', risk: 'network', network: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_translate_log_text': { registryId: 'aide_translate_log_text', category: 'app', risk: 'network', network: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_resolve_log_text': { registryId: 'aide_resolve_log_text', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_log_patterns': { registryId: 'aide_list_log_patterns', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_list_log_drafts': { registryId: 'aide_list_log_drafts', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_log_draft': { registryId: 'aide_delete_log_draft', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_log_history': { registryId: 'aide_log_history', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+
     // Carte / sortie / systeme
     'aide_map_show_geocache': { registryId: 'aide_map_show_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_map_center': { registryId: 'aide_map_center', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
