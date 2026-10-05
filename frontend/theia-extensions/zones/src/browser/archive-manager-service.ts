@@ -4,6 +4,7 @@ import { BackendApiClient } from './backend-api-client';
 import {
     ArchiveEntry,
     ArchiveListResponse,
+    ArchiveRestoreResponse,
     ArchiveSettings,
     ArchiveSettingsUpdateResponse,
     ArchiveStats,
@@ -73,6 +74,14 @@ export class ArchiveManagerService {
             `/api/archive/${encodeURIComponent(gcCode)}`,
             {},
             'Erreur lors du chargement du détail d\'archive'
+        );
+    }
+
+    async restoreArchive(gcCode: string): Promise<ArchiveRestoreResponse> {
+        return this.apiClient.requestJson<ArchiveRestoreResponse>(
+            `/api/archive/${encodeURIComponent(gcCode)}/restore`,
+            { method: 'POST' },
+            'Erreur lors de la restauration de l\'archive'
         );
     }
 

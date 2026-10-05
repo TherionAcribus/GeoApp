@@ -1840,6 +1840,71 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
+            {
+                id: 'aide_push_note_to_geocaching',
+                name: 'aide_push_note_to_geocaching',
+                description: 'Envoie du contenu vers la note personnelle Geocaching.com d\'une géocache (accès réseau). ' +
+                    'note_id = pousser une note applicative (ids via aide_list_notes) ; content = texte arbitraire ' +
+                    '(ex: coordonnées résolues). Par défaut la note perso GC.com est REMPLACÉE ; append=true l\'ajoute à la suite.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD"), alternatif à geocache_id.', required: false },
+                    note_id: { type: 'number', description: 'ID d\'une note applicative à pousser (via aide_list_notes).', required: false },
+                    content: { type: 'string', description: 'Texte à pousser si pas de note_id.', required: false },
+                    append: { type: 'boolean', description: 'true = ajoute au contenu existant de la note perso GC.com au lieu de le remplacer.', required: false },
+                }),
+                confirmAlwaysAllow: 'Pousser ce contenu vers la note personnelle Geocaching.com ? ' +
+                    'Sans append, le contenu actuel de la note perso sera remplacé.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const noteId = args.note_id !== undefined ? Number(args.note_id) : undefined;
+                        const rawContent = args.content !== undefined ? String(args.content) : undefined;
+                        if (noteId === undefined && rawContent === undefined) {
+                            return err('Fournissez note_id (note applicative) ou content (texte).');
+                        }
+
+                        let baseContent: string;
+                        let gcPersonalNote: string | null = null;
+                        if (noteId !== undefined || args.append) {
+                            const notesResponse = await this.notesService.getNotes(geocacheId);
+                            gcPersonalNote = notesResponse.gc_personal_note;
+                            if (noteId !== undefined) {
+                                const note = notesResponse.notes.find(n => n.id === noteId);
+                                if (!note) {
+                                    return err(`Note ${noteId} introuvable sur cette géocache — aide_list_notes pour les ids.`);
+                                }
+                                baseContent = note.content;
+                            } else {
+                                baseContent = rawContent!;
+                            }
+                        } else {
+                            baseContent = rawContent!;
+                        }
+
+                        const finalContent = args.append && gcPersonalNote?.trim()
+                            ? `${gcPersonalNote}\n\n${baseContent}`
+                            : baseContent;
+
+                        const result = noteId !== undefined
+                            ? await this.notesService.syncToGeocaching(noteId, geocacheId, finalContent)
+                            : await this.notesService.syncPersonalNoteToGeocaching(geocacheId, finalContent);
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId,
+                            reason: 'note-updated',
+                            source: 'chat',
+                        });
+                        return ok({
+                            geocache_id: result.geocache_id,
+                            gc_code: result.gc_code,
+                            gc_personal_note: result.gc_personal_note,
+                            gc_personal_note_last_pushed_at: result.gc_personal_note_last_pushed_at,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 
@@ -2456,6 +2521,143 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         const status = await this.geocacheDetailsService.getArchiveStatus(String(args.gc_code));
                         return ok(status ?? { exists: false });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_sync',
+                name: 'aide_archive_sync',
+                description: 'Force la synchronisation de l\'archive d\'une géocache : snapshot des données de résolution ' +
+                    'actuelles (statut, coordonnées résolues, note perso) vers l\'archive.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD").', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.geocacheDetailsService.syncArchive(String(args.gc_code));
+                        return ok(result ?? { gc_code: String(args.gc_code).trim().toUpperCase(), synced: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_restore',
+                name: 'aide_archive_restore',
+                description: 'Restaure les données d\'archive vers la géocache présente en base : statut de résolution, ' +
+                    'coordonnées résolues, note perso, flag found. La géocache doit exister dans une zone. Écrase les valeurs actuelles.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD").', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Restaurer cette archive vers la géocache ? Statut, coordonnées résolues, note perso et found seront écrasés.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const gcCode = String(args.gc_code).trim().toUpperCase();
+                        if (args.dry_run) {
+                            const archive = await this.archiveService.getArchive(gcCode);
+                            return this.dryRunOk('archive_restore', {
+                                gc_code: gcCode,
+                                would_restore: {
+                                    solved_status: archive.solved_status,
+                                    solved_coordinates_raw: archive.solved_coordinates_raw,
+                                    personal_note: archive.personal_note ? '(présente)' : undefined,
+                                    found: archive.found,
+                                },
+                                consequence: 'Ces valeurs d\'archive écraseraient les valeurs actuelles de la géocache.',
+                            });
+                        }
+                        const result = await this.archiveService.restoreArchive(gcCode);
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok({
+                            gc_code: result.gc_code,
+                            restored_fields: result.restored_fields,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_get_settings',
+                name: 'aide_archive_get_settings',
+                description: 'Lit les paramètres d\'archivage (auto_sync_enabled : synchro automatique des résolutions vers l\'archive).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.archiveService.getSettings());
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_set_auto_sync',
+                name: 'aide_archive_set_auto_sync',
+                description: 'Active ou désactive la synchronisation automatique des résolutions vers l\'archive.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    enabled: { type: 'boolean', description: 'true = synchro automatique activée.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.archiveService.updateSettings(Boolean(args.enabled)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_archive_bulk_delete',
+                name: 'aide_archive_bulk_delete',
+                description: 'Supprime en masse des entrées d\'archive (irréversible). Filtres : all = tout, ' +
+                    'by_status (+ status), orphaned (archives sans géocache en base), before_date (+ before_date ISO).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    filter: {
+                        type: 'string',
+                        description: 'Périmètre de la purge : "all", "by_status", "orphaned" ou "before_date".',
+                        required: true,
+                        enum: ['all', 'by_status', 'orphaned', 'before_date'],
+                    },
+                    status: { type: 'string', description: 'Statut ciblé si filter="by_status" (ex: "not_solved").', required: false },
+                    before_date: { type: 'string', description: 'Date ISO (AAAA-MM-JJ) si filter="before_date".', required: false },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer définitivement des entrées d\'archive en masse ? Action irréversible.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const filter = String(args.filter);
+                        if (filter === 'by_status' && !args.status) {
+                            return err('Le paramètre status est requis avec filter="by_status".');
+                        }
+                        if (filter === 'before_date' && !args.before_date) {
+                            return err('Le paramètre before_date (AAAA-MM-JJ) est requis avec filter="before_date".');
+                        }
+                        if (args.dry_run) {
+                            let affected: number | undefined;
+                            if (filter === 'all') {
+                                affected = (await this.archiveService.getStats()).total_archived;
+                            } else if (filter === 'by_status') {
+                                affected = (await this.archiveService.listArchives({
+                                    page: 1, perPage: 1, solvedStatus: String(args.status),
+                                })).total;
+                            }
+                            return this.dryRunOk('archive_bulk_delete', {
+                                filter,
+                                status: args.status,
+                                before_date: args.before_date,
+                                affected_count: affected,
+                                consequence: 'Les entrées d\'archive correspondantes seraient définitivement supprimées.',
+                            });
+                        }
+                        const result = await this.archiveService.bulkDeleteArchives({
+                            confirm: true,
+                            filter: filter as 'all' | 'by_status' | 'orphaned' | 'before_date',
+                            status: args.status ? String(args.status) : undefined,
+                            before_date: args.before_date ? String(args.before_date) : undefined,
+                        });
+                        this.messageService.info(`Archives supprimées : ${result.deleted}.`);
+                        return ok(result);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

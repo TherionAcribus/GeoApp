@@ -74,7 +74,16 @@ export interface ArchiveEntry {
     waypoints_snapshot?: unknown[] | null;
     found?: boolean;
     updated_at?: string;
+    personal_note?: string;
     resolution_diagnostics?: ArchiveDiagnostics | null;
+}
+
+/** Réponse de `POST /api/archive/<gc_code>/restore`. */
+export interface ArchiveRestoreResponse {
+    restored: boolean;
+    gc_code: string;
+    restored_fields: string[];
+    geocache?: GeocacheApiResponse;
 }
 
 export interface GeocacheApiResponse {
