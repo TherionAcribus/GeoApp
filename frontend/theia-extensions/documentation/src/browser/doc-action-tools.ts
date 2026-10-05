@@ -53,7 +53,7 @@ import type { GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps
 import { TrackablesService } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import type { TrackableLogSubmission } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import { GeocacheLogEditorTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-log-editor-tabs-manager';
-import { StorageService } from '@theia/core/lib/browser';
+import { StorageService, WidgetManager, ApplicationShell } from '@theia/core/lib/browser';
 import { submitOneLog, uploadOneLogImage } from 'theia-ide-zones-ext/lib/browser/log-editor/log-submit-service';
 import type { SubmitLogPayload } from 'theia-ide-zones-ext/lib/browser/log-editor/log-submit-service';
 import { fetchGeocachesBatch, fetchUserStats } from 'theia-ide-zones-ext/lib/browser/log-editor/geocache-loader';
@@ -311,6 +311,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(GeoAppAiToolCatalog)
     protected readonly aiToolCatalog!: GeoAppAiToolCatalog;
 
+    @inject(WidgetManager)
+    protected readonly widgetManager!: WidgetManager;
+
+    @inject(ApplicationShell)
+    protected readonly shell!: ApplicationShell;
+
     @inject(GeocacheImagesService)
     protected readonly geocacheImagesService!: GeocacheImagesService;
 
@@ -395,6 +401,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildImportTools(),
             ...this.buildAiModelTools(),
             ...this.buildChatPolicyTools(),
+            ...this.buildBatchPluginTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -7533,6 +7540,236 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             this.preferenceService.set(key, value, PreferenceScope.User)
                         ));
                         return ok({ reset: Object.keys(GEOAPP_CHAT_POLICY_DEFAULTS) });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Exécution de plugins en batch ────────────────────────────────────────
+
+    /** Résumé compact d'un résultat batch (le `result` complet peut être volumineux). */
+    private summarizeBatchResult(result: Record<string, unknown>): Record<string, unknown> {
+        const raw = result['result'];
+        let resultPreview: unknown = raw;
+        if (raw !== undefined) {
+            const serialized = typeof raw === 'string' ? raw : JSON.stringify(raw);
+            resultPreview = serialized.length > 2000 ? `${serialized.slice(0, 2000)}…` : raw;
+        }
+        return {
+            geocache_id: result['geocache_id'],
+            gc_code: result['gc_code'],
+            status: result['status'],
+            error: result['error'],
+            coordinates: result['coordinates'],
+            execution_time: result['execution_time'],
+            result: resultPreview,
+        };
+    }
+
+    private buildBatchPluginTools(): ToolRequest[] {
+        const resolveIds = async (args: Record<string, any>): Promise<number[] | string> => {
+            if (args.zone_id !== undefined) {
+                const zoneId = Number(args.zone_id);
+                const geocaches = await this.zonesService.listGeocachesTree<Array<Record<string, unknown>>>(zoneId);
+                const ids = (geocaches ?? []).map(g => Number(g['id'])).filter(id => Number.isFinite(id));
+                return ids.length ? [...new Set(ids)] : `Aucune géocache dans la zone ${zoneId}.`;
+            }
+            return this.resolveGeocacheIds(args);
+        };
+        return [
+            {
+                id: 'aide_open_batch_plugin_executor',
+                name: 'aide_open_batch_plugin_executor',
+                description: 'Ouvre l\'exécuteur de plugins en batch pré-rempli avec des géocaches ' +
+                    '(geocache_ids, gc_codes ou toute une zone via zone_id) : choix du plugin, paramètres et suivi visuel.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs de géocaches.', items: { type: 'number' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC.', items: { type: 'string' }, required: false },
+                    zone_id: { type: 'number', description: 'ID de zone : toutes ses géocaches.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = await resolveIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        const response = await this.geocachesService.getBatch<Record<string, unknown>>(ids, { full: true });
+                        const geocaches = (response.geocaches ?? []).map(g => ({
+                            id: Number(g['id']),
+                            gc_code: String(g['gc_code'] ?? ''),
+                            name: String(g['name'] ?? ''),
+                            original_latitude: g['original_latitude'],
+                            original_longitude: g['original_longitude'],
+                            original_coordinates_raw: g['original_coordinates_raw'],
+                            coordinates: (g['latitude'] && g['longitude']) ? {
+                                latitude: g['latitude'],
+                                longitude: g['longitude'],
+                                coordinates_raw: g['coordinates_raw'] || `${g['latitude']}, ${g['longitude']}`,
+                            } : undefined,
+                            description: g['description_raw'],
+                            hint: g['hints'],
+                            difficulty: g['difficulty'],
+                            terrain: g['terrain'],
+                            waypoints: g['waypoints'] || [],
+                        }));
+                        if (!geocaches.length) {
+                            return err('Aucune géocache trouvée.');
+                        }
+                        const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
+                        const widget = await this.widgetManager.getOrCreateWidget('batch-plugin-executor-widget');
+                        window.dispatchEvent(new CustomEvent('batch-executor-initialize', {
+                            detail: { geocaches, zoneId, zoneName: undefined },
+                        }));
+                        if (!widget.isAttached) {
+                            this.shell.addWidget(widget, { area: 'main' });
+                        }
+                        this.shell.activateWidget(widget.id);
+                        return ok({ opened: true, geocache_count: geocaches.length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_batch_execute_plugin',
+                name: 'aide_batch_execute_plugin',
+                description: 'Exécute un plugin sur plusieurs géocaches en une tâche batch (comme l\'exécuteur batch : ' +
+                    'sequential/parallel, détection de coordonnées, images incluses pour les plugins image). ' +
+                    'wait=false rend la main tout de suite avec le task_id à suivre via aide_batch_plugin_status.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plugin_name: { type: 'string', description: 'Nom du plugin (voir aide_list_plugins).', required: true },
+                    geocache_ids: { type: 'array', description: 'IDs de géocaches.', items: { type: 'number' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC.', items: { type: 'string' }, required: false },
+                    zone_id: { type: 'number', description: 'ID de zone : toutes ses géocaches.', required: false },
+                    inputs: { type: 'object', description: 'Entrées du plugin (schema via aide_get_plugin).', required: false },
+                    execution_mode: { type: 'string', description: 'sequential | parallel.', enum: ['sequential', 'parallel'], required: false },
+                    max_concurrency: { type: 'number', description: 'Concurrence max en mode parallel (défaut 3).', required: false },
+                    detect_coordinates: { type: 'boolean', description: 'Détecter les coordonnées dans les résultats (défaut true).', required: false },
+                    wait: { type: 'boolean', description: 'Attendre la fin (défaut true).', required: false },
+                    timeout_seconds: { type: 'number', description: 'Timeout d\'attente en secondes (défaut 120).', required: false },
+                }),
+                confirmAlwaysAllow: 'Lancer l\'exécution de ce plugin sur toutes les géocaches indiquées ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const pluginName = String(args.plugin_name ?? '').trim();
+                        if (!pluginName) {
+                            return err('plugin_name requis.');
+                        }
+                        const ids = await resolveIds(args);
+                        if (typeof ids === 'string') { return err(ids); }
+                        if (!ids.length) {
+                            return err('Aucune géocache ciblée.');
+                        }
+                        const details = await this.pluginsService.getPlugin(pluginName);
+                        const kinds = details.metadata?.['kinds'] as string[] | undefined;
+                        const includeImages = Array.isArray(kinds) && kinds.includes('image');
+
+                        const started = await this.apiClient.requestJson<Record<string, unknown>>('/api/plugins/batch-execute', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                plugin_name: pluginName,
+                                geocache_ids: ids,
+                                inputs: (args.inputs && typeof args.inputs === 'object') ? args.inputs : {},
+                                options: {
+                                    execution_mode: args.execution_mode === 'parallel' ? 'parallel' : 'sequential',
+                                    max_concurrency: Math.min(Math.max(Number(args.max_concurrency) || 3, 1), 10),
+                                    detect_coordinates: args.detect_coordinates !== false,
+                                    include_images: includeImages,
+                                },
+                            }),
+                        });
+                        const taskId = String(started['task_id'] ?? '');
+                        if (!taskId) {
+                            return err('Le backend n\'a pas renvoyé de task_id.');
+                        }
+                        if (args.wait === false) {
+                            return ok({ task_id: taskId, status: 'started', total_geocaches: ids.length });
+                        }
+
+                        const deadline = Date.now() + Math.min(Math.max(Number(args.timeout_seconds) || 120, 5), 900) * 1000;
+                        let status: Record<string, unknown> = {};
+                        while (Date.now() < deadline) {
+                            await new Promise(r => setTimeout(r, 2000));
+                            status = await this.apiClient.requestJson<Record<string, unknown>>(`/api/plugins/batch-status/${taskId}`);
+                            if (status['status'] !== 'running' && status['status'] !== 'pending') {
+                                break;
+                            }
+                        }
+                        const results = Array.isArray(status['results']) ? status['results'] as Array<Record<string, unknown>> : [];
+                        const counts: Record<string, number> = {};
+                        let detected = 0;
+                        for (const r of results) {
+                            counts[String(r['status'])] = (counts[String(r['status'])] ?? 0) + 1;
+                            if (r['coordinates']) { detected++; }
+                        }
+                        return ok({
+                            task_id: taskId,
+                            status: status['status'],
+                            progress: status['progress'],
+                            counts,
+                            coordinates_detected: detected,
+                            results: results.slice(0, 50).map(r => this.summarizeBatchResult(r)),
+                            truncated: results.length > 50,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_batch_plugin_status',
+                name: 'aide_batch_plugin_status',
+                description: 'Statut d\'une tâche batch de plugin : progression et résultats par géocache ' +
+                    '(statut, erreur, coordonnées détectées).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    task_id: { type: 'string', description: 'ID de la tâche batch.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const status = await this.apiClient.requestJson<Record<string, unknown>>(`/api/plugins/batch-status/${String(args.task_id)}`);
+                        const results = Array.isArray(status['results']) ? status['results'] as Array<Record<string, unknown>> : [];
+                        return ok({
+                            task_id: status['task_id'] ?? args.task_id,
+                            status: status['status'],
+                            progress: status['progress'],
+                            results: results.slice(0, 50).map(r => this.summarizeBatchResult(r)),
+                            truncated: results.length > 50,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_batch_plugin_tasks',
+                name: 'aide_list_batch_plugin_tasks',
+                description: 'Liste les tâches batch de plugins (actives et terminées) : plugin, statut, progression.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const data = await this.apiClient.requestJson<Record<string, unknown>>('/api/plugins/batch-list');
+                        return ok(data['tasks'] ?? []);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_cancel_batch_plugin_task',
+                name: 'aide_cancel_batch_plugin_task',
+                description: 'Annule une tâche batch de plugin en cours.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    task_id: { type: 'string', description: 'ID de la tâche batch à annuler.', required: true },
+                }),
+                confirmAlwaysAllow: 'Annuler cette tâche batch en cours ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const data = await this.apiClient.requestJson<Record<string, unknown>>(
+                            `/api/plugins/batch-cancel/${String(args.task_id)}`,
+                            { method: 'POST' }
+                        );
+                        return ok({ task_id: args.task_id, message: data['message'] ?? 'Annulation demandée.' });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

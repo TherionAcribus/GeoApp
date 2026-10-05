@@ -496,6 +496,13 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_export_chat_configuration': { registryId: 'aide_export_chat_configuration', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_import_chat_configuration': { registryId: 'aide_import_chat_configuration', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_reset_chat_policy': { registryId: 'aide_reset_chat_policy', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Plugins batch
+    'aide_open_batch_plugin_executor': { registryId: 'aide_open_batch_plugin_executor', category: 'plugins', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_batch_execute_plugin': { registryId: 'aide_batch_execute_plugin', category: 'plugins', risk: 'network', network: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_batch_plugin_status': { registryId: 'aide_batch_plugin_status', category: 'plugins', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_list_batch_plugin_tasks': { registryId: 'aide_list_batch_plugin_tasks', category: 'plugins', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_cancel_batch_plugin_task': { registryId: 'aide_cancel_batch_plugin_task', category: 'plugins', risk: 'local_write', scopes: ['aide'], defaultEnabled: true },
 };
 
 @injectable()
