@@ -384,6 +384,21 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_delete_log_draft': { registryId: 'aide_delete_log_draft', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_log_history': { registryId: 'aide_log_history', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
 
+    // Images de geocaches (stockage local, OCR/QR/EXIF, edition)
+    'aide_get_geocache_image': { registryId: 'aide_get_geocache_image', category: 'image', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_update_geocache_image': { registryId: 'aide_update_geocache_image', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_store_geocache_images': { registryId: 'aide_store_geocache_images', category: 'image', risk: 'network', network: true, writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_unstore_geocache_image': { registryId: 'aide_unstore_geocache_image', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_duplicate_geocache_image': { registryId: 'aide_duplicate_geocache_image', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_delete_geocache_image': { registryId: 'aide_delete_geocache_image', category: 'image', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_split_geocache_gif': { registryId: 'aide_split_geocache_gif', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_upload_geocache_image': { registryId: 'aide_upload_geocache_image', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_decode_image_qr': { registryId: 'aide_decode_image_qr', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_read_image_exif': { registryId: 'aide_read_image_exif', category: 'image', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_ocr_geocache_image': { registryId: 'aide_ocr_geocache_image', category: 'image', risk: 'network', network: true, writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_image_editor': { registryId: 'aide_open_image_editor', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_cleanup_geocache_images': { registryId: 'aide_cleanup_geocache_images', category: 'image', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
     // Carte / sortie / systeme
     'aide_map_show_geocache': { registryId: 'aide_map_show_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_map_center': { registryId: 'aide_map_center', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

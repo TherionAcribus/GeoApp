@@ -9,6 +9,9 @@ import {
     LanguageModelAliasRegistry,
     LanguageModelRegistry,
     LanguageModelRequirement,
+    getJsonOfResponse,
+    getTextOfResponse,
+    isLanguageModelParsedResponse,
     ToolInvocationRegistry,
     ToolRequest,
     ToolRequestParameters,
@@ -61,6 +64,8 @@ import type {
     SelectedLogImage,
 } from 'theia-ide-zones-ext/lib/browser/log-editor/types';
 import type { TrackablePayloadEntry } from 'theia-ide-zones-ext/lib/browser/log-editor/trackables';
+import { GeocacheImagesService } from 'theia-ide-zones-ext/lib/browser/geocache-images-service';
+import type { GeocacheImageV2Dto } from 'theia-ide-zones-ext/lib/browser/geocache-images-panel';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
 import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
@@ -230,6 +235,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(StorageService)
     protected readonly storageService!: StorageService;
 
+    @inject(GeocacheImagesService)
+    protected readonly geocacheImagesService!: GeocacheImagesService;
+
     @inject(MapService)
     protected readonly mapService!: MapService;
 
@@ -303,6 +311,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildTrackableTools(),
             ...this.buildGpsVisitsTools(),
             ...this.buildLogEditorTools(),
+            ...this.buildGeocacheImageTools(),
             ...this.buildSystemAndImportTools(),
             ...this.buildImportTools(),
             ...this.buildAiModelTools(),
@@ -4242,6 +4251,511 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
         ];
     }
 
+    // ─── Images de géocaches ────────────────────────────────────────────────
+
+    /** URL exploitable par le backend : les URLs relatives deviennent absolues. */
+    protected absoluteImageUrl(url: string | undefined | null): string {
+        const value = (url ?? '').trim();
+        if (value.startsWith('/')) {
+            return `${this.apiClient.getBaseUrl()}${value}`;
+        }
+        return value;
+    }
+
+    /**
+     * Image prête pour un plugin : `store` est idempotent (no-op si déjà locale,
+     * télécharge si distante) et renvoie le DTO à jour. Erreur si la source
+     * n'est pas téléchargeable.
+     */
+    protected async ensureStoredImage(imageId: number): Promise<GeocacheImageV2Dto | string> {
+        try {
+            return await this.geocacheImagesService.storeImage(imageId);
+        } catch (e: any) {
+            return `Impossible de préparer l'image ${imageId} : ${e?.message ?? e}`;
+        }
+    }
+
+    /** Texte produit par un plugin (mêmes règles que le panneau d'images). */
+    protected extractPluginText(result: Record<string, unknown>): string {
+        const items = Array.isArray(result?.results) ? result.results as Array<Record<string, unknown>> : [];
+        const texts = items
+            .map(item => (item?.text_output ?? '').toString().trim())
+            .filter(Boolean);
+        return texts.length > 0 ? texts.join('\n\n') : (result?.text_output ?? '').toString().trim();
+    }
+
+    /** Retire les blocs de réflexion que certains modèles OCR encadrent. */
+    protected stripThinkingBlocks(value: string): string {
+        return (value ?? '')
+            .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/\[ANALYSIS\][\s\S]*?\[\/ANALYSIS\]/gi, '')
+            .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+            .trim();
+    }
+
+    private buildGeocacheImageTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_get_geocache_image',
+                name: 'aide_get_geocache_image',
+                description: 'Fiche complète d\'une image de géocache : titre, note, type, stockage local, ' +
+                    'texte OCR, payload QR, données EXIF détectées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    image_id: { type: 'number', description: 'ID de l\'image (aide_list_geocache_images).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const images = await this.geocacheImagesService.listImages(geocacheId);
+                        const image = images.find(img => img.id === Number(args.image_id));
+                        if (!image) {
+                            return err(`Image ${args.image_id} introuvable dans cette géocache.`);
+                        }
+                        return ok(image);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_update_geocache_image',
+                name: 'aide_update_geocache_image',
+                description: 'Modifie les métadonnées d\'une image : title, note, image_type ' +
+                    '(listing|owner|spoiler). Seuls les champs fournis sont changés.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image.', required: true },
+                    title: { type: 'string', description: 'Titre.', required: false },
+                    note: { type: 'string', description: 'Note.', required: false },
+                    image_type: {
+                        type: 'string', required: false,
+                        enum: ['listing', 'owner', 'spoiler'],
+                        description: 'Type de l\'image.',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const patch: Record<string, unknown> = {};
+                        if (args.title !== undefined) { patch['title'] = String(args.title); }
+                        if (args.note !== undefined) { patch['note'] = String(args.note); }
+                        if (args.image_type !== undefined) { patch['image_type'] = String(args.image_type); }
+                        if (Object.keys(patch).length === 0) {
+                            return err('Rien à modifier : fournissez title, note ou image_type.');
+                        }
+                        const image = await this.geocacheImagesService.updateImage(Number(args.image_id), patch);
+                        return ok({ updated: image.id });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_store_geocache_images',
+                name: 'aide_store_geocache_images',
+                description: 'Télécharge en local les images d\'une géocache : toutes par défaut, ou le ' +
+                    'sous-ensemble image_ids. Le stockage local rend OCR/QR/EXIF fiables et travaille hors ligne.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    image_ids: { type: 'array', description: 'IDs d\'images à stocker (défaut : toutes).', required: false },
+                }),
+                confirmAlwaysAllow: 'Télécharger les images de cette géocache depuis leurs sources ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const imageIds = Array.isArray(args.image_ids)
+                            ? (args.image_ids as unknown[]).map(Number).filter(id => Number.isFinite(id) && id > 0)
+                            : undefined;
+                        const result = await this.geocacheImagesService.storeImages(geocacheId, imageIds);
+                        return ok({
+                            geocache_id: geocacheId,
+                            stored: result.stored,
+                            failed: result.failed,
+                            skipped: result.skipped,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_unstore_geocache_image',
+                name: 'aide_unstore_geocache_image',
+                description: 'Supprime le fichier local d\'une image téléchargée ; elle reste liée à sa ' +
+                    'source distante. (Impossible pour une photo ajoutée à la main.)',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const image = await this.geocacheImagesService.unstoreImage(Number(args.image_id));
+                        return ok({ unstored: image.id });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_duplicate_geocache_image',
+                name: 'aide_duplicate_geocache_image',
+                description: 'Duplique une image de géocache (copie dérivée stockée localement).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image source.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const image = await this.geocacheImagesService.duplicateImage(Number(args.image_id));
+                        return ok({ duplicated: Number(args.image_id), new_image_id: image.id });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_delete_geocache_image',
+                name: 'aide_delete_geocache_image',
+                description: 'Supprime une image ET toutes ses dérivées (sous-images, éditions). Refusé ' +
+                    'pour les images du listing distant : seules les images ajoutées ou dérivées partent.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer cette image et toutes ses dérivées ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const imageId = Number(args.image_id);
+                        if (!Number.isFinite(imageId) || imageId <= 0) {
+                            return err('image_id requis.');
+                        }
+                        if (args.dry_run) {
+                            return this.dryRunOk('delete_geocache_image', {
+                                image_id: imageId,
+                                consequence: 'L\'image et ses dérivées seraient supprimées (fichiers locaux inclus).',
+                            });
+                        }
+                        const result = await this.geocacheImagesService.deleteImage(imageId);
+                        return ok({ deleted_image_ids: result.deleted });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_split_geocache_gif',
+                name: 'aide_split_geocache_gif',
+                description: 'Découpe un GIF animé en images dérivées (une par frame) — souvent les ' +
+                    'étapes d\'une énigme sont empilées dans un GIF.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image GIF.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.geocacheImagesService.splitGif(Number(args.image_id));
+                        return ok(result);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_upload_geocache_image',
+                name: 'aide_upload_geocache_image',
+                description: 'Ajoute une photo locale (spoilers de terrain, indices relevés) à la fiche ' +
+                    'd\'une géocache. Elle apparaît comme « Ajout manuel », avec title/note optionnels.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    file_path: { type: 'string', description: 'Chemin complet de l\'image.', required: true },
+                    title: { type: 'string', description: 'Titre de la photo.', required: false },
+                    note: { type: 'string', description: 'Note de la photo.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        if (!this.fileService) {
+                            return err('Lecture de fichiers indisponible.');
+                        }
+                        const uri = URI.fromFilePath(String(args.file_path));
+                        const content = await this.fileService.readFile(uri);
+                        const file = new File(
+                            [new Uint8Array(content.value.buffer)],
+                            uri.path.base || 'image.jpg'
+                        );
+                        const image = await this.geocacheImagesService.uploadImage(
+                            geocacheId, file,
+                            args.title ? String(args.title) : undefined,
+                            args.note ? String(args.note) : undefined
+                        );
+                        return ok({ image_id: image.id, stored: image.stored, geocache_id: geocacheId });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_decode_image_qr',
+                name: 'aide_decode_image_qr',
+                description: 'Détecte et décode le QR code d\'une image (plugin qr_code_detector). ' +
+                    'L\'image est stockée en local si besoin et le payload enregistré sur la fiche.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image.', required: true },
+                }),
+                confirmAlwaysAllow: 'Analyser cette image pour décoder son QR code ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const image = await this.ensureStoredImage(Number(args.image_id));
+                        if (typeof image === 'string') { return err(image); }
+                        const url = this.absoluteImageUrl(image.url || image.source_url);
+                        const result = await this.geocacheImagesService.executeImagePlugin('qr_code_detector', {
+                            geocache_id: image.geocache_id,
+                            images: [{ url }],
+                        });
+                        if (result['status'] === 'error') {
+                            return err(`Erreur plugin QR : ${result['error'] ?? 'inconnue'}`);
+                        }
+                        const qrCodes = result['qr_codes'] as Array<Record<string, unknown>> | undefined;
+                        const payload = qrCodes?.[0]?.['data'];
+                        if (!payload || !String(payload).trim()) {
+                            return err('Aucun QR code détecté dans cette image.');
+                        }
+                        await this.geocacheImagesService.updateImage(image.id, { qr_payload: String(payload) });
+                        return ok({ image_id: image.id, qr_payload: String(payload), saved: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_read_image_exif',
+                name: 'aide_read_image_exif',
+                description: 'Lit les métadonnées EXIF d\'une image (plugin exif_reader) : EXIF, ' +
+                    'coordonnées GPS embarquées — souvent une piste de l\'énigme. Le résultat est ' +
+                    'enregistré dans detected_features de la fiche image.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image.', required: true },
+                }),
+                confirmAlwaysAllow: 'Analyser les métadonnées EXIF de cette image ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const image = await this.ensureStoredImage(Number(args.image_id));
+                        if (typeof image === 'string') { return err(image); }
+                        const url = this.absoluteImageUrl(image.url || image.source_url);
+                        const result = await this.geocacheImagesService.executeImagePlugin('exif_reader', {
+                            geocache_id: image.geocache_id,
+                            images: [{ url }],
+                        });
+                        if (result['status'] === 'error') {
+                            return err(`Erreur plugin EXIF : ${result['summary'] ?? result['error'] ?? 'inconnue'}`);
+                        }
+                        const exifFeature = {
+                            summary: result['summary'] ?? '',
+                            exif: Array.isArray(result['exif']) ? result['exif'] : [],
+                            gps_coordinates: Array.isArray(result['gps_coordinates']) ? result['gps_coordinates'] : [],
+                            image_details: Array.isArray(result['image_details']) ? result['image_details'] : [],
+                            results: Array.isArray(result['results']) ? result['results'] : [],
+                            plugin_info: result['plugin_info'] ?? null,
+                            analyzed_at: new Date().toISOString(),
+                        };
+                        const previous = (image.detected_features && typeof image.detected_features === 'object')
+                            ? image.detected_features : {};
+                        await this.geocacheImagesService.updateImage(image.id, {
+                            detected_features: { ...previous, exif_reader: exifFeature },
+                        });
+                        return ok({
+                            image_id: image.id,
+                            summary: exifFeature.summary,
+                            gps_coordinates: exifFeature.gps_coordinates,
+                            exif: exifFeature.exif,
+                            image_details: exifFeature.image_details,
+                            saved: true,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_ocr_geocache_image',
+                name: 'aide_ocr_geocache_image',
+                description: 'Extrait le texte d\'une image (OCR) — le cœur des énigmes en image. ' +
+                    'engine : easyocr (défaut, local), vision (LM Studio/OpenRouter configuré), ' +
+                    'theia (modèle IA de l\'app). Le texte est enregistré sur la fiche image.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    image_id: { type: 'number', description: 'ID de l\'image.', required: true },
+                    engine: {
+                        type: 'string', required: false,
+                        enum: ['easyocr', 'vision', 'theia'],
+                        description: 'Moteur OCR (défaut : préférence geoApp.ocr.defaultEngine).',
+                    },
+                    language: {
+                        type: 'string', required: false,
+                        description: 'Langue OCR (défaut : préférence geoApp.ocr.defaultLanguage, « auto »).',
+                    },
+                }),
+                confirmAlwaysAllow: 'Lancer l\'OCR sur cette image ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const image = await this.ensureStoredImage(Number(args.image_id));
+                        if (typeof image === 'string') { return err(image); }
+                        const language = (args.language ? String(args.language)
+                            : this.preferenceService.get<string>('geoApp.ocr.defaultLanguage', 'auto')) || 'auto';
+                        const prefEngine = this.preferenceService.get<string>('geoApp.ocr.defaultEngine', 'easyocr_ocr');
+                        const engine = args.engine === 'vision' || args.engine === 'theia'
+                            ? args.engine
+                            : args.engine === 'easyocr'
+                                ? 'easyocr'
+                                : (prefEngine === 'vision_ocr' ? 'vision' : 'easyocr');
+
+                        let text = '';
+                        if (engine === 'theia') {
+                            if (!this.aiExecutionService) {
+                                return err('Service d\'exécution IA indisponible.');
+                            }
+                            const blob = await this.geocacheImagesService.fetchImageBlob(image.id);
+                            const mimeType = blob.type || 'image/png';
+                            const base64data = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onerror = () => reject(new Error('Lecture de l\'image impossible'));
+                                reader.onload = () => {
+                                    const val = (reader.result ?? '').toString();
+                                    const comma = val.indexOf(',');
+                                    resolve(comma >= 0 ? val.slice(comma + 1) : val);
+                                };
+                                reader.readAsDataURL(blob);
+                            });
+                            const execution = await this.aiExecutionService.beginTaskExecution('ocr-theia', {
+                                operationId: `geoapp-ocr-${image.id}-${Date.now()}`,
+                                subjectId: `image-${image.id}`,
+                            });
+                            const response = (await execution.sendRequest({
+                                messages: [
+                                    { actor: 'user', type: 'image', image: { base64data, mimeType } },
+                                    {
+                                        actor: 'user', type: 'text',
+                                        text: 'Transcris précisément le texte visible sur cette image sans ' +
+                                            'interprétation ni correction orthographique. Respecte les retours à la ligne.',
+                                    },
+                                ],
+                            }, {
+                                requestId: `geoapp-ocr-${image.id}-${Date.now()}`,
+                            })).response;
+                            if (isLanguageModelParsedResponse(response)) {
+                                text = JSON.stringify(response.parsed);
+                            } else {
+                                try {
+                                    text = await getTextOfResponse(response);
+                                } catch {
+                                    const json = await getJsonOfResponse(response) as unknown;
+                                    text = typeof json === 'string' ? json : String(json);
+                                }
+                            }
+                            text = this.stripThinkingBlocks(text);
+                        } else {
+                            const pluginName = engine === 'vision' ? 'vision_ocr' : 'easyocr_ocr';
+                            const url = this.absoluteImageUrl(image.url || image.source_url);
+                            const inputs: Record<string, unknown> = {
+                                geocache_id: image.geocache_id,
+                                aiExecutionSubjectId: `image-${image.id}`,
+                                images: [{ url }],
+                                language,
+                            };
+                            if (engine === 'vision') {
+                                const provider = this.preferenceService.get<string>('geoApp.ocr.visionProvider', 'lmstudio');
+                                inputs['provider'] = provider === 'openrouter' ? 'openrouter' : 'lmstudio';
+                                if (inputs['provider'] === 'openrouter') {
+                                    inputs['model'] = this.preferenceService.get<string>('geoApp.ocr.openRouter.model', 'openai/gpt-4o-mini');
+                                } else {
+                                    inputs['base_url'] = this.preferenceService.get<string>('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234');
+                                    inputs['model'] = this.preferenceService.get<string>('geoApp.ocr.lmstudio.model', '');
+                                }
+                            }
+                            const result = await this.geocacheImagesService.executeImagePlugin(pluginName, inputs);
+                            if (result['status'] === 'error') {
+                                return err(`Erreur plugin OCR : ${result['error'] ?? result['summary'] ?? 'inconnue'}`);
+                            }
+                            text = this.stripThinkingBlocks(this.extractPluginText(result));
+                        }
+                        if (!text.trim()) {
+                            return err('OCR terminé sans texte détecté.');
+                        }
+                        await this.geocacheImagesService.updateImage(image.id, {
+                            ocr_text: text,
+                            ocr_language: language,
+                        });
+                        return ok({ image_id: image.id, engine, ocr_text: text, saved: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_image_editor',
+                name: 'aide_open_image_editor',
+                description: 'Ouvre l\'éditeur d\'image (recadrage, recollage de sous-image, édition) ' +
+                    'sur une image de géocache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    image_id: { type: 'number', description: 'ID de l\'image à éditer.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const images = await this.geocacheImagesService.listImages(geocacheId);
+                        const image = images.find(img => img.id === Number(args.image_id));
+                        if (!image) {
+                            return err(`Image ${args.image_id} introuvable dans cette géocache.`);
+                        }
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('open-geocache-image-editor', {
+                                detail: {
+                                    backendBaseUrl: this.apiClient.getBaseUrl(),
+                                    geocacheId,
+                                    imageId: image.id,
+                                    imageTitle: (image.title || '').trim() || undefined,
+                                },
+                            }));
+                        }
+                        return ok({ image_id: image.id, editor_opened: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_cleanup_geocache_images',
+                name: 'aide_cleanup_geocache_images',
+                description: 'Supprime tous les fichiers images locaux d\'une géocache ; les liens ' +
+                    'distants restent (les images se retéléchargent au prochain store).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer les fichiers images locaux de cette géocache ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        if (args.dry_run) {
+                            const images = await this.geocacheImagesService.listImages(geocacheId);
+                            return this.dryRunOk('cleanup_geocache_images', {
+                                geocache_id: geocacheId,
+                                stored_images: images.filter(img => img.stored).length,
+                                consequence: 'Les fichiers locaux seraient supprimés ; les liens distants conservés.',
+                            });
+                        }
+                        await this.geocacheImagesService.cleanupImages(geocacheId);
+                        return ok({ cleaned: geocacheId });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
     // ─── Systeme, auth, images et import ──────────────────────────────────────
 
     private buildSystemAndImportTools(): ToolRequest[] {
@@ -4364,7 +4878,13 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             images: images.slice(0, 50).map(img => ({
                                 id: img['id'],
                                 url: img['url'] ?? img['source_url'],
-                                caption: img['caption'] ?? img['name'],
+                                title: img['title'] ?? img['caption'] ?? img['name'],
+                                note: img['note'],
+                                stored: img['stored'],
+                                image_type: img['image_type'],
+                                has_ocr_text: Boolean(img['ocr_text']),
+                                has_qr_payload: Boolean(img['qr_payload']),
+                                derivation_type: img['derivation_type'],
                             })),
                         });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
