@@ -171,6 +171,8 @@ export class GpsVisitsWidget extends ReactWidget {
     protected resolutionPoints: GpsMapPoint[] = [];
     /** Tracés déjà chargés, par jour. */
     protected trackCache = new Map<string, Array<[number, number]>>();
+    /** Vrai une fois la carte affichée d'elle-même (premier chargement non vide). */
+    protected mapAutoOpened = false;
     protected resolveState: ResolveState | undefined;
     /** Panneau « Rattacher les visites sans code du jour ». */
     protected dayResolution: DayResolutionState | undefined;
@@ -306,7 +308,12 @@ export class GpsVisitsWidget extends ReactWidget {
         try {
             this.listing = await this.service.list(this.showAllStates ? ['pending', 'logged', 'ignored'] : ['pending']);
             this.pruneSelection();
-            void this.refreshMap(false);
+            // Comme la carte d'une zone, la carte des visites s'affiche d'elle-même
+            // au premier chargement qui contient des visites ; ensuite elle suit les
+            // rechargements en place et ne se rouvre pas si on l'a fermée.
+            const autoOpen = !this.mapAutoOpened && this.listing.days.length > 0;
+            this.mapAutoOpened = this.mapAutoOpened || autoOpen;
+            void this.refreshMap(autoOpen);
             void this.refreshResumable();
         } catch (e) {
             this.error = this.describeError(e);

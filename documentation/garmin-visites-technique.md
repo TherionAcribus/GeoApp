@@ -753,6 +753,9 @@ Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.
 - `MapWidgetFactory.openGpsVisitsMap(points, tracés)` l'ouvre dans le **panneau des
   cartes** (bas), comme la carte des amis. L'utilisateur peut la déplacer.
 - `findGpsVisitsMap()` permet de la recharger en place sans voler le focus.
+- Elle s'ouvre d'elle-même au premier chargement qui contient des visites, comme
+  la carte d'une zone ; fermée ensuite, elle ne se rouvre pas seule — « 🗺️ Carte »
+  la rouvre à la demande.
 - Le gestionnaire de cartes l'affiche avec le type « Visites GPS ».
 - Adaptations de la carte :
   - `MapGeocache` gagne `badgeText` et `badgeColor` (pastille dessinée par
