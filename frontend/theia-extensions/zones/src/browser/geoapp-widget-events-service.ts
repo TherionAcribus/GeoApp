@@ -37,6 +37,17 @@ export interface TableFilterRequest {
     sortDesc?: boolean;
 }
 
+/**
+ * Demande d'ouverture d'un dialogue d'import dans la table d'une zone
+ * (tools IA §26 : `aide_import_gpx` sans file_path…). `zoneId` absent =
+ * la table de zone actuellement visible ; zoneId d'une zone membre d'un
+ * dossier = le sélecteur « Importer dans » pointe dessus avant l'ouverture.
+ */
+export interface OpenImportDialogRequest {
+    kind: 'gpx' | 'bookmark_list' | 'pocket_query';
+    zoneId?: number;
+}
+
 @injectable()
 export class GeoAppWidgetEventsService {
     protected readonly onDidRequestZonesRefreshEmitter = new Emitter<void>();
@@ -61,6 +72,10 @@ export class GeoAppWidgetEventsService {
     protected readonly onDidRequestTableFilterEmitter = new Emitter<TableFilterRequest>();
     readonly onDidRequestTableFilter: TheiaEvent<TableFilterRequest> = this.onDidRequestTableFilterEmitter.event;
 
+    /** Ouvre un dialogue d'import dans la table d'une zone (tools IA §26). */
+    protected readonly onDidRequestOpenImportDialogEmitter = new Emitter<OpenImportDialogRequest>();
+    readonly onDidRequestOpenImportDialog: TheiaEvent<OpenImportDialogRequest> = this.onDidRequestOpenImportDialogEmitter.event;
+
     requestZonesRefresh(): void {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
@@ -81,11 +96,16 @@ export class GeoAppWidgetEventsService {
         this.onDidRequestTableFilterEmitter.fire(request);
     }
 
+    requestOpenImportDialog(request: OpenImportDialogRequest): void {
+        this.onDidRequestOpenImportDialogEmitter.fire(request);
+    }
+
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
         this.onDidRequestOpenZoneEmitter.dispose();
         this.onDidChangeGeocacheEmitter.dispose();
         this.onDidChangeZoneListEmitter.dispose();
         this.onDidRequestTableFilterEmitter.dispose();
+        this.onDidRequestOpenImportDialogEmitter.dispose();
     }
 }

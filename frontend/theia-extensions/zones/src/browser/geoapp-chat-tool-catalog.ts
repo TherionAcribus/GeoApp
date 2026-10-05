@@ -352,6 +352,11 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_open_chat_policy': { registryId: 'aide_open_chat_policy', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_list_geocache_images': { registryId: 'aide_list_geocache_images', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_import_around': { registryId: 'aide_import_around', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_list_bookmark_lists': { registryId: 'aide_list_bookmark_lists', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_list_pocket_queries': { registryId: 'aide_list_pocket_queries', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_import_bookmark_list': { registryId: 'aide_import_bookmark_list', category: 'app', risk: 'network', network: true, requiresAuth: true, writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_import_pocket_query': { registryId: 'aide_import_pocket_query', category: 'app', risk: 'network', network: true, requiresAuth: true, writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_import_gpx': { registryId: 'aide_import_gpx', category: 'app', risk: 'network', network: true, requiresAuth: true, writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_list_chat_presets': { registryId: 'aide_list_chat_presets', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_apply_chat_preset': { registryId: 'aide_apply_chat_preset', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
 

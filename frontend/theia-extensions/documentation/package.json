@@ -20,6 +20,7 @@
     "@theia/core": "1.76.0",
     "@theia/ai-chat": "1.76.0",
     "@theia/ai-core": "1.76.0",
+    "@theia/filesystem": "1.76.0",
     "theia-ide-zones-ext": "1.76.200",
     "@mysterai/theia-plugins": "1.0.0",
     "@mysterai/theia-alphabets": "1.0.0",

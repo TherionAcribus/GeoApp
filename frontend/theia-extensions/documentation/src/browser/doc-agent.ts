@@ -150,7 +150,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- Carte : aide_map_show_geocache, aide_map_center(lat/lon), aide_map_show_zone — ouvrent et centrent la carte.',
             '- Sortie : aide_list_outing_plans, aide_get_outing_plan, aide_set_outing_plan_checked, aide_delete_outing_plan, aide_open_outing_plan.',
             '- Systeme : aide_get_auth_status (connexion GC.com), aide_open_auth, aide_open_server_logs, aide_open_chat_policy (a proposer quand un tool manque).',
-            '- Images : aide_list_geocache_images ; Import : aide_import_around (centre gc_code/id/coords + zone_id ou new_zone_name, reseau).',
+            '- Images : aide_list_geocache_images ; Import : aide_import_around (centre gc_code/id/coords), aide_import_gpx (file_path, sinon ouvre le dialogue), aide_import_bookmark_list et aide_import_pocket_query (codes via aide_list_bookmark_lists / aide_list_pocket_queries) — tous reseau GC.com et destination zone_id ou new_zone_name.',
             '- Notes : aide_list_notes pour les ids, puis aide_create/update/delete_note ; aide_sync_notes_from_geocaching recupere la note perso GC.com.',
             '- Plugins de dechiffrement : aide_list_plugins SANS filtre puis identification semantique (ex: "magicien" -> houdini_cipher, "telephone" -> multitap, "pigpen" -> pig_pen_cipher) ; aide_run_plugin pour decoder directement ; aide_open_plugin_tab seulement si l\'utilisateur veut manipuler le plugin dans l\'UI ; aide_get_plugin_info pour ses parametres.',
             '- Alphabets : aide_list_alphabets(search?), aide_get_alphabet_info, aide_open_alphabet_tab.',

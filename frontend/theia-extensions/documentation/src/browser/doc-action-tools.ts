@@ -1,5 +1,6 @@
 import { injectable, inject, optional } from '@theia/core/shared/inversify';
-import { CommandService, MessageService } from '@theia/core';
+import { CommandService, MessageService, URI } from '@theia/core';
+import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     Agent,
@@ -26,7 +27,8 @@ import { FriendsService } from 'theia-ide-zones-ext/lib/browser/friends-service'
 import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
-import { ImportAroundService } from 'theia-ide-zones-ext/lib/browser/import-around-service';
+import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
+import { consumeImportStream } from 'theia-ide-zones-ext/lib/browser/import-stream';
 import { BackendApiClient } from 'theia-ide-zones-ext/lib/browser/backend-api-client';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
@@ -189,6 +191,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(ImportAroundService)
     protected readonly importAroundService!: ImportAroundService;
 
+    @inject(FileService) @optional()
+    protected readonly fileService: FileService | undefined;
+
     @inject(BackendApiClient)
     protected readonly apiClient!: BackendApiClient;
 
@@ -248,6 +253,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildMapTools(),
             ...this.buildOutingTools(),
             ...this.buildSystemAndImportTools(),
+            ...this.buildImportTools(),
             ...this.buildAiModelTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
@@ -2850,6 +2856,172 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             zone_created: target.created,
                             summary: summary ?? 'Import terminé.',
                         });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Imports de geocaches (GPX, Bookmark List, Pocket Query) ────────────
+
+    /**
+     * Destination commune des imports : zone existante (zone_id) ou nouvelle
+     * zone (new_zone_name), resolue — et creee le cas echeant — par le service
+     * partage de l'import « autour de… ». Un dossier n'est pas une destination
+     * valide : il faut l'id d'une de ses zones membres.
+     */
+    protected async resolveImportZone(args: Record<string, any>): Promise<ResolvedImportAroundZone | string> {
+        const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
+        const newZoneName = args.new_zone_name ? String(args.new_zone_name).trim() : undefined;
+        if (zoneId === undefined && !newZoneName) {
+            return 'Fournissez zone_id ou new_zone_name pour la destination.';
+        }
+        if (zoneId !== undefined) {
+            const zone = await this.zonesService.get(zoneId);
+            if (zone?.is_folder) {
+                const members = (zone.zone_ids ?? []).join(', ');
+                return `La zone ${zoneId} est un dossier : un import vise une zone membre` +
+                    (members ? ` (ids : ${members}).` : ' (dossier vide — aucune zone membre).');
+            }
+            return this.importAroundService.resolveTargetZone({ type: 'existing_zone', zone_id: zoneId });
+        }
+        return this.importAroundService.resolveTargetZone({ type: 'new_zone', name: newZoneName! });
+    }
+
+    /** Consomme le flux NDJSON d'un import puis applique les effets communs. */
+    protected async finishGeocacheImport(target: ResolvedImportAroundZone, response: Response): Promise<string> {
+        const { lastMessage, hadError } = await consumeImportStream(response);
+        this.widgetEventsService.requestZonesRefresh();
+        if (hadError) {
+            return err(lastMessage ?? 'Erreur lors de l\'import.');
+        }
+        const summary = lastMessage ?? 'Import terminé.';
+        this.messageService.info(summary);
+        return ok({ zone_id: target.zoneId, zone_created: target.created, summary });
+    }
+
+    private buildImportTools(): ToolRequest[] {
+        const zoneParams = {
+            zone_id: { type: 'number', description: 'ID de la zone de destination existante.', required: false },
+            new_zone_name: { type: 'string', description: 'Nom de la nouvelle zone à créer si pas de zone_id.', required: false },
+            update_existing: {
+                type: 'boolean',
+                description: 'true = rafraîchit les géocaches déjà présentes dans la zone ' +
+                    '(coordonnées résolues et notes personnelles préservées).',
+                required: false,
+            },
+        };
+        return [
+            {
+                id: 'aide_list_bookmark_lists',
+                name: 'aide_list_bookmark_lists',
+                description: 'Liste les Bookmark Lists du compte Geocaching.com (code, nom, nombre de caches). ' +
+                    'Le code sert d\'argument à aide_import_bookmark_list. Accès réseau Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.geocachesService.listUserBookmarkLists());
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_pocket_queries',
+                name: 'aide_list_pocket_queries',
+                description: 'Liste les Pocket Queries du compte Geocaching.com (guid, nom, nombre de caches). ' +
+                    'Le guid sert de pq_code à aide_import_pocket_query. Accès réseau Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.geocachesService.listUserPocketQueries());
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_bookmark_list',
+                name: 'aide_import_bookmark_list',
+                description: 'Importe dans une zone les géocaches d\'une Bookmark List Geocaching.com ' +
+                    '(accès réseau). bookmark_code via aide_list_bookmark_lists. ' +
+                    'Destination : zone_id ou new_zone_name.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    bookmark_code: { type: 'string', description: 'Code de la Bookmark List, via aide_list_bookmark_lists.', required: true },
+                    ...zoneParams,
+                }),
+                confirmAlwaysAllow: 'Importer les géocaches de cette Bookmark List depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const target = await this.resolveImportZone(args);
+                        if (typeof target === 'string') { return err(target); }
+                        const response = await this.geocachesService.importBookmarkList(
+                            String(args.bookmark_code), target.zoneId, Boolean(args.update_existing));
+                        return await this.finishGeocacheImport(target, response);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_pocket_query',
+                name: 'aide_import_pocket_query',
+                description: 'Importe dans une zone les géocaches d\'une Pocket Query Geocaching.com ' +
+                    '(accès réseau). pq_code = guid via aide_list_pocket_queries. ' +
+                    'Destination : zone_id ou new_zone_name.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    pq_code: { type: 'string', description: 'GUID de la Pocket Query, via aide_list_pocket_queries.', required: true },
+                    ...zoneParams,
+                }),
+                confirmAlwaysAllow: 'Importer les géocaches de cette Pocket Query depuis Geocaching.com ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const target = await this.resolveImportZone(args);
+                        if (typeof target === 'string') { return err(target); }
+                        const response = await this.geocachesService.importPocketQuery(
+                            String(args.pq_code), target.zoneId, Boolean(args.update_existing));
+                        return await this.finishGeocacheImport(target, response);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_import_gpx',
+                name: 'aide_import_gpx',
+                description: 'Importe des géocaches depuis un fichier GPX ou ZIP local (Pocket Query téléchargée). ' +
+                    'file_path = chemin complet du fichier ; sans file_path, ouvre le dialogue d\'import ' +
+                    'de la zone cible pour un choix manuel. Destination : zone_id ou new_zone_name.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    file_path: {
+                        type: 'string',
+                        description: 'Chemin complet du fichier .gpx ou .zip. Absent = ouvre le dialogue d\'import de la zone.',
+                        required: false,
+                    },
+                    ...zoneParams,
+                }),
+                confirmAlwaysAllow: 'Importer les géocaches de ce fichier GPX ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const target = await this.resolveImportZone(args);
+                        if (typeof target === 'string') { return err(target); }
+                        const filePath = args.file_path ? String(args.file_path).trim() : '';
+                        if (!filePath) {
+                            await this.zoneTabsManager.openZone({ zoneId: target.zoneId, zoneName: target.name });
+                            this.widgetEventsService.requestOpenImportDialog({ kind: 'gpx', zoneId: target.zoneId });
+                            return ok({ zone_id: target.zoneId, zone_created: target.created, dialog_opened: 'gpx' });
+                        }
+                        if (!/\.(gpx|zip)$/i.test(filePath)) {
+                            return err('Le fichier doit être un .gpx ou un .zip.');
+                        }
+                        if (!this.fileService) {
+                            return err('Lecture de fichiers indisponible : relancez sans file_path pour ouvrir le dialogue.');
+                        }
+                        const uri = URI.fromFilePath(filePath);
+                        const content = await this.fileService.readFile(uri);
+                        const file = new File([new Uint8Array(content.value.buffer)], uri.path.base || 'import.gpx');
+                        const response = await this.geocachesService.importGpx(file, target.zoneId, Boolean(args.update_existing));
+                        return await this.finishGeocacheImport(target, response);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

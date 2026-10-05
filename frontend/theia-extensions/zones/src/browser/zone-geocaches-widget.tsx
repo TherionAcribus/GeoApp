@@ -29,7 +29,7 @@ import { FriendsService } from './friends-service';
 import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent, GeocachingFriend } from './friends-types';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService, ZoneDto } from './zones-service';
-import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import { GeoAppWidgetEventsService, OpenImportDialogRequest } from './geoapp-widget-events-service';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
 import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
@@ -361,6 +361,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             })
         );
 
+        // §26 : un tool IA (aide_import_gpx sans file_path…) demande l'ouverture
+        // d'un dialogue d'import. Même discipline de ciblage que le filtre de
+        // table : zoneId précis, sinon seule la table visible répond.
+        this.toDispose.push(
+            this.widgetEventsService.onDidRequestOpenImportDialog(request => {
+                void this.handleOpenImportDialogRequest(request);
+            })
+        );
+
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
 
@@ -612,6 +621,38 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         } finally {
             this.isAddingGeocache = false;
             this.update();
+        }
+    }
+
+    /**
+     * Ouvre le dialogue d'import demandé par un tool IA. `zonesLoaded` est
+     * attendu : un widget fraîchement ouvert ne connaît pas encore ses
+     * `folderZones`, le ciblage d'une zone membre de dossier en dépend.
+     */
+    protected async handleOpenImportDialogRequest(request: OpenImportDialogRequest): Promise<void> {
+        await this.zonesLoaded;
+        if (request.zoneId === undefined) {
+            if (!this.isVisible) {
+                return;
+            }
+        } else if (request.zoneId !== this.zoneId) {
+            // Un dossier reçoit les imports dans une de ses zones membres :
+            // le sélecteur « Importer dans » pointe sur la zone demandée.
+            if (this.folderZones?.some(zone => zone.id === request.zoneId)) {
+                this.importZoneId = request.zoneId;
+            } else {
+                return;
+            }
+        }
+        // La dialog vit dans l'onglet de la zone : le montrer, sinon
+        // l'utilisateur ne voit pas ce que le tool vient d'ouvrir.
+        this.shell.activateWidget(this.id);
+        if (request.kind === 'gpx') {
+            this.openImportDialog();
+        } else if (request.kind === 'bookmark_list') {
+            this.openBookmarkListDialog();
+        } else {
+            this.openPocketQueryDialog();
         }
     }
 

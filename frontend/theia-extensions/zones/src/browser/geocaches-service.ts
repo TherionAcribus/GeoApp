@@ -24,6 +24,21 @@ export interface NearbyGeocachesResult<T = unknown> {
     radius_km: number;
 }
 
+/** Bookmark List du compte Geocaching.com (`GET /api/geocaches/user-bookmark-lists`). */
+export interface UserBookmarkList {
+    code: string;
+    name: string;
+    count: number;
+    url: string;
+}
+
+/** Pocket Query du compte Geocaching.com (`GET /api/geocaches/user-pocket-queries`). */
+export interface UserPocketQuery {
+    guid: string;
+    name: string;
+    count: number;
+}
+
 @injectable()
 export class GeocachesService {
     constructor(
@@ -140,6 +155,24 @@ export class GeocachesService {
             { method: 'POST', body: formData, signal },
             'Erreur lors de l\'import du fichier GPX'
         );
+    }
+
+    async listUserBookmarkLists(): Promise<UserBookmarkList[]> {
+        const data = await this.apiClient.requestJson<{ lists?: UserBookmarkList[] }>(
+            '/api/geocaches/user-bookmark-lists',
+            {},
+            'Erreur lors du chargement des Bookmark Lists'
+        );
+        return data.lists ?? [];
+    }
+
+    async listUserPocketQueries(): Promise<UserPocketQuery[]> {
+        const data = await this.apiClient.requestJson<{ queries?: UserPocketQuery[] }>(
+            '/api/geocaches/user-pocket-queries',
+            {},
+            'Erreur lors du chargement des Pocket Queries'
+        );
+        return data.queries ?? [];
     }
 
     async importBookmarkList(bookmarkCode: string, zoneId: number, updateExisting: boolean, signal?: AbortSignal): Promise<Response> {
