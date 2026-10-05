@@ -153,6 +153,17 @@ import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alpha
 import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
 import { GeoPreferenceDefinition } from '@mysterai/theia-preferences/lib/browser/geo-preferences-schema';
 import { GlobalSearchService } from 'theia-ide-search-ext/lib/browser/global-search-service';
+import { EarthCoachContextService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-context-service';
+import { EarthCoachObservationService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-observation-service';
+import { EarthCoachLoggingTaskService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-logging-task-service';
+import { EarthCoachElevationService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-elevation-service';
+import { EarthCoachGeologyService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-geology-service';
+import { EarthCoachWorkspaceService } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-workspace-service';
+import type { EarthCoachObservationInput, EarthCoachObservationType } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-observations';
+import type { LoggingTaskInput } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-logging-tasks';
+import { EarthCoachOpenCommandId } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-types';
+import type { EarthCoachQuickAction, LoggingTaskStatus } from 'theia-ide-earthcoach-ext/lib/browser/earthcoach-types';
+import { APP_PREFERENCE_SPECS, validatePreferenceValue } from './app-preferences-table';
 import { DocSearchService, resolveDocSearchContent } from './doc-search-service';
 import { DocContentService } from './doc-content-service';
 
@@ -317,6 +328,24 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
 
+    @inject(EarthCoachContextService)
+    protected readonly earthCoachContextService!: EarthCoachContextService;
+
+    @inject(EarthCoachObservationService)
+    protected readonly earthCoachObservationService!: EarthCoachObservationService;
+
+    @inject(EarthCoachLoggingTaskService)
+    protected readonly earthCoachLoggingTaskService!: EarthCoachLoggingTaskService;
+
+    @inject(EarthCoachElevationService)
+    protected readonly earthCoachElevationService!: EarthCoachElevationService;
+
+    @inject(EarthCoachGeologyService)
+    protected readonly earthCoachGeologyService!: EarthCoachGeologyService;
+
+    @inject(EarthCoachWorkspaceService)
+    protected readonly earthCoachWorkspaceService!: EarthCoachWorkspaceService;
+
     @inject(GeocacheImagesService)
     protected readonly geocacheImagesService!: GeocacheImagesService;
 
@@ -402,6 +431,8 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildAiModelTools(),
             ...this.buildChatPolicyTools(),
             ...this.buildBatchPluginTools(),
+            ...this.buildEarthCoachTools(),
+            ...this.buildAppPreferencesTools(),
         ].map(tool => this.withRequiredParamsValidation(tool));
     }
 
@@ -7770,6 +7801,467 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             { method: 'POST' }
                         );
                         return ok({ task_id: args.task_id, message: data['message'] ?? 'Annulation demandée.' });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── EarthCoach (EarthCaches) ─────────────────────────────────────────────
+
+    private buildEarthCoachTools(): ToolRequest[] {
+        const geocacheParams = {
+            geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+            gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+        };
+        const observationInputParams = {
+            content: { type: 'string', description: 'Texte de l\'observation.', required: true },
+            observation_type: { type: 'string', description: 'observation | hypothesis | interpretation.', enum: ['observation', 'hypothesis', 'interpretation'], required: true },
+            observed_at: { type: 'string', description: 'Date ISO de l\'observation (optionnel).', required: false },
+            waypoint_id: { type: 'number', description: 'Waypoint lié (optionnel).', required: false },
+            latitude: { type: 'number', description: 'Latitude (avec longitude, optionnel).', required: false },
+            longitude: { type: 'number', description: 'Longitude (avec latitude, optionnel).', required: false },
+            image_ids: { type: 'array', description: 'Images déjà uploadées à rattacher.', items: { type: 'number' }, required: false },
+        };
+        const buildObservationInput = (args: Record<string, any>): EarthCoachObservationInput | string => {
+            const content = String(args.content ?? '').trim();
+            const type = String(args.observation_type ?? '') as EarthCoachObservationType;
+            if (!content) { return 'content requis.'; }
+            if (!['observation', 'hypothesis', 'interpretation'].includes(type)) {
+                return 'observation_type invalide (observation | hypothesis | interpretation).';
+            }
+            return {
+                content,
+                observation_type: type,
+                observed_at: args.observed_at ? String(args.observed_at) : undefined,
+                waypoint_id: args.waypoint_id !== undefined ? Number(args.waypoint_id) : undefined,
+                latitude: args.latitude !== undefined ? Number(args.latitude) : undefined,
+                longitude: args.longitude !== undefined ? Number(args.longitude) : undefined,
+                image_ids: this.toNumberList(args.image_ids),
+            };
+        };
+        const taskInputParams = {
+            question: { type: 'string', description: 'Question du propriétaire.', required: false },
+            guidance: { type: 'string', description: 'Conseil/indice de réponse.', required: false },
+            answer: { type: 'string', description: 'Réponse rédigée.', required: false },
+            status: { type: 'string', description: 'todo | field | answered.', enum: ['todo', 'field', 'answered'], required: false },
+            requires_photo: { type: 'boolean', description: 'Photo requise pour répondre.', required: false },
+            observation_id: { type: 'number', description: 'Observation à lier (null via unlink_observation).', required: false },
+            unlink_observation: { type: 'boolean', description: 'Délie l\'observation rattachée.', required: false },
+        };
+        const buildTaskInput = (args: Record<string, any>, existing?: Record<string, unknown>): LoggingTaskInput => ({
+            question: args.question !== undefined ? String(args.question) : String(existing?.['question'] ?? ''),
+            guidance: args.guidance !== undefined ? String(args.guidance) : (existing?.['guidance'] as string | null | undefined),
+            answer: args.answer !== undefined ? String(args.answer) : (existing?.['answer'] as string | null | undefined),
+            status: (args.status ?? existing?.['status']) as LoggingTaskStatus | undefined,
+            requires_photo: args.requires_photo !== undefined ? Boolean(args.requires_photo) : Boolean(existing?.['requires_photo']),
+            observation_id: args.unlink_observation === true
+                ? null
+                : (args.observation_id !== undefined ? Number(args.observation_id) : (existing?.['observation_id'] as number | null | undefined)),
+        });
+        return [
+            {
+                id: 'aide_open_earthcoach',
+                name: 'aide_open_earthcoach',
+                description: 'Ouvre EarthCoach pour une EarthCache : action au choix (workspace, observations, ' +
+                    'checklist terrain, questions du propriétaire, galerie d\'images, analyse, résolution).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheParams,
+                    action: {
+                        type: 'string',
+                        description: 'understand | prepare_visit | field_checklist | observations | logging_tasks | ' +
+                            'workspace | extract_logging_tasks | image_gallery | illustrate_term | explain_word | ' +
+                            'geology_context | analyze_observations | resolve.',
+                        enum: ['understand', 'prepare_visit', 'field_checklist', 'observations', 'logging_tasks', 'workspace', 'extract_logging_tasks', 'image_gallery', 'illustrate_term', 'explain_word', 'geology_context', 'analyze_observations', 'resolve'],
+                        required: false,
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        await this.commandService.executeCommand(EarthCoachOpenCommandId, {
+                            geocacheId,
+                            action: args.action ? String(args.action) as EarthCoachQuickAction : undefined,
+                        });
+                        return ok({ geocache_id: geocacheId, action: args.action ?? 'pick' });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_earthcoach_references',
+                name: 'aide_open_earthcoach_references',
+                description: 'Ouvre la vue Références EarthCoach (glossaire géologique illustré), avec terme à rechercher.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    query: { type: 'string', description: 'Terme géologique (ex: "calcaire coquillier").', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.commandService.executeCommand('earthcoach.references.open', args.query ? String(args.query) : undefined);
+                        return ok({ query: args.query });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_collect_context',
+                name: 'aide_earthcoach_collect_context',
+                description: 'Collecte le contexte EarthCoach complet d\'une EarthCache : géocache, observations ' +
+                    'structurées + notes repliées, questions du propriétaire, images, espace de travail.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheParams,
+                    force_refresh: { type: 'boolean', description: 'Ignorer le micro-cache (après une mutation).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const context = await this.earthCoachContextService.collectContext({
+                            geocacheId,
+                            forceRefresh: args.force_refresh === true,
+                        });
+                        if (!context) {
+                            return err('Contexte EarthCoach introuvable pour cette géocache.');
+                        }
+                        return ok({
+                            geocache: context.geocacheData,
+                            observations_count: context.observations.length,
+                            observations: context.observations.slice(0, 50),
+                            logging_tasks: context.loggingTasks,
+                            images_count: context.images.length,
+                            gc_personal_note: context.gcPersonalNote ?? null,
+                            workspace: context.workspace ?? null,
+                            load_errors: context.loadErrors,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_get_workspace',
+                name: 'aide_earthcoach_get_workspace',
+                description: 'Lit l\'espace de travail EarthCoach d\'une EarthCache (commentaire général, images ' +
+                    'contextualisées, groupes d\'analyse).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        return ok(await this.earthCoachWorkspaceService.getWorkspace(geocacheId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_elevation',
+                name: 'aide_earthcoach_elevation',
+                description: 'Altitude d\'un ou plusieurs points (service d\'élévation EarthCoach) : lat/lon ou ' +
+                    'liste de points.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    latitude: { type: 'number', description: 'Latitude (avec longitude) pour un point unique.', required: false },
+                    longitude: { type: 'number', description: 'Longitude (avec latitude) pour un point unique.', required: false },
+                    points: { type: 'array', description: 'Liste de {lat, lon} pour plusieurs points.', items: { type: 'object' }, required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        let points: Array<{ lat: number; lon: number }> = [];
+                        if (Array.isArray(args.points)) {
+                            points = args.points
+                                .map((p: any) => ({ lat: Number(p?.lat), lon: Number(p?.lon) }))
+                                .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+                        } else if (args.latitude !== undefined && args.longitude !== undefined) {
+                            points = [{ lat: Number(args.latitude), lon: Number(args.longitude) }];
+                        }
+                        if (!points.length) {
+                            return err('Fournissez latitude+longitude ou points[{lat,lon}].');
+                        }
+                        return ok(await this.earthCoachElevationService.elevationAtPoints(points));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_geology',
+                name: 'aide_earthcoach_geology',
+                description: 'Contexte géologique d\'un point : carte mondiale (geology) ou BRGM détaillé France ' +
+                    '(french=true, boreholes pour les sondages). Utile pour préparer une EarthCache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    latitude: { type: 'number', description: 'Latitude.', required: true },
+                    longitude: { type: 'number', description: 'Longitude.', required: true },
+                    french: { type: 'boolean', description: 'true = données BRGM France détaillées.', required: false },
+                    boreholes: { type: 'boolean', description: 'Avec french=true : inclure les sondages proches.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const lat = Number(args.latitude); const lon = Number(args.longitude);
+                        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                            return err('Coordonnées invalides.');
+                        }
+                        const result = args.french === true
+                            ? await this.earthCoachGeologyService.frenchGeologyAtPoint(lat, lon, args.boreholes === true)
+                            : await this.earthCoachGeologyService.geologyAtPoint(lat, lon);
+                        return ok(result);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_list_observations',
+                name: 'aide_earthcoach_list_observations',
+                description: 'Liste les observations de terrain structurées EarthCoach d\'une EarthCache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        return ok(await this.earthCoachObservationService.listObservations(geocacheId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_create_observation',
+                name: 'aide_earthcoach_create_observation',
+                description: 'Crée une observation de terrain EarthCoach (observation | hypothesis | interpretation), ' +
+                    'avec waypoint, coordonnées, date et images optionnelles.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheParams, ...observationInputParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const input = buildObservationInput(args);
+                        if (typeof input === 'string') { return err(input); }
+                        return ok(await this.earthCoachObservationService.createObservation(geocacheId, input));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_update_observation',
+                name: 'aide_earthcoach_update_observation',
+                description: 'Met à jour une observation EarthCoach (contenu, type, waypoint, coordonnées, images).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    observation_id: { type: 'number', description: 'ID de l\'observation.', required: true },
+                    ...observationInputParams,
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const input = buildObservationInput(args);
+                        if (typeof input === 'string') { return err(input); }
+                        return ok(await this.earthCoachObservationService.updateObservation(Number(args.observation_id), input));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_delete_observation',
+                name: 'aide_earthcoach_delete_observation',
+                description: 'Supprime une observation EarthCoach.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    observation_id: { type: 'number', description: 'ID de l\'observation à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer cette observation EarthCoach ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.dry_run === true) {
+                            return ok({ dry_run: true, observation_id: Number(args.observation_id) });
+                        }
+                        await this.earthCoachObservationService.deleteObservation(Number(args.observation_id));
+                        return ok({ deleted: Number(args.observation_id) });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_list_logging_tasks',
+                name: 'aide_earthcoach_list_logging_tasks',
+                description: 'Liste les questions du propriétaire (logging tasks) d\'une EarthCache : question, ' +
+                    'guidance, réponse, statut, observation liée.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        return ok(await this.earthCoachLoggingTaskService.listLoggingTasks(geocacheId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_create_logging_task',
+                name: 'aide_earthcoach_create_logging_task',
+                description: 'Ajoute une question du propriétaire à une EarthCache (question, guidance, statut ' +
+                    'todo|field|answered, photo requise, observation liée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheParams,
+                    ...taskInputParams,
+                    question: { type: 'string', description: 'Question du propriétaire.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const input = buildTaskInput(args);
+                        if (!input.question?.trim()) {
+                            return err('question requise.');
+                        }
+                        return ok(await this.earthCoachLoggingTaskService.createLoggingTask(geocacheId, input));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_update_logging_task',
+                name: 'aide_earthcoach_update_logging_task',
+                description: 'Met à jour une question EarthCoach : question, guidance, réponse, statut, photo ' +
+                    'requise, observation liée (observation_id ou unlink_observation).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    task_id: { type: 'number', description: 'ID de la question (logging task).', required: true },
+                    ...taskInputParams,
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const taskId = Number(args.task_id);
+                        if (args.observation_id === undefined && args.unlink_observation !== true
+                            && args.question === undefined && args.guidance === undefined && args.answer === undefined
+                            && args.status === undefined && args.requires_photo === undefined) {
+                            return err('Aucun champ à modifier.');
+                        }
+                        return ok(await this.earthCoachLoggingTaskService.updateLoggingTask(taskId, buildTaskInput(args)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_earthcoach_delete_logging_task',
+                name: 'aide_earthcoach_delete_logging_task',
+                description: 'Supprime une question du propriétaire (logging task) EarthCoach.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    task_id: { type: 'number', description: 'ID de la question à supprimer.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Supprimer cette question du propriétaire ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.dry_run === true) {
+                            return ok({ dry_run: true, task_id: Number(args.task_id) });
+                        }
+                        await this.earthCoachLoggingTaskService.deleteLoggingTask(Number(args.task_id));
+                        return ok({ deleted: Number(args.task_id) });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Préférences applicatives (réglages fins) ─────────────────────────────
+
+    private buildAppPreferencesTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_app_preferences',
+                name: 'aide_list_app_preferences',
+                description: 'Liste les réglages fins GeoApp (hors policy IA dédiée) : valeur courante, ' +
+                    'type, valeurs autorisées. `prefix` filtre (ex : geoApp.ocr, geoApp.logs). ' +
+                    'Les clés sensibles sont masquées, les clés gérées indiquent leur tool dédié.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    prefix: { type: 'string', description: 'Filtre de préfixe (ex : geoApp.ocr). Défaut : tout.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const prefix = args.prefix ? String(args.prefix) : '';
+                        const entries = Object.entries(APP_PREFERENCE_SPECS)
+                            .filter(([key]) => !prefix || key.startsWith(prefix))
+                            .map(([key, spec]) => {
+                                const raw = this.preferenceService.get(key);
+                                return {
+                                    key,
+                                    value: spec.sensitive ? (raw ? '••••••••' : null) : (raw ?? null),
+                                    type: spec.type,
+                                    ...(spec.enum ? { enum: spec.enum } : {}),
+                                    ...(spec.managed_by ? { managed_by: spec.managed_by } : {}),
+                                    ...(spec.sensitive ? { sensitive: true } : {}),
+                                    description: spec.description,
+                                };
+                            });
+                        return ok({ count: entries.length, preferences: entries });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_app_preferences',
+                name: 'aide_set_app_preferences',
+                description: 'Modifie des réglages fins GeoApp par lot : `settings` = {clé: valeur}. ' +
+                    'Validé contre la table connue (types, enums, bornes) ; `null` réinitialise la clé ' +
+                    'à son défaut. Les clés sensibles et celles gérées par un tool dédié sont refusées. ' +
+                    '`dry_run` prévisualise les changements.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    settings: { type: 'object', description: 'Objet {clé_préférence: nouvelle_valeur}. null = reset.', required: true },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Modifier les réglages de l\'application ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const settings = args.settings;
+                        if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
+                            return err('settings objet {clé: valeur} requis.');
+                        }
+                        const entries = Object.entries(settings as Record<string, unknown>);
+                        if (!entries.length) {
+                            return err('settings vide.');
+                        }
+                        const changes: Array<{ key: string; old: unknown; new: unknown; action: string }> = [];
+                        const errors: string[] = [];
+                        for (const [key, value] of entries) {
+                            const spec = APP_PREFERENCE_SPECS[key];
+                            if (!spec) {
+                                errors.push(`${key} : clé inconnue.`);
+                                continue;
+                            }
+                            if (spec.sensitive) {
+                                errors.push(`${key} : clé sensible — à renseigner dans les préférences de l'application.`);
+                                continue;
+                            }
+                            if (spec.managed_by) {
+                                errors.push(`${key} : gérée par ${spec.managed_by}.`);
+                                continue;
+                            }
+                            const validation = validatePreferenceValue(key, value);
+                            if (validation) {
+                                errors.push(`${key} : ${validation}`);
+                                continue;
+                            }
+                            changes.push({
+                                key,
+                                old: this.preferenceService.get(key) ?? null,
+                                new: value,
+                                action: value === null ? 'reset' : 'set',
+                            });
+                        }
+                        if (errors.length) {
+                            return err(errors.join(' | '));
+                        }
+                        if (args.dry_run === true) {
+                            return ok({ dry_run: true, changes });
+                        }
+                        for (const change of changes) {
+                            await this.preferenceService.set(change.key, change.new === null ? undefined : change.new, PreferenceScope.User);
+                        }
+                        return ok({ applied: changes.length, changes });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

@@ -503,6 +503,26 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_batch_plugin_status': { registryId: 'aide_batch_plugin_status', category: 'plugins', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_list_batch_plugin_tasks': { registryId: 'aide_list_batch_plugin_tasks', category: 'plugins', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
     'aide_cancel_batch_plugin_task': { registryId: 'aide_cancel_batch_plugin_task', category: 'plugins', risk: 'local_write', scopes: ['aide'], defaultEnabled: true },
+
+    // EarthCoach
+    'aide_open_earthcoach': { registryId: 'aide_open_earthcoach', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_open_earthcoach_references': { registryId: 'aide_open_earthcoach_references', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_collect_context': { registryId: 'aide_earthcoach_collect_context', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_get_workspace': { registryId: 'aide_earthcoach_get_workspace', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_elevation': { registryId: 'aide_earthcoach_elevation', category: 'coordinates', risk: 'network', network: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_geology': { registryId: 'aide_earthcoach_geology', category: 'coordinates', risk: 'network', network: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_list_observations': { registryId: 'aide_earthcoach_list_observations', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_create_observation': { registryId: 'aide_earthcoach_create_observation', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_update_observation': { registryId: 'aide_earthcoach_update_observation', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_delete_observation': { registryId: 'aide_earthcoach_delete_observation', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_list_logging_tasks': { registryId: 'aide_earthcoach_list_logging_tasks', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_create_logging_task': { registryId: 'aide_earthcoach_create_logging_task', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_update_logging_task': { registryId: 'aide_earthcoach_update_logging_task', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_earthcoach_delete_logging_task': { registryId: 'aide_earthcoach_delete_logging_task', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Réglages fins (préférences)
+    'aide_list_app_preferences': { registryId: 'aide_list_app_preferences', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_set_app_preferences': { registryId: 'aide_set_app_preferences', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
 };
 
 @injectable()
