@@ -342,6 +342,20 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_archive_bulk_delete': { registryId: 'aide_archive_bulk_delete', category: 'app', risk: 'high', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
     'aide_open_friends': { registryId: 'aide_open_friends', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_friend_activity': { registryId: 'aide_open_friend_activity', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_friend_todo': { registryId: 'aide_open_friend_todo', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+
+    // Fiche géocache — analyses IA, chat contextuel, overrides de contenu, liens
+    'aide_analyze_geocache': { registryId: 'aide_analyze_geocache', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_preview_geocache_workflow': { registryId: 'aide_preview_geocache_workflow', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_geocache_chat': { registryId: 'aide_open_geocache_chat', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_geocache_free_chat': { registryId: 'aide_open_geocache_free_chat', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_translate_geocache': { registryId: 'aide_translate_geocache', category: 'app', risk: 'network', network: true, writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_set_geocache_description': { registryId: 'aide_set_geocache_description', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_reset_geocache_description': { registryId: 'aide_reset_geocache_description', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_set_geocache_hint_override': { registryId: 'aide_set_geocache_hint_override', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_duplicate_waypoint': { registryId: 'aide_duplicate_waypoint', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_geocache_owner': { registryId: 'aide_get_geocache_owner', category: 'app', risk: 'network', network: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_open_geocache_link': { registryId: 'aide_open_geocache_link', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
 
     // Sorties entre amis — sorties/groupes = état local, scans = réseau limité par GC.com
     'aide_list_friends': { registryId: 'aide_list_friends', category: 'app', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

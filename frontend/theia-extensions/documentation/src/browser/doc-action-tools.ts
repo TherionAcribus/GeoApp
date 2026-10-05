@@ -84,6 +84,16 @@ import type {
 } from 'theia-ide-zones-ext/lib/browser/log-editor/types';
 import type { TrackablePayloadEntry } from 'theia-ide-zones-ext/lib/browser/log-editor/trackables';
 import { GeocacheImagesService } from 'theia-ide-zones-ext/lib/browser/geocache-images-service';
+import { GeocacheDetailsChatController } from 'theia-ide-zones-ext/lib/browser/geocache-details-chat-controller';
+import { GeocacheDetailsContentController } from 'theia-ide-zones-ext/lib/browser/geocache-details-content-controller';
+import { GeocacheDetailsTranslationController } from 'theia-ide-zones-ext/lib/browser/geocache-details-translation-controller';
+import { GridPuzzleWorkbenchContribution } from '@mysterai/theia-plugins/lib/browser/grid-puzzle-workbench-contribution';
+import type { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import type { GeocacheDto, GeocacheWaypoint } from 'theia-ide-zones-ext/lib/browser/geocache-details-types';
+import { parseGCCoords, htmlToRawText, rawTextToHtml, isFramableUrl } from 'theia-ide-zones-ext/lib/browser/geocache-details-utils';
+import { buildOwnerProfileUrl, buildOwnerMessageUrl, openExternalUrl } from 'theia-ide-zones-ext/lib/browser/geocaching-owner-links';
+import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
+import type { GeoAppChatWorkflowProfile } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-agent';
 import type { GeocacheImageV2Dto } from 'theia-ide-zones-ext/lib/browser/geocache-images-panel';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
@@ -230,6 +240,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(GeocacheDetailsService)
     protected readonly geocacheDetailsService!: GeocacheDetailsService;
 
+    @inject(GeocacheDetailsChatController)
+    protected readonly geocacheChatController!: GeocacheDetailsChatController;
+
+    @inject(GeocacheDetailsContentController)
+    protected readonly geocacheContentController!: GeocacheDetailsContentController;
+
+    @inject(GeocacheDetailsTranslationController)
+    protected readonly geocacheTranslationController!: GeocacheDetailsTranslationController;
+
+    @inject(GridPuzzleWorkbenchContribution) @optional()
+    protected readonly gridPuzzleContribution: GridPuzzleWorkbenchContribution | undefined;
+
+    @inject(MiniBrowserOpenHandler) @optional()
+    protected readonly miniBrowserOpenHandler: MiniBrowserOpenHandler | undefined;
+
     @inject(GeocacheLogsFetchService)
     protected readonly logsFetchService!: GeocacheLogsFetchService;
 
@@ -331,6 +356,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildTrackableTools(),
             ...this.buildGpsVisitsTools(),
             ...this.buildLogEditorTools(),
+            ...this.buildGeocacheDetailsActionTools(),
             ...this.buildGeocacheImageTools(),
             ...this.buildSystemAndImportTools(),
             ...this.buildImportTools(),
@@ -5026,6 +5052,458 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             .replace(/\[ANALYSIS\][\s\S]*?\[\/ANALYSIS\]/gi, '')
             .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
             .trim();
+    }
+
+    // ─── Fiche géocache (actions) ────────────────────────────────────────────
+
+    /**
+     * Contexte `GeocacheContext` du Plugin Executor, identique à
+     * `GeocacheDetailsWidget.buildPluginExecutorContext` : description effective
+     * (modifiée si elle existe, sinon originale), indices décodés et coordonnées
+     * (corrigées si présentes, parsées depuis le format GC sinon).
+     */
+    private buildGeocachePluginContext(data: GeocacheDto): GeocacheContext {
+        const hasOverride = Boolean(data.description_override_html) || Boolean(data.description_override_raw);
+        const descriptionHtml = this.geocacheContentController.getEffectiveDescriptionHtml(
+            data, hasOverride ? 'modified' : 'original'
+        );
+
+        const coordinatesRaw = data.coordinates_raw || data.original_coordinates_raw;
+        let coordinates: GeocacheContext['coordinates'];
+        if (coordinatesRaw) {
+            let lat = data.latitude;
+            let lon = data.longitude;
+            if (lat === undefined || lat === null || lon === undefined || lon === null) {
+                const raw = coordinatesRaw.replace(',', ' ');
+                const parts = raw.match(/([NS].*?)([EW].*)/i);
+                if (parts?.[1] && parts?.[2]) {
+                    const parsed = parseGCCoords(parts[1].trim(), parts[2].trim());
+                    if (parsed) {
+                        lat = parsed.lat;
+                        lon = parsed.lon;
+                    }
+                }
+            }
+            if (lat !== undefined && lat !== null && lon !== undefined && lon !== null) {
+                coordinates = { latitude: lat, longitude: lon, coordinatesRaw };
+            }
+        }
+
+        return {
+            geocacheId: data.id,
+            gcCode: data.gc_code || `GC${data.id}`,
+            name: data.name,
+            coordinates,
+            description: descriptionHtml,
+            hint: this.geocacheContentController.getDecodedHints(data),
+            difficulty: data.difficulty,
+            terrain: data.terrain,
+            waypoints: data.waypoints,
+            images: data.images,
+            checkers: data.checkers,
+        };
+    }
+
+    /** Charge la fiche complète (résout gc_code ↔ geocache_id). */
+    private async loadGeocacheDto(geocacheId: number): Promise<GeocacheDto> {
+        return this.geocachesService.get<GeocacheDto>(geocacheId);
+    }
+
+    /** Après une modification de contenu : aperçu de routage périmé + fiche à recharger. */
+    private notifyGeocacheContentChanged(geocacheId: number): void {
+        this.geocacheChatController.invalidateRoutingPreview(geocacheId);
+        this.widgetEventsService.notifyGeocacheChanged({
+            geocacheId,
+            reason: 'refreshed',
+            source: 'chat',
+        });
+    }
+
+    /** Ouvre une URL comme le ferait la fiche : mini-browser si affichable, navigateur externe sinon. */
+    private async openGeocacheUrl(url: string): Promise<'mini-browser' | 'external'> {
+        if (!isFramableUrl(url) || !this.miniBrowserOpenHandler) {
+            openExternalUrl(url);
+            return 'external';
+        }
+        try {
+            await this.miniBrowserOpenHandler.open(new URI(url));
+            return 'mini-browser';
+        } catch {
+            openExternalUrl(url);
+            return 'external';
+        }
+    }
+
+    private buildGeocacheDetailsActionTools(): ToolRequest[] {
+        const geocacheRefParams = {
+            geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+            gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+        };
+        const profileParam = {
+            type: 'string',
+            description: 'Profil IA forcé pour ce chat : fast (rapide), strong (raisonnement), web (recherche), local (aucun envoi externe). Défaut "default" = profil automatique selon le workflow détecté.',
+            enum: ['default', 'fast', 'strong', 'web', 'local'],
+            required: false,
+        };
+        return [
+            {
+                id: 'aide_analyze_geocache',
+                name: 'aide_analyze_geocache',
+                description: 'Lance l\'analyse d\'une géocache comme les boutons de la fiche : ' +
+                    '"plugins" ouvre le Plugin Executor avec le contexte de la cache, ' +
+                    '"page" lance l\'analyse de la page web, "code" le metasolver, ' +
+                    '"grid_puzzle" le workbench de grilles.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    mode: {
+                        type: 'string',
+                        description: 'plugins | page | code | grid_puzzle.',
+                        enum: ['plugins', 'page', 'code', 'grid_puzzle'],
+                        required: true,
+                    },
+                    plugin_name: { type: 'string', description: 'En mode "plugins" : plugin pré-sélectionné.', required: false },
+                    auto_execute: { type: 'boolean', description: 'En mode "plugins" : exécuter le plugin au chargement.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const context = this.buildGeocachePluginContext(data);
+                        const mode = String(args.mode ?? 'plugins');
+                        if (mode === 'grid_puzzle') {
+                            if (!this.gridPuzzleContribution) {
+                                return err('Le workbench de grilles n\'est pas disponible.');
+                            }
+                            await this.gridPuzzleContribution.openWithContext(context);
+                        } else {
+                            // Même cible que PluginExecutorContribution.openWithContext :
+                            // pluginTabsManager.openForGeocache (sans passer par la
+                            // contribution, dont l'import tire un cycle de widgets).
+                            if (mode === 'page') {
+                                await this.pluginTabsManager.openForGeocache({ context, pluginName: 'analysis_web_page', autoExecute: true, forceDuplicate: true });
+                            } else if (mode === 'code') {
+                                await this.pluginTabsManager.openForGeocache({ context, pluginName: 'metasolver', autoExecute: false });
+                            } else {
+                                const pluginName = String(args.plugin_name ?? '').trim() || undefined;
+                                await this.pluginTabsManager.openForGeocache({ context, pluginName, autoExecute: Boolean(args.auto_execute) });
+                            }
+                        }
+                        return ok({ mode, geocache_id: geocacheId, gc_code: data.gc_code });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_preview_geocache_workflow',
+                name: 'aide_preview_geocache_workflow',
+                description: 'Aperçu du routage IA de la fiche : workflow détecté (formula, checker, secret_code…) ' +
+                    'et profil de chat qui serait utilisé — exactement ce que le bouton « Chat IA » appliquerait.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRefParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        return ok(await this.geocacheChatController.resolveRoutingPreview(geocacheId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_geocache_chat',
+                name: 'aide_open_geocache_chat',
+                description: 'Ouvre le chat IA contextuel de la fiche (bouton « Chat IA ») avec le workflow détecté ' +
+                    'automatiquement — le même routage que l\'interface.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRefParams, profile: profileParam }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const profile = (args.profile ?? 'default') as GeoAppChatWorkflowProfile;
+                        const routing = await this.geocacheChatController.resolveRoutingPreview(geocacheId);
+                        this.geocacheChatController.openGeocacheChat(data, routing.workflowPreview, profile);
+                        return ok({ opened: true, workflow: routing.workflowPreview, profile });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_geocache_free_chat',
+                name: 'aide_open_geocache_free_chat',
+                description: 'Ouvre une session de chat libre pré-remplie avec le contexte de la géocache ' +
+                    '(bouton « Chat libre » de la fiche).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    prompt: { type: 'string', description: 'Question ou consigne pré-remplie dans le chat.', required: false },
+                    profile: profileParam,
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const profile = (args.profile ?? 'default') as GeoAppChatWorkflowProfile;
+                        const draft = String(args.prompt ?? '');
+                        this.geocacheChatController.openFreeChat(data, draft, [], profile);
+                        return ok({ opened: true, profile });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_translate_geocache',
+                name: 'aide_translate_geocache',
+                description: 'Traduit la fiche par IA vers la langue configurée : ' +
+                    'scope "description" = description seule, "all" = description + indices + notes de waypoints. ' +
+                    'Le résultat est enregistré comme contenu modifié (visible dans l\'onglet « Modifié »). ' +
+                    'Les valeurs modifiées existantes sont écrasées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    scope: { type: 'string', description: '"description" (défaut) ou "all" (description + indices + waypoints).', enum: ['description', 'all'], required: false },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Lancer une traduction IA de cette fiche ? Les valeurs modifiées existantes seront écrasées.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const scope = String(args.scope ?? 'description');
+                        const sourceHtml = this.geocacheContentController.getEffectiveDescriptionHtml(data, 'original');
+                        const sourceHints = this.geocacheContentController.getSourceHintsForTranslation(data);
+                        const sourceWaypoints = (data.waypoints ?? [])
+                            .filter((w): w is GeocacheWaypoint & { id: number } => typeof w.id === 'number')
+                            .map(w => ({ id: w.id, note: (w.note || '').toString() }));
+                        if (args.dry_run === true) {
+                            return ok({
+                                scope,
+                                would_translate: scope === 'all'
+                                    ? { description: Boolean(sourceHtml.trim()), hints: Boolean(sourceHints), waypoints: sourceWaypoints.length }
+                                    : { description: Boolean(sourceHtml.trim()) },
+                                replaces_overrides: Boolean(data.description_override_html) || Boolean(data.description_override_raw)
+                                    || Boolean(data.hints_decoded_override)
+                                    || (data.waypoints ?? []).some(w => Boolean(w.note_override)),
+                            });
+                        }
+                        if (scope === 'all') {
+                            const result = await this.geocacheTranslationController.translateAllContent({
+                                geocacheId,
+                                descriptionHtml: sourceHtml,
+                                hintsDecoded: sourceHints,
+                                waypoints: sourceWaypoints,
+                            });
+                            this.notifyGeocacheContentChanged(geocacheId);
+                            return ok(result);
+                        }
+                        if (!sourceHtml.trim()) {
+                            return err('Description originale vide : rien à traduire.');
+                        }
+                        await this.geocacheTranslationController.translateDescription(geocacheId, sourceHtml);
+                        this.notifyGeocacheContentChanged(geocacheId);
+                        return ok({ translated: ['description'] });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_geocache_description',
+                name: 'aide_set_geocache_description',
+                description: 'Écrit la « description modifiée » d\'une géocache (override local visible dans ' +
+                    'l\'onglet Modifié, sans toucher au listing d\'origine). format="html" pour du HTML, ' +
+                    '"raw" (défaut) pour du texte brut converti en HTML.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    content: { type: 'string', description: 'Contenu de la description modifiée.', required: true },
+                    format: { type: 'string', description: '"raw" (défaut) ou "html".', enum: ['raw', 'html'], required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const content = String(args.content ?? '');
+                        if (String(args.format) === 'html') {
+                            await this.geocacheDetailsService.updateDescription(geocacheId, {
+                                description_override_html: content,
+                                description_override_raw: htmlToRawText(content),
+                            });
+                        } else {
+                            await this.geocacheDetailsService.updateDescription(geocacheId, {
+                                description_override_raw: content,
+                                description_override_html: rawTextToHtml(content),
+                            });
+                        }
+                        this.notifyGeocacheContentChanged(geocacheId);
+                        return ok({ geocache_id: geocacheId, override: 'set' });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_reset_geocache_description',
+                name: 'aide_reset_geocache_description',
+                description: 'Supprime la « description modifiée » d\'une géocache : la fiche revient au listing d\'origine.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRefParams, dry_run: DRY_RUN_PARAM }),
+                confirmAlwaysAllow: 'Supprimer la description modifiée de cette géocache ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const hasOverride = Boolean(data.description_override_html) || Boolean(data.description_override_raw);
+                        if (args.dry_run === true) {
+                            return ok({ has_override: hasOverride, would_reset: hasOverride });
+                        }
+                        if (!hasOverride) {
+                            return ok({ geocache_id: geocacheId, override: 'none' });
+                        }
+                        await this.geocacheDetailsService.resetDescription(geocacheId);
+                        this.notifyGeocacheContentChanged(geocacheId);
+                        return ok({ geocache_id: geocacheId, override: 'reset' });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_geocache_hint_override',
+                name: 'aide_set_geocache_hint_override',
+                description: 'Remplace l\'indice décodé affiché d\'une géocache (override local — ex : correction ' +
+                    'd\'un ROT13 ou indice reformulé). La fiche affiche cette valeur à la place de l\'indice décodé.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    content: { type: 'string', description: 'Indice décodé à enregistrer.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        await this.geocacheDetailsService.updateTranslatedContent(geocacheId, {
+                            hints_decoded_override: String(args.content ?? ''),
+                        });
+                        this.notifyGeocacheContentChanged(geocacheId);
+                        return ok({ geocache_id: geocacheId, hints_override: 'set' });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_duplicate_waypoint',
+                name: 'aide_duplicate_waypoint',
+                description: 'Duplique un waypoint existant d\'une géocache (nom, type, coordonnées, note et note modifiée).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache (ou utiliser gc_code).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC, alternatif à geocache_id.', required: false },
+                    waypoint_id: { type: 'number', description: 'ID du waypoint à dupliquer.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const waypoint = (data.waypoints ?? []).find(w => w.id === Number(args.waypoint_id));
+                        if (!waypoint) {
+                            return err(`Waypoint ${args.waypoint_id} introuvable sur cette géocache.`);
+                        }
+                        const result = await this.geocacheDetailsService.saveWaypoint(geocacheId, 'new', {
+                            prefix: waypoint.prefix,
+                            name: waypoint.name,
+                            type: waypoint.type,
+                            gc_coords: waypoint.gc_coords,
+                            note: waypoint.note,
+                            note_override: waypoint.note_override,
+                        });
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId,
+                            reason: 'waypoint-created',
+                            source: 'chat',
+                        });
+                        return ok(result ?? { duplicated: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_geocache_owner',
+                name: 'aide_get_geocache_owner',
+                description: 'Pseudo et GUID Geocaching.com du propriétaire d\'une géocache, avec les URLs ' +
+                    'du profil public et du centre de messages pré-rempli. Relit le listing si le GUID manque en base.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...geocacheRefParams }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const identity = await this.geocacheDetailsService.getOwnerIdentity(geocacheId);
+                        return ok({
+                            ...identity,
+                            profile_url: buildOwnerProfileUrl(identity?.owner, identity?.owner_guid ?? undefined),
+                            message_url: buildOwnerMessageUrl(identity?.owner_guid ?? undefined, identity?.gc_code),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_geocache_link',
+                name: 'aide_open_geocache_link',
+                description: 'Ouvre un lien de la fiche : "checker" (url ou checker_index), "owner_profile", ' +
+                    '"owner_message" (centre de messages pré-rempli), "gc_page". Mini-navigateur intégré ' +
+                    'si le site l\'autorise, navigateur externe sinon.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...geocacheRefParams,
+                    kind: {
+                        type: 'string',
+                        description: 'checker | owner_profile | owner_message | gc_page.',
+                        enum: ['checker', 'owner_profile', 'owner_message', 'gc_page'],
+                        required: true,
+                    },
+                    checker_index: { type: 'number', description: 'En mode checker : index du checker (défaut 0).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const geocacheId = await this.resolveGeocacheId(args);
+                        const data = await this.loadGeocacheDto(geocacheId);
+                        const kind = String(args.kind ?? 'gc_page');
+                        let url: string | undefined;
+                        if (kind === 'checker') {
+                            const checkers = data.checkers ?? [];
+                            const index = Math.max(Number(args.checker_index) || 0, 0);
+                            url = checkers[index]?.url;
+                            if (!url) {
+                                return err(checkers.length === 0
+                                    ? 'Cette géocache n\'a aucun checker.'
+                                    : `checker_index ${index} hors limites (${checkers.length} checker(s)).`);
+                            }
+                        } else if (kind === 'owner_profile') {
+                            url = buildOwnerProfileUrl(data.owner, data.owner_guid);
+                        } else if (kind === 'owner_message') {
+                            url = buildOwnerMessageUrl(data.owner_guid, data.gc_code);
+                        } else {
+                            url = data.url || (data.gc_code ? `https://www.geocaching.com/geocache/${data.gc_code}` : undefined);
+                        }
+                        if (!url) {
+                            return err(`Aucune URL de type "${kind}" disponible pour cette géocache.`);
+                        }
+                        const openedIn = await this.openGeocacheUrl(url);
+                        return ok({ url, opened_in: openedIn });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_friend_todo',
+                name: 'aide_open_friend_todo',
+                description: 'Ouvre l\'onglet « À faire » du widget Amis (caches trouvées par les amis, pas par moi).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.friends.todo.open');
+                        return ok('Onglet « À faire » des amis ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
     }
 
     private buildGeocacheImageTools(): ToolRequest[] {

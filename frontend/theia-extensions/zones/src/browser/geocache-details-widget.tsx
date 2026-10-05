@@ -55,6 +55,7 @@ import {
 import {
     calculateAntipode,
     calculateProjection,
+    isFramableUrl,
     parseGCCoords,
     toGCFormat
 } from './geocache-details-utils';
@@ -66,25 +67,6 @@ import {
 } from './geoapp-chat-agent';
 import { FreeChatDialog, FreeChatDialogResult } from './geocache-free-chat-dialog';
 import { GeocacheDetailsHeaderAction, GeocacheDetailsHeaderActionRegistry } from './geocache-details-header-actions';
-
-/**
- * Domaines qui refusent l'affichage dans une iframe (X-Frame-Options /
- * CSP frame-ancestors). Le mini-browser Theia est une iframe : ces sites y
- * affichent « a refusé de se connecter », on les ouvre donc directement
- * dans le navigateur externe.
- */
-// Domaines qui refusent l'iframe du mini-navigateur (X-Frame-Options / CSP
-// frame-ancestors) : ils basculent automatiquement en fenêtre externe.
-const NON_FRAMABLE_DOMAINS = ['geocaching.com', 'coord.info', 'google.com', 'openstreetmap.org', 'waze.com'];
-
-function isFramableUrl(url: string): boolean {
-    try {
-        const host = new URL(url).hostname.toLowerCase();
-        return !NON_FRAMABLE_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`));
-    } catch {
-        return true;
-    }
-}
 
 interface PluginAddWaypointDetail {
     gcCoords: string;

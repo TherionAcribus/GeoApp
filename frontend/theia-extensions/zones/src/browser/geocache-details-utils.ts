@@ -91,6 +91,24 @@ export function rot13(value: string): string {
     });
 }
 
+/**
+ * Domaines qui refusent l'affichage dans une iframe (X-Frame-Options /
+ * CSP frame-ancestors). Le mini-browser Theia est une iframe : ces sites y
+ * affichent « a refusé de se connecter », on les ouvre donc directement
+ * dans le navigateur externe.
+ */
+export const NON_FRAMABLE_DOMAINS = ['geocaching.com', 'coord.info', 'google.com', 'openstreetmap.org', 'waze.com'];
+
+/** false si l'URL ne peut pas s'afficher dans le mini-browser (iframe refusée). */
+export function isFramableUrl(url: string): boolean {
+    try {
+        const host = new URL(url).hostname.toLowerCase();
+        return !NON_FRAMABLE_DOMAINS.some(domain => host === domain || host.endsWith(`.${domain}`));
+    } catch {
+        return true;
+    }
+}
+
 function escapeHtml(value: string): string {
     return value
         .replace(/&/g, '&amp;')
