@@ -10,6 +10,7 @@ import * as assert from 'assert/strict';
 import {
     STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     ZONE_GEOCACHE_FIELD_DEFINITIONS,
+    clockOperandRange,
     matchesSearchPattern,
     normalizeFieldAlias,
     parseTokenExpression,
@@ -155,6 +156,35 @@ function testDatesParseAsDateExpressions(): void {
     assert.equal(parseTokenExpression('placed_at', '>=17-05-2023'), null);
 }
 
+function testTimesParseAsClockExpressions(): void {
+    // Un champ « time » (déclaré dans `kinds.time`) : « 14 », « 14h », « 14h30 »
+    // ou « 14:30 » sont normalisés en « HH » / « HH:MM ».
+    const kinds = { time: new Set(['time']) };
+    assert.deepEqual(
+        parseTokenExpression('time', '>=14', kinds),
+        { field: 'time', operator: 'gte', value: '14' }
+    );
+    assert.deepEqual(
+        parseTokenExpression('time', '8<>18', kinds),
+        { field: 'time', operator: 'between', value: '08', value2: '18' }
+    );
+    assert.deepEqual(
+        parseTokenExpression('time', '14h30', kinds),
+        { field: 'time', operator: 'eq', value: '14:30' }
+    );
+    assert.deepEqual(
+        parseTokenExpression('time', '!=8h', kinds),
+        { field: 'time', operator: 'neq', value: '08' }
+    );
+    // Ni texte libre ni opérande invalide : pas de clause « contient ».
+    assert.equal(parseTokenExpression('time', 'midi', kinds), null);
+    assert.equal(parseTokenExpression('time', '25:00', kinds), null);
+    // L'opérande donne une plage de minutes : l'heure entière, ou la minute.
+    assert.deepEqual(clockOperandRange('14'), { start: 840, end: 899 });
+    assert.deepEqual(clockOperandRange('14:30'), { start: 870, end: 870 });
+    assert.equal(clockOperandRange('140'), null);
+}
+
 function testBooleanFieldsAcceptFrenchValues(): void {
     assert.deepEqual(
         parseTokenExpression('has_notes', 'oui'),
@@ -190,6 +220,7 @@ testUnknownAliasStaysUnknown();
 testPercentParsesAsANumericExpression();
 testFindsParsesAsANumericExpression();
 testDatesParseAsDateExpressions();
+testTimesParseAsClockExpressions();
 testBooleanFieldsAcceptFrenchValues();
 testWildcardCacheSeparatesTheModes();
 

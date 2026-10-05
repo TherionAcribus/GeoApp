@@ -31,16 +31,18 @@ import { MapWidget } from './map/map-widget';
 import { BackendApiError } from './backend-api-client';
 import { OutingPreparationPanel, OutingPreparationState, OutingRunState } from './gps-outing-preparation';
 import { DayResolutionPanel, DayResolutionState, defaultDayChoices } from './gps-day-resolution';
+import { GeocacheFilterBar } from './geocache-filter-bar';
+import { FilterPreset } from './geocache-filter-shared';
 import {
     DetectedDevice,
     GPS_STATUS_LABELS,
+    GPS_VISIT_FIELD_DEFINITIONS,
     GpsFoundCheckItem,
     EMPTY_LIST_FILTER,
     GpsImportLandmarks,
     GpsImportReport,
     GpsListFilter,
     GpsLogOpening,
-    GpsResultFilter,
     LogEditorOpening,
     GpsPreparation,
     GpsResolutionCandidate,
@@ -68,6 +70,7 @@ import {
     describeFoundCheck,
     describeImportReport,
     describeNeighbours,
+    normalizeGpsVisitFieldAlias,
     formatDistance,
     describePasses,
     describeStateChange,
@@ -92,6 +95,25 @@ const CHECK_FOUND_TITLE = 'Lit ta date de trouvaille sur Geocaching.com (0,2 s p
 
 /** Intervalle de la détection au branchement, quand le widget est visible. */
 const GPS_WATCH_INTERVAL_MS = 10_000;
+
+/**
+ * Presets de la barre de filtres : requêtes tokenisées `@champ:valeur`
+ * appliquées telles quelles dans le champ de recherche — comme le tableau des
+ * géocaches, le texte reste visible et l'utilisateur peut l'ajuster.
+ */
+const GPS_VISIT_FILTER_PRESETS: FilterPreset[] = [
+    { id: 'found', label: 'Trouvées', searchQuery: '@statut:trouvée' },
+    { id: 'dnf', label: 'Non trouvées', searchQuery: '@statut:dnf' },
+    { id: 'unattempted', label: 'Pas tentées', searchQuery: '@statut:non_tentée' },
+    { id: 'without-code', label: 'Sans code', searchQuery: '@sans_code:oui' },
+    { id: 'to-import', label: 'À importer', searchQuery: '@a_importer:oui' },
+];
+
+/** Valeurs proposées par l'autocomplétion pour les champs enum à liste fermée. */
+const GPS_VISIT_ENUM_OPTIONS = new Map<string, string[]>([
+    ['status', ['found', 'dnf', 'unattempted', 'needs_maintenance', 'other']],
+    ['state', ['pending', 'logged', 'ignored']],
+]);
 
 /** Panneau « Rattacher » d'une visite sans code. */
 interface ResolveState {
@@ -926,43 +948,50 @@ export class GpsVisitsWidget extends ReactWidget {
         void this.refreshMap(false);
     }
 
-    protected renderFilterBar(hidden: number): React.ReactNode {
+    /** Types de caches rencontrés dans la liste : options de `@type:` et du panneau. */
+    protected cacheTypeOptions(): string[] {
+        const types = new Set<string>();
+        for (const entry of this.allEntries()) {
+            const type = entry.cache_type ?? entry.device?.cache_type;
+            if (type) {
+                types.add(type);
+            }
+        }
+        return [...types].sort((a, b) => a.localeCompare(b));
+    }
+
+    protected renderFilterBar(hidden: number, shown: number): React.ReactNode {
         const filter = this.filter;
         const active = isListFilterActive(filter);
+        const enumOptions = new Map(GPS_VISIT_ENUM_OPTIONS);
+        const cacheTypes = this.cacheTypeOptions();
+        if (cacheTypes.length > 0) {
+            enumOptions.set('cache_type', cacheTypes);
+        }
         return (
             <div className='geoapp-gps-visits__filters'>
-                <input
-                    className='theia-input geoapp-gps-visits__search'
-                    type='search'
-                    placeholder='Rechercher : code, nom, commentaire'
-                    value={filter.query}
-                    onChange={e => this.setFilter({ query: e.target.value })}
+                <GeocacheFilterBar
+                    searchQuery={filter.query}
+                    advancedClauses={filter.clauses}
+                    onSearchQueryChange={query => this.setFilter({ query })}
+                    onAdvancedClausesChange={clauses => this.setFilter({ clauses })}
+                    fieldDefinitions={GPS_VISIT_FIELD_DEFINITIONS}
+                    resolveField={normalizeGpsVisitFieldAlias}
+                    enumOptionsByField={enumOptions}
+                    presets={GPS_VISIT_FILTER_PRESETS}
+                    placeholder='Rechercher… (@champ:valeur, joker *)'
+                    resultCount={active ? shown : undefined}
+                    resultLabel='visite(s)'
                 />
-                <select className='theia-select' value={filter.result} title='Résultat de la visite'
-                    onChange={e => this.setFilter({ result: e.target.value as GpsResultFilter })}>
-                    <option value='all'>Tous les résultats</option>
-                    <option value='found'>Trouvées</option>
-                    <option value='dnf'>Non trouvées</option>
-                    <option value='nm'>Needs Maintenance</option>
-                    <option value='other'>Autres (non tentées…)</option>
-                </select>
-                <label className='geoapp-gps-visits__filter-toggle' title='Visites sans code, pas encore rattachées'>
-                    <input type='checkbox' checked={filter.withoutCode} onChange={e => this.setFilter({ withoutCode: e.target.checked })} />
-                    Sans code
-                </label>
-                <label className='geoapp-gps-visits__filter-toggle' title="Caches absentes de l'App">
-                    <input type='checkbox' checked={filter.toImport} onChange={e => this.setFilter({ toImport: e.target.checked })} />
-                    À importer
-                </label>
                 {active && (
-                    <>
+                    <div className='geoapp-gps-visits__filters-status'>
                         <span className='geoapp-gps-visits__filters-hidden'>
                             {hidden} ligne{hidden > 1 ? 's' : ''} masquée{hidden > 1 ? 's' : ''}
                         </span>
                         <button className='theia-button secondary' onClick={() => this.setFilter({ ...EMPTY_LIST_FILTER })}>
                             Effacer
                         </button>
-                    </>
+                    </div>
                 )}
             </div>
         );
@@ -1422,10 +1451,11 @@ export class GpsVisitsWidget extends ReactWidget {
             );
         }
         const shown = filterDays(days, this.filter);
+        const shownCount = shown.days.reduce((n, day) => n + day.entries.length, 0);
         const collapsed = collapsedDayKeys(days, this.dayCollapse);
         return (
             <>
-                {this.renderFilterBar(shown.hidden)}
+                {this.renderFilterBar(shown.hidden, shownCount)}
                 <div className='geoapp-gps-visits__days'>
                     {shown.days.length === 0 && <div className='geoapp-gps-visits__empty'>Aucune visite ne correspond au filtre.</div>}
                     {shown.days.map(day => this.renderDay(days.find(full => full.day === day.day) ?? day, day, collapsed.has(day.day)))}

@@ -451,29 +451,20 @@
     padding: 2px;
 }
 
-/* Recherche et filtres de la liste. */
+/* Recherche et filtres de la liste (barre partagée : @champ:valeur, filtres avancés). */
 .geoapp-gps-visits__filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 10px;
     padding: 6px 10px;
     border-bottom: 1px solid var(--theia-panel-border);
 }
 
-.geoapp-gps-visits__search {
-    flex: 1 1 180px;
-    min-width: 120px;
-}
-
-.geoapp-gps-visits__filter-toggle {
-    display: inline-flex;
+.geoapp-gps-visits__filters-status {
+    display: flex;
     align-items: center;
-    gap: 4px;
-    white-space: nowrap;
+    gap: 10px;
+    margin-top: 4px;
 }
 
-.geoapp-gps-visits__filters .theia-button {
+.geoapp-gps-visits__filters-status .theia-button {
     margin: 0;
 }
 

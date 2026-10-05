@@ -78,7 +78,7 @@ export interface FilterPreset {
 export interface FieldDefinition {
     field: string;
     label: string;
-    kind: 'text' | 'number' | 'enum' | 'boolean' | 'date';
+    kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | 'time';
 }
 
 /**
@@ -162,6 +162,8 @@ export interface FilterFieldKinds {
     boolean?: ReadonlySet<string>;
     enum?: ReadonlySet<string>;
     date?: ReadonlySet<string>;
+    /** Champs « heure » (HH:MM du jour, ex. l'heure de visite GPS). */
+    time?: ReadonlySet<string>;
 }
 
 /** Familles du tableau des géocaches — valeur par défaut des parseurs. */
@@ -382,10 +384,73 @@ export function parseSearchQuery(input: string, options: SearchQueryOptions = {}
  */
 const DATE_OPERAND_REGEXP = /^\d{4}(-\d{2}(-\d{2})?)?$/;
 
+/**
+ * Opérande d'un filtre horaire : heure (`8`, `14`, `14h`) ou heure précise
+ * (`14:30`, `14h30`). La granularité choisie fixe la plage comparée dans le
+ * matcher : « 14 » couvre toute l'heure (14:00–14:59), « 14:30 » la minute.
+ */
+const CLOCK_OPERAND_REGEXP = /^(\d{1,2})(?::([0-5]?\d)|h(\d{1,2})?)?$/i;
+
+/** « 8 » → « 08 », « 14h30 » → « 14:30 », « 14h » → « 14 » ; `null` si illisible. */
+export function normalizeClockOperand(raw: string): string | null {
+    const m = CLOCK_OPERAND_REGEXP.exec((raw ?? '').trim());
+    if (!m) {
+        return null;
+    }
+    const h = Number(m[1]);
+    const mm = m[2] !== undefined ? m[2] : m[3];
+    if (h > 23 || (mm !== undefined && mm !== '' && Number(mm) > 59)) {
+        return null;
+    }
+    const hh = String(h).padStart(2, '0');
+    return mm === undefined || mm === '' ? hh : `${hh}:${mm.padStart(2, '0')}`;
+}
+
+/**
+ * Minutes écoulées depuis minuit couvertes par l'opérande : « 14 » →
+ * [840, 899], « 14:30 » → [870, 870]. Accepte aussi le « HH:MM » d'un
+ * `<input type="time">` (panneau « Filtres supplémentaires »).
+ */
+export function clockOperandRange(raw: string): { start: number; end: number } | null {
+    const normalized = normalizeClockOperand(raw);
+    if (!normalized) {
+        return null;
+    }
+    const h = Number(normalized.slice(0, 2));
+    if (normalized.length === 2) {
+        return { start: h * 60, end: h * 60 + 59 };
+    }
+    const m = h * 60 + Number(normalized.slice(3));
+    return { start: m, end: m };
+}
+
 export function parseTokenExpression(field: string, exprRaw: string, kinds: FilterFieldKinds = GEOCACHE_FIELD_KINDS): TokenFilter | null {
     const expr = (exprRaw ?? '').trim();
     if (!expr) {
         return null;
+    }
+
+    // Heures : mêmes opérateurs que les numériques, opérande « 14 », « 14h »,
+    // « 14h30 » ou « 14:30 » normalisée en « HH » / « HH:MM » — la comparaison
+    // par plage de minutes se fait ensuite dans le matcher (`clockOperandRange`).
+    if (kinds.time?.has(field)) {
+        const betweenIdx = expr.indexOf('<>');
+        if (betweenIdx !== -1) {
+            const a = normalizeClockOperand(expr.slice(0, betweenIdx));
+            const b = normalizeClockOperand(expr.slice(betweenIdx + 2));
+            return a && b ? { field, operator: 'between', value: a, value2: b } : null;
+        }
+        const clockOperators: [string, AdvancedOperator][] = [
+            ['>=', 'gte'], ['<=', 'lte'], ['!=', 'neq'], ['>', 'gt'], ['<', 'lt'], ['=', 'eq'],
+        ];
+        for (const [prefix, op] of clockOperators) {
+            if (expr.startsWith(prefix)) {
+                const v = normalizeClockOperand(expr.slice(prefix.length));
+                return v ? { field, operator: op, value: v } : null;
+            }
+        }
+        const v = normalizeClockOperand(expr);
+        return v ? { field, operator: 'eq', value: v } : null;
     }
 
     const isNumericField = kinds.numeric?.has(field) ?? false;
@@ -504,8 +569,8 @@ export function parseTokenExpression(field: string, exprRaw: string, kinds: Filt
     return { field, operator: 'contains', value: expr };
 }
 
-export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | undefined): Array<{ operator: AdvancedOperator; label: string }> {
-    if (kind === 'number' || kind === 'date') {
+export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | 'time' | undefined): Array<{ operator: AdvancedOperator; label: string }> {
+    if (kind === 'number' || kind === 'date' || kind === 'time') {
         return [
             { operator: 'eq', label: '=' },
             { operator: 'neq', label: '≠' },
@@ -535,12 +600,12 @@ export function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'bo
     ];
 }
 
-export function getDefaultOperatorForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | undefined): AdvancedOperator {
+export function getDefaultOperatorForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | 'date' | 'time' | undefined): AdvancedOperator {
     if (kind === 'number') {
         return 'between';
     }
-    // Le cas d'usage dominant d'un filtre date est « posées après… ».
-    if (kind === 'date') {
+    // Le cas d'usage dominant d'un filtre date ou horaire est « après… ».
+    if (kind === 'date' || kind === 'time') {
         return 'gte';
     }
     if (kind === 'enum') {

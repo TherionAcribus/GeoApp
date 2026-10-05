@@ -6,6 +6,17 @@
  */
 
 import { GpsVisitHint, LogEditorPrefill, LogTypeValue } from './log-editor/types';
+import {
+    AdvancedFilterClause,
+    FieldDefinition,
+    FilterFieldKinds,
+    TokenFilter,
+    clockOperandRange,
+    matchesSearchPattern,
+    normalizeFieldAlias,
+    normalizeSearchText,
+    parseSearchQuery,
+} from './geocache-filter-shared';
 
 export type GpsVisitStatus = 'found' | 'dnf' | 'unattempted' | 'needs_maintenance' | 'other';
 export type GpsVisitState = 'pending' | 'logged' | 'ignored' | 'history';
@@ -873,64 +884,329 @@ export function collapsedDayKeys(days: GpsVisitDay[], choices: ReadonlyMap<strin
     return new Set(days.filter(day => choices.get(day.day) ?? isDayProcessed(day)).map(day => day.day));
 }
 
-export type GpsResultFilter = 'all' | 'found' | 'dnf' | 'nm' | 'other';
+/**
+ * Champs filtrables d'une visite GPS — même syntaxe que le tableau des
+ * géocaches (`@champ:valeur`, joker `*`, panneau « Filtres supplémentaires »).
+ * Les libellés sont réutilisés par la barre de filtre (autocomplétion,
+ * éditeur de clauses).
+ */
+export const GPS_VISIT_FIELD_DEFINITIONS: FieldDefinition[] = [
+    { field: 'gc_code', label: 'Code GC', kind: 'text' },
+    { field: 'name', label: 'Nom', kind: 'text' },
+    { field: 'time', label: 'Heure', kind: 'time' },
+    { field: 'status', label: 'Résultat', kind: 'enum' },
+    { field: 'state', label: 'État', kind: 'enum' },
+    { field: 'cache_type', label: 'Type', kind: 'enum' },
+    { field: 'zone', label: 'Zone', kind: 'text' },
+    { field: 'day', label: 'Jour', kind: 'date' },
+    { field: 'comment', label: 'Commentaire', kind: 'text' },
+    { field: 'without_code', label: 'Sans code', kind: 'boolean' },
+    { field: 'to_import', label: 'À importer', kind: 'boolean' },
+    { field: 'resolved', label: 'Rattachée', kind: 'boolean' },
+    { field: 'has_nm', label: 'NM signalé', kind: 'boolean' },
+    { field: 'positioned', label: 'Positionnée', kind: 'boolean' },
+];
 
-/** Recherche et filtres de la liste : ils ne changent que l'affichage (et ce sur quoi agissent les boutons). */
-export interface GpsListFilter {
-    query: string;
-    result: GpsResultFilter;
-    /** Seulement les visites sans code (pas encore rattachées). */
-    withoutCode: boolean;
-    /** Seulement les caches absentes de l'App. */
-    toImport: boolean;
+/** Alias saisis (`@heure:`, `@statut:`, `@sans_code:`…) → champ canonique. */
+export const GPS_VISIT_FIELD_ALIASES: Record<string, string> = {
+    gc: 'gc_code',
+    code: 'gc_code',
+    gc_code: 'gc_code',
+    nom: 'name',
+    name: 'name',
+    titre: 'name',
+    heure: 'time',
+    h: 'time',
+    time: 'time',
+    resultat: 'status',
+    statut: 'status',
+    status: 'status',
+    etat: 'state',
+    state: 'state',
+    type: 'cache_type',
+    cache_type: 'cache_type',
+    zone: 'zone',
+    jour: 'day',
+    day: 'day',
+    date: 'day',
+    commentaire: 'comment',
+    comment: 'comment',
+    note: 'comment',
+    sans_code: 'without_code',
+    sanscode: 'without_code',
+    without_code: 'without_code',
+    a_importer: 'to_import',
+    aimporter: 'to_import',
+    importer: 'to_import',
+    to_import: 'to_import',
+    rattachee: 'resolved',
+    resolue: 'resolved',
+    resolved: 'resolved',
+    nm: 'has_nm',
+    has_nm: 'has_nm',
+    maintenance: 'has_nm',
+    position: 'positioned',
+    positionnee: 'positioned',
+    positioned: 'positioned',
+    situee: 'positioned',
+};
+
+const GPS_VISIT_FIELD_KINDS: FilterFieldKinds = {
+    time: new Set(['time']),
+    date: new Set(['day']),
+    enum: new Set(['status', 'state', 'cache_type']),
+    boolean: new Set(['without_code', 'to_import', 'resolved', 'has_nm', 'positioned']),
+};
+
+/**
+ * Alias français des valeurs des champs enum : résultat écrit par le GPS
+ * (`@statut:trouvée`, `@statut:non_tentée`), état dans la liste
+ * (`@etat:loguée`) et type de cache (`@type:tradi`). Les clés sont déjà
+ * normalisées (minuscules, sans accents).
+ */
+const GPS_VISIT_ENUM_VALUE_ALIASES: Record<string, Record<string, string>> = {
+    status: {
+        found: 'found', trouvee: 'found', trouve: 'found',
+        dnf: 'dnf', pas_trouvee: 'dnf', non_trouvee: 'dnf', not_found: 'dnf',
+        unattempted: 'unattempted', pas_essayee: 'unattempted', non_tentee: 'unattempted', non_essayee: 'unattempted',
+        needs_maintenance: 'needs_maintenance', nm: 'needs_maintenance', maintenance: 'needs_maintenance',
+        other: 'other', autre: 'other',
+    },
+    state: {
+        pending: 'pending', a_loguer: 'pending', aloguer: 'pending',
+        logged: 'logged', loguee: 'logged', logee: 'logged',
+        ignored: 'ignored', ignoree: 'ignored',
+        history: 'history', historique: 'history',
+    },
+    cache_type: {
+        tradi: 'traditional cache', traditional: 'traditional cache', traditionnelle: 'traditional cache',
+        multi: 'multi-cache',
+        mystery: 'mystery cache', mystere: 'mystery cache',
+        letterbox: 'letterbox hybrid',
+        earth: 'earthcache', earthcache: 'earthcache',
+        virtuelle: 'virtual cache', virtual: 'virtual cache',
+        webcam: 'webcam cache',
+        wherigo: 'wherigo cache', wig: 'wherigo cache',
+        event: 'event cache', mega: 'mega-event cache', giga: 'giga-event cache', cito: 'cache in trash out event',
+    },
+};
+
+/**
+ * Remplace la valeur saisie pour un champ enum par sa forme canonique quand un
+ * alias la désigne ; sinon la retourne telle quelle. Les espaces sont aussi
+ * essayés en `_` (« non tentée » → `non_tentee`).
+ */
+function canonicalVisitEnumValue(field: string, value: string): string {
+    const aliases = GPS_VISIT_ENUM_VALUE_ALIASES[field];
+    if (!aliases) {
+        return value;
+    }
+    const normalized = normalizeSearchText(value);
+    return aliases[normalized]
+        ?? aliases[normalized.replace(/\s+/g, '_')]
+        ?? aliases[normalized.replace(/[\s_]+/g, '')]
+        ?? value;
 }
 
-export const EMPTY_LIST_FILTER: GpsListFilter = { query: '', result: 'all', withoutCode: false, toImport: false };
-
-export function isListFilterActive(filter: GpsListFilter): boolean {
-    return filter.query.trim() !== '' || filter.result !== 'all' || filter.withoutCode || filter.toImport;
+/** Résolution `@alias:` pour l'autocomplétion de la barre de filtre. */
+export function normalizeGpsVisitFieldAlias(raw: string): string | null {
+    return normalizeFieldAlias(raw, GPS_VISIT_FIELD_ALIASES);
 }
 
-/** Minuscules sans accents : « Écluse » se trouve en tapant « ecluse ». */
-function fold(text: string): string {
-    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+/** `parseSearchQuery` branché sur les alias/familles des visites. */
+export function parseGpsVisitQuery(input: string): { freeText: string; tokenFilters: TokenFilter[] } {
+    return parseSearchQuery(input, { aliases: GPS_VISIT_FIELD_ALIASES, kinds: GPS_VISIT_FIELD_KINDS });
 }
 
-export function entryMatchesFilter(entry: GpsVisitEntry, filter: GpsListFilter): boolean {
-    if (filter.withoutCode && entry.gc_code) {
-        return false;
+/** Valeur d'un champ filtrable, avec les replis (`device` du GPS, zone du jour). */
+function visitFieldValue(entry: GpsVisitEntry, field: string, day?: GpsVisitDay): unknown {
+    switch (field) {
+        case 'gc_code': return entry.gc_code ?? entry.raw_code;
+        case 'name': return entry.name ?? entry.device?.name;
+        case 'time': return entry.time;
+        case 'status': return entry.status;
+        case 'state': return entry.state;
+        case 'cache_type': return entry.cache_type ?? entry.device?.cache_type;
+        case 'zone': return [day?.zone?.name, ...entry.geocaches.map(g => g.zone_name)].filter(Boolean).join(' ');
+        case 'day': return entry.day;
+        case 'comment': return entry.comment;
+        case 'without_code': return !entry.gc_code;
+        case 'to_import': return !!entry.gc_code && entry.geocaches.length === 0;
+        case 'resolved': return entry.resolved;
+        case 'has_nm': return entry.has_nm || entry.status === 'needs_maintenance';
+        case 'positioned': return !!entry.map_position;
+        default: return undefined;
     }
-    if (filter.toImport && (!entry.gc_code || entry.geocaches.length > 0)) {
-        return false;
-    }
-    switch (filter.result) {
-        case 'found':
-            if (entry.status !== 'found') {
-                return false;
-            }
-            break;
-        case 'dnf':
-            if (entry.status !== 'dnf') {
-                return false;
-            }
-            break;
-        case 'nm':
-            if (!entry.has_nm && entry.status !== 'needs_maintenance') {
-                return false;
-            }
-            break;
-        case 'other':
-            if (entry.status === 'found' || entry.status === 'dnf') {
-                return false;
-            }
-            break;
-    }
-    const query = fold(filter.query.trim());
-    if (!query) {
+}
+
+/** Une clause (token `@…` ou ligne du panneau « filtres ») contre une visite. */
+export function matchesVisitClause(entry: GpsVisitEntry, clause: TokenFilter, day?: GpsVisitDay): boolean {
+    const op = clause.operator;
+    const raw = visitFieldValue(entry, clause.field, day);
+    if (raw === undefined) {
+        // Champ inconnu : ne pas exclure silencieusement toutes les visites.
         return true;
     }
-    const haystack = fold([entry.gc_code, entry.raw_code, entry.name, entry.comment].filter(Boolean).join(' '));
-    return haystack.includes(query);
+
+    if (GPS_VISIT_FIELD_KINDS.boolean?.has(clause.field)) {
+        if (op !== 'is') {
+            return true;
+        }
+        const actual = Boolean(raw);
+        return clause.value === 'true' ? actual : clause.value === 'false' ? !actual : true;
+    }
+
+    if (clause.field === 'time') {
+        // Tous les passages comptent : « >=14 » garde aussi une visite repassée à 15 h.
+        const times = [entry.time, ...entry.passes.map(p => p.time)]
+            .map(t => clockOperandRange(t)?.start)
+            .filter((m): m is number => m !== undefined);
+        const a = clockOperandRange(clause.value ?? '');
+        if (op === 'between') {
+            const b = clockOperandRange(clause.value2 ?? '');
+            if (!a || !b) {
+                return true;
+            }
+            const lo = Math.min(a.start, b.start);
+            const hi = Math.max(a.end, b.end);
+            return times.some(m => m >= lo && m <= hi);
+        }
+        if (!a) {
+            return true;
+        }
+        if (times.length === 0) {
+            return op === 'neq';
+        }
+        switch (op) {
+            case 'neq': return times.every(m => m < a.start || m > a.end);
+            case 'gt': return times.some(m => m > a.end);
+            case 'gte': return times.some(m => m >= a.start);
+            case 'lt': return times.some(m => m < a.start);
+            case 'lte': return times.some(m => m <= a.end);
+            default: return times.some(m => m >= a.start && m <= a.end);
+        }
+    }
+
+    if (clause.field === 'day') {
+        // Même comparaison par préfixe ISO que les dates du tableau des géocaches.
+        const actual = String(raw ?? '');
+        if (!/^\d{4}-\d{2}-\d{2}/.test(actual)) {
+            return op === 'neq';
+        }
+        if (op === 'between') {
+            const v1 = clause.value ?? '';
+            const v2 = clause.value2 ?? '';
+            return v1 && v2
+                ? actual.slice(0, v1.length) >= v1 && actual.slice(0, v2.length) <= v2
+                : true;
+        }
+        const w = clause.value ?? '';
+        if (!w) {
+            return true;
+        }
+        const p = actual.slice(0, w.length);
+        switch (op) {
+            case 'eq': return p === w;
+            case 'neq': return p !== w;
+            case 'gte': return p >= w;
+            case 'gt': return p > w;
+            case 'lte': return p <= w;
+            case 'lt': return p < w;
+            default: return true;
+        }
+    }
+
+    if (GPS_VISIT_FIELD_KINDS.enum?.has(clause.field)) {
+        if (op === 'in' || op === 'not_in') {
+            const values = clause.values ?? [];
+            if (values.length === 0) {
+                return true;
+            }
+            const ok = values.some(v => matchesSearchPattern(raw, canonicalVisitEnumValue(clause.field, v), 'equals'));
+            return op === 'in' ? ok : !ok;
+        }
+        const wanted = canonicalVisitEnumValue(clause.field, (clause.value ?? '').toString());
+        if (!normalizeSearchText(wanted) && (op === 'eq' || op === 'neq')) {
+            return true;
+        }
+        if (op === 'eq') {
+            return matchesSearchPattern(raw, wanted, 'equals');
+        }
+        if (op === 'neq') {
+            return !matchesSearchPattern(raw, wanted, 'equals');
+        }
+        if (op === 'not_contains') {
+            return !matchesSearchPattern(raw, wanted, 'contains');
+        }
+        return matchesSearchPattern(raw, wanted, 'contains');
+    }
+
+    const wanted = (clause.value ?? '').toString();
+    if (!normalizeSearchText(wanted) && (op === 'contains' || op === 'not_contains' || op === 'eq' || op === 'neq')) {
+        return true;
+    }
+    switch (op) {
+        case 'contains': return matchesSearchPattern(raw, wanted, 'contains');
+        case 'not_contains': return !matchesSearchPattern(raw, wanted, 'contains');
+        case 'eq': return matchesSearchPattern(raw, wanted, 'equals');
+        case 'neq': return !matchesSearchPattern(raw, wanted, 'equals');
+        default: return true;
+    }
+}
+
+/**
+ * Recherche et filtres de la liste : ils ne changent que l'affichage (et ce sur
+ * quoi agissent les boutons des jours).
+ */
+export interface GpsListFilter {
+    /** Texte libre + tokens `@champ:valeur` (même syntaxe que le tableau des géocaches). */
+    query: string;
+    /** Clauses du panneau « Filtres supplémentaires ». */
+    clauses: AdvancedFilterClause[];
+}
+
+export const EMPTY_LIST_FILTER: GpsListFilter = { query: '', clauses: [] };
+
+export function isListFilterActive(filter: GpsListFilter): boolean {
+    return filter.query.trim() !== '' || filter.clauses.length > 0;
+}
+
+/**
+ * Champs balayés par le texte libre : chacun est testé seul pour qu'un joker
+ * `*` ne déborde pas d'un champ sur le suivant (comme le tableau des géocaches).
+ */
+function visitSearchableFields(entry: GpsVisitEntry): unknown[] {
+    return [
+        entry.gc_code,
+        entry.raw_code,
+        entry.name,
+        entry.device?.name,
+        entry.comment,
+        entry.time,
+        ...entry.passes.map(p => p.time),
+        ...entry.passes.map(p => p.status_raw),
+        entry.day,
+        formatDayLabel(entry.day),
+        entry.status_raw,
+        statusLabel(entry),
+        entry.cache_type,
+        entry.device?.cache_type,
+    ];
+}
+
+export function entryMatchesFilter(entry: GpsVisitEntry, filter: GpsListFilter, day?: GpsVisitDay): boolean {
+    const { freeText, tokenFilters } = parseGpsVisitQuery(filter.query);
+    const needle = freeText.trim();
+    if (normalizeSearchText(needle)
+        && !visitSearchableFields(entry).some(value => matchesSearchPattern(value, needle, 'contains'))) {
+        return false;
+    }
+    for (const clause of [...filter.clauses, ...tokenFilters]) {
+        if (!matchesVisitClause(entry, clause, day)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /** Jours filtrés (les jours vides disparaissent) et nombre de lignes masquées. */
@@ -941,7 +1217,7 @@ export function filterDays(days: GpsVisitDay[], filter: GpsListFilter): { days: 
     let hidden = 0;
     const kept: GpsVisitDay[] = [];
     for (const day of days) {
-        const entries = day.entries.filter(entry => entryMatchesFilter(entry, filter));
+        const entries = day.entries.filter(entry => entryMatchesFilter(entry, filter, day));
         hidden += day.entries.length - entries.length;
         if (entries.length > 0) {
             kept.push({ ...day, entries });

@@ -374,28 +374,67 @@ function testComfort(): void {
     assert.deepEqual([...collapsedDayKeys([day, done], new Map())], ['2026-09-20']);
     assert.deepEqual([...collapsedDayKeys([day, done], new Map([['2026-09-20', false], ['2026-09-27', true]]))], ['2026-09-27']);
 
-    // Filtres.
+    // Filtres : texte libre (code, nom, commentaire, heure, jour — sans accents),
+    // tokens `@champ:valeur` et clauses du panneau « Filtres supplémentaires ».
     const horse = entry({ key: 'h', gc_code: 'GC4NKAY', name: 'La cache du Écluse', comment: 'Horse' });
     const noCode = entry({ key: 'n', gc_code: null, raw_code: '' });
     const dnf = entry({ key: 'd', gc_code: 'GC2BBBB', status: 'dnf', geocaches: [{ id: 1, zone_id: 1, zone_name: 'Z', name: 'x' }] });
     const nm = entry({ key: 'm', gc_code: 'GC3CCCC', status: 'found', has_nm: true });
+    const skipped = entry({ key: 's', gc_code: 'GC5DDDD', status: 'unattempted', status_raw: 'Unattempted' });
+    const onGps = entry({ key: 'g', gc_code: 'GC6EEEE', name: null, device: {
+        gc_code: 'GC6EEEE', name: 'Sur le GPS', cache_type: 'Multi-cache', latitude: 49, longitude: 5, gpx_date: null } });
     assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'ecluse' }));
     assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'horse' }));
     assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'gc4nk' }));
     assert.ok(!entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, query: 'horse' }));
-    assert.ok(entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, withoutCode: true }));
-    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, withoutCode: true }));
+    // Texte libre : heure, jour et libellé du résultat sont aussi balayés.
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '11:45' }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '18:00' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: 'septembre' }));
+    assert.ok(entryMatchesFilter(skipped, { ...EMPTY_LIST_FILTER, query: 'tentée' }));
+    // Le nom du GPX du GPS dépanne quand la cache n'est pas encore dans l'App.
+    assert.ok(entryMatchesFilter(onGps, { ...EMPTY_LIST_FILTER, query: 'gps' }));
+    assert.ok(entryMatchesFilter(onGps, { ...EMPTY_LIST_FILTER, query: '@type:multi' }));
+
+    // Tokens @champ:valeur — aliases français compris.
+    assert.ok(entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, query: '@sans_code:oui' }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@sans_code:oui' }));
     // « À importer » : un code, et absente de l'App.
-    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, toImport: true }));
-    assert.ok(!entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, toImport: true }));
-    assert.ok(!entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, toImport: true }));
-    assert.ok(entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, result: 'dnf' }));
-    assert.ok(entryMatchesFilter(nm, { ...EMPTY_LIST_FILTER, result: 'nm' }));
-    assert.ok(!entryMatchesFilter(nm, { ...EMPTY_LIST_FILTER, result: 'other' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@a_importer:oui' }));
+    assert.ok(!entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, query: '@a_importer:oui' }));
+    assert.ok(!entryMatchesFilter(noCode, { ...EMPTY_LIST_FILTER, query: '@a_importer:oui' }));
+    assert.ok(entryMatchesFilter(dnf, { ...EMPTY_LIST_FILTER, query: '@statut:dnf' }));
+    assert.ok(entryMatchesFilter(skipped, { ...EMPTY_LIST_FILTER, query: '@statut:non_tentée' }));
+    assert.ok(!entryMatchesFilter(skipped, { ...EMPTY_LIST_FILTER, query: '@statut:dnf' }));
+    assert.ok(entryMatchesFilter(nm, { ...EMPTY_LIST_FILTER, query: '@nm:oui' }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@nm:oui' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@jour:2026-09-27' }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@jour:2026-09-28' }));
+    assert.ok(entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@nom:écluse' }));
+    assert.ok(!entryMatchesFilter(horse, { ...EMPTY_LIST_FILTER, query: '@nom:grotte' }));
+
+    // Heure : « 14 » couvre l'heure entière, « >=12 » les après-midi, « 8<>12 » la matinée.
+    const afternoon = entry({ key: 'p', time: '14:37', passes: [{ time: '14:37', status_raw: 'Found it' }] });
+    assert.ok(entryMatchesFilter(afternoon, { ...EMPTY_LIST_FILTER, query: '@heure:14' }));
+    assert.ok(!entryMatchesFilter(afternoon, { ...EMPTY_LIST_FILTER, query: '@heure:15' }));
+    assert.ok(entryMatchesFilter(afternoon, { ...EMPTY_LIST_FILTER, query: '@heure:>=12' }));
+    assert.ok(!entryMatchesFilter(afternoon, { ...EMPTY_LIST_FILTER, query: '@heure:<12' }));
+    assert.ok(entryMatchesFilter(afternoon, { ...EMPTY_LIST_FILTER, query: '@heure:8<>18' }));
+    // Tous les passages comptent : repassée à 17 h, « >=16 » la garde.
+    const twice = entry({ key: 't', time: '10:00', passes: [{ time: '10:00', status_raw: 'Unattempted' }, { time: '17:05', status_raw: 'Found it' }] });
+    assert.ok(entryMatchesFilter(twice, { ...EMPTY_LIST_FILTER, query: '@heure:>=16' }));
+
+    // Clause du panneau « Filtres supplémentaires » (pas de token dans le texte).
+    assert.ok(entryMatchesFilter(horse, {
+        query: '', clauses: [{ id: '1', field: 'without_code', operator: 'is', value: 'false' }],
+    }));
+    assert.ok(!entryMatchesFilter(noCode, {
+        query: '', clauses: [{ id: '1', field: 'without_code', operator: 'is', value: 'false' }],
+    }));
 
     const listing: GpsVisitDay[] = [{ day: '2026-09-27', entries: [horse, noCode] }, { day: '2026-09-20', entries: [dnf] }];
     assert.equal(filterDays(listing, EMPTY_LIST_FILTER).days, listing);
-    const filtered = filterDays(listing, { ...EMPTY_LIST_FILTER, withoutCode: true });
+    const filtered = filterDays(listing, { ...EMPTY_LIST_FILTER, query: '@sans_code:oui' });
     assert.deepEqual(filtered.days.map(d => [d.day, d.entries.map(e => e.key)]), [['2026-09-27', ['n']]]);
     assert.equal(filtered.hidden, 2);
 

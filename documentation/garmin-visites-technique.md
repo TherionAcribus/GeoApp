@@ -993,12 +993,21 @@ Spec : [garmin-visites-ameliorations-spec.md](garmin-visites-ameliorations-spec.
 
 ### 17.3 Recherche et filtres
 
-- **Barre au-dessus des jours** :
-  - recherche dans le code, le code lu, le nom et le commentaire (sans accents ni
-    casse) ;
-  - résultat : trouvées, non trouvées, Needs Maintenance, autres ;
-  - « Sans code » : pas encore rattachées ;
-  - « À importer » : un code, mais absente de l'App.
+- **Barre au-dessus des jours** : `GeocacheFilterBar` partagée — même syntaxe que
+  le tableau des géocaches (texte libre insensible casse/accents, joker `*`,
+  tokens `@champ:valeur` avec autocomplétion, panneau « Filtres supplémentaires »,
+  presets).
+- **Texte libre** : code, code lu, nom (y compris celui des GPX du GPS),
+  commentaire, heure de la visite et de ses passages, jour (ISO et libellé),
+  résultat brut et traduit, type.
+- **Champs filtrables** (`GPS_VISIT_FIELD_DEFINITIONS`, alias dans
+  `GPS_VISIT_FIELD_ALIASES`) : `@code:`, `@nom:`, `@heure:` (opérandes `14`,
+  `14h30`, `14:30` — « 14 » couvre l'heure entière, comparaison sur tous les
+  passages), `@statut:` (found, dnf, unattempted, needs_maintenance, other —
+  alias français : `trouvée`, `non_tentée`, `maintenance`…), `@etat:`
+  (pending, logged, ignored), `@type:`, `@zone:`, `@jour:` (préfixe ISO),
+  `@commentaire:`, et les booléens `@sans_code:`, `@a_importer:`, `@rattachée:`,
+  `@nm:`, `@positionnée:`.
 - `filterDays` retire les jours vides et compte les lignes masquées, avec « Effacer ».
 - **Portée** : la liste, la carte et les boutons d'un jour portent sur les lignes
   affichées. Le résumé du jour reste celui du jour entier.

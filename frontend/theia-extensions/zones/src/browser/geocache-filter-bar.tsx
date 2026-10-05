@@ -60,7 +60,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
     const autocompleteReplaceRangeRef = React.useRef<{ start: number; end: number } | null>(null);
 
     const fieldKindById = React.useMemo(() => {
-        const map = new Map<string, 'text' | 'number' | 'enum' | 'boolean' | 'date'>();
+        const map = new Map<string, FieldDefinition['kind']>();
         for (const def of fieldDefinitions) {
             map.set(def.field, def.kind);
         }
@@ -115,9 +115,9 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                 if (field) {
                     const kind = fieldKindById.get(field);
                     const valueAfterColon = fragment.slice(colonIndex + 1);
-                    if (kind === 'number' || kind === 'date') {
+                    if (kind === 'number' || kind === 'date' || kind === 'time') {
                         // Don't show operator suggestions if the user already typed an operator + value
-                        // (les dates commencent par un chiffre : la regex convient aux deux).
+                        // (dates et heures commencent par un chiffre : la regex convient aux trois).
                         const hasOperatorWithValue = /^(>=|<=|>|<|!=|=)?\d/.test(valueAfterColon) || /^\d+(<>\d*)?$/.test(valueAfterColon);
                         if (hasOperatorWithValue) {
                             setAutocompleteOpen(false);
@@ -131,7 +131,9 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                             {
                                 id: `${field}-between`,
                                 label: `${field}:x<>y`,
-                                insertText: kind === 'date' ? `@${field}:2020<>2024` : `@${field}:1<>5`,
+                                insertText: kind === 'date' ? `@${field}:2020<>2024`
+                                    : kind === 'time' ? `@${field}:8<>18`
+                                        : `@${field}:1<>5`,
                             },
                         );
                     } else if (kind === 'boolean') {
@@ -552,8 +554,8 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                                             ) : clause.operator === 'between' ? (
                                                 <>
                                                     <input
-                                                        // La branche « entre » n'est atteignable que pour number/date.
-                                                        type={kind === 'date' ? 'date' : 'number'}
+                                                        // La branche « entre » n'est atteignable que pour number/date/time.
+                                                        type={kind === 'date' ? 'date' : kind === 'time' ? 'time' : 'number'}
                                                         step={
                                                             clause.field === 'difficulty' ||
                                                             clause.field === 'terrain'
@@ -569,7 +571,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                                                     />
                                                     <span style={{ opacity: 0.7 }}>et</span>
                                                     <input
-                                                        type={kind === 'date' ? 'date' : 'number'}
+                                                        type={kind === 'date' ? 'date' : kind === 'time' ? 'time' : 'number'}
                                                         step={
                                                             clause.field === 'difficulty' ||
                                                             clause.field === 'terrain'
@@ -586,7 +588,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                                                 </>
                                             ) : (
                                                 <input
-                                                    type={kind === 'number' ? 'number' : kind === 'date' ? 'date' : 'text'}
+                                                    type={kind === 'number' ? 'number' : kind === 'date' ? 'date' : kind === 'time' ? 'time' : 'text'}
                                                     step={
                                                         clause.field === 'difficulty' ||
                                                         clause.field === 'terrain'
