@@ -100,6 +100,14 @@ import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/ma
 import { geocodeAddress } from 'theia-ide-zones-ext/lib/browser/map/map-geocoding';
 import type { GeocodingConfig } from 'theia-ide-zones-ext/lib/browser/map/map-geocoding';
 import { TILE_PROVIDERS, getTileProvider } from 'theia-ide-zones-ext/lib/browser/map/map-tile-providers';
+import { loadDistanceOrigin, saveDistanceOrigin } from 'theia-ide-zones-ext/lib/browser/geocache-distance-origin-store';
+import { loadGeocacheSorting, saveGeocacheSorting } from 'theia-ide-zones-ext/lib/browser/geocache-table-sorting-store';
+import {
+    ALL_GEOCACHES_TABLE_COLUMN_IDS,
+    DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS,
+    GEOCACHES_TABLE_COLUMN_DEFINITIONS,
+    normalizeGeocachesTableVisibleColumnIds,
+} from 'theia-ide-zones-ext/lib/browser/geocaches-table-columns';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
 import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
 import { consumeImportStream } from 'theia-ide-zones-ext/lib/browser/import-stream';
@@ -897,6 +905,179 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 zone_id: args.zone_id ?? 'visible',
                             },
                         });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_table_get_state',
+                name: 'aide_table_get_state',
+                description: 'État de la table des géocaches : colonnes visibles (avec toutes les colonnes disponibles), ' +
+                    'et si zone_id est fourni le tri persisté et l\'origine des distances de cette zone.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone (pour le tri et l\'origine des distances).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const rawVisible = this.preferenceService.get<unknown>(
+                            'geoApp.geocaches.table.visibleColumns',
+                            DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS
+                        );
+                        const data: Record<string, unknown> = {
+                            visible_columns: normalizeGeocachesTableVisibleColumnIds(rawVisible),
+                            available_columns: GEOCACHES_TABLE_COLUMN_DEFINITIONS,
+                        };
+                        if (args.zone_id !== undefined) {
+                            const zoneId = Number(args.zone_id);
+                            data['sorting'] = await loadGeocacheSorting(this.storageService, zoneId);
+                            data['distance_origin'] = await loadDistanceOrigin(this.storageService, zoneId) ?? null;
+                        }
+                        return ok(data);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_table_set_columns',
+                name: 'aide_table_set_columns',
+                description: 'Définit les colonnes visibles du tableau des géocaches (menu « Colonnes »). ' +
+                    'Utiliser aide_table_get_state pour la liste des ids disponibles ; [] = colonnes par défaut.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    column_ids: { type: 'array', description: `Ids de colonnes à afficher (${ALL_GEOCACHES_TABLE_COLUMN_IDS.join(', ')}).`, items: { type: 'string' }, required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const normalized = normalizeGeocachesTableVisibleColumnIds(
+                            Array.isArray(args.column_ids) ? args.column_ids : []
+                        );
+                        await this.preferenceService.set('geoApp.geocaches.table.visibleColumns', normalized, PreferenceScope.User);
+                        return ok({ visible_columns: normalized });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_table_set_sorting',
+                name: 'aide_table_set_sorting',
+                description: 'Définit le tri persisté du tableau d\'une zone (multi-colonnes, survit à la réouverture). ' +
+                    'Chaque entrée = { column_id, desc }. Un tableau vide retire le tri.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    sorting: {
+                        type: 'array',
+                        description: 'Ex: [{"column_id":"difficulty","desc":true}]. Ids = colonnes de la table.',
+                        items: { type: 'object' },
+                        required: true,
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        if (!Number.isFinite(zoneId)) {
+                            return err('zone_id invalide.');
+                        }
+                        if (!Array.isArray(args.sorting)) {
+                            return err('sorting doit être un tableau de { column_id, desc }.');
+                        }
+                        const valid = new Set<string>([...ALL_GEOCACHES_TABLE_COLUMN_IDS, 'friends_found']);
+                        const sorting: { id: string; desc: boolean }[] = [];
+                        for (const entry of args.sorting) {
+                            const id = String((entry as any)?.column_id ?? (entry as any)?.id ?? '');
+                            const desc = Boolean((entry as any)?.desc);
+                            if (!valid.has(id)) {
+                                return err(`Colonne de tri inconnue : "${id}". Valides : ${[...valid].join(', ')}.`);
+                            }
+                            sorting.push({ id, desc });
+                        }
+                        await saveGeocacheSorting(this.storageService, zoneId, sorting);
+                        this.widgetEventsService.notifyGeocacheSortingChanged(zoneId);
+                        return ok({ zone_id: zoneId, sorting });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_table_set_distance_origin',
+                name: 'aide_table_set_distance_origin',
+                description: 'Définit ou efface l\'origine des distances d\'une zone (colonne « Distance » et filtre ' +
+                    '@distance:). Une géocache (geocache_id/gc_code), des coordonnées (latitude+longitude), ou clear=true.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone.', required: true },
+                    geocache_id: { type: 'number', description: 'Géocache servant d\'origine.', required: false },
+                    gc_code: { type: 'string', description: 'Code GC servant d\'origine.', required: false },
+                    latitude: { type: 'number', description: 'Latitude d\'origine (avec longitude).', required: false },
+                    longitude: { type: 'number', description: 'Longitude d\'origine (avec latitude).', required: false },
+                    label: { type: 'string', description: 'Libellé de l\'origine (défaut : code GC).', required: false },
+                    clear: { type: 'boolean', description: 'true = supprimer l\'origine des distances.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zoneId = Number(args.zone_id);
+                        if (!Number.isFinite(zoneId)) {
+                            return err('zone_id invalide.');
+                        }
+                        if (args.clear === true) {
+                            await saveDistanceOrigin(this.storageService, zoneId, undefined);
+                            this.widgetEventsService.notifyDistanceOriginChanged(zoneId);
+                            return ok({ zone_id: zoneId, distance_origin: null });
+                        }
+                        let origin: { lat: number; lon: number; label?: string } | undefined;
+                        if (args.geocache_id !== undefined || args.gc_code !== undefined) {
+                            const geocacheId = await this.resolveGeocacheId(args);
+                            const raw = await this.geocachesService.get<Record<string, unknown>>(geocacheId);
+                            const lat = Number(raw['latitude']); const lon = Number(raw['longitude']);
+                            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+                                return err('Coordonnées de la géocache indisponibles.');
+                            }
+                            origin = { lat, lon, label: args.label ? String(args.label) : String(raw['gc_code'] ?? '') };
+                        } else if (args.latitude !== undefined && args.longitude !== undefined) {
+                            const lat = Number(args.latitude); const lon = Number(args.longitude);
+                            if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+                                return err('Coordonnées invalides.');
+                            }
+                            origin = { lat, lon, label: args.label ? String(args.label) : undefined };
+                        }
+                        if (!origin) {
+                            return err('Fournissez geocache_id/gc_code, latitude+longitude, ou clear=true.');
+                        }
+                        await saveDistanceOrigin(this.storageService, zoneId, origin);
+                        this.widgetEventsService.notifyDistanceOriginChanged(zoneId);
+                        return ok({ zone_id: zoneId, distance_origin: origin });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_table_select_geocaches',
+                name: 'aide_table_select_geocaches',
+                description: 'Modifie la sélection (cases à cocher) de la table de géocaches visible : toggle, add, ' +
+                    'remove ou clear — équivalent du Ctrl+clic / menu contextuel de la carte.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs de géocaches (ignoré pour mode clear).', items: { type: 'number' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC.', items: { type: 'string' }, required: false },
+                    mode: { type: 'string', description: 'toggle | add | remove | clear.', enum: ['toggle', 'add', 'remove', 'clear'], required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const mode = String(args.mode ?? 'toggle') as 'toggle' | 'add' | 'remove' | 'clear';
+                        const ids = this.toNumberList(args.geocache_ids);
+                        for (const code of this.toStringList(args.gc_codes)) {
+                            const raw = await this.geocachesService.getByCode<Record<string, unknown>>(code);
+                            const id = Number(raw?.['id']);
+                            if (Number.isFinite(id) && !ids.includes(id)) {
+                                ids.push(id);
+                            }
+                        }
+                        if (mode !== 'clear' && ids.length === 0) {
+                            return err('Fournissez geocache_ids ou gc_codes.');
+                        }
+                        this.mapService.requestListSelection({ geocacheIds: ids, mode });
+                        return ok({ mode, geocache_ids: ids });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

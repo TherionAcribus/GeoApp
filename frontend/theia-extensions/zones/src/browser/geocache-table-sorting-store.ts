@@ -13,7 +13,7 @@
 
 import { StorageService } from '@theia/core/lib/browser';
 import { SortingState } from '@tanstack/react-table';
-import { ALL_GEOCACHES_TABLE_COLUMN_IDS } from './geocaches-table';
+import { ALL_GEOCACHES_TABLE_COLUMN_IDS } from './geocaches-table-columns';
 
 /** Préfixe des clés de persistance ; une entrée par zone. */
 export const GEOCACHE_SORTING_STORAGE_PREFIX = 'geoapp.geocacheSorting.zone.';

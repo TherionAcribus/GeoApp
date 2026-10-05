@@ -384,6 +384,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             })
         );
 
+        // Idem pour l'origine des distances et le tri persisté : les tools IA
+        // écrivent le stockage puis notifient ; les restore portent la garde
+        // `zoneId` donc les autres onglets ignorent l'événement.
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeDistanceOrigin(zoneId => {
+                void this.restoreDistanceOrigin(zoneId);
+            })
+        );
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeGeocacheSorting(zoneId => {
+                void this.restoreTableSorting(zoneId);
+            })
+        );
+
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
 

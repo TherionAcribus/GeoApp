@@ -87,6 +87,20 @@ export class GeoAppWidgetEventsService {
     protected readonly onDidChangeFriendGroupsEmitter = new Emitter<void>();
     readonly onDidChangeFriendGroups: TheiaEvent<void> = this.onDidChangeFriendGroupsEmitter.event;
 
+    /**
+     * Émis quand l'origine des distances d'une zone change hors du widget
+     * (tools IA) : la table de la zone relit le stockage et applique l'état.
+     */
+    protected readonly onDidChangeDistanceOriginEmitter = new Emitter<number>();
+    readonly onDidChangeDistanceOrigin: TheiaEvent<number> = this.onDidChangeDistanceOriginEmitter.event;
+
+    /**
+     * Émis quand le tri persisté d'une zone change hors du widget (tools IA) :
+     * la table relit le stockage et applique le tri complet (multi-colonnes).
+     */
+    protected readonly onDidChangeGeocacheSortingEmitter = new Emitter<number>();
+    readonly onDidChangeGeocacheSorting: TheiaEvent<number> = this.onDidChangeGeocacheSortingEmitter.event;
+
     requestZonesRefresh(): void {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
@@ -119,6 +133,14 @@ export class GeoAppWidgetEventsService {
         this.onDidChangeFriendGroupsEmitter.fire();
     }
 
+    notifyDistanceOriginChanged(zoneId: number): void {
+        this.onDidChangeDistanceOriginEmitter.fire(zoneId);
+    }
+
+    notifyGeocacheSortingChanged(zoneId: number): void {
+        this.onDidChangeGeocacheSortingEmitter.fire(zoneId);
+    }
+
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
         this.onDidRequestOpenZoneEmitter.dispose();
@@ -128,5 +150,7 @@ export class GeoAppWidgetEventsService {
         this.onDidRequestOpenImportDialogEmitter.dispose();
         this.onDidChangeFriendOutingsEmitter.dispose();
         this.onDidChangeFriendGroupsEmitter.dispose();
+        this.onDidChangeDistanceOriginEmitter.dispose();
+        this.onDidChangeGeocacheSortingEmitter.dispose();
     }
 }
