@@ -38,6 +38,7 @@ from ..blueprints.geocaches import (
     _new_import_counts,
 )
 from ..database import db
+from ..services import zone_scope
 from ..geocaches.importer import GeocacheImporter
 from ..geocaches.models import Geocache
 from ..models import FriendFind
@@ -278,7 +279,7 @@ def _zone_box(zone_id: int):
     """Boîte englobante des géocaches d'une zone, ou None si aucune coordonnée."""
     rows = (
         db.session.query(Geocache.latitude, Geocache.longitude)
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
         .filter(Geocache.latitude.isnot(None), Geocache.longitude.isnot(None))
         .all()
     )
@@ -292,7 +293,7 @@ def _zone_boxes_for_codes(zone_id: int, codes: set[str] | None = None) -> list[Z
     """
     query = (
         db.session.query(Geocache.gc_code, Geocache.latitude, Geocache.longitude)
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
         .filter(Geocache.latitude.isnot(None), Geocache.longitude.isnot(None))
     )
     if codes is not None:
@@ -313,7 +314,7 @@ def _zone_boxes(zone_id: int) -> list[ZoneBox]:
     """
     rows = (
         db.session.query(Geocache.latitude, Geocache.longitude)
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
         .filter(Geocache.latitude.isnot(None), Geocache.longitude.isnot(None))
         .all()
     )
@@ -379,7 +380,7 @@ def sync_zone_finds():
     # la zone, sinon les chiffres retournés sont incompréhensibles.
     zone_codes = {
         code for (code,) in db.session.query(Geocache.gc_code)
-        .filter(Geocache.zone_id == zone_id).all()
+        .filter(zone_scope.in_scope(zone_id)).all()
     }
     zone_matches = len(zone_codes & result.found_codes)
 
@@ -501,7 +502,7 @@ def _generate_logbook_scan(
     finds_rows = (
         db.session.query(Geocache.gc_code, FriendFind.friend_username)
         .join(FriendFind, FriendFind.gc_code == Geocache.gc_code)
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
         .all()
     )
     with_friends = len({row[0] for row in finds_rows})
@@ -663,7 +664,7 @@ def sync_zone_finds_stream():
         # On estime le coût des deux et on choisit le moins cher.
         zone_gc_codes = [
             code for (code,) in db.session.query(Geocache.gc_code)
-            .filter(Geocache.zone_id == zone_id).all()
+            .filter(zone_scope.in_scope(zone_id)).distinct().all()
         ]
         # Filtrer sur le sous-ensemble de caches sélectionnées (si présent).
         if selected_codes_set is not None:
@@ -800,7 +801,7 @@ def sync_zone_finds_stream():
         finds_rows = (
             db.session.query(Geocache.gc_code, FriendFind.friend_username)
             .join(FriendFind, FriendFind.gc_code == Geocache.gc_code)
-            .filter(Geocache.zone_id == zone_id)
+            .filter(zone_scope.in_scope(zone_id))
             .all()
         )
         with_friends = len({row[0] for row in finds_rows})
@@ -958,7 +959,7 @@ def estimate_zone_finds(zone_id: int):
     except FriendFindsError as exc:
         return jsonify({"success": False, "error": "fetch_failed", "error_message": str(exc)}), 502
 
-    zone_caches = Geocache.query.filter_by(zone_id=zone_id).count()
+    zone_caches = zone_scope.count_geocaches(zone_id)
     pages = max(1, -(-total_searched // client.PAGE_SIZE))
 
     # Heuristique logbook vs zone search : on a besoin du nombre d'amis.
@@ -996,7 +997,8 @@ def zone_finds(zone_id: int):
     rows = (
         db.session.query(Geocache.gc_code, FriendFind.friend_username)
         .join(FriendFind, FriendFind.gc_code == Geocache.gc_code)
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
+        .distinct()
         .all()
     )
 

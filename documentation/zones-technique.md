@@ -191,6 +191,51 @@ L'arbre suit le pattern **WAI-ARIA tree** avec `aria-activedescendant` (robuste 
 
 Le **dialog** de déplacement/copie/fusion (`move-geocache-dialog.tsx`) est lui aussi une `listbox` navigable (↑/↓, Début/Fin, Entrée ; Échap ferme ; double-clic valide).
 
+## Dossiers
+
+Un **dossier** regroupe plusieurs zones et se comporte lui-même comme une zone : son tableau, sa carte, ses analyses d'amis et ses sorties portent sur les géocaches de toutes ses zones. Exemple : un dossier « Vacances » dont chaque zone est une journée. Les dossiers sont optionnels, une zone peut être rangée dans plusieurs dossiers, et un dossier ne contient que des zones (pas d'autre dossier).
+
+### Modèle
+
+- Un dossier est une ligne `zone` avec `is_folder = true`. Il **ne porte aucune géocache en propre** (`geocache.zone_id` ne désigne jamais un dossier).
+- `zone_folder_member (folder_id, zone_id)` relie un dossier à ses zones (`ZoneFolderMember`, migration `add_zone_folders`, colonne ajoutée aussi par `database.py`).
+- Dossiers et zones partagent donc **le même espace d'identifiants et de noms**. Conséquence voulue : tout ce qui est indexé par `zoneId` côté frontend (onglet, carte `geoapp-map-zone-<id>`, tri, origine des distances, sorties, `FriendZoneScan`) fonctionne tel quel pour un dossier.
+
+### Lectures : `services/zone_scope.py`
+
+Toute lecture « les géocaches de la zone N » passe par `zone_scope.in_scope(N)` (la zone elle-même, ou les zones membres si N est un dossier) : `GET /api/zones/<id>/geocaches` et `/geocaches/tree`, `GET /api/geocaches/by-code?zone_id=`, la recherche (`search.py`), les boîtes et trouvailles d'amis (`friends.py`, `geocaching_friend_finds.py`).
+
+Une même cache peut exister dans deux zones d'un dossier (une ligne par zone). Les listes d'un dossier n'en montrent **qu'une**, la plus récemment modifiée (`zone_scope.dedupe_by_code`) ; `geocaches_count` d'un dossier compte les codes GC distincts. Chaque ligne de la liste complète porte `zone_id` / `zone_name` (sa zone réelle), affichable par la colonne optionnelle « Zone » du tableau.
+
+> Règle : une nouvelle requête filtrée sur une zone choisie par l'utilisateur doit utiliser `zone_scope.in_scope(zone_id)`, pas `Geocache.zone_id == zone_id`.
+
+### Écritures : toujours une vraie zone
+
+Un dossier n'est jamais une cible : `GeocacheImporter._validate_zone` lève `zone_is_folder`, `move`/`copy` et l'ajout depuis les visites GPS le refusent, un dossier ne se duplique ni ne se fusionne. `GET /api/zones` **exclut les dossiers par défaut** (ses appelants cherchent une zone où écrire) ; `?include_folders=true` les ajoute — seuls l'arbre, le tableau et la carte le demandent.
+
+Dans le tableau d'un dossier, l'en-tête affiche « Importer dans [zone] » : l'ajout par code GC et les quatre imports vont dans cette zone (`ZoneGeocachesWidget.resolveWriteZoneId`). Sur la carte d'un dossier, « Importer autour » fait choisir une de ses zones.
+
+### API
+
+| Méthode & route | Rôle |
+|---|---|
+| `POST /api/zones` avec `is_folder: true` | Crée un dossier. |
+| `GET /api/zones/<id>` | Une zone ou un dossier (`zone_ids` pour un dossier, `folder_ids` pour une zone). |
+| `PUT /api/zones/<folder>/members` | Remplace les zones du dossier (`{ "zone_ids": [...] }`). |
+| `POST` / `DELETE /api/zones/<folder>/members/<zone>` | Range / retire une zone. |
+| `DELETE /api/zones/<folder>` | Supprime le dossier seul : zones et géocaches sont conservées. |
+
+Supprimer une zone la retire de ses dossiers ; fusionner une zone transmet ses dossiers à la cible.
+
+### Dans l'arbre
+
+- Racine : les dossiers (icône `folder-library`, nom en gras), puis les zones rangées dans **aucun** dossier. Une zone rangée dans deux dossiers apparaît sous chacun ; son identifiant d'élément porte le dossier parent (`z-<dossier>-<zone>`), l'état déplié reste partagé.
+- Création : bouton dossier à droite du « ＋ » (reprend le nom saisi, sinon le demande).
+- Clic droit sur une zone : « Ranger dans un dossier ▸ » (cases à cocher, « Nouveau dossier… ») et, sous un dossier, « Retirer de … ». Clic droit sur un dossier : Ouvrir, Renommer, « Zones du dossier ▸ », Supprimer le dossier.
+- Niveaux ARIA : dossier 1, zone 1 ou 2, géocache 2 ou 3. ← remonte au parent, → déplie puis descend.
+
+Tests : `backend/tests/test_zone_folders_api.py`.
+
 ## Suppression en cascade d'une zone
 
 `DELETE /api/zones/<id>` supprime la zone **et toutes ses géocaches**.

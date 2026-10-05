@@ -77,6 +77,8 @@ export class MapWidget extends ReactWidget {
         zones: Array<{ id: number; name: string }>;
         defaultZoneId?: number;
         defaultNewZoneName?: string;
+        /** La carte montre un dossier : la zone cible se choisit parmi les siennes. */
+        folderId?: number;
     } | undefined;
     private isImporting = false;
     private autoSelectTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -139,7 +141,7 @@ export class MapWidget extends ReactWidget {
         }
 
         try {
-            const zones = await this.zonesService.list();
+            const zones = await this.zonesService.list(false, true);
             const zone = zones.find(candidate => candidate.id === zoneId);
             if (!zone) {
                 // Zone supprimée : on conserve le libellé actuel.
@@ -359,8 +361,8 @@ export class MapWidget extends ReactWidget {
                 />
                 {this.importAround && (
                     <ImportAroundDialog
-                        zoneId={this.zoneIdOfContext()}
-                        zoneName={this.zoneNameOfContext()}
+                        zoneId={this.importAround.folderId === undefined ? this.zoneIdOfContext() : undefined}
+                        zoneName={this.importAround.folderId === undefined ? this.zoneNameOfContext() : undefined}
                         zones={this.importAround.zones}
                         defaultZoneId={this.importAround.defaultZoneId}
                         defaultNewZoneName={this.importAround.defaultNewZoneName}
@@ -397,15 +399,31 @@ export class MapWidget extends ReactWidget {
     };
 
     private async openImportAroundDialog(center: ImportAroundCenter): Promise<void> {
-        const needsTargetChoice = this.zoneIdOfContext() === undefined;
+        // Un dossier ne reçoit pas de géocaches : sur sa carte, la destination se
+        // choisit parmi ses zones.
+        const contextZoneId = this.zoneIdOfContext();
+        let folderZoneIds: Set<number> | undefined;
+        if (contextZoneId !== undefined) {
+            try {
+                const contextZone = await this.zonesService.get(contextZoneId);
+                if (contextZone.is_folder) {
+                    folderZoneIds = new Set(contextZone.zone_ids ?? []);
+                }
+            } catch (error) {
+                console.error('[MapWidget] Unable to load the map zone', error);
+            }
+        }
+        const needsTargetChoice = contextZoneId === undefined || folderZoneIds !== undefined;
 
         // Les zones existantes ne sont chargées que si l'utilisateur doit choisir
-        // la destination (carte libre, carte générale, carte de géocache).
+        // la destination (carte libre, carte générale, carte de géocache, dossier).
         let zones: Array<{ id: number; name: string }> = [];
         if (needsTargetChoice) {
             try {
                 const loaded = await this.zonesService.list();
-                zones = loaded.map(zone => ({ id: zone.id, name: zone.name }));
+                zones = loaded
+                    .filter(zone => !folderZoneIds || folderZoneIds.has(zone.id))
+                    .map(zone => ({ id: zone.id, name: zone.name }));
             } catch (error) {
                 console.error('[MapWidget] Unable to load zones', error);
                 this.messageService.warn('Impossible de charger la liste des zones : créez une nouvelle zone');
@@ -417,10 +435,13 @@ export class MapWidget extends ReactWidget {
             zones,
             // Une carte déjà rattachée à une zone (import précédent) la propose par
             // défaut ; sinon on propose la zone de la cache servant de centre.
-            defaultZoneId: needsTargetChoice
+            defaultZoneId: folderZoneIds
+                ? zones[0]?.id
+                : needsTargetChoice
                 ? (this.context.zoneId ?? await this.findCenterZoneId(center))
                 : undefined,
-            defaultNewZoneName: needsTargetChoice ? this.suggestNewZoneName(center) : undefined
+            defaultNewZoneName: needsTargetChoice ? this.suggestNewZoneName(center) : undefined,
+            folderId: folderZoneIds ? contextZoneId : undefined
         };
         this.isImporting = false;
         this.update();
@@ -486,7 +507,8 @@ export class MapWidget extends ReactWidget {
             this.messageService.info(summary || 'Import terminé');
             this.widgetEventsService.requestZonesRefresh();
 
-            await this.showZoneGeocachesOnMap(zone.zoneId);
+            // Carte d'un dossier : on recharge le dossier entier, la carte lui reste rattachée.
+            await this.showZoneGeocachesOnMap(this.importAround?.folderId ?? zone.zoneId);
             this.attachToZone(zone.zoneId, zoneName);
 
             this.importAround = undefined;

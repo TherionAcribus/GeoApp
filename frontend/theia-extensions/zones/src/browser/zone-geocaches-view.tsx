@@ -24,6 +24,11 @@ export interface ZoneGeocachesViewProps {
     rows: Geocache[];
     zones: Array<{ id: number; name: string }>;
     currentZoneId?: number;
+    /** Le tableau montre un dossier : ses zones, cibles possibles des imports. */
+    folderZones?: Array<{ id: number; name: string }>;
+    /** Zone du dossier qui reçoit les imports. */
+    importZoneId?: number;
+    onImportZoneChange?: (zoneId: number) => void;
     tableVisibleColumnIds: GeocachesTableColumnId[];
     loading: boolean;
     isImporting: boolean;
@@ -217,11 +222,34 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
         { iconClass: 'codicon codicon-search', label: 'Pocket Query', title: 'Importer depuis une Pocket Query Geocaching.com (PQ)', action: props.onOpenPocketQueryDialog },
         { iconClass: 'codicon codicon-location', label: "Autour d'un point ou d'une cache…", title: "Rechercher et importer des géocaches autour d'un point ou d'une cache", action: props.onStartImportAround },
     ];
+    // Dans un dossier, les imports visent la zone choisie dans l'en-tête.
+    const importZoneId = props.folderZones ? props.importZoneId : props.zoneId;
+    const importZoneName = props.zones.find(z => z.id === importZoneId)?.name;
     return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>{props.titleLabel}</h3>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                {props.folderZones && (
+                    <label
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.9em' }}
+                        title="Un dossier regroupe des zones sans porter de géocaches en propre : les imports vont dans la zone choisie ici."
+                    >
+                        <span className='codicon codicon-folder-library' aria-hidden='true' />
+                        Importer dans
+                        <select
+                            className='theia-select'
+                            value={props.importZoneId ?? ''}
+                            disabled={props.folderZones.length === 0}
+                            onChange={event => props.onImportZoneChange?.(Number(event.currentTarget.value))}
+                        >
+                            {props.folderZones.length === 0 && <option value=''>Aucune zone dans le dossier</option>}
+                            {props.folderZones.map(zone => (
+                                <option key={zone.id} value={zone.id}>{zone.name}</option>
+                            ))}
+                        </select>
+                    </label>
+                )}
                 <form onSubmit={props.onSubmitAddGeocache} style={{ display: 'flex' }}>
                     <div style={{
                         display: 'flex',
@@ -500,9 +528,9 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             )}
         </div>
 
-        {props.showImportDialog && props.zoneId && (
+        {props.showImportDialog && importZoneId && (
             <ImportGpxDialog
-                zoneId={props.zoneId}
+                zoneId={importZoneId}
                 onImport={props.onImportGpx}
                 onCancel={props.onCancelImportDialog}
                 onCancelImport={props.onCancelImport}
@@ -510,10 +538,10 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             />
         )}
 
-        {props.showBookmarkListDialog && props.zoneId && (
+        {props.showBookmarkListDialog && importZoneId && (
             <ImportBookmarkListDialog
-                zoneId={props.zoneId}
-                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
+                zoneId={importZoneId}
+                zoneName={importZoneName}
                 onImport={props.onImportBookmarkList}
                 onCancel={props.onCancelBookmarkListDialog}
                 onCancelImport={props.onCancelImport}
@@ -521,10 +549,10 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             />
         )}
 
-        {props.showPocketQueryDialog && props.zoneId && (
+        {props.showPocketQueryDialog && importZoneId && (
             <ImportPocketQueryDialog
-                zoneId={props.zoneId}
-                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
+                zoneId={importZoneId}
+                zoneName={importZoneName}
                 onImport={props.onImportPocketQuery}
                 onCancel={props.onCancelPocketQueryDialog}
                 onCancelImport={props.onCancelImport}
@@ -556,10 +584,10 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             />
         )}
 
-        {props.showImportAroundDialog && props.zoneId && (
+        {props.showImportAroundDialog && importZoneId && (
             <ImportAroundDialog
-                zoneId={props.zoneId}
-                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
+                zoneId={importZoneId}
+                zoneName={importZoneName}
                 initialCenter={props.importAroundDialogInitialCenter}
                 onImport={props.onImportAroundDialogImport}
                 onCancel={props.onCancelImportAroundDialog}

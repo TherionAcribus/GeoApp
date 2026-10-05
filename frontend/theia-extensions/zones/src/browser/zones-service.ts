@@ -11,6 +11,15 @@ export type ZoneDto = {
     latest_resolution_updated_at?: string | null;
     /** Zone technique (« Amis ») : absente de la liste sauf `includeHidden`. */
     is_hidden?: boolean;
+    /**
+     * Dossier : une « superzone » qui montre les géocaches de ses zones membres
+     * (`zone_ids`) sans en porter en propre. Absent de la liste sauf `includeFolders`.
+     */
+    is_folder?: boolean;
+    /** Zones rangées dans le dossier (dossiers uniquement). */
+    zone_ids?: number[];
+    /** Dossiers où la zone est rangée. */
+    folder_ids?: number[];
 };
 
 export interface ActiveZoneDto {
@@ -27,16 +36,51 @@ export class ZonesService {
      * Zones triées par nom. Les zones techniques (la zone « Amis ») sont exclues
      * par défaut : seul l'arbre les demande, et seulement si la préférence
      * `geoApp.friends.zone.visible` est activée.
+     *
+     * Les dossiers sont exclus eux aussi, parce que la plupart des appelants
+     * cherchent une zone où écrire : `includeFolders` les ajoute (arbre, tableau).
      */
-    async list<T extends ZoneDto = ZoneDto>(includeHidden: boolean = false): Promise<T[]> {
+    async list<T extends ZoneDto = ZoneDto>(includeHidden: boolean = false, includeFolders: boolean = false): Promise<T[]> {
+        const params: string[] = [];
+        if (includeHidden) {
+            params.push('include_hidden=true');
+        }
+        if (includeFolders) {
+            params.push('include_folders=true');
+        }
         return this.apiClient.requestJson<T[]>(
-            includeHidden ? '/api/zones?include_hidden=true' : '/api/zones',
+            params.length > 0 ? `/api/zones?${params.join('&')}` : '/api/zones',
             {},
             'Erreur lors du chargement des zones'
         );
     }
 
-    async create<T extends ZoneDto = ZoneDto>(input: { name: string; description?: string }): Promise<T> {
+    /** Une zone ou un dossier, avec ses compteurs (et `zone_ids` pour un dossier). */
+    async get<T extends ZoneDto = ZoneDto>(zoneId: number): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${zoneId}`,
+            {},
+            'Erreur lors du chargement de la zone'
+        );
+    }
+
+    async addToFolder<T extends ZoneDto = ZoneDto>(folderId: number, zoneId: number): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${folderId}/members/${zoneId}`,
+            { method: 'POST' },
+            'Erreur lors du rangement de la zone dans le dossier'
+        );
+    }
+
+    async removeFromFolder<T extends ZoneDto = ZoneDto>(folderId: number, zoneId: number): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${folderId}/members/${zoneId}`,
+            { method: 'DELETE' },
+            'Erreur lors du retrait de la zone du dossier'
+        );
+    }
+
+    async create<T extends ZoneDto = ZoneDto>(input: { name: string; description?: string; is_folder?: boolean }): Promise<T> {
         return this.apiClient.requestJson<T>(
             '/api/zones',
             this.apiClient.createJsonInit('POST', input),

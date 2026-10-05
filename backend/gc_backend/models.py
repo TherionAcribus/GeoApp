@@ -15,6 +15,11 @@ class Zone(db.Model):
     # et n'a pas à encombrer la navigation. `GET /api/zones?include_hidden=true`
     # la fait réapparaître.
     is_hidden = db.Column(db.Boolean, default=False, index=True)
+    # Dossier : une « superzone » qui ne porte aucune géocache en propre et montre
+    # celles de ses zones membres (`ZoneFolderMember`). Il partage l'espace
+    # d'identifiants des zones, donc tout ce qui lit « les caches de la zone N »
+    # passe par `services/zone_scope.py` et vaut aussi pour un dossier.
+    is_folder = db.Column(db.Boolean, default=False, index=True)
     # Relation many-to-many avec Geocache (à implémenter plus tard)
     # geocaches = db.relationship('Geocache', secondary='geocache_zone', back_populates='zones')
 
@@ -25,8 +30,22 @@ class Zone(db.Model):
             'description': self.description,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_hidden': bool(self.is_hidden),
+            'is_folder': bool(self.is_folder),
             'geocaches_count': len(self.geocaches) if hasattr(self, 'geocaches') and self.geocaches else 0,
         }
+
+
+class ZoneFolderMember(db.Model):
+    """
+    Appartenance d'une zone à un dossier (`Zone.is_folder`).
+
+    Une zone peut être rangée dans plusieurs dossiers ; un dossier ne contient que
+    des zones, jamais un autre dossier.
+    """
+    __tablename__ = 'zone_folder_member'
+
+    folder_id = db.Column(db.Integer, db.ForeignKey('zone.id', ondelete='CASCADE'), primary_key=True)
+    zone_id = db.Column(db.Integer, db.ForeignKey('zone.id', ondelete='CASCADE'), primary_key=True, index=True)
 
 
 class AppConfig(db.Model):

@@ -12,6 +12,7 @@ import os
 import json
 
 from ..database import db
+from ..services import zone_scope
 from ..geocaches.models import Geocache, GeocacheLog, Note, GeocacheNote
 from ..plugins.models import Plugin
 from ..search_index import (
@@ -264,7 +265,7 @@ def global_search():
         if scope in ('all', 'database', 'geocaches'):
             gc_query = Geocache.query
             if zone_id is not None:
-                gc_query = gc_query.filter(Geocache.zone_id == zone_id)
+                gc_query = gc_query.filter(zone_scope.in_scope(zone_id))
 
             if use_fts:
                 filtered = _fts_filter(gc_query, Geocache, KIND_GEOCACHE)
@@ -326,7 +327,7 @@ def global_search():
         if scope in ('all', 'database', 'logs'):
             log_query = GeocacheLog.query.join(Geocache)
             if zone_id is not None:
-                log_query = log_query.filter(Geocache.zone_id == zone_id)
+                log_query = log_query.filter(zone_scope.in_scope(zone_id))
 
             if use_fts:
                 filtered = _fts_filter(log_query, GeocacheLog, KIND_LOG)

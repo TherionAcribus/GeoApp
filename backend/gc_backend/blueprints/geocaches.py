@@ -14,6 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from ..database import db
+from ..services import zone_scope
 from ..geocaches.models import Geocache, GeocacheLog, GeocacheNote
 from ..geocaches.importer import GeocacheImporter
 from ..geocaches.archive_service import ArchiveService
@@ -695,14 +696,18 @@ def _get_center_from_request_payload(data: dict) -> tuple[float, float]:
 
 @bp.get('/api/zones/<int:zone_id>/geocaches')
 def get_geocaches_for_zone(zone_id: int):
-    """Récupère toutes les géocaches d'une zone."""
+    """Récupère toutes les géocaches d'une zone, ou des zones d'un dossier."""
     try:
         geocaches = (
             Geocache.query
-            .filter_by(zone_id=zone_id)
+            .filter(zone_scope.in_scope(zone_id))
             .options(selectinload(Geocache.waypoints))
             .all()
         )
+        # Dossier : une cache rangée dans deux de ses zones n'apparaît qu'une fois.
+        if zone_scope.is_folder(zone_id):
+            geocaches = zone_scope.dedupe_by_code(geocaches)
+        zone_names = zone_scope.zone_names({gc.zone_id for gc in geocaches})
 
         # Une seule requête groupée sur la table d'association pour le nombre de
         # notes par géocache, au lieu d'un lazy-load `gc.notes` par cache (N+1).
@@ -722,6 +727,9 @@ def get_geocaches_for_zone(zone_id: int):
                 'id': gc.id,
                 'gc_code': gc.gc_code,
                 'name': gc.name,
+                # Zone réelle de la ligne : dans un dossier, elle diffère de `zone_id`.
+                'zone_id': gc.zone_id,
+                'zone_name': zone_names.get(gc.zone_id),
                 # 'description' et 'hint' sont volontairement absents : ces champs
                 # texte lourds ne sont utilisés ni par le tableau ni par la carte.
                 # Le flow Plugin les récupère à la demande via
@@ -782,11 +790,14 @@ def get_geocaches_tree_for_zone(zone_id: int):
             Geocache.terrain,
             Geocache.found,
             Geocache.created_at,
+            Geocache.updated_at,
         )
-        .filter(Geocache.zone_id == zone_id)
+        .filter(zone_scope.in_scope(zone_id))
         .order_by(Geocache.gc_code.asc())
         .all()
     )
+    if zone_scope.is_folder(zone_id):
+        rows = zone_scope.dedupe_by_code(rows)
     return jsonify([
         {
             'id': row.id,
@@ -1484,9 +1495,11 @@ def get_geocache_by_code(gc_code: str):
 
         query = Geocache.query.filter(Geocache.gc_code == code)
         if zone_id is not None:
-            query = query.filter(Geocache.zone_id == zone_id)
+            query = query.filter(zone_scope.in_scope(zone_id))
 
         matches = query.all()
+        if zone_id is not None and zone_scope.is_folder(zone_id):
+            matches = zone_scope.dedupe_by_code(matches)
         if not matches:
             return jsonify({'error': 'Geocache not found'}), 404
 
@@ -1812,9 +1825,23 @@ def move_geocache(geocache_id: int):
         target_zone = Zone.query.get(target_zone_id)
         if not target_zone:
             return jsonify({'error': 'Target zone not found'}), 404
+        if target_zone.is_folder:
+            return jsonify({'error': 'La cible est un dossier : choisis une de ses zones'}), 400
 
         old_zone_id = geocache.zone_id
         gc_code = geocache.gc_code
+
+        # Déjà dans la zone cible (possible depuis le tableau d'un dossier) : rien à
+        # faire. Sans cette garde, la cache « existe déjà dans la cible » et serait
+        # supprimée de sa propre zone.
+        if str(target_zone_id) == str(old_zone_id):
+            return jsonify({
+                'message': f'Geocache {gc_code} already in target zone',
+                'id': geocache.id,
+                'gc_code': gc_code,
+                'old_zone_id': old_zone_id,
+                'new_zone_id': old_zone_id,
+            }), 200
 
         # Vérifier si la géocache existe déjà dans la zone cible
         existing_geocache = Geocache.query.filter_by(
@@ -1880,6 +1907,8 @@ def copy_geocache(geocache_id: int):
         target_zone = Zone.query.get(target_zone_id)
         if not target_zone:
             return jsonify({'error': 'Target zone not found'}), 404
+        if target_zone.is_folder:
+            return jsonify({'error': 'La cible est un dossier : choisis une de ses zones'}), 400
         
         # Vérifier si la géocache existe déjà dans la zone cible
         existing = Geocache.query.filter_by(

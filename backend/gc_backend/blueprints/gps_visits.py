@@ -506,7 +506,8 @@ def start_zone_operation():
     if zone_id is None and not new_zone_name:
         return _error('missing_zone', 'Zone de la sortie manquante.', 400)
     if zone_id is not None:
-        if not isinstance(zone_id, int) or db.session.get(Zone, zone_id) is None:
+        zone = db.session.get(Zone, zone_id) if isinstance(zone_id, int) else None
+        if zone is None or zone.is_folder:
             return _error('zone_not_found', 'Zone introuvable.', 404)
     elif Zone.query.filter_by(name=new_zone_name).first() is not None:
         return _error('zone_exists', f'Une zone « {new_zone_name} » existe déjà : choisis-la dans la liste.', 409)

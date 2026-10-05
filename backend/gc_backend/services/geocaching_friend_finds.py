@@ -43,6 +43,7 @@ from typing import Callable, Iterable, Optional
 
 import requests
 
+from . import zone_scope
 from .geocaching_auth import get_auth_service
 from .geocaching_friends import NotAuthenticatedError
 
@@ -1522,7 +1523,7 @@ def query_suggestions(
     )
 
     if zone_id is not None:
-        query = query.filter(Geocache.zone_id == zone_id)
+        query = query.filter(zone_scope.in_scope(zone_id))
 
     if not include_found:
         # Pas trouvée par moi : found IS NULL ou found = False.

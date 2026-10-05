@@ -54,9 +54,13 @@ const GEOCACHE_DND_MIME = 'application/x-geoapp-geocache';
 interface GeocacheNodeProps {
     geocache: GeocacheDto;
     zoneId: number;
+    /** Identifiant de l'élément dans l'arbre (une zone rangée dans deux dossiers y apparaît deux fois). */
+    itemId: string;
     domId: string;
+    /** 2 sous une zone à la racine, 3 sous une zone rangée dans un dossier. */
+    level: number;
     isFocused: boolean;
-    onOpen: (geocache: GeocacheDto, zoneId: number) => void;
+    onOpen: (geocache: GeocacheDto, itemId: string) => void;
     onContextMenu: (geocache: GeocacheDto, zoneId: number, event: React.MouseEvent) => void;
     onDragStart: (geocache: GeocacheDto, zoneId: number, event: React.DragEvent) => void;
     onDragEnd: () => void;
@@ -71,19 +75,19 @@ interface GeocacheNodeProps {
  * zone, etc.).
  */
 const GeocacheNode = React.memo<GeocacheNodeProps>(({
-    geocache, zoneId, domId, isFocused, onOpen, onContextMenu, onDragStart, onDragEnd,
+    geocache, zoneId, itemId, domId, level, isFocused, onOpen, onContextMenu, onDragStart, onDragEnd,
 }) => (
     <div
         id={domId}
         role='treeitem'
-        aria-level={2}
+        aria-level={level}
         aria-selected={isFocused}
         aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
         className={`geocache-node${isFocused ? ' geocache-node--focused' : ''}`}
         draggable={true}
         onDragStart={(e) => onDragStart(geocache, zoneId, e)}
         onDragEnd={() => onDragEnd()}
-        onClick={() => onOpen(geocache, zoneId)}
+        onClick={() => onOpen(geocache, itemId)}
         onContextMenu={(e) => onContextMenu(geocache, zoneId, e)}
         title={`${geocache.gc_code} - ${geocache.name}\nD${geocache.difficulty} T${geocache.terrain}`}
     >
@@ -142,10 +146,21 @@ const ZONE_SORT_OPTIONS: Array<{ key: ZoneSortKey; label: string }> = [
     { key: 'latest_resolution_updated_at', label: 'Dernière résolution' },
 ];
 
+/** Élément visible de l'arbre : un dossier, une zone (à la racine ou dans un dossier) ou une géocache. */
+interface TreeItem {
+    itemId: string;
+    kind: 'folder' | 'zone' | 'geocache';
+    /** Le dossier ou la zone de la ligne ; pour une géocache, sa zone. */
+    zone: ZoneDto;
+    geocache?: GeocacheDto;
+    parentItemId?: string;
+}
+
 @injectable()
 export class ZonesTreeWidget extends ReactWidget {
     static readonly ID = 'zones.tree.widget';
 
+    /** Zones **et dossiers** (`is_folder`), tels que renvoyés par le backend. */
     protected zones: ZoneDto[] = [];
     protected activeZoneId: number | undefined;
     protected expandedZones: Set<number> = new Set();
@@ -184,8 +199,8 @@ export class ZonesTreeWidget extends ReactWidget {
 
     // Callbacks stables passés à GeocacheNode (mémoïsé) — définis une fois par
     // instance pour que la comparaison superficielle de React.memo fonctionne.
-    protected readonly handleGeocacheOpen = (geocache: GeocacheDto, zoneId: number): void => {
-        this.setActiveItem(this.geocacheItemId(zoneId, geocache.id), { scroll: false });
+    protected readonly handleGeocacheOpen = (geocache: GeocacheDto, itemId: string): void => {
+        this.setActiveItem(itemId, { scroll: false });
         void this.openGeocacheDetails(geocache);
     };
     protected readonly handleGeocacheContextMenu = (geocache: GeocacheDto, zoneId: number, event: React.MouseEvent): void => {
@@ -392,7 +407,7 @@ export class ZonesTreeWidget extends ReactWidget {
             // pour la carte, qui ne sont pas un projet à afficher dans l'arbre.
             const includeHidden = this.preferenceService.get<boolean>('geoApp.friends.zone.visible', false);
             const [zones, activeZone] = await Promise.all([
-                this.zonesService.list<ZoneDto>(includeHidden),
+                this.zonesService.list<ZoneDto>(includeHidden, true),
                 this.zonesService.getActiveZone()
             ]);
             this.zones = zones;
@@ -422,6 +437,31 @@ export class ZonesTreeWidget extends ReactWidget {
             result,
         };
         return result;
+    }
+
+    /** Les vraies zones (cibles de déplacement, de copie, de fusion), triées. */
+    protected getSortedPlainZones(): ZoneDto[] {
+        return this.getSortedZones().filter(zone => !zone.is_folder);
+    }
+
+    protected getSortedFolders(): ZoneDto[] {
+        return this.getSortedZones().filter(zone => zone.is_folder);
+    }
+
+    /** Racine de l'arbre : les dossiers, puis les zones qui ne sont rangées dans aucun. */
+    protected getRootZones(): ZoneDto[] {
+        const folderIds = new Set(this.zones.filter(zone => zone.is_folder).map(zone => zone.id));
+        const isFiled = (zone: ZoneDto): boolean => (zone.folder_ids ?? []).some(id => folderIds.has(id));
+        return [
+            ...this.getSortedFolders(),
+            ...this.getSortedPlainZones().filter(zone => !isFiled(zone)),
+        ];
+    }
+
+    /** Zones d'un dossier, dans l'ordre de tri courant (une zone masquée en est absente). */
+    protected getFolderZones(folder: ZoneDto): ZoneDto[] {
+        const memberIds = new Set(folder.zone_ids ?? []);
+        return this.getSortedPlainZones().filter(zone => memberIds.has(zone.id));
     }
 
     protected compareZones(a: ZoneDto, b: ZoneDto): number {
@@ -524,6 +564,10 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected async loadGeocachesForZone(zoneId: number, options: { force?: boolean } = {}): Promise<void> {
+        // Un dossier déplié montre ses zones, pas des géocaches : rien à charger.
+        if (this.zones.find(zone => zone.id === zoneId)?.is_folder) {
+            return;
+        }
         const alreadyLoaded = this.zoneGeocaches.has(zoneId);
         if (alreadyLoaded && !options.force) {
             return; // Déjà en cache
@@ -571,7 +615,7 @@ export class ZonesTreeWidget extends ReactWidget {
         }
         this.zoneClickTimer = window.setTimeout(() => {
             this.zoneClickTimer = undefined;
-            if (zone.geocaches_count > 0) {
+            if (this.hasChildren(zone)) {
                 void this.toggleZone(zone.id);
             }
         }, ZonesTreeWidget.ZONE_CLICK_DELAY_MS);
@@ -610,13 +654,20 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
+    /** Un dossier se déplie sur ses zones, une zone sur ses géocaches. */
+    protected hasChildren(zone: ZoneDto): boolean {
+        return zone.is_folder ? this.getFolderZones(zone).length > 0 : (zone.geocaches_count ?? 0) > 0;
+    }
+
     protected async deleteZone(zone: ZoneDto): Promise<void> {
         const count = zone.geocaches_count ?? 0;
-        const msg = count > 0
+        const msg = zone.is_folder
+            ? `Voulez-vous vraiment supprimer le dossier "${zone.name}" ? Ses zones et leurs géocaches sont conservées.`
+            : count > 0
             ? `Voulez-vous vraiment supprimer la zone "${zone.name}" et ses ${count} géocache${count > 1 ? 's' : ''} ? Cette action est irréversible.`
             : `Voulez-vous vraiment supprimer la zone "${zone.name}" ?`;
         const dialog = new ConfirmDialog({
-            title: 'Supprimer la zone',
+            title: zone.is_folder ? 'Supprimer le dossier' : 'Supprimer la zone',
             msg,
             ok: Dialog.OK,
             cancel: Dialog.CANCEL
@@ -640,7 +691,7 @@ export class ZonesTreeWidget extends ReactWidget {
             this.zoneGeocaches.delete(zone.id);
             await this.refresh();
             this.widgetEventsService.notifyZoneListChanged();
-            this.messages.info(`Zone "${zone.name}" supprimée`);
+            this.messages.info(zone.is_folder ? `Dossier "${zone.name}" supprimé` : `Zone "${zone.name}" supprimée`);
         } catch (e) {
             console.error('Zones: delete error', e);
             this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression de la zone'));
@@ -649,10 +700,11 @@ export class ZonesTreeWidget extends ReactWidget {
 
     protected async renameZone(zone: ZoneDto): Promise<void> {
         const nextName = await this.openZoneNameDialog({
-            title: 'Renommer la zone',
+            title: zone.is_folder ? 'Renommer le dossier' : 'Renommer la zone',
             initialValue: zone.name,
             confirmButtonLabel: 'Renommer',
-            currentZoneId: zone.id
+            currentZoneId: zone.id,
+            placeholder: zone.is_folder ? 'Nom du dossier' : undefined
         });
         if (!nextName || nextName === zone.name) {
             return;
@@ -668,7 +720,7 @@ export class ZonesTreeWidget extends ReactWidget {
             }
             await this.refresh();
             this.widgetEventsService.notifyZoneListChanged();
-            this.messages.info(`Zone "${zone.name}" renommée en "${updated.name}"`);
+            this.messages.info(`${zone.is_folder ? 'Dossier' : 'Zone'} "${zone.name}" renommé${zone.is_folder ? '' : 'e'} en "${updated.name}"`);
         } catch (e) {
             console.error('Zones: rename error', e);
             this.messages.error(getErrorMessage(e, 'Erreur lors du renommage de la zone'));
@@ -739,29 +791,148 @@ export class ZonesTreeWidget extends ReactWidget {
         initialValue: string;
         confirmButtonLabel: string;
         currentZoneId?: number;
+        placeholder?: string;
     }): Promise<string | undefined> {
         const dialog = new SingleTextInputDialog({
             title: options.title,
             initialValue: options.initialValue,
-            placeholder: 'Nom de la zone',
+            placeholder: options.placeholder ?? 'Nom de la zone',
             confirmButtonLabel: options.confirmButtonLabel,
             validate: input => {
                 const name = input.trim();
                 if (!name) {
-                    return 'Le nom de la zone est requis';
+                    return 'Le nom est requis';
                 }
+                // Zones et dossiers partagent le même espace de noms.
                 const duplicate = this.zones.find(z =>
                     z.id !== options.currentZoneId
                     && z.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase()
                 );
                 if (duplicate) {
-                    return `Une zone nommée "${name}" existe déjà`;
+                    return `${duplicate.is_folder ? 'Un dossier nommé' : 'Une zone nommée'} "${name}" existe déjà`;
                 }
                 return '';
             }
         });
 
         return (await dialog.open())?.trim();
+    }
+
+    // ---- Dossiers ----
+
+    /**
+     * Crée un dossier, en y rangeant `firstZone` le cas échéant. Sans nom fourni
+     * (champ « Nouvelle zone » vide), le demande.
+     */
+    protected async createFolder(name?: string, firstZone?: ZoneDto): Promise<void> {
+        const folderName = name?.trim() || await this.openZoneNameDialog({
+            title: 'Nouveau dossier',
+            initialValue: '',
+            confirmButtonLabel: 'Créer',
+            placeholder: 'Nom du dossier'
+        });
+        if (!folderName) {
+            return;
+        }
+        try {
+            const folder = await this.zonesService.create({ name: folderName, is_folder: true });
+            if (firstZone) {
+                await this.zonesService.addToFolder(folder.id, firstZone.id);
+                this.expandedZones.add(folder.id);
+            }
+            await this.refresh();
+            this.widgetEventsService.notifyZoneListChanged();
+            this.messages.info(`Dossier "${folderName}" créé`);
+        } catch (e) {
+            console.error('Zones: create folder error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la création du dossier'));
+        }
+    }
+
+    /** Range une zone dans un dossier, ou l'en retire. Une zone peut être dans plusieurs dossiers. */
+    protected async setZoneInFolder(zone: ZoneDto, folder: ZoneDto, member: boolean): Promise<void> {
+        try {
+            if (member) {
+                await this.zonesService.addToFolder(folder.id, zone.id);
+                this.expandedZones.add(folder.id);
+            } else {
+                await this.zonesService.removeFromFolder(folder.id, zone.id);
+            }
+            await this.refresh();
+            // Le tableau du dossier, s'il est ouvert, change de contenu.
+            this.notifyZonesRefreshFromSelf();
+            this.widgetEventsService.notifyZoneListChanged();
+        } catch (e) {
+            console.error('Zones: folder membership error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la mise à jour du dossier'));
+        }
+    }
+
+    protected buildFolderSubmenu(zone: ZoneDto): ContextMenuItem[] {
+        const memberOf = new Set(zone.folder_ids ?? []);
+        const items: ContextMenuItem[] = this.getSortedFolders().map(folder => ({
+            label: folder.name,
+            checked: memberOf.has(folder.id),
+            action: () => this.setZoneInFolder(zone, folder, !memberOf.has(folder.id))
+        }));
+        if (items.length > 0) {
+            items.push({ separator: true });
+        }
+        items.push({
+            label: 'Nouveau dossier...',
+            iconClass: 'codicon codicon-new-folder',
+            action: () => this.createFolder(undefined, zone)
+        });
+        return items;
+    }
+
+    protected buildFolderZonesSubmenu(folder: ZoneDto): ContextMenuItem[] {
+        const members = new Set(folder.zone_ids ?? []);
+        return this.getSortedPlainZones().map(zone => ({
+            label: zone.name,
+            checked: members.has(zone.id),
+            action: () => this.setZoneInFolder(zone, folder, !members.has(zone.id))
+        }));
+    }
+
+    protected showFolderContextMenu(folder: ZoneDto, event: React.MouseEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const zonesSubmenu = this.buildFolderZonesSubmenu(folder);
+        const items: ContextMenuItem[] = [
+            {
+                label: 'Ouvrir',
+                iconClass: 'codicon codicon-folder-opened',
+                action: () => this.openZoneTable(folder)
+            },
+            {
+                label: 'Renommer',
+                iconClass: 'codicon codicon-pencil',
+                action: () => this.renameZone(folder)
+            },
+            {
+                separator: true
+            },
+            {
+                label: 'Zones du dossier',
+                iconClass: 'codicon codicon-list-tree',
+                submenu: zonesSubmenu,
+                disabled: zonesSubmenu.length === 0
+            },
+            {
+                separator: true
+            },
+            {
+                label: 'Supprimer le dossier',
+                iconClass: 'codicon codicon-trash',
+                danger: true,
+                action: () => this.deleteZone(folder)
+            }
+        ];
+
+        this.contextMenu = { items, x: event.clientX, y: event.clientY };
+        this.update();
     }
 
     protected async moveGeocache(geocache: GeocacheDto, sourceZoneId: number, targetZoneId: number): Promise<void> {
@@ -902,9 +1073,29 @@ export class ZonesTreeWidget extends ReactWidget {
         return items;
     }
 
-    protected showZoneContextMenu(zone: ZoneDto, event: React.MouseEvent): void {
+    protected showZoneContextMenu(zone: ZoneDto, event: React.MouseEvent, parentFolder?: ZoneDto): void {
+        if (zone.is_folder) {
+            this.showFolderContextMenu(zone, event);
+            return;
+        }
         event.preventDefault();
         event.stopPropagation();
+
+        const plainZoneCount = this.zones.filter(z => !z.is_folder).length;
+        const folderItems: ContextMenuItem[] = [
+            {
+                label: 'Ranger dans un dossier',
+                iconClass: 'codicon codicon-folder-library',
+                submenu: this.buildFolderSubmenu(zone)
+            }
+        ];
+        if (parentFolder) {
+            folderItems.push({
+                label: `Retirer de "${parentFolder.name}"`,
+                iconClass: 'codicon codicon-close',
+                action: () => this.setZoneInFolder(zone, parentFolder, false)
+            });
+        }
 
         const items: ContextMenuItem[] = [
             {
@@ -929,8 +1120,12 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.mergeDialog = { zone };
                     this.update();
                 },
-                disabled: this.zones.length <= 1
+                disabled: plainZoneCount <= 1
             },
+            {
+                separator: true
+            },
+            ...folderItems,
             {
                 separator: true
             },
@@ -975,7 +1170,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.moveDialog = { geocache, zoneId };
                     this.update();
                 },
-                disabled: this.zones.length <= 1
+                disabled: this.zones.filter(z => !z.is_folder).length <= 1
             },
             {
                 label: 'Copier vers...',
@@ -984,7 +1179,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.copyDialog = { geocache, zoneId };
                     this.update();
                 },
-                disabled: this.zones.length <= 1
+                disabled: this.zones.filter(z => !z.is_folder).length <= 1
             },
             {
                 separator: true
@@ -1171,12 +1366,18 @@ export class ZonesTreeWidget extends ReactWidget {
 
     // ---- Navigation clavier / accessibilité de l'arbre (pattern WAI-ARIA tree) ----
 
-    protected zoneItemId(zoneId: number): string {
-        return `z-${zoneId}`;
+    /**
+     * Une zone rangée dans plusieurs dossiers apparaît plusieurs fois : son
+     * identifiant d'élément porte donc le dossier sous lequel elle est affichée.
+     */
+    protected zoneItemId(zoneId: number, parentFolderId?: number): string {
+        return parentFolderId === undefined ? `z-${zoneId}` : `z-${parentFolderId}-${zoneId}`;
     }
 
-    protected geocacheItemId(zoneId: number, geocacheId: number): string {
-        return `g-${zoneId}-${geocacheId}`;
+    protected geocacheItemId(zoneId: number, geocacheId: number, parentFolderId?: number): string {
+        return parentFolderId === undefined
+            ? `g-${zoneId}-${geocacheId}`
+            : `g-${parentFolderId}-${zoneId}-${geocacheId}`;
     }
 
     protected itemDomId(itemId: string): string {
@@ -1184,38 +1385,38 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     /** Liste à plat des éléments visibles de l'arbre, dans l'ordre d'affichage. */
-    protected getVisibleItems(): Array<{
-        itemId: string;
-        kind: 'zone' | 'geocache';
-        level: number;
-        zone: ZoneDto;
-        zoneId: number;
-        geocache?: GeocacheDto;
-    }> {
-        const items: Array<{
-            itemId: string;
-            kind: 'zone' | 'geocache';
-            level: number;
-            zone: ZoneDto;
-            zoneId: number;
-            geocache?: GeocacheDto;
-        }> = [];
-        for (const zone of this.getSortedZones()) {
-            items.push({ itemId: this.zoneItemId(zone.id), kind: 'zone', level: 1, zone, zoneId: zone.id });
-            if (this.expandedZones.has(zone.id) && !this.loadingZones.has(zone.id)) {
-                const geocaches = this.zoneGeocaches.get(zone.id);
-                if (geocaches && geocaches.length > 0) {
-                    for (const gc of this.getSortedGeocaches(geocaches)) {
-                        items.push({
-                            itemId: this.geocacheItemId(zone.id, gc.id),
-                            kind: 'geocache',
-                            level: 2,
-                            zone,
-                            zoneId: zone.id,
-                            geocache: gc,
-                        });
-                    }
-                }
+    protected getVisibleItems(): TreeItem[] {
+        const items: TreeItem[] = [];
+        const pushZone = (zone: ZoneDto, parentFolder?: ZoneDto): void => {
+            const itemId = this.zoneItemId(zone.id, parentFolder?.id);
+            items.push({
+                itemId,
+                kind: 'zone',
+                zone,
+                parentItemId: parentFolder ? this.zoneItemId(parentFolder.id) : undefined,
+            });
+            if (!this.expandedZones.has(zone.id) || this.loadingZones.has(zone.id)) {
+                return;
+            }
+            const geocaches = this.zoneGeocaches.get(zone.id);
+            for (const gc of geocaches && geocaches.length > 0 ? this.getSortedGeocaches(geocaches) : []) {
+                items.push({
+                    itemId: this.geocacheItemId(zone.id, gc.id, parentFolder?.id),
+                    kind: 'geocache',
+                    zone,
+                    geocache: gc,
+                    parentItemId: itemId,
+                });
+            }
+        };
+        for (const zone of this.getRootZones()) {
+            if (!zone.is_folder) {
+                pushZone(zone);
+                continue;
+            }
+            items.push({ itemId: this.zoneItemId(zone.id), kind: 'folder', zone });
+            if (this.expandedZones.has(zone.id)) {
+                this.getFolderZones(zone).forEach(member => pushZone(member, zone));
             }
         }
         return items;
@@ -1241,7 +1442,7 @@ export class ZonesTreeWidget extends ReactWidget {
             const items = this.getVisibleItems();
             if (items.length > 0) {
                 const activeZoneItem = this.activeZoneId !== undefined
-                    ? items.find(item => item.kind === 'zone' && item.zone.id === this.activeZoneId)
+                    ? items.find(item => item.kind !== 'geocache' && item.zone.id === this.activeZoneId)
                     : undefined;
                 this.activeItemId = (activeZoneItem ?? items[0]).itemId;
             }
@@ -1291,12 +1492,12 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.setActiveItem(items[0].itemId);
                     break;
                 }
-                if (current.kind === 'zone' && current.zone.geocaches_count > 0) {
+                if (current.kind !== 'geocache' && this.hasChildren(current.zone)) {
                     if (!this.expandedZones.has(current.zone.id)) {
                         void this.toggleZone(current.zone.id);
                     } else {
                         const child = items[currentIndex + 1];
-                        if (child && child.kind === 'geocache' && child.zoneId === current.zone.id) {
+                        if (child && child.parentItemId === current.itemId) {
                             this.setActiveItem(child.itemId);
                         }
                     }
@@ -1309,10 +1510,10 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.setActiveItem(items[0].itemId);
                     break;
                 }
-                if (current.kind === 'geocache') {
-                    this.setActiveItem(this.zoneItemId(current.zoneId));
-                } else if (current.kind === 'zone' && this.expandedZones.has(current.zone.id)) {
+                if (current.kind !== 'geocache' && this.expandedZones.has(current.zone.id)) {
                     void this.toggleZone(current.zone.id);
+                } else if (current.parentItemId) {
+                    this.setActiveItem(current.parentItemId);
                 }
                 break;
             }
@@ -1322,7 +1523,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 if (!current) {
                     break;
                 }
-                if (current.kind === 'zone') {
+                if (current.kind !== 'geocache') {
                     void this.openZoneTable(current.zone);
                 } else if (current.geocache) {
                     void this.openGeocacheDetails(current.geocache);
@@ -1335,7 +1536,8 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected render(): React.ReactNode {
-        const sortedZones = this.getSortedZones();
+        // Les dialogues de déplacement, de copie et de fusion visent une vraie zone.
+        const sortedZones = this.getSortedPlainZones();
 
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px' }}>
@@ -1369,6 +1571,15 @@ export class ZonesTreeWidget extends ReactWidget {
                         >
                             ＋
                         </button>
+                        <button
+                            type='button'
+                            className='zone-add-toggle'
+                            onClick={e => this.onAddFolderClick(e)}
+                            aria-label='Créer un dossier'
+                            title='Créer un dossier (regroupe plusieurs zones)'
+                        >
+                            <span className='codicon codicon-new-folder' aria-hidden='true' />
+                        </button>
                     </div>
                     {this.zoneFormExpanded && (
                         <input
@@ -1397,7 +1608,9 @@ export class ZonesTreeWidget extends ReactWidget {
                             onBlur={() => this.onTreeBlur()}
                             style={{ outline: 'none' }}
                         >
-                            {sortedZones.map(zone => this.renderZoneNode(zone))}
+                            {this.getRootZones().map(zone => zone.is_folder
+                                ? this.renderFolderNode(zone)
+                                : this.renderZoneNode(zone))}
                         </div>
                     )}
                 </div>
@@ -1462,15 +1675,79 @@ export class ZonesTreeWidget extends ReactWidget {
         );
     }
 
-    protected renderZoneNode(zone: ZoneDto): React.ReactNode {
+    /** Bouton « dossier » du formulaire : reprend le nom saisi, sinon le demande. */
+    protected onAddFolderClick(event: React.MouseEvent<HTMLButtonElement>): void {
+        const form = event.currentTarget.form;
+        const input = form?.elements.namedItem('name') as HTMLInputElement | null;
+        const name = (input?.value || '').trim();
+        void this.createFolder(name || undefined).then(() => form?.reset());
+    }
+
+    protected renderFolderNode(folder: ZoneDto): React.ReactNode {
+        const isExpanded = this.expandedZones.has(folder.id);
+        const isActive = this.activeZoneId === folder.id;
+        const members = this.getFolderZones(folder);
+        const hasChildren = members.length > 0;
+        const itemId = this.zoneItemId(folder.id);
+        const isFocused = this.treeFocused && this.activeItemId === itemId;
+        const count = folder.geocaches_count ?? 0;
+        const summary = `${members.length} zone${members.length > 1 ? 's' : ''}, ${count} géocache${count > 1 ? 's' : ''}`;
+
+        return (
+            <div key={`folder-${folder.id}`} style={{ marginBottom: 4 }} role='none'>
+                <div
+                    id={this.itemDomId(itemId)}
+                    role='treeitem'
+                    aria-level={1}
+                    aria-selected={isFocused}
+                    aria-expanded={hasChildren ? isExpanded : undefined}
+                    aria-label={`Dossier ${folder.name}, ${summary}`}
+                    className={`zone-node zone-node--folder${isActive ? ' zone-node--active' : ''}${isFocused ? ' zone-node--focused' : ''}`}
+                    title={`Dossier ${folder.name} — ${summary}\n(Double-cliquer pour ouvrir le tableau de toutes ses zones)`}
+                    onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
+                    onClick={() => this.onZoneRowClick(folder)}
+                    onDoubleClick={() => this.onZoneRowDoubleClick(folder)}
+                    onContextMenu={(e) => this.showFolderContextMenu(folder, e)}
+                >
+                    <span style={{ width: 16, display: 'inline-block', userSelect: 'none' }}>
+                        {hasChildren && (
+                            <span className={isExpanded ? 'codicon codicon-chevron-down' : 'codicon codicon-chevron-right'} aria-hidden='true' />
+                        )}
+                    </span>
+                    <span className='codicon codicon-folder-library' aria-hidden='true' style={{ marginRight: 6 }} />
+                    <span className='zone-name'>
+                        {folder.name}
+                        <span style={{ opacity: 0.6, marginLeft: 4, fontSize: '0.85em' }}>
+                            ({count})
+                        </span>
+                    </span>
+                </div>
+
+                {isExpanded && (
+                    <div role='group' style={{ marginLeft: 16, marginTop: 2 }}>
+                        {members.length === 0 ? (
+                            <div style={{ padding: '4px 6px', fontSize: '0.85em', opacity: 0.6 }}>
+                                Dossier vide — clic droit sur une zone : « Ranger dans un dossier »
+                            </div>
+                        ) : (
+                            members.map(zone => this.renderZoneNode(zone, folder))
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    protected renderZoneNode(zone: ZoneDto, parentFolder?: ZoneDto): React.ReactNode {
         const isExpanded = this.expandedZones.has(zone.id);
         const isActive = this.activeZoneId === zone.id;
         const isLoading = this.loadingZones.has(zone.id);
         const geocaches = this.zoneGeocaches.get(zone.id) || [];
         const hasChildren = zone.geocaches_count > 0;
-        const itemId = this.zoneItemId(zone.id);
+        const itemId = this.zoneItemId(zone.id, parentFolder?.id);
         const isFocused = this.treeFocused && this.activeItemId === itemId;
         const isDropTarget = this.dropTargetZoneId === zone.id;
+        const level = parentFolder ? 2 : 1;
 
         return (
             <div
@@ -1485,7 +1762,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 <div
                     id={this.itemDomId(itemId)}
                     role='treeitem'
-                    aria-level={1}
+                    aria-level={level}
                     aria-selected={isFocused}
                     aria-expanded={hasChildren ? isExpanded : undefined}
                     aria-label={`Zone ${zone.name}, ${zone.geocaches_count} géocache${zone.geocaches_count > 1 ? 's' : ''}`}
@@ -1494,7 +1771,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                     onClick={() => this.onZoneRowClick(zone)}
                     onDoubleClick={() => this.onZoneRowDoubleClick(zone)}
-                    onContextMenu={(e) => this.showZoneContextMenu(zone, e)}
+                    onContextMenu={(e) => this.showZoneContextMenu(zone, e, parentFolder)}
                 >
                     {/* Icône expand/collapse (purement visuelle: tout le clic ligne déplie) */}
                     <span
@@ -1533,7 +1810,7 @@ export class ZonesTreeWidget extends ReactWidget {
                                 Aucune géocache
                             </div>
                         ) : (
-                            this.getSortedGeocaches(geocaches).map(gc => this.renderGeocacheNode(gc, zone.id))
+                            this.getSortedGeocaches(geocaches).map(gc => this.renderGeocacheNode(gc, zone.id, parentFolder?.id))
                         )}
                     </div>
                 )}
@@ -1541,15 +1818,17 @@ export class ZonesTreeWidget extends ReactWidget {
         );
     }
 
-    protected renderGeocacheNode(geocache: GeocacheDto, zoneId: number): React.ReactNode {
-        const itemId = this.geocacheItemId(zoneId, geocache.id);
+    protected renderGeocacheNode(geocache: GeocacheDto, zoneId: number, parentFolderId?: number): React.ReactNode {
+        const itemId = this.geocacheItemId(zoneId, geocache.id, parentFolderId);
         const isFocused = this.treeFocused && this.activeItemId === itemId;
         return (
             <GeocacheNode
                 key={geocache.id}
                 geocache={geocache}
                 zoneId={zoneId}
+                itemId={itemId}
                 domId={this.itemDomId(itemId)}
+                level={parentFolderId === undefined ? 2 : 3}
                 isFocused={isFocused}
                 onOpen={this.handleGeocacheOpen}
                 onContextMenu={this.handleGeocacheContextMenu}

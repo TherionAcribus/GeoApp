@@ -58,6 +58,9 @@ export interface Geocache {
     id: number;
     gc_code: string;
     name: string;
+    /** Zone réelle de la ligne : dans le tableau d'un dossier, une de ses zones. */
+    zone_id?: number;
+    zone_name?: string | null;
     owner: string | null;
     cache_type: string;
     difficulty: number;
@@ -220,7 +223,8 @@ export type GeocachesTableColumnId =
     | 'outing_flags'
     | 'status'
     | 'need_maintenance'
-    | 'distance';
+    | 'distance'
+    | 'zone_name';
 
 interface GeocachesTableColumnDefinition {
     id: GeocachesTableColumnId;
@@ -268,6 +272,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
     { id: 'distance', label: 'Distance', description: "Distance à vol d'oiseau depuis l'origine des distances (clic droit sur une ligne pour la définir)." },
+    { id: 'zone_name', label: 'Zone', description: "Zone où la cache est rangée (utile dans le tableau d'un dossier)." },
 ];
 
 export const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
@@ -1155,6 +1160,13 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 header: 'Propriétaire',
                 cell: info => <span className="geoapp-gc-cell-owner">{info.getValue() as string || '-'}</span>,
                 size: 150,
+            },
+            {
+                id: 'zone_name',
+                accessorFn: row => row.zone_name ?? '',
+                header: 'Zone',
+                cell: info => <span>{info.getValue() as string || '-'}</span>,
+                size: 140,
             },
             {
                 id: 'distance',

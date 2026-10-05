@@ -28,7 +28,7 @@ import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { FriendsService } from './friends-service';
 import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent, GeocachingFriend } from './friends-types';
 import { GeocachesService } from './geocaches-service';
-import { ZonesService } from './zones-service';
+import { ZonesService, ZoneDto } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
@@ -100,6 +100,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      */
     protected selectedGeocacheIds: number[] = [];
     protected zones: Array<{ id: number; name: string }> = [];
+    /**
+     * Zones du dossier affiché, quand `zoneId` désigne un dossier (`undefined`
+     * pour une zone ordinaire). Un dossier ne porte aucune géocache en propre :
+     * les imports vont dans `importZoneId`, l'une de ces zones.
+     */
+    protected folderZones?: Array<{ id: number; name: string }>;
+    protected importZoneId?: number;
+    /** Résolue quand `zones` et `folderZones` sont connus pour la zone affichée. */
+    private zonesLoaded: Promise<void> = Promise.resolve();
     protected showImportDialog = false;
     protected showBookmarkListDialog = false;
     protected showPocketQueryDialog = false;
@@ -570,15 +579,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             this.messages.warn('Code GC invalide');
             return;
         }
-        if (!this.zoneId) {
-            this.messages.warn('Zone active manquante');
+        const targetZoneId = await this.resolveWriteZoneId();
+        if (targetZoneId === undefined) {
             return;
         }
 
         this.isAddingGeocache = true;
         this.update();
         try {
-            const imported = await this.geocachesService.addToZone<AddGeocacheResponse>(this.zoneId, gcCode);
+            const imported = await this.geocachesService.addToZone<AddGeocacheResponse>(targetZoneId, gcCode);
             form.reset();
             await this.refreshZoneData();
             this.messages.info(`Géocache ${gcCode} importée`);
@@ -1096,14 +1105,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         request: ImportAroundRequest,
         onProgress?: (percentage: number, message: string) => void
     ): Promise<void> {
-        if (!this.zoneId) {
-            this.messages.warn('Zone active manquante');
+        const targetZoneId = await this.resolveWriteZoneId();
+        if (targetZoneId === undefined) {
             return;
         }
 
         const controller = new AbortController();
         try {
-            const summary = await this.importAroundService.run(this.zoneId, request, {
+            const summary = await this.importAroundService.run(targetZoneId, request, {
                 onProgress,
                 onError: message => this.messages.error(message),
                 signal: controller.signal,
@@ -1179,6 +1188,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Une suppression en attente appartient à la zone qu'on quitte : elle
         // est confirmée, on l'exécute tout de suite plutôt que de la perdre.
         void this.commitPendingDeletes();
+        if (this.zoneId !== context.zoneId) {
+            this.folderZones = undefined;
+            this.importZoneId = undefined;
+        }
         this.zoneId = context.zoneId;
         this.zoneName = context.zoneName;
         this.lastAccessTimestamp = Date.now();
@@ -1199,7 +1212,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
         // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
         // à jour via onDidChangeZoneList. load() ne s'en occupe plus.
-        void this.reloadZonesList();
+        this.zonesLoaded = this.reloadZonesList();
         this.load();
         this.setupMinOpenTimeTimer();
     }
@@ -1362,13 +1375,55 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     private async reloadZonesList(): Promise<void> {
+        const zoneId = this.zoneId;
         try {
-            this.zones = await this.zonesService.list<{ id: number; name: string }>();
+            const all = await this.zonesService.list<ZoneDto>(false, true);
+            if (this.zoneId !== zoneId) {
+                return;
+            }
+            // Les cibles de copie, de déplacement et d'import sont de vraies zones.
+            this.zones = all.filter(zone => !zone.is_folder);
+            const folder = all.find(zone => zone.is_folder && zone.id === zoneId);
+            if (folder) {
+                const memberIds = new Set(folder.zone_ids ?? []);
+                this.folderZones = this.zones.filter(zone => memberIds.has(zone.id));
+                if (!this.folderZones.some(zone => zone.id === this.importZoneId)) {
+                    this.importZoneId = this.folderZones[0]?.id;
+                }
+            } else {
+                this.folderZones = undefined;
+                this.importZoneId = undefined;
+            }
             this.update();
         } catch (e) {
             console.error('[ZoneGeocachesWidget] Failed to reload zones list', e);
         }
     }
+
+    /**
+     * Zone où écrire (ajout par code, imports) : la zone affichée, ou la zone
+     * choisie dans l'en-tête quand le tableau montre un dossier.
+     */
+    private async resolveWriteZoneId(): Promise<number | undefined> {
+        if (!this.zoneId) {
+            this.messages.warn('Zone active manquante');
+            return undefined;
+        }
+        await this.zonesLoaded;
+        if (!this.folderZones) {
+            return this.zoneId;
+        }
+        if (this.importZoneId === undefined) {
+            this.messages.warn('Ce dossier ne contient aucune zone : rangez-y une zone avant d\'importer.');
+            return undefined;
+        }
+        return this.importZoneId;
+    }
+
+    protected readonly handleImportZoneChange = (zoneId: number): void => {
+        this.importZoneId = zoneId;
+        this.update();
+    };
 
     /**
      * Rafraîchissement incrémental : recharge uniquement les lignes du tableau
@@ -2434,8 +2489,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected async handleImportGpx(file: File, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
-        if (!this.zoneId) {
-            this.messages.warn('Zone active manquante');
+        const targetZoneId = await this.resolveWriteZoneId();
+        if (targetZoneId === undefined) {
             return;
         }
 
@@ -2447,7 +2502,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onProgress(0, 'Préparation de l\'import...');
             }
 
-            const response = await this.geocachesService.importGpx(file, this.zoneId, updateExisting, controller.signal);
+            const response = await this.geocachesService.importGpx(file, targetZoneId, updateExisting, controller.signal);
             const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
             if (hadError) {
                 // Erreur déjà affichée : garder la dialog ouverte pour réessayer.
@@ -2480,8 +2535,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected async handleImportBookmarkList(bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
-        if (!this.zoneId) {
-            this.messages.error('Zone non définie');
+        const targetZoneId = await this.resolveWriteZoneId();
+        if (targetZoneId === undefined) {
             return;
         }
 
@@ -2491,7 +2546,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId, updateExisting, controller.signal);
+            const response = await this.geocachesService.importBookmarkList(bookmarkCode, targetZoneId, updateExisting, controller.signal);
             const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
             if (hadError) {
                 await this.refreshZoneData();
@@ -2518,8 +2573,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected async handleImportPocketQuery(pqCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
-        if (!this.zoneId) {
-            this.messages.error('Zone non définie');
+        const targetZoneId = await this.resolveWriteZoneId();
+        if (targetZoneId === undefined) {
             return;
         }
 
@@ -2529,7 +2584,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId, updateExisting, controller.signal);
+            const response = await this.geocachesService.importPocketQuery(pqCode, targetZoneId, updateExisting, controller.signal);
             const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
             if (hadError) {
                 await this.refreshZoneData();
@@ -2622,6 +2677,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 rows={this.rows}
                 zones={this.zones}
                 currentZoneId={this.zoneId}
+                folderZones={this.folderZones}
+                importZoneId={this.importZoneId}
+                onImportZoneChange={this.handleImportZoneChange}
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
                 tableSorting={this.tableSorting}
                 appliedSearchQuery={this.appliedSearchQuery}

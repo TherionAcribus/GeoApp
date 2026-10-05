@@ -107,6 +107,10 @@ class GeocacheImporter:
         if zone is None:
             logger.warning(f"Zone {zone_id} not found")
             raise LookupError('zone_not_found')
+        # Un dossier ne porte aucune géocache en propre : on importe dans une de ses zones.
+        if zone.is_folder:
+            logger.warning(f"Zone {zone_id} is a folder, not an import target")
+            raise ValueError('zone_is_folder')
 
         logger.debug(f"Zone {zone_id} exists: {zone.name}")
         return zone

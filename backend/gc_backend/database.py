@@ -14,7 +14,7 @@ def init_db(app):
     db.init_app(app)
 
     with app.app_context():
-        from .models import Zone, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, GpsDeviceCache, GpsTrackDay, GpsVisit, GpsZoneOperation, GpsZoneOperationItem, OutingPlan, Trackable  # noqa
+        from .models import Zone, ZoneFolderMember, AppConfig, FriendActivity, FriendFind, GeocacheTrackable, GpsDeviceCache, GpsTrackDay, GpsVisit, GpsZoneOperation, GpsZoneOperationItem, OutingPlan, Trackable  # noqa
         from .geocaches.models import (  # noqa: F401
             EarthCoachImageContext,
             EarthCoachImageGroup,
@@ -259,6 +259,11 @@ def init_db(app):
                 # Les zones existantes sont toutes visibles : sans ce défaut,
                 # `is_hidden IS NULL` ferait échouer les filtres booléens stricts.
                 db.session.execute(text('UPDATE zone SET is_hidden = 0 WHERE is_hidden IS NULL'))
+                db.session.commit()
+            if existing_cols and 'is_folder' not in existing_cols:
+                logger.info('Adding missing column zone.is_folder (BOOLEAN)')
+                db.session.execute(text('ALTER TABLE zone ADD COLUMN is_folder BOOLEAN'))
+                db.session.execute(text('UPDATE zone SET is_folder = 0 WHERE is_folder IS NULL'))
                 db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (zone): %s', error)
