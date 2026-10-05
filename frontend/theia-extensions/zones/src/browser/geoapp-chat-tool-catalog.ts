@@ -343,6 +343,33 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'aide_open_friends': { registryId: 'aide_open_friends', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_open_friend_activity': { registryId: 'aide_open_friend_activity', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
 
+    // Trackables — inventaire et fiches (lecture relue sur Geocaching.com), log = publication publique
+    'aide_open_trackables': { registryId: 'aide_open_trackables', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_list_trackable_inventory': { registryId: 'aide_list_trackable_inventory', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_list_geocache_trackables': { registryId: 'aide_list_geocache_trackables', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_lookup_trackable': { registryId: 'aide_lookup_trackable', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_trackable': { registryId: 'aide_get_trackable', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide', 'chat'], defaultEnabled: true },
+    'aide_get_trackable_log_info': { registryId: 'aide_get_trackable_log_info', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    // Publication publique et irréversible sur Geocaching.com : risque 'high' + confirmation.
+    'aide_log_trackable': { registryId: 'aide_log_trackable', category: 'app', risk: 'high', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+
+    // Visites GPS — pipeline Garmin : import, rattachement, vérification, zone de sortie
+    'aide_open_gps_visits': { registryId: 'aide_open_gps_visits', category: 'navigation', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_detect': { registryId: 'aide_gps_visits_detect', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_import': { registryId: 'aide_gps_visits_import', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_position': { registryId: 'aide_gps_visits_position', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_list': { registryId: 'aide_gps_visits_list', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_set_state': { registryId: 'aide_gps_visits_set_state', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_restore': { registryId: 'aide_gps_visits_restore', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_set_cutoff': { registryId: 'aide_gps_visits_set_cutoff', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_check_found': { registryId: 'aide_gps_visits_check_found', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_candidates': { registryId: 'aide_gps_visits_candidates', category: 'app', risk: 'network', network: true, requiresAuth: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_resolve': { registryId: 'aide_gps_visits_resolve', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_day_resolution': { registryId: 'aide_gps_visits_day_resolution', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_prepare': { registryId: 'aide_gps_visits_prepare', category: 'app', risk: 'read_only', scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_add_to_zone': { registryId: 'aide_gps_visits_add_to_zone', category: 'app', risk: 'network', network: true, requiresAuth: true, writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+    'aide_gps_visits_zone_operation': { registryId: 'aide_gps_visits_zone_operation', category: 'app', risk: 'local_write', writesLocal: true, scopes: ['aide'], defaultEnabled: true },
+
     // Carte / sortie / systeme
     'aide_map_show_geocache': { registryId: 'aide_map_show_geocache', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },
     'aide_map_center': { registryId: 'aide_map_center', category: 'navigation', risk: 'read_only', scopes: ['aide', 'chat'], defaultEnabled: true },

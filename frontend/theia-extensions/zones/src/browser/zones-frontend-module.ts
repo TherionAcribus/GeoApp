@@ -68,6 +68,7 @@ import { ArchiveManagerWidget } from './archive-manager-widget';
 import { TrackablesWidget } from './trackables-widget';
 import { GpsVisitsWidget } from './gps-visits-widget';
 import { GpsVisitsService } from './gps-visits-service';
+import { TrackablesService } from './trackables-service';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import { GeoAppSidebarDefaultsContribution } from './sidebar/geoapp-sidebar-defaults-contribution';
@@ -125,6 +126,7 @@ export default new ContainerModule(bind => {
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
     bind(GpsVisitsService).toSelf().inSingletonScope();
+    bind(TrackablesService).toSelf().inSingletonScope();
     bind(FriendsService).toSelf().inSingletonScope();
     bind(ImportAroundService).toSelf().inSingletonScope();
     bind(OutingAnalysisController).toSelf().inSingletonScope();

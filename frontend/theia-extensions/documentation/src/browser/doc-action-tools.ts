@@ -25,6 +25,10 @@ import { GeocacheLogsFetchService } from 'theia-ide-zones-ext/lib/browser/geocac
 import { GeocacheLogsAnalysisService } from 'theia-ide-zones-ext/lib/browser/geocache-logs-analysis-service';
 import { FriendsService } from 'theia-ide-zones-ext/lib/browser/friends-service';
 import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
+import { GpsVisitsService } from 'theia-ide-zones-ext/lib/browser/gps-visits-service';
+import type { GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
+import { TrackablesService } from 'theia-ide-zones-ext/lib/browser/trackables-service';
+import type { TrackableLogSubmission } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
 import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
@@ -76,7 +80,7 @@ const err = (message: string): string => JSON.stringify({ success: false, error:
 
 
 function buildParams(
-    props: Record<string, { type: string; description: string; required?: boolean; enum?: string[]; items?: unknown }>
+    props: Record<string, { type: string; description: string; required?: boolean; enum?: unknown[]; items?: unknown }>
 ): ToolRequestParameters {
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
@@ -182,6 +186,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(ArchiveManagerService)
     protected readonly archiveService!: ArchiveManagerService;
 
+    @inject(GpsVisitsService)
+    protected readonly gpsVisitsService!: GpsVisitsService;
+
+    @inject(TrackablesService)
+    protected readonly trackablesService!: TrackablesService;
+
     @inject(MapService)
     protected readonly mapService!: MapService;
 
@@ -252,6 +262,8 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildArchiveTools(),
             ...this.buildMapTools(),
             ...this.buildOutingTools(),
+            ...this.buildTrackableTools(),
+            ...this.buildGpsVisitsTools(),
             ...this.buildSystemAndImportTools(),
             ...this.buildImportTools(),
             ...this.buildAiModelTools(),
@@ -2867,6 +2879,618 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.commandService.executeCommand('geoapp.outing.plan.open');
                         return ok('Panneau des checklists de sortie ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Trackables ─────────────────────────────────────────────────────────
+
+    /** Résout un code GC depuis gc_code (prioritaire) ou geocache_id. */
+    protected async resolveGcCode(args: Record<string, any>): Promise<string> {
+        const direct = typeof args.gc_code === 'string' ? args.gc_code.trim() : '';
+        if (direct) {
+            return direct;
+        }
+        const id = Number(args.geocache_id);
+        if (Number.isFinite(id) && id > 0) {
+            const geocache = await this.apiClient.requestJson<{ gc_code?: string }>(
+                `/api/geocaches/${id}`, {}, 'Géocache introuvable'
+            );
+            if (typeof geocache?.gc_code === 'string' && geocache.gc_code) {
+                return geocache.gc_code;
+            }
+            throw new Error(`Aucune géocache trouvée pour geocache_id ${id}.`);
+        }
+        throw new Error('Fournissez gc_code ou geocache_id.');
+    }
+
+    private buildTrackableTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_open_trackables',
+                name: 'aide_open_trackables',
+                description: 'Ouvre le widget Trackables (onglets Inventaire, Loguer / Découvrir, Fiche). ' +
+                    'trackable_code préremplit l\'onglet demandé ; action + geocache_code préremplissent ' +
+                    'un log « retirer » ou « découvrir » depuis une cache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    tab: {
+                        type: 'string', required: false,
+                        description: 'Onglet à afficher : inventory (inventaire), log (loguer/découvrir), detail (fiche).',
+                        enum: ['inventory', 'log', 'detail'],
+                    },
+                    trackable_code: { type: 'string', description: 'Code du trackable (TB… ou code de suivi) à préremplir.', required: false },
+                    action: { type: 'string', required: false, enum: ['retrieve', 'discover', 'log'], description: 'Action de l\'onglet log.' },
+                    geocache_code: { type: 'string', description: 'Cache d\'origine de l\'action (ex. « retirer de GC… »).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const context: Record<string, unknown> = {};
+                        if (args.tab) { context.tab = args.tab; }
+                        if (args.trackable_code) { context.trackableCode = args.trackable_code; }
+                        if (args.action) { context.action = args.action; }
+                        if (args.geocache_code) { context.geocacheCode = args.geocache_code; }
+                        await this.commandService.executeCommand(
+                            'geoapp.trackables.open',
+                            Object.keys(context).length ? context : undefined
+                        );
+                        return ok('Widget Trackables ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_trackable_inventory',
+                name: 'aide_list_trackable_inventory',
+                description: 'Liste mon inventaire de trackables (travel bugs, geocoins détenus). ' +
+                    'refresh=true force une relecture sur Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    refresh: { type: 'boolean', description: 'Relire le site plutôt que la copie locale.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.trackablesService.getInventory({ refresh: Boolean(args.refresh) }));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_geocache_trackables',
+                name: 'aide_list_geocache_trackables',
+                description: 'Liste les trackables déclarés dans une géocache (gc_code ou geocache_id). ' +
+                    'refresh=true force une relecture sur Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    gc_code: { type: 'string', description: 'Code GC (ex: "GC8ABCD").', required: false },
+                    geocache_id: { type: 'number', description: 'ID de la géocache, alternatif à gc_code.', required: false },
+                    refresh: { type: 'boolean', description: 'Relire le site plutôt que la copie locale.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const gcCode = await this.resolveGcCode(args);
+                        return ok(await this.trackablesService.getGeocacheInventory(gcCode, { refresh: Boolean(args.refresh) }));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_lookup_trackable',
+                name: 'aide_lookup_trackable',
+                description: 'Retrouve un trackable par code public (TB…) ou code de suivi. ' +
+                    'tracking_code_matched=true si le code saisi était le code de suivi ' +
+                    '(il est alors connu pour loguer, jamais renvoyé).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    code: { type: 'string', description: 'Code public ou code de suivi du trackable.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.trackablesService.lookup(String(args.code)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_trackable',
+                name: 'aide_get_trackable',
+                description: 'Fiche détaillée d\'un trackable : résumé, objectif, propriétaire, ' +
+                    'localisation, historique des logs. code = code public (TB…).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    code: { type: 'string', description: 'Code public du trackable (TB…).', required: true },
+                    refresh: { type: 'boolean', description: 'Relire le site plutôt que le cache de 5 min.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.trackablesService.getTrackable(String(args.code), Boolean(args.refresh));
+                        const details = { ...result.details } as Record<string, unknown>;
+                        const logs = Array.isArray(details.logs) ? details.logs : [];
+                        if (logs.length > 10) {
+                            details.logs = logs.slice(0, 10);
+                            details.logs_total = logs.length;
+                            details.logs_truncated = true;
+                        }
+                        return ok({ trackable: result.trackable, details });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_trackable_log_info',
+                name: 'aide_get_trackable_log_info',
+                description: 'Types de log autorisés à l\'instant T pour un trackable, sa cache courante ' +
+                    'et si son code de suivi est connu. Préflight obligatoire avant aide_log_trackable.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    code: { type: 'string', description: 'Code public du trackable (TB…).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.trackablesService.getLogInfo(String(args.code)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_log_trackable',
+                name: 'aide_log_trackable',
+                description: 'Publie un log sur Geocaching.com pour un trackable — ACTION PUBLIQUE IRRÉVERSIBLE. ' +
+                    'log_type : 4 Note, 5 Archivé, 13 Retiré de la cache, 14 Déposé, 15 Transféré, ' +
+                    '16 Marqué manquant, 19 Pris ailleurs, 48 Découvert, 69 Vers la collection, ' +
+                    '70 Vers l\'inventaire, 75 Visité. Appeler aide_get_trackable_log_info avant : ' +
+                    'seuls les types alors autorisés passent. tracking_code requis pour ' +
+                    'découvrir/retirer/prendre sauf si has_tracking_code.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    code: { type: 'string', description: 'Code public du trackable (TB…).', required: true },
+                    log_type: {
+                        type: 'number', required: true,
+                        description: 'Type de log : 4, 5, 13, 14, 15, 16, 19, 48, 69, 70 ou 75.',
+                        enum: [4, 5, 13, 14, 15, 16, 19, 48, 69, 70, 75],
+                    },
+                    text: { type: 'string', description: 'Texte du log.', required: true },
+                    date: { type: 'string', description: 'Date du log au format YYYY-MM-DD.', required: true },
+                    tracking_code: {
+                        type: 'string', required: false,
+                        description: 'Code de suivi, requis pour découvrir/retirer/prendre si non connu.',
+                    },
+                    geocache_code: {
+                        type: 'string', required: false,
+                        description: 'Cache d\'origine pour « Retiré de la cache » (13) ; à défaut, la cache courante du TB.',
+                    },
+                    location_conflict_confirmed: {
+                        type: 'boolean', required: false,
+                        description: 'Confirme explicitement une geocache_code différente de la localisation déclarée du TB.',
+                    },
+                    dry_run: DRY_RUN_PARAM,
+                }),
+                confirmAlwaysAllow: 'Publier ce log de trackable sur Geocaching.com ? ' +
+                    'Action publique et irréversible.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const code = String(args.code).trim();
+                        if (args.dry_run) {
+                            const info = await this.trackablesService.getLogInfo(code);
+                            const allowed = info.allowed_log_type_ids.includes(Number(args.log_type));
+                            return this.dryRunOk('log_trackable', {
+                                code,
+                                log_type: args.log_type,
+                                log_type_allowed: allowed,
+                                allowed_log_types: info.allowed_log_types,
+                                current_geocache_code: info.current_geocache_code,
+                                current_geocache_name: info.current_geocache_name,
+                                has_tracking_code: info.has_tracking_code,
+                                consequence: allowed
+                                    ? 'Le log serait publié publiquement sur Geocaching.com.'
+                                    : 'Ce type de log n\'est pas autorisé pour ce trackable actuellement.',
+                            });
+                        }
+                        const submission: TrackableLogSubmission = {
+                            logType: Number(args.log_type),
+                            text: String(args.text),
+                            date: String(args.date),
+                            operationId: `aide-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                        };
+                        if (args.tracking_code) { submission.trackingCode = String(args.tracking_code); }
+                        if (args.geocache_code) { submission.geocacheCode = String(args.geocache_code); }
+                        if (args.location_conflict_confirmed) { submission.locationConflictConfirmed = true; }
+                        return ok(await this.trackablesService.postLog(code, submission));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Visites GPS ──────────────────────────────────────────────────────────
+
+    private buildGpsVisitsTools(): ToolRequest[] {
+        const visitIdsParam = {
+            visit_ids: {
+                type: 'array', required: true,
+                description: 'IDs des visites (champ visit_ids des entrées de aide_list_gps_visits).',
+            },
+        };
+        return [
+            {
+                id: 'aide_open_gps_visits',
+                name: 'aide_open_gps_visits',
+                description: 'Ouvre le widget Visites GPS (import Garmin, rattachement des visites sans code, ' +
+                    'vérification des trouvailles, préparation de sortie).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.gpsVisits.open');
+                        return ok('Widget Visites GPS ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_detect',
+                name: 'aide_gps_visits_detect',
+                description: 'Détecte les GPS Garmin branchés : racine, fichiers de visites ' +
+                    '(geocache_visits.txt / geocache_logs.xml), traces et GPX des caches.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(await this.gpsVisitsService.detect());
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_import',
+                name: 'aide_gps_visits_import',
+                description: 'Importe les visites du GPS : device_root (racine renvoyée par ' +
+                    'aide_gps_visits_detect), path (fichier ou dossier du disque, ex. geocache_visits.txt) ' +
+                    'ou file_paths (fichiers lus et envoyés : visites, traces, GPX de caches). ' +
+                    'Renvoie le bilan : nouvelles visites, illisibles, positionnement sur les traces.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    device_root: { type: 'string', description: 'Racine d\'un GPS détecté (device.root).', required: false },
+                    path: { type: 'string', description: 'Fichier ou dossier local à importer.', required: false },
+                    file_paths: {
+                        type: 'array', required: false,
+                        description: 'Liste de chemins de fichiers à envoyer (visites, traces .fit/.gpx, GPX de caches).',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (args.device_root) {
+                            return ok(await this.gpsVisitsService.importDevice(String(args.device_root)));
+                        }
+                        if (args.path) {
+                            return ok(await this.gpsVisitsService.importPath(String(args.path)));
+                        }
+                        const paths = Array.isArray(args.file_paths) ? args.file_paths : [];
+                        if (paths.length) {
+                            if (!this.fileService) {
+                                return err('Lecture de fichiers indisponible : utilisez path ou device_root.');
+                            }
+                            const files: File[] = [];
+                            for (const filePath of paths) {
+                                const uri = URI.fromFilePath(String(filePath));
+                                const content = await this.fileService.readFile(uri);
+                                files.push(new File([new Uint8Array(content.value.buffer)], uri.path.base || 'file'));
+                            }
+                            return ok(await this.gpsVisitsService.importFiles(files));
+                        }
+                        return err('Fournissez device_root, path ou file_paths.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_position',
+                name: 'aide_gps_visits_position',
+                description: 'Positionne les visites à loguer sur les traces du GPS branché ' +
+                    '(toutes par défaut, ou celles des jours donnés). Préalable aux recherches ' +
+                    'de candidats par la trace.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    days: { type: 'array', description: 'Jours AAAA-MM-JJ à positionner ; absent = toutes.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const days = Array.isArray(args.days) ? args.days.map(String) : undefined;
+                        return ok(await this.gpsVisitsService.position(days));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_list',
+                name: 'aide_gps_visits_list',
+                description: 'Liste les visites GPS groupées par jour : code GC (ou sans code), ' +
+                    'heure, résultat, état, caches connues, position. states : pending (à loguer, ' +
+                    'défaut), logged, ignored, history.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    states: {
+                        type: 'array', required: false,
+                        description: 'États à inclure parmi pending, logged, ignored, history (défaut [pending]).',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const allowed: GpsVisitState[] = ['pending', 'logged', 'ignored', 'history'];
+                        const states: GpsVisitState[] = Array.isArray(args.states)
+                            ? (args.states.map(String) as GpsVisitState[]).filter(s => allowed.includes(s))
+                            : ['pending'];
+                        if (!states.length) {
+                            return err(`states invalide : attendu parmi ${allowed.join(', ')}.`);
+                        }
+                        return ok(await this.gpsVisitsService.list(states));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_set_state',
+                name: 'aide_gps_visits_set_state',
+                description: 'Change l\'état de visites : pending (à loguer), logged (marqué logué), ' +
+                    'ignored (ignoré). Renvoie l\'état d\'avant (previous) à rejouer avec ' +
+                    'aide_gps_visits_restore pour annuler.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...visitIdsParam,
+                    state: {
+                        type: 'string', required: true,
+                        description: 'Nouvel état.',
+                        enum: ['pending', 'logged', 'ignored'],
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
+                        if (!ids.length) {
+                            return err('visit_ids requis (liste non vide).');
+                        }
+                        return ok(await this.gpsVisitsService.setState(ids, args.state));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_restore',
+                name: 'aide_gps_visits_restore',
+                description: 'Annule une action précédente : items = snapshots « previous » renvoyés par ' +
+                    'set_state/resolve/resolve-batch ; cutoff / clear_cutoff = point de départ d\'avant.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    items: {
+                        type: 'array', required: false,
+                        description: 'Snapshots [{id, state, resolved_gc_code, resolution_source}] tels que renvoyés.',
+                    },
+                    cutoff: { type: 'string', description: 'Point de départ AAAA-MM-JJ à restaurer.', required: false },
+                    clear_cutoff: { type: 'boolean', description: 'Supprime le point de départ.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const undo: GpsUndo = {};
+                        if (Array.isArray(args.items) && args.items.length) {
+                            undo.items = args.items;
+                        }
+                        if (args.cutoff !== undefined) {
+                            undo.cutoff = args.cutoff === null ? null : String(args.cutoff);
+                        } else if (args.clear_cutoff) {
+                            undo.cutoff = null;
+                        }
+                        if (!undo.items && undo.cutoff === undefined) {
+                            return err('Fournissez items (snapshots d\'une action précédente) ou cutoff/clear_cutoff.');
+                        }
+                        await this.gpsVisitsService.restore(undo);
+                        return ok('Action annulée.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_set_cutoff',
+                name: 'aide_gps_visits_set_cutoff',
+                description: 'Définit le point de départ des visites (AAAA-MM-JJ) : avant = history, ' +
+                    'après = à loguer. Renvoie previous_cutoff pour annuler avec aide_gps_visits_restore.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    since: { type: 'string', description: 'Point de départ au format AAAA-MM-JJ.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.gpsVisitsService.setCutoff(String(args.since)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_check_found',
+                name: 'aide_gps_visits_check_found',
+                description: 'Vérifie sur Geocaching.com ma date de trouvaille des caches de ces visites ' +
+                    '(requêtes réseau, authentification requise). Détecte celles déjà loguées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({ ...visitIdsParam }),
+                confirmAlwaysAllow: 'Vérifier ces caches sur Geocaching.com ? Des requêtes réseau seront effectuées.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
+                        if (!ids.length) {
+                            return err('visit_ids requis (liste non vide).');
+                        }
+                        return ok(await this.gpsVisitsService.checkFound(ids));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_candidates',
+                name: 'aide_gps_visits_candidates',
+                description: 'Caches candidates pour une visite sans code : voisines du jour et, avec ' +
+                    'deep=true, déduction de l\'ordre de mes trouvailles (~1 min, réseau). ' +
+                    'Rattacher ensuite avec aide_gps_visits_resolve.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    visit_id: { type: 'number', description: 'ID de la visite sans code.', required: true },
+                    deep: { type: 'boolean', description: 'Aussi l\'ordre de mes trouvailles (réseau, ~1 min).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.gpsVisitsService.candidates(Number(args.visit_id), Boolean(args.deep)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_resolve',
+                name: 'aide_gps_visits_resolve',
+                description: 'Rattache une visite sans code à une géocache (gc_code ; absent = détacher), ' +
+                    'ou plusieurs d\'un coup avec items [{visit_id, gc_code, source?}]. ' +
+                    'Renvoie l\'état d\'avant (previous) pour aide_gps_visits_restore.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    visit_id: { type: 'number', description: 'ID de la visite (rattachement unitaire).', required: false },
+                    gc_code: { type: 'string', description: 'Code GC à rattacher ; absent = détacher la visite.', required: false },
+                    source: {
+                        type: 'string', required: false,
+                        enum: ['neighbours', 'my_finds', 'track', 'manual'],
+                        description: 'Origine du rattachement (défaut manual).',
+                    },
+                    items: {
+                        type: 'array', required: false,
+                        description: 'Rattachement groupé : [{visit_id, gc_code, source?}] — source : track ou manual.',
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        if (Array.isArray(args.items) && args.items.length) {
+                            const items = (args.items as Array<Record<string, unknown>>).map(item => ({
+                                visit_id: Number(item.visit_id),
+                                gc_code: String(item.gc_code),
+                                source: (item.source === 'track' ? 'track' : 'manual') as 'track' | 'manual',
+                            })).filter(item => Number.isFinite(item.visit_id) && item.gc_code);
+                            if (!items.length) {
+                                return err('items invalide : attendu [{visit_id, gc_code, source?}].');
+                            }
+                            return ok(await this.gpsVisitsService.resolveBatch(items));
+                        }
+                        const visitId = Number(args.visit_id);
+                        if (!Number.isFinite(visitId)) {
+                            return err('Fournissez visit_id ou items.');
+                        }
+                        const gcCode = args.gc_code === undefined || args.gc_code === null ? null : String(args.gc_code);
+                        const previous = await this.gpsVisitsService.resolve(
+                            visitId, gcCode,
+                            (args.source as 'neighbours' | 'my_finds' | 'track' | 'manual') || 'manual'
+                        );
+                        return ok({ visit_id: visitId, resolved_gc_code: gcCode, previous });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_day_resolution',
+                name: 'aide_gps_visits_day_resolution',
+                description: 'Propose une cache pour chaque visite sans code d\'un jour, d\'après la ' +
+                    'trace du GPS (jusqu\'à une minute). Rattacher avec aide_gps_visits_resolve.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    day: { type: 'string', description: 'Jour au format AAAA-MM-JJ.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        return ok(await this.gpsVisitsService.dayResolution(String(args.day)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_prepare',
+                name: 'aide_gps_visits_prepare',
+                description: 'Récapitulatif « Préparer la sortie » pour ces visites : caches déjà dans la ' +
+                    'zone, à copier, à créer depuis le GPS ou à télécharger, et visites laissées de côté. ' +
+                    'Lecture seule ; lancer ensuite aide_gps_visits_add_to_zone.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...visitIdsParam,
+                    zone_id: { type: 'number', description: 'Zone de la sortie pour le récapitulatif.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
+                        if (!ids.length) {
+                            return err('visit_ids requis (liste non vide).');
+                        }
+                        const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
+                        return ok(await this.gpsVisitsService.prepare(ids, zoneId));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_add_to_zone',
+                name: 'aide_gps_visits_add_to_zone',
+                description: 'Ajoute les caches de ces visites à la zone de la sortie : copie les caches ' +
+                    'connues ailleurs et télécharge celles absentes (réseau, annulable avec ' +
+                    'aide_gps_visits_zone_operation cancel). Destination : zone_id ou new_zone_name.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    ...visitIdsParam,
+                    zone_id: { type: 'number', description: 'ID de la zone de destination existante.', required: false },
+                    new_zone_name: { type: 'string', description: 'Nom de la nouvelle zone à créer si pas de zone_id.', required: false },
+                }),
+                confirmAlwaysAllow: 'Ajouter les caches de ces visites à la zone ? ' +
+                    'Des requêtes Geocaching.com seront effectuées pour les caches absentes.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
+                        if (!ids.length) {
+                            return err('visit_ids requis (liste non vide).');
+                        }
+                        const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
+                        const newZoneName = args.new_zone_name ? String(args.new_zone_name).trim() : undefined;
+                        if (zoneId === undefined && !newZoneName) {
+                            return err('Fournissez zone_id ou new_zone_name.');
+                        }
+                        if (zoneId !== undefined && !Number.isFinite(zoneId)) {
+                            return err('zone_id invalide.');
+                        }
+                        const operationId = `aide-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                        const response = await this.gpsVisitsService.startZoneOperation(
+                            operationId,
+                            zoneId !== undefined ? { zoneId } : { newZoneName: newZoneName! },
+                            ids
+                        );
+                        const { lastMessage, hadError } = await consumeImportStream(response);
+                        this.widgetEventsService.requestZonesRefresh();
+                        if (hadError) {
+                            return err(lastMessage ?? 'Erreur lors de l\'ajout à la zone.');
+                        }
+                        return ok({ operation_id: operationId, summary: lastMessage });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_gps_visits_zone_operation',
+                name: 'aide_gps_visits_zone_operation',
+                description: 'État d\'un ajout de visites à une zone (operation_id renvoyé par ' +
+                    'aide_gps_visits_add_to_zone), ou cancel=true pour l\'annuler : arrêt entre deux ' +
+                    'caches si en cours, retrait des caches ajoutées sinon.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    operation_id: { type: 'string', description: 'ID de l\'opération.', required: true },
+                    cancel: { type: 'boolean', description: 'true = annuler l\'ajout.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const operationId = String(args.operation_id);
+                        if (args.cancel) {
+                            return ok(await this.gpsVisitsService.cancelZoneOperation(operationId));
+                        }
+                        return ok(await this.gpsVisitsService.getZoneOperation(operationId));
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

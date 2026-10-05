@@ -108,6 +108,15 @@ export class GpsVisitsService {
         );
     }
 
+    /** État d'un ajout en cours ou terminé (`GET /api/gps-visits/zone-operations/<id>`). */
+    async getZoneOperation(operationId: string): Promise<Record<string, unknown>> {
+        return this.apiClient.requestJson(
+            `/api/gps-visits/zone-operations/${encodeURIComponent(operationId)}`,
+            {},
+            "Erreur lors de la lecture de l'ajout"
+        );
+    }
+
     /** En cours : arrêt entre deux caches. Terminé : retrait immédiat des caches ajoutées. */
     async cancelZoneOperation(operationId: string): Promise<{ state?: string; message?: string }> {
         return this.apiClient.requestJson(
