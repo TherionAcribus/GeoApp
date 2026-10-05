@@ -2,7 +2,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { ConfirmDialog, Message, StorageService } from '@theia/core/lib/browser';
+import { ConfirmDialog, Message, StatefulWidget, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { GeoAppAiExecutionService } from './geoapp-ai-execution-service';
 import { BatchAiBar } from './log-editor/batch-ai-bar';
@@ -210,7 +210,7 @@ import '../../src/browser/style/log-editor-textarea.css';
 import '../../src/browser/style/log-editor.css';
 
 @injectable()
-export class GeocacheLogEditorWidget extends ReactWidget {
+export class GeocacheLogEditorWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'geocache.logEditor.widget';
 
     protected readonly legacyLogHistoryLocalStorageKey = 'geoApp.logs.history.v1';
@@ -742,6 +742,27 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected onUpdateRequest(msg: Message): void {
         super.onUpdateRequest(msg);
         this.scheduleDraftSave();
+    }
+
+    protected onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        // Les layouts sauvegardés avant que ce widget soit exclu de la persistance peuvent
+        // encore le recréer : sans `setContext`, il n'aurait rien à afficher. On le referme.
+        if (this.geocacheIds.length === 0) {
+            this.close();
+        }
+    }
+
+    /**
+     * Jamais persisté : l'onglet serait rouvert vide, son contexte (`geocacheIds`) n'existant
+     * qu'à la création. `undefined` = exclu de la sauvegarde du layout (contrat StatefulWidget).
+     */
+    storeState(): object | undefined {
+        return undefined;
+    }
+
+    restoreState(_oldState: object): void {
+        // Inatteignable : storeState() renvoie toujours undefined, rien n'est relu.
     }
 
     protected onCloseRequest(msg: Message): void {
