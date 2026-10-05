@@ -49,7 +49,9 @@ import { scanCoverage, friendFindCell } from 'theia-ide-zones-ext/lib/browser/fr
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { ArchiveManagerService } from 'theia-ide-zones-ext/lib/browser/archive-manager-service';
 import { GpsVisitsService } from 'theia-ide-zones-ext/lib/browser/gps-visits-service';
-import type { GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
+import type { GpsListFilter, GpsUndo, GpsVisitState } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
+import { filterDays, normalizeGpsVisitFieldAlias, visitIdsOf, GPS_VISIT_FIELD_DEFINITIONS } from 'theia-ide-zones-ext/lib/browser/gps-visits-model';
+import type { AdvancedFilterClause, AdvancedOperator } from 'theia-ide-zones-ext/lib/browser/geocache-filter-shared';
 import { TrackablesService } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import type { TrackableLogSubmission } from 'theia-ide-zones-ext/lib/browser/trackables-service';
 import { GeocacheLogEditorTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-log-editor-tabs-manager';
@@ -4572,11 +4574,94 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     // ─── Visites GPS ──────────────────────────────────────────────────────────
 
     private buildGpsVisitsTools(): ToolRequest[] {
-        const visitIdsParam = {
+        const visitIdsOrFilterParam = {
             visit_ids: {
-                type: 'array', required: true,
-                description: 'IDs des visites (champ visit_ids des entrées de aide_list_gps_visits).',
+                type: 'array', required: false,
+                description: 'IDs des visites ; absent = sélection par query/clauses.',
             },
+        };
+        const visitFilterParams = {
+            query: {
+                type: 'string', required: false,
+                description: 'Texte libre + tokens @champ:valeur (même syntaxe que la barre de filtre du widget). ' +
+                    'Champs : gc_code|gc, name, time|heure|h, status|statut, state|etat, cache_type|type, zone, ' +
+                    'day|jour|date, comment|commentaire, without_code|sans_code, to_import|a_importer, ' +
+                    'resolved|rattachee, has_nm|nm, positioned|position. ' +
+                    'Heure : @heure:14, @heure:>=14h30, @heure:8<>18. Statuts : found|trouvée, dnf, ' +
+                    'unattempted|non_tentée, needs_maintenance, other. États : pending, logged, ignored. ' +
+                    'Booléens : :oui/:non. Joker * autorisé.',
+            },
+            clauses: {
+                type: 'array', required: false,
+                description: 'Clauses avancées [{field, operator, value, value2?}] — mêmes champs que query ; ' +
+                    'operator : eq|neq|gt|gte|lt|lte|between|contains|not_contains|is|in|not_in.',
+            },
+        };
+        const VALID_OPERATORS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'contains', 'not_contains', 'is', 'in', 'not_in']);
+        /** Construit le filtre {query, clauses} à partir des args, ou erreur de validation. */
+        const parseVisitFilter = (args: Record<string, any>): GpsListFilter | string | undefined => {
+            const query = typeof args.query === 'string' ? args.query : '';
+            const clauses: AdvancedFilterClause[] = [];
+            if (args.clauses !== undefined) {
+                if (!Array.isArray(args.clauses)) {
+                    return 'clauses invalide : attendu [{field, operator, value, value2?}].';
+                }
+                for (const raw of args.clauses as Array<Record<string, unknown>>) {
+                    const field = normalizeGpsVisitFieldAlias(String(raw?.field ?? ''));
+                    if (!field) {
+                        return `clause.field inconnu : ${String(raw?.field)} (champs : ${GPS_VISIT_FIELD_DEFINITIONS.map(d => d.field).join(', ')}).`;
+                    }
+                    const operator = String(raw?.operator ?? 'contains') as AdvancedOperator;
+                    if (!VALID_OPERATORS.has(operator)) {
+                        return `clause.operator invalide : ${operator}.`;
+                    }
+                    clauses.push({
+                        id: `aide-${clauses.length}`,
+                        field,
+                        operator,
+                        value: String(raw?.value ?? ''),
+                        value2: raw?.value2 !== undefined ? String(raw.value2) : undefined,
+                        values: Array.isArray(raw?.values) ? (raw.values as unknown[]).map(String) : undefined,
+                    });
+                }
+            }
+            if (!query.trim() && !clauses.length) {
+                return undefined;
+            }
+            return { query, clauses };
+        };
+        /** États demandés (défaut pending), validés. */
+        const parseStates = (args: Record<string, any>): GpsVisitState[] | string => {
+            const allowed: GpsVisitState[] = ['pending', 'logged', 'ignored', 'history'];
+            const states: GpsVisitState[] = Array.isArray(args.states)
+                ? (args.states.map(String) as GpsVisitState[]).filter(s => allowed.includes(s))
+                : ['pending'];
+            return states.length ? states : `states invalide : attendu parmi ${allowed.join(', ')}.`;
+        };
+        /**
+         * IDs de visites ciblées : `visit_ids` explicites, ou sélection par
+         * `query`/`clauses` (+ `states`, défaut pending) sur le même moteur de
+         * filtre que le widget.
+         */
+        const resolveVisitIds = async (args: Record<string, any>): Promise<number[] | string> => {
+            if (Array.isArray(args.visit_ids) && args.visit_ids.length) {
+                return (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
+            }
+            const filter = parseVisitFilter(args);
+            if (typeof filter === 'string') {
+                return filter;
+            }
+            if (!filter) {
+                return 'Fournissez visit_ids ou un filtre (query/clauses).';
+            }
+            const states = parseStates(args);
+            if (typeof states === 'string') {
+                return states;
+            }
+            const listing = await this.gpsVisitsService.list(states);
+            const { days } = filterDays(listing.days, filter);
+            const ids = visitIdsOf(days.flatMap(d => d.entries));
+            return ids.length ? ids : 'Aucune visite ne correspond au filtre.';
         };
         return [
             {
@@ -4671,25 +4756,33 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 name: 'aide_gps_visits_list',
                 description: 'Liste les visites GPS groupées par jour : code GC (ou sans code), ' +
                     'heure, résultat, état, caches connues, position. states : pending (à loguer, ' +
-                    'défaut), logged, ignored, history.',
+                    'défaut), logged, ignored, history. Filtres identiques au widget : ' +
+                    'query (texte libre + @champ:valeur, ex. @heure:8<>18 @statut:trouvée) et/ou clauses.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
                     states: {
                         type: 'array', required: false,
                         description: 'États à inclure parmi pending, logged, ignored, history (défaut [pending]).',
                     },
+                    ...visitFilterParams,
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const allowed: GpsVisitState[] = ['pending', 'logged', 'ignored', 'history'];
-                        const states: GpsVisitState[] = Array.isArray(args.states)
-                            ? (args.states.map(String) as GpsVisitState[]).filter(s => allowed.includes(s))
-                            : ['pending'];
-                        if (!states.length) {
-                            return err(`states invalide : attendu parmi ${allowed.join(', ')}.`);
+                        const states = parseStates(args);
+                        if (typeof states === 'string') {
+                            return err(states);
                         }
-                        return ok(await this.gpsVisitsService.list(states));
+                        const filter = parseVisitFilter(args);
+                        if (typeof filter === 'string') {
+                            return err(filter);
+                        }
+                        const listing = await this.gpsVisitsService.list(states);
+                        if (!filter) {
+                            return ok(listing);
+                        }
+                        const { days, hidden } = filterDays(listing.days, filter);
+                        return ok({ ...listing, days, filtered: true, hidden });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -4697,11 +4790,17 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_gps_visits_set_state',
                 name: 'aide_gps_visits_set_state',
                 description: 'Change l\'état de visites : pending (à loguer), logged (marqué logué), ' +
-                    'ignored (ignoré). Renvoie l\'état d\'avant (previous) à rejouer avec ' +
-                    'aide_gps_visits_restore pour annuler.',
+                    'ignored (ignoré). Cible : visit_ids, ou sélection par query/clauses ' +
+                    '(ex. « ignore les visites avant 10h » → query=@heure:<10). ' +
+                    'Renvoie l\'état d\'avant (previous) à rejouer avec aide_gps_visits_restore pour annuler.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    ...visitIdsParam,
+                    ...visitIdsOrFilterParam,
+                    ...visitFilterParams,
+                    states: {
+                        type: 'array', required: false,
+                        description: 'États scannés par le filtre (défaut [pending]).',
+                    },
                     state: {
                         type: 'string', required: true,
                         description: 'Nouvel état.',
@@ -4711,9 +4810,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
-                        if (!ids.length) {
-                            return err('visit_ids requis (liste non vide).');
+                        const ids = await resolveVisitIds(args);
+                        if (typeof ids === 'string') {
+                            return err(ids);
                         }
                         return ok(await this.gpsVisitsService.setState(ids, args.state));
                     } catch (e: any) { return err(e?.message ?? String(e)); }
@@ -4773,16 +4872,21 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_gps_visits_check_found',
                 name: 'aide_gps_visits_check_found',
                 description: 'Vérifie sur Geocaching.com ma date de trouvaille des caches de ces visites ' +
-                    '(requêtes réseau, authentification requise). Détecte celles déjà loguées.',
+                    '(requêtes réseau, authentification requise). Détecte celles déjà loguées. ' +
+                    'Cible : visit_ids, ou sélection par query/clauses.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
-                parameters: buildParams({ ...visitIdsParam }),
+                parameters: buildParams({
+                    ...visitIdsOrFilterParam,
+                    ...visitFilterParams,
+                    states: { type: 'array', required: false, description: 'États scannés par le filtre (défaut [pending]).' },
+                }),
                 confirmAlwaysAllow: 'Vérifier ces caches sur Geocaching.com ? Des requêtes réseau seront effectuées.',
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
-                        if (!ids.length) {
-                            return err('visit_ids requis (liste non vide).');
+                        const ids = await resolveVisitIds(args);
+                        if (typeof ids === 'string') {
+                            return err(ids);
                         }
                         return ok(await this.gpsVisitsService.checkFound(ids));
                     } catch (e: any) { return err(e?.message ?? String(e)); }
@@ -4874,18 +4978,20 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 name: 'aide_gps_visits_prepare',
                 description: 'Récapitulatif « Préparer la sortie » pour ces visites : caches déjà dans la ' +
                     'zone, à copier, à créer depuis le GPS ou à télécharger, et visites laissées de côté. ' +
+                    'Cible : visit_ids, ou sélection par query/clauses. ' +
                     'Lecture seule ; lancer ensuite aide_gps_visits_add_to_zone.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    ...visitIdsParam,
+                    ...visitIdsOrFilterParam,
+                    ...visitFilterParams,
                     zone_id: { type: 'number', description: 'Zone de la sortie pour le récapitulatif.', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
-                        if (!ids.length) {
-                            return err('visit_ids requis (liste non vide).');
+                        const ids = await resolveVisitIds(args);
+                        if (typeof ids === 'string') {
+                            return err(ids);
                         }
                         const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
                         return ok(await this.gpsVisitsService.prepare(ids, zoneId));
@@ -4897,10 +5003,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 name: 'aide_gps_visits_add_to_zone',
                 description: 'Ajoute les caches de ces visites à la zone de la sortie : copie les caches ' +
                     'connues ailleurs et télécharge celles absentes (réseau, annulable avec ' +
-                    'aide_gps_visits_zone_operation cancel). Destination : zone_id ou new_zone_name.',
+                    'aide_gps_visits_zone_operation cancel). Cible : visit_ids, ou sélection ' +
+                    'par query/clauses. Destination : zone_id ou new_zone_name.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
-                    ...visitIdsParam,
+                    ...visitIdsOrFilterParam,
+                    ...visitFilterParams,
                     zone_id: { type: 'number', description: 'ID de la zone de destination existante.', required: false },
                     new_zone_name: { type: 'string', description: 'Nom de la nouvelle zone à créer si pas de zone_id.', required: false },
                 }),
@@ -4909,9 +5017,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const ids = (args.visit_ids as unknown[]).map(Number).filter(Number.isFinite);
-                        if (!ids.length) {
-                            return err('visit_ids requis (liste non vide).');
+                        const ids = await resolveVisitIds(args);
+                        if (typeof ids === 'string') {
+                            return err(ids);
                         }
                         const zoneId = args.zone_id !== undefined ? Number(args.zone_id) : undefined;
                         const newZoneName = args.new_zone_name ? String(args.new_zone_name).trim() : undefined;
