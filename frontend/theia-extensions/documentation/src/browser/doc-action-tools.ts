@@ -97,6 +97,9 @@ import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-bro
 import type { GeoAppChatWorkflowProfile } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-agent';
 import type { GeocacheImageV2Dto } from 'theia-ide-zones-ext/lib/browser/geocache-images-panel';
 import { MapService, SelectedGeocache } from 'theia-ide-zones-ext/lib/browser/map/map-service';
+import { geocodeAddress } from 'theia-ide-zones-ext/lib/browser/map/map-geocoding';
+import type { GeocodingConfig } from 'theia-ide-zones-ext/lib/browser/map/map-geocoding';
+import { TILE_PROVIDERS, getTileProvider } from 'theia-ide-zones-ext/lib/browser/map/map-tile-providers';
 import { OutingPlanService } from 'theia-ide-zones-ext/lib/browser/outing-plan-service';
 import { ImportAroundService, ResolvedImportAroundZone } from 'theia-ide-zones-ext/lib/browser/import-around-service';
 import { consumeImportStream } from 'theia-ide-zones-ext/lib/browser/import-stream';
@@ -3765,6 +3768,232 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         await openMap();
                         this.mapService.centerOnGeocaches(selected);
                         return ok(`Carte centrée sur ${selected.length} géocache(s) de la zone ${args.zone_id}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_show_geocaches',
+                name: 'aide_map_show_geocaches',
+                description: 'Ouvre la carte et affiche un lot de géocaches (ids ou codes GC), centré sur l\'étendue.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'IDs de géocaches.', items: { type: 'number' }, required: false },
+                    gc_codes: { type: 'array', description: 'Codes GC (ex: ["GC1","GC2"]).', items: { type: 'string' }, required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = this.toNumberList(args.geocache_ids);
+                        const codes = this.toStringList(args.gc_codes);
+                        if (ids.length === 0 && codes.length === 0) {
+                            return err('Fournissez geocache_ids ou gc_codes.');
+                        }
+                        const selected: SelectedGeocache[] = [];
+                        for (const id of ids) {
+                            const raw = await this.geocachesService.get<Record<string, unknown>>(id);
+                            const lat = Number(raw['latitude']); const lon = Number(raw['longitude']);
+                            if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                                selected.push({ id, gc_code: String(raw['gc_code'] ?? ''), name: String(raw['name'] ?? ''), latitude: lat, longitude: lon, cache_type: String(raw['cache_type'] ?? raw['type'] ?? '') });
+                            }
+                        }
+                        for (const code of codes) {
+                            const raw = await this.geocachesService.getByCode<Record<string, unknown>>(code);
+                            const id = Number(raw?.['id']);
+                            const lat = Number(raw?.['latitude']); const lon = Number(raw?.['longitude']);
+                            if (Number.isFinite(id) && Number.isFinite(lat) && Number.isFinite(lon)) {
+                                selected.push({ id, gc_code: String(raw?.['gc_code'] ?? code), name: String(raw?.['name'] ?? ''), latitude: lat, longitude: lon, cache_type: String(raw?.['cache_type'] ?? raw?.['type'] ?? '') });
+                            }
+                        }
+                        if (!selected.length) {
+                            return err('Aucune géocache avec coordonnées trouvée.');
+                        }
+                        await openMap();
+                        this.mapService.centerOnGeocaches(selected);
+                        return ok({ shown: selected.length, geocaches: selected.map(s => s.gc_code || s.id) });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_search',
+                name: 'aide_map_search',
+                description: 'Recherche un lieu ou une adresse (géocodage Photon/Geoapify selon la configuration) ' +
+                    'et retourne les résultats ; center=true centre la carte sur le résultat choisi.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    query: { type: 'string', description: 'Lieu ou adresse à rechercher (ex: "Lyon").', required: true },
+                    limit: { type: 'number', description: 'Nombre max de résultats (défaut 6).', required: false },
+                    center: { type: 'boolean', description: 'Centrer la carte sur le résultat choisi (défaut false).', required: false },
+                    result_index: { type: 'number', description: 'Index du résultat à utiliser pour le centrage (défaut 0).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const config: GeocodingConfig = {
+                            provider: this.preferenceService.get<'photon' | 'geoapify'>('geoApp.map.geocoding.provider', 'photon'),
+                            geoapifyApiKey: this.preferenceService.get<string>('geoApp.map.geocoding.geoapifyApiKey', ''),
+                            autoFallback: this.preferenceService.get<boolean>('geoApp.map.geocoding.autoFallback', true),
+                            lang: typeof navigator !== 'undefined' ? navigator.language : 'fr',
+                            limit: Math.min(Math.max(Number(args.limit) || 6, 1), 20),
+                        };
+                        const outcome = await geocodeAddress(String(args.query ?? ''), config);
+                        const index = Math.min(Math.max(Number(args.result_index) || 0, 0), Math.max(outcome.results.length - 1, 0));
+                        const chosen = outcome.results[index];
+                        if (args.center === true && chosen) {
+                            await openMap();
+                            this.mapService.centerOnCoordinates(chosen.latitude, chosen.longitude, 15);
+                        }
+                        return ok({
+                            query: String(args.query ?? ''),
+                            used_provider: outcome.usedProvider,
+                            fell_back: outcome.fellBack,
+                            results: outcome.results,
+                            centered: args.center === true && Boolean(chosen) ? chosen : undefined,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_get_state',
+                name: 'aide_map_get_state',
+                description: 'État courant de la carte : centre/zoom, géocache sélectionnée, nombre de caches chargées, ' +
+                    'fond de carte et points mis en évidence.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        const view = this.mapService.getCurrentView();
+                        return ok({
+                            view: view ? { center: { longitude: view.center[0], latitude: view.center[1] }, zoom: view.zoom } : null,
+                            selected_geocache: this.mapService.getSelectedGeocache(),
+                            loaded_geocaches_count: this.mapService.getLoadedGeocaches().length,
+                            tile_provider: this.mapService.getCurrentTileProvider(),
+                            highlighted_coordinates: this.mapService.getHighlightedCoordinates(),
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_set_tile_provider',
+                name: 'aide_map_set_tile_provider',
+                description: 'Change le fond de carte (OpenStreetMap, France, OpenTopoMap, satellite ESRI, cyclo, humanitaire) ' +
+                    'et l\'enregistre comme fond par défaut.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    provider_id: {
+                        type: 'string',
+                        description: 'osm | osm-fr | topo | satellite | cycle | humanitarian.',
+                        enum: TILE_PROVIDERS.map(p => p.id),
+                        required: true,
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const providerId = String(args.provider_id ?? '');
+                        const provider = getTileProvider(providerId);
+                        if (!provider) {
+                            return err(`Fond de carte inconnu : "${providerId}". Valides : ${TILE_PROVIDERS.map(p => p.id).join(', ')}.`);
+                        }
+                        this.mapService.changeTileProvider(provider.id);
+                        await this.preferenceService.set('geoApp.map.defaultProvider', provider.id, PreferenceScope.User);
+                        return ok({ tile_provider: provider.id, name: provider.name });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_set_options',
+                name: 'aide_map_set_options',
+                description: 'Règle les options d\'affichage de la carte : caches voisines (±5km), zones d\'exclusion ' +
+                    '(161m), mode d\'affichage des trouvées, regroupement en grappes, taille des icônes, zoom par défaut.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    show_nearby_geocaches: { type: 'boolean', description: 'Afficher les caches voisines (±5km) de la sélection.', required: false },
+                    show_exclusion_zones: { type: 'boolean', description: 'Afficher les zones d\'exclusion de 161m.', required: false },
+                    found_display_mode: { type: 'string', description: 'transparent | hidden | found-icon.', enum: ['transparent', 'hidden', 'found-icon'], required: false },
+                    clustering_mode: { type: 'string', description: 'auto | always | never.', enum: ['auto', 'always', 'never'], required: false },
+                    icon_scale: { type: 'number', description: 'Taille des icônes : 0.5 | 0.65 | 0.75 | 0.9 | 1.1.', required: false },
+                    default_zoom: { type: 'number', description: 'Zoom par défaut des nouvelles cartes.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const applied: Record<string, unknown> = {};
+                        const setPref = async (key: string, value: unknown): Promise<void> => {
+                            if (value === undefined) { return; }
+                            await this.preferenceService.set(key, value, PreferenceScope.User);
+                            applied[key] = value;
+                        };
+                        if (args.show_nearby_geocaches !== undefined) {
+                            await setPref('geoApp.map.showNearbyGeocaches', Boolean(args.show_nearby_geocaches));
+                        }
+                        if (args.show_exclusion_zones !== undefined) {
+                            await setPref('geoApp.map.showExclusionZones', Boolean(args.show_exclusion_zones));
+                        }
+                        if (args.found_display_mode !== undefined) {
+                            await setPref('geoApp.map.foundGeocacheDisplayMode', String(args.found_display_mode));
+                        }
+                        if (args.clustering_mode !== undefined) {
+                            await setPref('geoApp.map.clusteringMode', String(args.clustering_mode));
+                        }
+                        if (args.icon_scale !== undefined) {
+                            await setPref('geoApp.map.geocacheIconScale', Number(args.icon_scale));
+                        }
+                        if (args.default_zoom !== undefined) {
+                            await setPref('geoApp.map.defaultZoom', Number(args.default_zoom));
+                        }
+                        if (Object.keys(applied).length === 0) {
+                            return err('Aucune option fournie.');
+                        }
+                        return ok({ applied });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_highlight_coordinate',
+                name: 'aide_map_highlight_coordinate',
+                description: 'Met en évidence un point sur la carte (coordonnée détectée — ex : un résultat de plugin ' +
+                    'ou une solution calculée), avec libellé et rattachement optionnel à une géocache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    latitude: { type: 'number', description: 'Latitude décimale.', required: true },
+                    longitude: { type: 'number', description: 'Longitude décimale.', required: true },
+                    formatted: { type: 'string', description: 'Libellé formaté du point.', required: false },
+                    gc_code: { type: 'string', description: 'Code GC associé.', required: false },
+                    geocache_id: { type: 'number', description: 'ID géocache associé.', required: false },
+                    replace_existing: { type: 'boolean', description: 'Remplacer les points existants (défaut true) ; false = ajouter.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const latitude = Number(args.latitude);
+                        const longitude = Number(args.longitude);
+                        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+                            || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+                            return err('Coordonnées invalides.');
+                        }
+                        await openMap();
+                        this.mapService.highlightDetectedCoordinate({
+                            latitude,
+                            longitude,
+                            formatted: args.formatted ? String(args.formatted) : undefined,
+                            gcCode: args.gc_code ? String(args.gc_code) : undefined,
+                            geocacheId: args.geocache_id !== undefined ? Number(args.geocache_id) : undefined,
+                            replaceExisting: args.replace_existing !== false,
+                        });
+                        return ok({ highlighted: { latitude, longitude }, total: this.mapService.getHighlightedCoordinates().length });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_map_clear_highlights',
+                name: 'aide_map_clear_highlights',
+                description: 'Efface les points mis en évidence sur la carte (coordonnées détectées).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        this.mapService.clearHighlightedCoordinate();
+                        return ok('Points mis en évidence effacés.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
