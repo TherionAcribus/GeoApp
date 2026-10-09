@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ConfirmDialog } from '@theia/core/lib/browser';
 import { GeocacheDto, GeocacheSolvedStatus } from './geocache-details-types';
 import { parseFlexibleGCCoords } from './geocache-details-utils';
 import { calculateDistance } from './map/map-utils';
@@ -199,6 +200,13 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     };
 
     const resetToOriginal = async () => {
+        const confirmed = await new ConfirmDialog({
+            title: 'Revenir aux coordonnées originales',
+            msg: 'Les coordonnées corrigées seront supprimées et les coordonnées originales restaurées. Continuer ?',
+            ok: 'Réinitialiser',
+            cancel: 'Annuler'
+        }).open();
+        if (!confirmed) { return; }
         try {
             await onResetCoordinates();
             setIsEditing(false);

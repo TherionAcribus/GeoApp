@@ -1,5 +1,6 @@
 import * as React from 'react';
 import DOMPurify from '@theia/core/shared/dompurify';
+import { ConfirmDialog } from '@theia/core/lib/browser';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
@@ -442,6 +443,15 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     };
 
     const resetDescription = async () => {
+        const confirmed = await new ConfirmDialog({
+            title: 'Revenir à l\'originale',
+            msg: hasModified
+                ? 'La description modifiée, les indices traduits et les notes de waypoints modifiées seront supprimés. Continuer ?'
+                : 'Les indices traduits et les notes de waypoints modifiées seront supprimés. Continuer ?',
+            ok: 'Réinitialiser',
+            cancel: 'Annuler'
+        }).open();
+        if (!confirmed) { return; }
         try {
             await onResetDescription();
             setIsEditing(false);
