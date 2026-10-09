@@ -159,6 +159,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     <GeocacheTrackablesSection
                         gcCode={geocacheData.gc_code}
                         apiBaseUrl={apiBaseUrl}
+                        card
                         collapsed={collapsedSections?.has('trackables')}
                         onSectionCollapsedChange={onSectionCollapsedChange}
                     />
@@ -186,13 +187,11 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     />
                 ) : undefined}
 
-                <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 12 }}>
-                    <MemoWaypointsEditorWrapper
-                        {...waypointsEditorProps}
-                        collapsed={collapsedSections?.has('waypoints')}
-                        onSectionCollapsedChange={onSectionCollapsedChange}
-                    />
-                </div>
+                <MemoWaypointsEditorWrapper
+                    {...waypointsEditorProps}
+                    collapsed={collapsedSections?.has('waypoints')}
+                    onSectionCollapsedChange={onSectionCollapsedChange}
+                />
 
                 <GeocacheCheckersSection
                     checkers={geocacheData.checkers}

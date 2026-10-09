@@ -13,7 +13,7 @@ import {
     parseFlexibleGCCoords,
     toGCFormat
 } from './geocache-details-utils';
-import { SectionCollapseToggle } from './geocache-section-collapse';
+import { GeocacheSection } from './geocache-section';
 
 interface WaypointsEditorProps {
     waypoints?: GeocacheWaypoint[];
@@ -280,16 +280,14 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     };
 
     return (
-        <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <SectionCollapseToggle
-                        sectionId='waypoints'
-                        collapsed={collapsed ?? false}
-                        onSectionCollapsedChange={onSectionCollapsedChange}
-                    />
-                    <h4 style={{ margin: 0 }}>Waypoints</h4>
-                </div>
+        // keepMounted : pas de démontage au repli, pour conserver l'état d'édition en cours
+        <GeocacheSection
+            title='Waypoints'
+            sectionId='waypoints'
+            collapsed={collapsed}
+            onSectionCollapsedChange={onSectionCollapsedChange}
+            keepMounted
+            actions={
                 <button
                     className='theia-button'
                     onClick={() => startEdit()}
@@ -299,13 +297,11 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 >
                     + Ajouter un waypoint
                 </button>
-            </div>
-
-            {/* display:none (pas de démontage) pour conserver l'état d'édition en cours */}
-            <div style={{ display: collapsed ? 'none' : 'contents' }}>
+            }
+        >
             {editingId !== null && (
                 <div style={{
-                    border: '1px solid var(--theia-foreground)',
+                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: 4,
                     padding: 12,
                     background: 'var(--theia-editor-background)'
@@ -601,7 +597,6 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                     </tbody>
                 </table>
             ) : undefined}
-            </div>
-        </div>
+        </GeocacheSection>
     );
 };

@@ -6,7 +6,7 @@ import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
 import { GeoAppAiExecutionRecord } from '@mysterai/theia-plugins/lib/common/ai-model-contract';
 import { handleMenuArrowKeys } from './context-menu';
-import { SectionCollapseToggle } from './geocache-section-collapse';
+import { GeocacheSection } from './geocache-section';
 import '../../src/browser/style/geocache-details-header.css';
 
 export interface DescriptionEditorProps {
@@ -32,13 +32,6 @@ export interface DescriptionEditorProps {
     onSectionCollapsedChange?: (sectionId: string, collapsed: boolean) => void;
 }
 
-const headerRowStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap'
-};
 const segmentedStyle: React.CSSProperties = {
     display: 'inline-flex',
     border: '1px solid var(--theia-panel-border)',
@@ -74,9 +67,6 @@ const mutedChipStyle: React.CSSProperties = {
     opacity: 0.6
 };
 const descBoxStyle: React.CSSProperties = {
-    border: '1px solid var(--theia-foreground)',
-    borderRadius: 4,
-    padding: 8,
     maxWidth: 900,
     transition: 'opacity 0.15s ease'
 };
@@ -493,135 +483,138 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
         return undefined;
     }, [onOpenExternalUrl, effectiveHtml]);
 
-    return (
-        <div style={{ display: 'grid', gap: 8 }}>
-            <div style={headerRowStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    {/* Le contenu édité vit dans le DOM (contentEditable) : replier
-                        pendant l'édition démonterait la zone et perdrait le texte. */}
-                    <SectionCollapseToggle
-                        sectionId='description'
-                        collapsed={collapsed ?? false}
-                        onSectionCollapsedChange={onSectionCollapsedChange}
-                        disabled={isEditing}
-                        title={isEditing ? 'Terminez l\'édition avant de replier la section' : undefined}
-                    />
-                    <strong>Description</strong>
-
-                    {/* Bascule de version (segmented control) */}
-                    <div role='radiogroup' aria-label='Version de la description' style={segmentedStyle}>
-                        <button
-                            type='button'
-                            role='radio'
-                            aria-checked={variant === 'original'}
-                            onClick={() => switchVariant('original')}
-                            disabled={isEditing}
-                            style={segmentStyle(variant === 'original', isEditing)}
-                            title='Afficher la description originale'
-                        >
-                            Originale
-                        </button>
-                        <button
-                            type='button'
-                            role='radio'
-                            aria-checked={variant === 'modified'}
-                            onClick={() => switchVariant('modified')}
-                            disabled={isEditing || !hasModified}
-                            style={segmentStyle(variant === 'modified', isEditing || !hasModified)}
-                            title={hasModified ? `Afficher la description ${isTranslated ? 'traduite' : 'modifiée'}` : 'Aucune description modifiée'}
-                        >
-                            {modifiedLabel}
-                        </button>
-                    </div>
-
-                    {/* Indicateur d'état de la version modifiée */}
-                    {hasModified ? (
-                        <span
-                            style={modifiedChipStyle}
-                            title={overrideDate ? `Version ${isTranslated ? 'traduite' : 'modifiée'} disponible (mise à jour le ${overrideDate})` : `Une version ${isTranslated ? 'traduite' : 'modifiée'} existe`}
-                        >
-                            <span aria-hidden='true'>✦</span>
-                            {overrideDate ? `${modifiedLabel} · ${overrideDate}` : modifiedLabel}
-                        </span>
-                    ) : (
-                        <span style={mutedChipStyle}>Aucune modification</span>
-                    )}
-                </div>
-
-                {!collapsed ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {/* Menu de traduction */}
-                    <div ref={translateMenuRef} style={{ position: 'relative' }}>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => setIsTranslateMenuOpen(open => !open)}
-                            disabled={isEditing || isAnyTranslating}
-                            aria-haspopup='menu'
-                            aria-expanded={isTranslateMenuOpen}
-                            title={`Traduire en ${targetLanguage} avec l'IA`}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                            {isAnyTranslating ? (
-                                <>
-                                    <i className='fa fa-spinner fa-spin' aria-hidden='true' />
-                                    <span>Traduction…</span>
-                                </>
-                            ) : (
-                                <>
-                                    <span aria-hidden='true'>🌐</span>
-                                    <span>Traduire</span>
-                                    <span aria-hidden='true' style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
-                                </>
-                            )}
-                        </button>
-                        {isTranslateMenuOpen && (
-                            <div role='menu' aria-label='Options de traduction' onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)} style={translateMenuStyle}>
-                                <button
-                                    type='button'
-                                    role='menuitem'
-                                    className='geoapp-menu-item'
-                                    onClick={() => runTranslate(onTranslateToFrench)}
-                                    style={translateMenuItemStyle}
-                                >
-                                    <span aria-hidden='true' style={translateMenuIconStyle}>📝</span>
-                                    <span style={translateMenuTextColStyle}>
-                                        <span style={translateMenuTitleStyle}>Description seule</span>
-                                        <span style={translateMenuSubStyle}>Conserve le HTML, traduit uniquement le texte</span>
-                                    </span>
-                                </button>
-                                <button
-                                    type='button'
-                                    role='menuitem'
-                                    className='geoapp-menu-item'
-                                    onClick={() => runTranslate(onTranslateAllToFrench)}
-                                    style={translateMenuItemStyle}
-                                >
-                                    <span aria-hidden='true' style={translateMenuIconStyle}>🌍</span>
-                                    <span style={translateMenuTextColStyle}>
-                                        <span style={translateMenuTitleStyle}>Tout le contenu</span>
-                                        <span style={translateMenuSubStyle}>Description + indices + notes de waypoints</span>
-                                    </span>
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                    <ExecutionBadge execution={latestTranslationExecution} />
-
-                    {!isEditing ? (
-                        <button
-                            className='theia-button'
-                            onClick={startEdit}
-                            disabled={isAnyTranslating}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                            <span aria-hidden='true'>✎</span>
-                            <span>Éditer</span>
-                        </button>
-                    ) : undefined}
-                </div>
-                ) : undefined}
+    const versionControls = (
+        <>
+            {/* Bascule de version (segmented control) */}
+            <div role='radiogroup' aria-label='Version de la description' style={segmentedStyle}>
+                <button
+                    type='button'
+                    role='radio'
+                    aria-checked={variant === 'original'}
+                    onClick={() => switchVariant('original')}
+                    disabled={isEditing}
+                    style={segmentStyle(variant === 'original', isEditing)}
+                    title='Afficher la description originale'
+                >
+                    Originale
+                </button>
+                <button
+                    type='button'
+                    role='radio'
+                    aria-checked={variant === 'modified'}
+                    onClick={() => switchVariant('modified')}
+                    disabled={isEditing || !hasModified}
+                    style={segmentStyle(variant === 'modified', isEditing || !hasModified)}
+                    title={hasModified ? `Afficher la description ${isTranslated ? 'traduite' : 'modifiée'}` : 'Aucune description modifiée'}
+                >
+                    {modifiedLabel}
+                </button>
             </div>
 
+            {/* Indicateur d'état de la version modifiée */}
+            {hasModified ? (
+                <span
+                    style={modifiedChipStyle}
+                    title={overrideDate ? `Version ${isTranslated ? 'traduite' : 'modifiée'} disponible (mise à jour le ${overrideDate})` : `Une version ${isTranslated ? 'traduite' : 'modifiée'} existe`}
+                >
+                    <span aria-hidden='true'>✦</span>
+                    {overrideDate ? `${modifiedLabel} · ${overrideDate}` : modifiedLabel}
+                </span>
+            ) : (
+                <span style={mutedChipStyle}>Aucune modification</span>
+            )}
+        </>
+    );
+
+    const headerActions = (
+        <>
+            {/* Menu de traduction */}
+            <div ref={translateMenuRef} style={{ position: 'relative' }}>
+                <button
+                    className='theia-button secondary'
+                    onClick={() => setIsTranslateMenuOpen(open => !open)}
+                    disabled={isEditing || isAnyTranslating}
+                    aria-haspopup='menu'
+                    aria-expanded={isTranslateMenuOpen}
+                    title={`Traduire en ${targetLanguage} avec l'IA`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                    {isAnyTranslating ? (
+                        <>
+                            <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                            <span>Traduction…</span>
+                        </>
+                    ) : (
+                        <>
+                            <span aria-hidden='true'>🌐</span>
+                            <span>Traduire</span>
+                            <span aria-hidden='true' style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
+                        </>
+                    )}
+                </button>
+                {isTranslateMenuOpen && (
+                    <div role='menu' aria-label='Options de traduction' onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)} style={translateMenuStyle}>
+                        <button
+                            type='button'
+                            role='menuitem'
+                            className='geoapp-menu-item'
+                            onClick={() => runTranslate(onTranslateToFrench)}
+                            style={translateMenuItemStyle}
+                        >
+                            <span aria-hidden='true' style={translateMenuIconStyle}>📝</span>
+                            <span style={translateMenuTextColStyle}>
+                                <span style={translateMenuTitleStyle}>Description seule</span>
+                                <span style={translateMenuSubStyle}>Conserve le HTML, traduit uniquement le texte</span>
+                            </span>
+                        </button>
+                        <button
+                            type='button'
+                            role='menuitem'
+                            className='geoapp-menu-item'
+                            onClick={() => runTranslate(onTranslateAllToFrench)}
+                            style={translateMenuItemStyle}
+                        >
+                            <span aria-hidden='true' style={translateMenuIconStyle}>🌍</span>
+                            <span style={translateMenuTextColStyle}>
+                                <span style={translateMenuTitleStyle}>Tout le contenu</span>
+                                <span style={translateMenuSubStyle}>Description + indices + notes de waypoints</span>
+                            </span>
+                        </button>
+                    </div>
+                )}
+            </div>
+            <ExecutionBadge execution={latestTranslationExecution} />
+
+            {!isEditing ? (
+                <button
+                    className='theia-button'
+                    onClick={startEdit}
+                    disabled={isAnyTranslating}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                    <span aria-hidden='true'>✎</span>
+                    <span>Éditer</span>
+                </button>
+            ) : undefined}
+        </>
+    );
+
+    return (
+        <GeocacheSection
+            title='Description'
+            sectionId='description'
+            collapsed={collapsed}
+            onSectionCollapsedChange={onSectionCollapsedChange}
+            // Le contenu édité vit dans le DOM (contentEditable) : replier pendant l'édition
+            // démonterait la zone et perdrait le texte. Pendant une traduction, le repli
+            // masquerait la progression et le bouton d'annulation.
+            collapseDisabled={isEditing || isAnyTranslating}
+            collapseDisabledTitle={isEditing
+                ? 'Terminez l\'édition avant de replier la section'
+                : 'Attendez la fin de la traduction avant de replier la section'}
+            meta={versionControls}
+            actions={headerActions}
+        >
             {/* Bannière de progression de la traduction */}
             {isAnyTranslating ? (
                 <div style={translateBannerStyle} role='status' aria-live='polite'>
@@ -658,8 +651,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 </div>
             ) : undefined}
 
-            {!collapsed ? (
-            !isEditing ? (
+            {!isEditing ? (
                 <div
                     ref={descriptionRef}
                     style={{ ...descBoxStyle, opacity: isAnyTranslating ? 0.55 : 1 }}
@@ -803,8 +795,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         </div>
                     </div>
                 </div>
-            )
-            ) : undefined}
-        </div>
+            )}
+        </GeocacheSection>
     );
 };

@@ -17,9 +17,10 @@
     min-width: 180px;
 }
 
+/* Le titre lui-même vient de la carte commune (.geoapp-gcd-section__title). */
 .geoapp-images-title {
-    font-weight: 600;
-    font-size: 15px;
+    display: flex;
+    align-items: center;
 }
 
 .geoapp-images-stats {

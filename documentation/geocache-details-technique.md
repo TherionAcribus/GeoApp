@@ -23,6 +23,7 @@ Particularité notable : le widget est **multi-instances** (un onglet par géoca
 | `geocache-details-widget.tsx` | `ReactWidget` Theia (`StatefulWidget`). Détient tout l'état, orchestre les actions, écoute les événements (DOM + service inter-widgets), et délègue le rendu à `GeocacheDetailsView`. ~1300 lignes : c'est le chef d'orchestre. |
 | `geocache-details-view.tsx` | Composant React **sans état** : assemble les sections dans l'ordre et applique l'overlay de rechargement. Contient les wrappers `React.memo` des composants feuilles coûteux. |
 | `geocache-details-sections.tsx` | Composants présentationnels du header et des sections (overview, infos détaillées, indices, checkers) + helpers de rendu (étoiles, attributs, badges d'archive et de découverte). |
+| `geocache-section.tsx` | Carte commune des sections : `GeocacheSection` (cadre, ligne de titre, résumé, actions, repli) et `SectionTitle` (chevron + intitulé en un seul bouton). Styles `.geoapp-gcd-section*` dans `style/geocache-details-header.css`. |
 | `geocache-details-types.ts` | DTO et types partagés (`GeocacheDto`, `GeocacheWaypoint`, `GeocacheChecker`, `DescriptionVariant`, `WaypointPrefillPayload`…). |
 | `geocache-details-service.ts` | Client HTTP (via `BackendApiClient`) : description, coordonnées, waypoints, statut solved, contenu traduit, archive, workflow chat, résumé des logs. |
 | `geocache-details-content-controller.ts` | Logique de contenu pure : choix description effective (original/modifié), décodage ROT13 des indices, extraction du contenu cherchable (recherche in-page). |
@@ -148,12 +149,24 @@ L'ordre de rendu (`GeocacheDetailsView`) :
    - groupe **Logs / Loguer / Notes** (avec compteur de notes) ;
    - bouton **rafraîchir** et bouton **statut d'archive** (couleur/icône selon l'état).
 2. **Overview** (`GeocacheOverviewSection`) : carte « Statistiques » (D/T en étoiles, taille, favoris, résumé des logs, attributs) + carte « Coordonnées » (`CoordinatesEditor`).
-3. **Infos détaillées** (`GeocacheDetailedInfoSection`) : `<details>` repliable avec le tableau complet (dont « Trouvee » et « Trouvee le »).
+3. **Infos détaillées** (`GeocacheDetailedInfoSection`) : section repliable avec le tableau complet (dont « Trouvee » et « Trouvee le »).
 4. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
 5. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
 6. **Images** (`GeocacheImagesPanel`) : galerie, stockage local, OCR, sélection pour chat.
 7. **Waypoints** (`WaypointsEditorWrapper`) : CRUD, projection/antipode, push GC.com, définir comme coords corrigées.
 8. **Checkers** (`GeocacheCheckersSection`) : liens vers les checkers, menu contextuel d'ouverture (même groupe / nouveau groupe / fenêtre externe), avertissement spécifique GeoCheck (captcha).
+
+### Habillage commun des sections
+
+Toutes les sections de la fiche partagent la même carte, `GeocacheSection` (`geocache-section.tsx`) :
+
+- **titre** : chevron et intitulé forment un seul bouton de repli quand `sectionId` et `onSectionCollapsedChange` sont fournis ; sinon simple intitulé (Statistiques, Coordonnées) ;
+- **`meta`** : résumé ou contrôles accolés au titre, visibles même section repliée (bascule de version de la description) ;
+- **`actions`** : alignées à droite, masquées quand la section est repliée ;
+- **`keepMounted`** : le contenu reste monté (`display: none`) au repli, pour les sections à état interne (waypoints en cours d'édition) ;
+- **`collapseDisabled`** : repli interdit (description en cours d'édition ou de traduction).
+
+Deux sections gardent leur propre structure d'en-tête et ne reprennent que les classes : la galerie (`.geoapp-gcd-section` sur sa racine + `SectionTitle`) et les trackables. Ces derniers servent aussi dans l'éditeur de logs : la prop `card` choisit la carte commune, sinon le cadre compact `.geoapp-gc-trackables--compact`.
 
 ## Fonctionnalités transverses
 

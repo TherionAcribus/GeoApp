@@ -12,7 +12,7 @@ import {
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
 import { ContextMenu, ContextMenuItem, handleMenuArrowKeys } from './context-menu';
-import { CollapsibleSectionProps, SectionCollapseToggle } from './geocache-section-collapse';
+import { CollapsibleSectionProps, GeocacheSection } from './geocache-section';
 import { buildOwnerMessageUrl, buildOwnerProfileUrl, openExternalUrl } from './geocaching-owner-links';
 import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
 import { LogsRecentSummary, LogSummaryEntry } from './geocache-logs-summary';
@@ -24,13 +24,6 @@ type ChatProfileOption = {
     value: GeoAppChatWorkflowProfile;
     label: string;
     description?: string;
-};
-
-const cardStyle: React.CSSProperties = {
-    background: 'var(--theia-editor-background)',
-    border: '1px solid var(--theia-panel-border)',
-    borderRadius: 6,
-    padding: 16
 };
 
 interface GeocacheDetailsHeaderProps {
@@ -847,8 +840,7 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
     onOpenLogs,
 }) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 12 }}>
-        <div style={cardStyle}>
-            <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Statistiques</h4>
+        <GeocacheSection title='Statistiques'>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Difficulté</div>
@@ -869,28 +861,25 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
             </div>
 
             {(logsSummaryEntries && logsSummaryEntries.length > 0) || isLogsSummaryLoading ? (
-                <div style={{ marginTop: 16 }}>
-                    <LogsRecentSummary
-                        entries={logsSummaryEntries ?? []}
-                        totalCount={logsSummaryTotalCount ?? 0}
-                        isLoading={isLogsSummaryLoading ?? false}
-                        onOpenLogs={onOpenLogs}
-                    />
-                </div>
+                <LogsRecentSummary
+                    entries={logsSummaryEntries ?? []}
+                    totalCount={logsSummaryTotalCount ?? 0}
+                    isLoading={isLogsSummaryLoading ?? false}
+                    onOpenLogs={onOpenLogs}
+                />
             ) : undefined}
 
             {geocacheData.attributes && geocacheData.attributes.length > 0 ? (
-                <div style={{ marginTop: 16 }}>
+                <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 8 }}>Attributs</div>
                     {renderAttributes(geocacheData.attributes)}
                 </div>
             ) : undefined}
-        </div>
+        </GeocacheSection>
 
-        <div style={cardStyle}>
-            <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Coordonnées</h4>
+        <GeocacheSection title='Coordonnées'>
             {coordinatesEditor}
-        </div>
+        </GeocacheSection>
     </div>
 );
 
@@ -899,21 +888,13 @@ interface GeocacheDetailedInfoSectionProps extends CollapsibleSectionProps {
 }
 
 export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionProps> = ({ geocacheData, collapsed, onSectionCollapsedChange }) => (
-    <details
-        style={cardStyle}
-        open={!collapsed}
-        onToggle={(e) => {
-            // onToggle se déclenche aussi quand React applique la prop `open` :
-            // on ne persiste que les bascules initiées par l'utilisateur.
-            const isOpen = e.currentTarget.open;
-            if (isOpen === !collapsed) {
-                return;
-            }
-            onSectionCollapsedChange?.('details', !isOpen);
-        }}
+    <GeocacheSection
+        title='Informations détaillées'
+        sectionId='details'
+        collapsed={collapsed}
+        onSectionCollapsedChange={onSectionCollapsedChange}
     >
-        <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: 8 }}>Informations détaillées</summary>
-        <table className='theia-table' style={{ width: '100%', marginTop: 8 }}>
+        <table className='theia-table' style={{ width: '100%' }}>
             <tbody>
                 {renderRow('Code', geocacheData.gc_code)}
                 {renderRow('Propriétaire', geocacheData.owner)}
@@ -930,7 +911,7 @@ export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionPr
                 {renderRow('Lien', geocacheData.url ? <a href={geocacheData.url} target='_blank' rel='noreferrer'>{geocacheData.url}</a> : undefined)}
             </tbody>
         </table>
-    </details>
+    </GeocacheSection>
 );
 
 interface GeocacheHintsSectionProps extends CollapsibleSectionProps {
@@ -951,30 +932,23 @@ export const GeocacheHintsSection: React.FC<GeocacheHintsSectionProps> = ({
     }
 
     return (
-        <div style={cardStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : 16 }}>
-                <h4 style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center' }}>
-                    <SectionCollapseToggle
-                        sectionId='hints'
-                        collapsed={collapsed ?? false}
-                        onSectionCollapsedChange={onSectionCollapsedChange}
-                    />
-                    Indices
-                </h4>
-                {!collapsed ? (
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => { void onToggleDisplayMode(); }}
-                        title={displayDecodedHints ? 'Coder (ROT13)' : 'Décoder (ROT13)'}
-                    >
-                        {displayDecodedHints ? 'Coder' : 'Décoder'}
-                    </button>
-                ) : undefined}
-            </div>
-            {!collapsed ? (
-                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.9 }}>{displayedHints}</div>
-            ) : undefined}
-        </div>
+        <GeocacheSection
+            title='Indices'
+            sectionId='hints'
+            collapsed={collapsed}
+            onSectionCollapsedChange={onSectionCollapsedChange}
+            actions={
+                <button
+                    className='theia-button secondary'
+                    onClick={() => { void onToggleDisplayMode(); }}
+                    title={displayDecodedHints ? 'Coder (ROT13)' : 'Décoder (ROT13)'}
+                >
+                    {displayDecodedHints ? 'Coder' : 'Décoder'}
+                </button>
+            }
+        >
+            <div style={{ whiteSpace: 'pre-wrap', opacity: 0.9 }}>{displayedHints}</div>
+        </GeocacheSection>
     );
 };
 
@@ -1050,16 +1024,12 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
     };
 
     return (
-        <div style={cardStyle}>
-            <h4 style={{ margin: collapsed ? 0 : '0 0 16px 0', fontSize: 16, display: 'flex', alignItems: 'center' }}>
-                <SectionCollapseToggle
-                    sectionId='checkers'
-                    collapsed={collapsed ?? false}
-                    onSectionCollapsedChange={onSectionCollapsedChange}
-                />
-                Checkers
-            </h4>
-            {!collapsed ? (
+        <GeocacheSection
+            title='Checkers'
+            sectionId='checkers'
+            collapsed={collapsed}
+            onSectionCollapsedChange={onSectionCollapsedChange}
+        >
             <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {checkers.map((checker, index) => (
                     <li key={checker.id ?? index} style={{ marginBottom: 4 }}>
@@ -1096,7 +1066,6 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
                     </li>
                 ))}
             </ul>
-            ) : undefined}
             {contextMenu && onCloseContextMenu && (
                 <ContextMenu
                     items={buildContextMenuItems(contextMenu.url)}
@@ -1105,7 +1074,7 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
                     onClose={onCloseContextMenu}
                 />
             )}
-        </div>
+        </GeocacheSection>
     );
 };
 

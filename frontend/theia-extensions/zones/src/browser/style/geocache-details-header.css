@@ -144,32 +144,95 @@
     overflow: hidden;
 }
 
-/* ── Chevron de repli des sections de la fiche ── */
-.geoapp-gcd-collapse-toggle {
+/* ── Carte commune des sections de la fiche (geocache-section.tsx) ──
+   Un seul cadre et une seule ligne de titre pour toutes les sections. */
+.geoapp-gcd-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.geoapp-gcd-section__header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+}
+
+.geoapp-gcd-section__title {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.geoapp-gcd-section__meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    min-width: 0;
+}
+
+.geoapp-gcd-section__actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* Chevron + intitulé : un seul bouton pour replier/déplier. */
+.geoapp-gcd-section__toggle {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: 4px;
     border: none;
+    border-radius: 3px;
     background: transparent;
-    color: var(--theia-foreground);
+    color: inherit;
+    font: inherit;
     cursor: pointer;
     padding: 0 4px 0 0;
-    font-size: 13px;
+    margin-left: -2px;
+}
+
+.geoapp-gcd-section__toggle .codicon {
+    font-size: 14px;
     opacity: 0.7;
 }
 
-.geoapp-gcd-collapse-toggle:hover:not(:disabled) {
+.geoapp-gcd-section__toggle:hover:not(:disabled) .codicon {
     opacity: 1;
 }
 
-.geoapp-gcd-collapse-toggle:focus-visible {
+.geoapp-gcd-section__toggle:focus-visible {
     outline: 1px solid var(--theia-focusBorder);
-    outline-offset: -1px;
+    outline-offset: 1px;
 }
 
-.geoapp-gcd-collapse-toggle:disabled {
+.geoapp-gcd-section__toggle:disabled {
     cursor: not-allowed;
-    opacity: 0.4;
+}
+
+.geoapp-gcd-section__toggle:disabled .codicon {
+    opacity: 0.35;
+}
+
+/* Le résumé des logs a son propre cadre dans le panneau des logs ; dans une
+   carte de la fiche, il n'en reprend pas un second. */
+.geoapp-gcd-section .geoapp-logs-summary {
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
 }
 
 /* ── Navigation ‹ › dans la zone (toolbar sticky) ── */

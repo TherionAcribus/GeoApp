@@ -13,13 +13,15 @@
 
 import * as React from 'react';
 import '../../src/browser/style/geocache-trackables.css';
-import { CollapsibleSectionProps, SectionCollapseToggle } from './geocache-section-collapse';
+import { CollapsibleSectionProps, SectionTitle } from './geocache-section';
 import { formatIsoDateTimeFr } from './log-editor/helpers';
 import { InventoryTrackable, trackableUrl } from './log-editor/trackables';
 
 export interface GeocacheTrackablesSectionProps extends CollapsibleSectionProps {
     gcCode: string;
     apiBaseUrl: string;
+    /** Adopte la carte commune des sections de la fiche ; sinon, cadre compact (éditeur de logs). */
+    card?: boolean;
 }
 
 interface CacheTrackablesState {
@@ -49,6 +51,7 @@ function openTrackablesFor(action: 'retrieve' | 'discover', trackableCode: strin
 export const GeocacheTrackablesSection: React.FC<GeocacheTrackablesSectionProps> = ({
     gcCode,
     apiBaseUrl,
+    card,
     collapsed,
     onSectionCollapsedChange,
 }) => {
@@ -112,14 +115,14 @@ export const GeocacheTrackablesSection: React.FC<GeocacheTrackablesSectionProps>
             : `${state.trackables.length} présent${state.trackables.length > 1 ? 's' : ''}`;
 
     return (
-        <div className='geoapp-gc-trackables'>
+        <div className={card ? 'geoapp-gcd-section geoapp-gc-trackables' : 'geoapp-gc-trackables geoapp-gc-trackables--compact'}>
             <div className='geoapp-gc-trackables__header'>
-                <SectionCollapseToggle
+                <SectionTitle
+                    title='Trackables dans cette cache'
                     sectionId='trackables'
-                    collapsed={collapsed ?? false}
+                    collapsed={collapsed}
                     onSectionCollapsedChange={onSectionCollapsedChange}
                 />
-                <h4 className='geoapp-gc-trackables__title'>Trackables dans cette cache</h4>
                 <span className='geoapp-gc-trackables__headline'>{headline}</span>
                 {state.syncedAt && (
                     <span

@@ -11,7 +11,7 @@ import { GeoAppAiExecutionRecord } from '@mysterai/theia-plugins/lib/common/ai-m
 import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { formatGeocacheVisionPluginModel } from './geocache-details-preferences-controller';
-import { SectionCollapseToggle } from './geocache-section-collapse';
+import { SectionTitle } from './geocache-section';
 import '../../src/browser/style/geocache-images-panel.css';
 
 export type GeocacheImageV2Dto = {
@@ -2371,7 +2371,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const hasDirtyMetadata = dirtyFields.size > 0;
 
     return (
-        <div className='geoapp-images-panel'>
+        <div className='geoapp-gcd-section geoapp-images-panel'>
             <input
                 ref={uploadInputRef}
                 type='file'
@@ -2390,12 +2390,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             <header className='geoapp-images-header'>
                 <div className='geoapp-images-title-block'>
                     <div className='geoapp-images-title'>
-                        <SectionCollapseToggle
+                        <SectionTitle
+                            title='Galerie'
                             sectionId='images'
-                            collapsed={collapsed ?? false}
+                            collapsed={collapsed}
                             onSectionCollapsedChange={onSectionCollapsedChange}
                         />
-                        Galerie
                         {isRefreshing ? (
                             <span className='codicon codicon-loading codicon-modifier-spin geoapp-images-refresh-indicator' title='Mise à jour…' aria-label='Mise à jour de la galerie en cours' />
                         ) : undefined}
