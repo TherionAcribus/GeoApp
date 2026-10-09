@@ -104,11 +104,3 @@ export interface FormulaSolverState {
     loading: boolean;
     error?: string;
 }
-
-export interface ValueOperation {
-    type: ValueType;
-    label: string;
-    description: string;
-    icon: string;
-    calculate: (input: string) => number;
-}

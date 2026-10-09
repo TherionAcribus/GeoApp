@@ -28,11 +28,10 @@ frontend/theia-extensions/formula-solver/
 │   ├── common/
 │   │   └── types.ts                          # Types partagés (Formula, Question, LetterValue, etc.)
 │   └── browser/
-│       ├── formula-solver-widget.tsx          # Widget React principal (~2700 lignes)
+│       ├── formula-solver-widget.tsx          # Widget React principal (~3000 lignes : état, orchestration, étapes)
 │       ├── formula-solver-pipeline.ts         # Pipeline orchestrateur (3 étapes)
 │       ├── formula-solver-config.ts           # Types de configuration (méthodes, profils)
 │       ├── formula-solver-service.ts          # Client HTTP vers le backend Flask
-│       ├── formula-solver-ai-service.ts       # Service IA legacy (solveWithAI complet)
 │       ├── formula-solver-llm-service.ts      # Appels directs au LLM (Theia AI)
 │       ├── formula-solver-tools.ts            # 5 AI tools enregistrés dans Theia
 │       ├── formula-solver-contribution.ts     # Commandes, menus, toolbar Theia
@@ -429,7 +428,6 @@ Tous les bindings sont dans `formula-solver-frontend-module.ts` :
 Service                     → Scope
 ─────────────────────────── ─────────────
 FormulaSolverService        → singleton (client HTTP)
-FormulaSolverAIService      → singleton (service IA legacy)
 FormulaSolverLLMService     → singleton (appels LLM)
 AnsweringContextCache       → singleton (cache contexte)
 FormulaSolverPipeline       → singleton (orchestrateur)
@@ -763,3 +761,44 @@ Sept tests backend du Formula Solver échouaient depuis avant ce chantier. Ils c
 - **Repli de la détection dépendant du dossier de lancement** (`_execute_formula_parser()`). Quand le PluginManager ne fournit pas `formula_parser`, le repli faisait `from plugins.official.formula_parser…`, qui ne fonctionne que si la racine du dépôt est dans `sys.path` — donc pas quand le backend est lancé depuis `backend/`. `_load_formula_parser_fallback()` charge maintenant le plugin par son chemin (`PLUGINS_DIR` ou `<dépôt>/plugins`).
 
 Le quatrième cas était un jeu de test périmé : `MockGeocache` n'avait pas d'`id`, attribut par lequel le service reconnaît une géocache.
+
+---
+
+## 24. Découpage du widget (octobre 2026)
+
+`formula-solver-widget.tsx` était passé de 2 700 à 3 900 lignes. Il est ramené à environ 3 000 par un découpage **sans changement de comportement** : le JSX et la logique déplacés sont identiques, seul l'accès à l'état passe par des props.
+
+Le widget garde l'état, l'orchestration (détection, questions, réponses, calcul, sessions) et l'assemblage des trois étapes. Ses méthodes `renderXxx()` existent toujours mais délèguent.
+
+### Composants de présentation extraits (`components/`)
+
+| Composant | Rôle | Ancienne méthode |
+|-----------|------|------------------|
+| `Stepper` | fil d'Ariane des 3 étapes | `renderStepper()` |
+| `SessionsPanel` | liste des sessions sauvegardées | `renderSessionsPanel()` |
+| `StepConfigPanel` | panneau « Options IA » | `renderStepConfigPanel()` |
+| `SplitButton` | bouton principal + menu | `renderSplitButton()` |
+| `AiExecutionBadge` | pastille de la dernière exécution IA | `renderAiExecutionBadge()` |
+| `DeductionPanel` | déduction des lettres manquantes | `renderDeductionPanel()` |
+| `BulkValuesPanel` | saisie groupée | bloc de `renderQuestionsStep()` |
+| `QuestionsHintPanel` | indice pour l'extraction IA des questions | bloc de `renderQuestionsStep()` |
+| `AnsweringContextPanel` | contexte et consignes de réponse IA | bloc de `renderQuestionsStep()` |
+
+Ces composants n'ont pas d'état propre : ils reçoivent valeurs et callbacks, et c'est le widget qui modifie ses champs puis appelle `update()`.
+
+### Fonctions pures extraites (`utils/`)
+
+- `preview-overlay.ts` : `buildPreviewOverlayDetail()` construit le contenu de l'événement d'overlay carte (cercle des 2 miles, zone estimée brute et limitée au cercle) ou retourne `undefined` s'il faut effacer l'overlay. `updateMapPreviewOverlay()` ne fait plus qu'émettre l'événement.
+- `waypoint-format.ts` : `buildWaypointNote()` et `formatGeocachingCoordinates()`.
+
+### Code supprimé
+
+- `formula-solver-ai-service.ts` (`FormulaSolverAIService`, ancien « solveWithAI ») : lié dans le conteneur mais injecté nulle part.
+- `updateFragmentsWithCalculations()`, les types `ValueOperation`, `ValueRange`, `WebSearchOptions` : sans aucun usage.
+- `extractQuestions()` : simple alias de `runQuestionsStep()`, remplacé par celle-ci.
+
+### Ce qui reste dans le widget
+
+Les styles sont toujours en ligne (les composants extraits les ont emportés tels quels) ; les convertir en classes CSS demande une vérification visuelle à l'écran. `renderDetectionStep()` et `renderQuestionsStep()` restent longues, et la logique (réponses, calcul, sessions) n'a pas été sortie de la classe.
+
+Tests : `src/browser/tests/widget-utils.test.ts` pour les fonctions extraites.

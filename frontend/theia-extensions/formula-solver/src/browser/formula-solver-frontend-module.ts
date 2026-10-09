@@ -7,7 +7,6 @@ import { ContainerModule } from '@theia/core/shared/inversify';
 import { FormulaSolverWidget } from './formula-solver-widget';
 import { FormulaSolverContribution } from './formula-solver-contribution';
 import { FormulaSolverService, FormulaSolverServiceImpl } from './formula-solver-service';
-import { FormulaSolverAIService, FormulaSolverAIServiceImpl } from './formula-solver-ai-service';
 import { FormulaSolverLLMService } from './formula-solver-llm-service';
 import { GeoAppFormulaSolverAgentsContribution } from './geoapp-formula-solver-agents';
 import { FormulaSolverPipeline } from './formula-solver-pipeline';
@@ -36,9 +35,6 @@ export default new ContainerModule(bind => {
     // Service principal
     bind(FormulaSolverService).to(FormulaSolverServiceImpl).inSingletonScope();
     
-    // Service IA
-    bind(FormulaSolverAIService).to(FormulaSolverAIServiceImpl).inSingletonScope();
-
     // Service LLM pour les appels IA directs
     bind(FormulaSolverLLMService).toSelf().inSingletonScope();
 

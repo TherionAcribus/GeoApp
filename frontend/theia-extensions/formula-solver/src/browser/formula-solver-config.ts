@@ -17,8 +17,3 @@ export interface FormulaSolverStepConfig {
     aiProfileForAnswers: FormulaSolverAiProfile;
 }
 
-export interface WebSearchOptions {
-    enabled: boolean;
-    maxResults: number;
-}
-

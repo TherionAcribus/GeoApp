@@ -20,7 +20,7 @@ import { FormulaSessionManager, SessionIndex } from './formula-solver-session-ma
 import { computeLetterValue } from './utils/letter-value';
 import { parseBulkValues } from './utils/bulk-values';
 import { distanceKm, KM_PER_MILE, MYSTERY_MAX_DISTANCE_KM } from './utils/distance';
-import { deduceMissingLetters, describeDigits, DeductionResult, MAX_DEDUCED_LETTERS } from './utils/deduction';
+import { deduceMissingLetters, DeductionResult, MAX_DEDUCED_LETTERS } from './utils/deduction';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { normalizeFormulaAxis } from './utils/formula-normalizer';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
@@ -34,6 +34,17 @@ import {
     BruteForceComponent
 } from './components';
 import { EmptyState, LoadingState } from './state-views';
+import { Stepper } from './components/Stepper';
+import { SessionsPanel } from './components/SessionsPanel';
+import { StepConfigPanel } from './components/StepConfigPanel';
+import { SplitButton, SplitButtonProps } from './components/SplitButton';
+import { AiExecutionBadge, AiExecution } from './components/AiExecutionBadge';
+import { DeductionPanel } from './components/DeductionPanel';
+import { BulkValuesPanel } from './components/BulkValuesPanel';
+import { QuestionsHintPanel } from './components/QuestionsHintPanel';
+import { AnsweringContextPanel } from './components/AnsweringContextPanel';
+import { buildPreviewOverlayDetail } from './utils/preview-overlay';
+import { buildWaypointNote, formatGeocachingCoordinates } from './utils/waypoint-format';
 import { GeoAppAiExecutionService } from 'theia-ide-zones-ext/lib/browser/geoapp-ai-execution-service';
 
 @injectable()
@@ -334,7 +345,7 @@ export class FormulaSolverWidget extends ReactWidget {
         this.manualEast = '';
         this.update();
 
-        await this.extractQuestions(enriched);
+        await this.runQuestionsStep(enriched);
     }
 
     protected onAfterAttach(msg: unknown): void {
@@ -513,99 +524,20 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
-        if (!this.previewMapOverlayEnabled) {
-            window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
-            return;
-        }
-
-        const originLat = this.state.originLat;
-        const originLon = this.state.originLon;
-        const hasOrigin = typeof originLat === 'number' && typeof originLon === 'number' && isFinite(originLat) && isFinite(originLon);
-        const radiusMeters = MYSTERY_MAX_DISTANCE_KM * 1000; // 2 miles
-
         const formula = this.state.selectedFormula;
-        if (!formula) {
-            // Si on connaît l'origine, on peut au moins afficher le cercle de contrainte
-            if (hasOrigin) {
-                window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay', {
-                    detail: {
-                        gcCode: this.state.gcCode,
-                        geocacheId: this.state.geocacheId,
-                        circle: { centerLat: originLat, centerLon: originLon, radiusMeters }
-                    }
-                }));
-                return;
-            }
-            window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
-            return;
-        }
-
-        const values = valuesOverride ?? this.state.values;
-        const preview = this.getPreview({ north: formula.north, east: formula.east }, values);
-        const n = preview.north;
-        const e = preview.east;
-
-        const canBuildCandidate = !(n.minDecimalDegrees === undefined || n.maxDecimalDegrees === undefined ||
-            e.minDecimalDegrees === undefined || e.maxDecimalDegrees === undefined);
-
-        const candidateBounds = canBuildCandidate ? {
-            minLat: n.minDecimalDegrees!,
-            maxLat: n.maxDecimalDegrees!,
-            minLon: e.minDecimalDegrees!,
-            maxLon: e.maxDecimalDegrees!
-        } : undefined;
-
-        const makeKind = (b: { minLat: number; maxLat: number; minLon: number; maxLon: number }): 'point' | 'bbox' | 'line-lat' | 'line-lon' => {
-            const latSpan = Math.abs(b.maxLat - b.minLat);
-            const lonSpan = Math.abs(b.maxLon - b.minLon);
-            const eps = 1e-9;
-            if (latSpan < eps && lonSpan < eps) {
-                return 'point';
-            }
-            if (latSpan < eps) {
-                return 'line-lat';
-            }
-            if (lonSpan < eps) {
-                return 'line-lon';
-            }
-            return 'bbox';
-        };
-
-        const formatted = (n.status === 'valid' && e.status === 'valid')
-            ? `${n.display} ${e.display}`
-            : undefined;
-
-        let candidateRaw: any | undefined;
-        let candidateClipped: any | undefined;
-
-        if (candidateBounds) {
-            candidateRaw = { kind: makeKind(candidateBounds), bounds: candidateBounds, formatted };
-
-            if (hasOrigin) {
-                const clippedBounds = intersectBoundsWithCircleBBox(candidateBounds, originLat, originLon, radiusMeters);
-                if (clippedBounds) {
-                    // On calcule le kind sur la zone clippée (peut devenir ligne/point)
-                    candidateClipped = { kind: makeKind(clippedBounds), bounds: clippedBounds, formatted };
-                }
-            } else {
-                candidateClipped = undefined;
-            }
-        }
-
-        if (!candidateRaw && !candidateClipped && !hasOrigin) {
-            window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
-            return;
-        }
-
-        window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay', {
-            detail: {
+        const detail = this.previewMapOverlayEnabled
+            ? buildPreviewOverlayDetail({
                 gcCode: this.state.gcCode,
                 geocacheId: this.state.geocacheId,
-                circle: hasOrigin ? { centerLat: originLat, centerLon: originLon, radiusMeters } : undefined,
-                candidateRaw,
-                candidateClipped
-            }
-        }));
+                originLat: this.state.originLat,
+                originLon: this.state.originLon,
+                preview: formula ? this.getPreview(formula, valuesOverride ?? this.state.values) : undefined
+            })
+            : undefined;
+
+        window.dispatchEvent(detail
+            ? new CustomEvent('geoapp-map-formula-solver-preview-overlay', { detail })
+            : new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
     }
 
     /**
@@ -810,7 +742,7 @@ export class FormulaSolverWidget extends ReactWidget {
 
         try {
             const coords = this.state.result.coordinates;
-            const note = this.buildWaypointNote(coords);
+            const note = buildWaypointNote(this.state.selectedFormula, coords, this.state.values);
 
             this.dispatchWaypointCreation({
                 coords,
@@ -872,7 +804,7 @@ export class FormulaSolverWidget extends ReactWidget {
         }
 
         try {
-            const note = this.buildWaypointNote(result.coordinates, result.values);
+            const note = buildWaypointNote(this.state.selectedFormula, result.coordinates, result.values);
 
             this.dispatchWaypointCreation({
                 coords: result.coordinates,
@@ -904,7 +836,7 @@ export class FormulaSolverWidget extends ReactWidget {
     }): void {
         const { coords, note, title, pluginName, autoSave } = options;
 
-        const gcCoords = this.formatGeocachingCoordinates(coords.latitude, coords.longitude);
+        const gcCoords = formatGeocachingCoordinates(coords.latitude, coords.longitude);
 
         window.dispatchEvent(new CustomEvent('geoapp-plugin-add-waypoint', {
             detail: {
@@ -925,48 +857,6 @@ export class FormulaSolverWidget extends ReactWidget {
         } else {
             this.messageService.info(`${title}: formulaire de waypoint ouvert`);
         }
-    }
-
-    private buildWaypointNote(coords: { ddm?: string; dms?: string; decimal?: string }, valuesOverride?: Record<string, number>): string {
-        const formulaText = this.state.selectedFormula
-            ? `${this.state.selectedFormula.north} ${this.state.selectedFormula.east}`
-            : 'Formule inconnue';
-
-        let valuesText: string;
-        if (valuesOverride) {
-            const entries = Object.entries(valuesOverride)
-                .map(([letter, value]) => `${letter}=${value}`)
-                .join('\n');
-            valuesText = entries || 'Aucune valeur';
-        } else {
-            const valueEntries: Array<[string, LetterValue]> = Array.from(this.state.values.entries());
-            valuesText = valueEntries
-                .map(([letter, value]) => `${letter}=${value.value} (${value.rawValue}, type: ${value.type})`)
-                .join('\n');
-        }
-
-        const coordDetails = [coords.ddm, coords.dms, coords.decimal].filter(Boolean).join('\n');
-
-        return `Solution Formula Solver\n\nFormule:\n${formulaText}\n\nValeurs:\n${valuesText}\n\nCoordonnées:\n${coordDetails}`;
-    }
-
-    /**
-     * Convertit des coordonnées décimales au format Geocaching
-     */
-    private formatGeocachingCoordinates(lat: number, lon: number): string {
-        const latDir = lat >= 0 ? 'N' : 'S';
-        const lonDir = lon >= 0 ? 'E' : 'W';
-
-        const absLat = Math.abs(lat);
-        const absLon = Math.abs(lon);
-
-        const latDeg = Math.floor(absLat);
-        const latMin = (absLat - latDeg) * 60;
-
-        const lonDeg = Math.floor(absLon);
-        const lonMin = (absLon - lonDeg) * 60;
-
-        return `${latDir} ${latDeg}° ${latMin.toFixed(3)} ${lonDir} ${String(lonDeg).padStart(3, '0')}° ${lonMin.toFixed(3)}`;
     }
 
     /**
@@ -1243,15 +1133,6 @@ export class FormulaSolverWidget extends ReactWidget {
             this.messageService.error(`Erreur lors de l'extraction : ${message}`);
             this.updateState({ loading: false, error: message });
         }
-    }
-
-    /**
-     * Extrait les questions pour une formule
-     */
-    protected async extractQuestions(formula: Formula): Promise<void> {
-        // Backward-compat: l'ancien code appelait extractQuestions().
-        // La logique est désormais déléguée au pipeline rejouable.
-        await this.runQuestionsStep(formula);
     }
 
     protected async runQuestionsStep(
@@ -2021,89 +1902,13 @@ export class FormulaSolverWidget extends ReactWidget {
         if (!deduction) {
             return null;
         }
-
-        const { letters, candidates, possibleByLetter, tested } = deduction;
-        const certain = letters.filter(letter => possibleByLetter.get(letter)!.length === 1);
-        const formatAssignment = (assignedLetters: string[], source: Record<string, number>): string =>
-            assignedLetters.map(letter => `${letter}=${source[letter]}`).join(', ');
-        const applyLetters = (assignedLetters: string[], source: Record<string, number>): void => {
-            // Un chiffre déduit est une valeur directe, quel que soit le type de la lettre
-            this.setLetterValues(assignedLetters.map(letter => ({ letter, value: String(source[letter]) })), 'value');
-        };
-
         return (
-            <div className="fs-panel" style={{ padding: '12px', borderRadius: '4px', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                    <span className="codicon codicon-lightbulb" />
-                    <strong style={{ fontSize: '13px' }}>
-                        Déduction {letters.length > 1 ? 'des lettres manquantes' : 'de la lettre manquante'} ({letters.join(', ')})
-                    </strong>
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
-                    Chiffres de 0 à 9 qui donnent une coordonnée valide à moins de 2 miles de l'origine.
-                </div>
-
-                {candidates.length === 0 ? (
-                    <div style={{ fontSize: '12px', color: 'var(--theia-editorWarning-foreground)', display: 'flex', gap: '6px' }}>
-                        <span className="codicon codicon-warning" />
-                        <span>
-                            Aucun chiffre ne convient : une valeur déjà saisie est probablement fausse,
-                            ou {letters.length > 1 ? 'une de ces lettres' : 'cette lettre'} vaut plus de 9.
-                        </span>
-                    </div>
-                ) : (
-                    <>
-                        <div style={{ fontSize: '12px', fontFamily: 'var(--theia-code-font-family)', marginBottom: '8px' }}>
-                            {letters.map(letter => (
-                                <div key={letter}>
-                                    <strong>{letter}</strong> : {describeDigits(possibleByLetter.get(letter)!)}
-                                </div>
-                            ))}
-                        </div>
-
-                        {candidates.length === 1 ? (
-                            <div style={{ fontSize: '12px', marginBottom: '8px' }}>
-                                Une seule possibilité : <strong>{candidates[0].formatted}</strong>
-                                {' '}(à {candidates[0].distanceKm.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} km de l'origine)
-                            </div>
-                        ) : (
-                            <div style={{ fontSize: '12px', marginBottom: '8px' }}>
-                                {candidates.length} combinaisons possibles sur {tested}.
-                            </div>
-                        )}
-
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                            {candidates.length === 1 && (
-                                <button
-                                    className="fs-btn fs-btn--primary"
-                                    onClick={() => applyLetters(letters, candidates[0].values)}
-                                    title="Renseigne ces valeurs dans les champs"
-                                >
-                                    Appliquer {formatAssignment(letters, candidates[0].values)}
-                                </button>
-                            )}
-                            {candidates.length > 1 && certain.length > 0 && (
-                                <button
-                                    className="fs-btn fs-btn--primary"
-                                    onClick={() => applyLetters(certain, candidates[0].values)}
-                                    title="Seule valeur possible pour cette lettre, quelle que soit l'autre"
-                                >
-                                    Appliquer {formatAssignment(certain, candidates[0].values)}
-                                </button>
-                            )}
-                            {candidates.length > 1 && (
-                                <button
-                                    className="fs-btn fs-btn--secondary"
-                                    onClick={() => this.showDeductionCandidates(deduction)}
-                                    title="Liste les candidats et les place sur la carte"
-                                >
-                                    Afficher les {candidates.length} candidats
-                                </button>
-                            )}
-                        </div>
-                    </>
-                )}
-            </div>
+            <DeductionPanel
+                deduction={deduction}
+                // Un chiffre déduit est une valeur directe, quel que soit le type de la lettre
+                onApply={pairs => this.setLetterValues(pairs, 'value')}
+                onShowCandidates={() => this.showDeductionCandidates(deduction)}
+            />
         );
     }
 
@@ -2666,514 +2471,57 @@ export class FormulaSolverWidget extends ReactWidget {
         );
     }
 
-    /**
-     * Fil d'Ariane visuel : 3 étapes (Détecter / Questions / Calculer) avec statut
-     * (pending/current/done) dérivé des mêmes conditions que celles qui affichent
-     * réellement chaque section, pour ne jamais afficher une étape "faite" ou
-     * "accessible" qui ne le serait pas dans le rendu en dessous.
-     * Cliquer sur une étape accessible fait défiler jusqu'à sa section (les 3
-     * sections restent visibles simultanément : ce n'est pas un wizard qui
-     * masque les étapes précédentes, car la preview de l'étape 3 se met à jour
-     * en temps réel pendant la saisie des valeurs de l'étape 2).
-     */
     protected renderStepper(): React.ReactNode {
-        type StepStatus = 'pending' | 'current' | 'done';
-
-        const currentStep = this.state.currentStep;
-        // Mêmes conditions que les guards de render() pour detectionStep/questionsStep/calculateStep.
-        const reachableQuestions = currentStep !== 'detect';
-        const reachableCalculate = this.state.questions.length > 0;
-        // Le mode brute force ne fait jamais passer currentStep à 'calculate' (voir
-        // executeBruteForceFromCombinations) : on le traite aussi comme un succès.
-        const hasSuccessfulResult = currentStep === 'calculate' || this.bruteForceResults.length > 0;
-
-        const detectStatus: StepStatus = currentStep === 'detect' ? 'current' : 'done';
-        const questionsStatus: StepStatus = !reachableQuestions ? 'pending' : (hasSuccessfulResult ? 'done' : 'current');
-        const calculateStatus: StepStatus = !reachableCalculate ? 'pending' : (hasSuccessfulResult ? 'done' : 'current');
-
-        const steps: Array<{ label: string; status: StepStatus; reachable: boolean; anchorId: string }> = [
-            { label: 'Détecter', status: detectStatus, reachable: true, anchorId: 'formula-solver-step-detect' },
-            { label: 'Questions', status: questionsStatus, reachable: reachableQuestions, anchorId: 'formula-solver-step-questions' },
-            { label: 'Calculer', status: calculateStatus, reachable: reachableCalculate, anchorId: 'formula-solver-step-calculate' }
-        ];
-
-        const scrollToStep = (anchorId: string): void => {
-            if (typeof document === 'undefined') {
-                return;
-            }
-            document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        };
-
-        const colorsFor = (status: StepStatus, reachable: boolean): { circleBg: string; circleColor: string; circleBorder: string; labelColor: string } => {
-            if (!reachable) {
-                return {
-                    circleBg: 'transparent',
-                    circleColor: 'var(--theia-descriptionForeground)',
-                    circleBorder: 'var(--theia-panel-border)',
-                    labelColor: 'var(--theia-descriptionForeground)'
-                };
-            }
-            if (status === 'done') {
-                return {
-                    circleBg: 'var(--theia-successText)',
-                    circleColor: 'var(--theia-editor-background)',
-                    circleBorder: 'var(--theia-successText)',
-                    labelColor: 'var(--theia-foreground)'
-                };
-            }
-            if (status === 'current') {
-                return {
-                    circleBg: 'var(--theia-focusBorder)',
-                    circleColor: 'var(--theia-editor-background)',
-                    circleBorder: 'var(--theia-focusBorder)',
-                    labelColor: 'var(--theia-foreground)'
-                };
-            }
-            return {
-                circleBg: 'transparent',
-                circleColor: 'var(--theia-descriptionForeground)',
-                circleBorder: 'var(--theia-panel-border)',
-                labelColor: 'var(--theia-descriptionForeground)'
-            };
-        };
-
         return (
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
-                {steps.map((step, idx) => {
-                    const colors = colorsFor(step.status, step.reachable);
-                    const isLast = idx === steps.length - 1;
-                    const nextStepConnected = !isLast && steps[idx + 1].status !== 'pending';
-
-                    return (
-                        <React.Fragment key={step.anchorId}>
-                            <button
-                                onClick={() => step.reachable && scrollToStep(step.anchorId)}
-                                disabled={!step.reachable}
-                                title={step.reachable ? `Aller à l'étape « ${step.label} »` : `Étape « ${step.label} » pas encore accessible`}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    background: 'transparent',
-                                    border: 'none',
-                                    padding: '4px 6px',
-                                    cursor: step.reachable ? 'pointer' : 'default',
-                                    borderRadius: '4px'
-                                }}
-                            >
-                                <span style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '22px',
-                                    height: '22px',
-                                    borderRadius: '50%',
-                                    border: `2px solid ${colors.circleBorder}`,
-                                    backgroundColor: colors.circleBg,
-                                    color: colors.circleColor,
-                                    fontSize: '12px',
-                                    fontWeight: 'bold',
-                                    flexShrink: 0
-                                }}>
-                                    {step.status === 'done'
-                                        ? <span className="codicon codicon-check" style={{ fontSize: '12px' }} />
-                                        : idx + 1}
-                                </span>
-                                <span style={{
-                                    fontSize: '12px',
-                                    fontWeight: step.status === 'current' ? 'bold' : 'normal',
-                                    color: colors.labelColor
-                                }}>
-                                    {step.label}
-                                </span>
-                            </button>
-                            {!isLast && (
-                                <div style={{
-                                    flex: 1,
-                                    height: '2px',
-                                    backgroundColor: nextStepConnected ? 'var(--theia-successText)' : 'var(--theia-panel-border)',
-                                    margin: '0 6px',
-                                    minWidth: '16px'
-                                }} />
-                            )}
-                        </React.Fragment>
-                    );
-                })}
-            </div>
+            <Stepper
+                currentStep={this.state.currentStep}
+                questionsCount={this.state.questions.length}
+                bruteForceResultsCount={this.bruteForceResults.length}
+            />
         );
     }
 
-    /**
-     * Panneau listant toutes les sessions sauvegardées
-     */
     protected renderSessionsPanel(): React.ReactNode {
-        const sessions = this.savedSessionsIndex;
         return (
-            <div className="fs-panel" style={{
-                marginBottom: '16px',
-                padding: '12px 16px',
-                borderRadius: '6px'
-            }}>
-                <h4 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-                    <span className="codicon codicon-history" />
-                    Sessions sauvegardées
-                </h4>
-                {sessions.length === 0 ? (
-                    <EmptyState icon='codicon-save' title='Aucune session sauvegardée' />
-                ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {sessions.map(session => (
-                            <div key={session.geocacheId} style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-input-background)',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                gap: '12px'
-                            }}>
-                                <div>
-                                    <strong>{session.gcCode}</strong>
-                                    {session.geocacheName && (
-                                        <span style={{ color: 'var(--theia-descriptionForeground)', marginLeft: '6px' }}>
-                                            {session.geocacheName}
-                                        </span>
-                                    )}
-                                    <div style={{ color: 'var(--theia-descriptionForeground)', fontSize: '11px', marginTop: '2px' }}>
-                                        Sauvegardé le {FormulaSessionManager.formatDate(session.savedAt)}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
-                                    <button
-                                        className="theia-button"
-                                        onClick={() => {
-                                            this.restoreSession(session.geocacheId);
-                                            this.showSessionsPanel = false;
-                                        }}
-                                        style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                        title="Restaurer cette session"
-                                    >
-                                        <span className="codicon codicon-history" />
-                                        Restaurer
-                                    </button>
-                                    <button
-                                        onClick={() => this.deleteSession(session.geocacheId)}
-                                        title="Supprimer cette session"
-                                        style={{
-                                            padding: '4px 8px',
-                                            backgroundColor: 'transparent',
-                                            color: 'var(--theia-errorForeground)',
-                                            border: '1px solid var(--theia-errorForeground)',
-                                            borderRadius: '3px',
-                                            cursor: 'pointer',
-                                            fontSize: '11px',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px'
-                                        }}
-                                    >
-                                        <span className="codicon codicon-trash" />
-                                        Supprimer
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
+            <SessionsPanel
+                sessions={this.savedSessionsIndex}
+                onRestore={geocacheId => {
+                    this.restoreSession(geocacheId);
+                    this.showSessionsPanel = false;
+                }}
+                onDelete={geocacheId => this.deleteSession(geocacheId)}
+            />
         );
     }
 
-    /**
-     * Render du panneau de configuration des étapes (méthodes + profils)
-     */
     protected renderStepConfigPanel(): React.ReactNode {
-        const profileOptions: Array<{ id: FormulaSolverAiProfile; label: string }> = [
-            { id: 'local', label: 'Local (vérifié)' },
-            { id: 'fast', label: 'Fast' },
-            { id: 'strong', label: 'Strong' },
-            { id: 'web', label: 'Web' }
-        ];
-
-        const selectStyle: React.CSSProperties = {
-            padding: '6px 8px',
-            border: '1px solid var(--theia-dropdown-border)',
-            borderRadius: '3px',
-            backgroundColor: 'var(--theia-dropdown-background)',
-            color: 'var(--theia-dropdown-foreground)',
-            fontSize: '12px'
-        };
-
-        if (!this.stepConfigPanelOpen) {
-            return (
-                <button
-                    className="fs-btn fs-btn--icon fs-btn--secondary"
-                    onClick={() => {
-                        this.stepConfigPanelOpen = true;
-                        this.update();
-                    }}
-                    title="Afficher les options (méthodes / profils IA). Ces réglages sont sauvegardés automatiquement comme valeurs par défaut."
-                >
-                    <span className="codicon codicon-settings-gear" />
-                    Options IA
-                </button>
-            );
-        }
-
         return (
-            <div style={{
-                display: 'flex',
-                alignItems: 'stretch',
-                gap: '10px',
-                flexWrap: 'wrap'
-            }}>
-                <button
-                    className="fs-btn fs-btn--icon fs-btn--outline"
-                    onClick={() => {
-                        this.stepConfigPanelOpen = false;
-                        this.update();
-                    }}
-                    title="Replier les options"
-                >
-                    <span className="codicon codicon-chevron-up" />
-                    Replier
-                </button>
-
-                <div className="fs-panel" style={{
-                    display: 'flex',
-                    gap: '10px',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    alignItems: 'center',
-                    flexWrap: 'wrap'
-                }}>
-                    <strong style={{ fontSize: '12px' }}>Formule</strong>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.formulaDetectionMethod}
-                        onChange={e => this.updateAndPersistStepConfig({ formulaDetectionMethod: e.target.value as FormulaDetectionMethod })}
-                        title="Méthode de l'étape Formule"
-                    >
-                        <option value="algorithm">Algorithme</option>
-                        <option value="ai">IA</option>
-                        <option value="manual">Manuel</option>
-                    </select>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.aiProfileForFormula}
-                        onChange={e => this.updateAndPersistStepConfig({ aiProfileForFormula: e.target.value as FormulaSolverAiProfile })}
-                        disabled={this.stepConfig.formulaDetectionMethod !== 'ai'}
-                        title="Profil IA pour l'étape Formule"
-                    >
-                        {profileOptions.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-                </div>
-
-                <div className="fs-panel" style={{
-                    display: 'flex',
-                    gap: '10px',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    alignItems: 'center',
-                    flexWrap: 'wrap'
-                }}>
-                    <strong style={{ fontSize: '12px' }}>Questions</strong>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.questionsMethod}
-                        onChange={e => this.updateAndPersistStepConfig({ questionsMethod: e.target.value as QuestionsMethod })}
-                        title="Méthode de l'étape Questions"
-                    >
-                        <option value="algorithm">Algorithme</option>
-                        <option value="ai">IA</option>
-                        <option value="none">Aucune</option>
-                    </select>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.aiProfileForQuestions}
-                        onChange={e => this.updateAndPersistStepConfig({ aiProfileForQuestions: e.target.value as FormulaSolverAiProfile })}
-                        disabled={this.stepConfig.questionsMethod !== 'ai'}
-                        title="Profil IA pour l'étape Questions"
-                    >
-                        {profileOptions.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-                </div>
-
-                <div className="fs-panel" style={{
-                    display: 'flex',
-                    gap: '10px',
-                    padding: '10px',
-                    borderRadius: '6px',
-                    alignItems: 'center',
-                    flexWrap: 'wrap'
-                }}>
-                    <strong style={{ fontSize: '12px' }}>Réponses</strong>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.answersMode}
-                        onChange={e => this.updateAndPersistStepConfig({ answersMode: e.target.value as AnswersMode })}
-                        title="Mode de l'étape Réponses"
-                    >
-                        <option value="manual">Manuel</option>
-                        <option value="ai-bulk">IA (en masse)</option>
-                        <option value="ai-per-question">IA (par question)</option>
-                    </select>
-                    <select
-                        style={selectStyle}
-                        value={this.answersEngine}
-                        onChange={e => {
-                            // Volontairement non persisté : ce choix dépend souvent de la
-                            // géocache en cours, pas d'une préférence globale par défaut.
-                            this.answersEngine = e.target.value as AnswersEngine;
-                            this.update();
-                        }}
-                        disabled={this.stepConfig.answersMode === 'manual'}
-                        title="Moteur de réponse (IA ou recherche web backend) — choix pour la session en cours, non mémorisé"
-                    >
-                        <option value="ai">IA</option>
-                        <option value="backend-web-search">Recherche web (backend)</option>
-                    </select>
-                    <select
-                        style={selectStyle}
-                        value={this.stepConfig.aiProfileForAnswers}
-                        onChange={e => this.updateAndPersistStepConfig({ aiProfileForAnswers: e.target.value as FormulaSolverAiProfile })}
-                        disabled={this.stepConfig.answersMode === 'manual' || this.answersEngine !== 'ai'}
-                        title="Profil IA pour l'étape Réponses"
-                    >
-                        {profileOptions.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                    </select>
-
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                        <input
-                            type="checkbox"
-                            checked={this.webSearchEnabled}
-                            onChange={e => this.setWebSearchEnabled(e.target.checked)}
-                        />
-                        Web
-                    </label>
-                    <input
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={this.webMaxResults}
-                        onChange={e => {
-                            const parsed = parseInt(e.target.value, 10);
-                            this.setWebMaxResults(isNaN(parsed) ? 5 : Math.max(1, Math.min(10, parsed)));
-                        }}
-                        style={{ ...selectStyle, width: '70px' }}
-                        title="Nombre max de résultats web"
-                        disabled={!this.webSearchEnabled}
-                    />
-                </div>
-            </div>
+            <StepConfigPanel
+                open={this.stepConfigPanelOpen}
+                onToggleOpen={open => {
+                    this.stepConfigPanelOpen = open;
+                    this.update();
+                }}
+                stepConfig={this.stepConfig}
+                onStepConfigChange={partial => this.updateAndPersistStepConfig(partial)}
+                answersEngine={this.answersEngine}
+                onAnswersEngineChange={engine => {
+                    this.answersEngine = engine;
+                    this.update();
+                }}
+                webSearchEnabled={this.webSearchEnabled}
+                onWebSearchEnabledChange={enabled => this.setWebSearchEnabled(enabled)}
+                webMaxResults={this.webMaxResults}
+                onWebMaxResultsChange={maxResults => this.setWebMaxResults(maxResults)}
+            />
         );
     }
 
-    /**
-     * Bouton "split" : action principale + caret ouvrant un menu d'actions alternatives.
-     * Remplace des groupes de boutons redondants (ex: "Répondre (auto)" / "Répondre
-     * (écraser)" / "Réponses (IA)" / "Réponses (Web)") par un seul contrôle compact.
-     */
-    protected renderSplitButton(options: {
-        id: string;
-        label: string;
-        title: string;
-        onClick: () => void;
-        disabled?: boolean;
-        loading?: boolean;
-        primary?: boolean;
-        isMenuOpen: boolean;
-        onToggleMenu: () => void;
-        menuItems: Array<{ label: string; title?: string; onClick: () => void }>;
-    }): React.ReactNode {
-        const { id, label, title, onClick, disabled, loading, primary, isMenuOpen, onToggleMenu, menuItems } = options;
-        const backgroundColor = primary ? 'var(--theia-button-background)' : 'var(--theia-button-secondaryBackground)';
-        const color = primary ? 'var(--theia-button-foreground)' : 'var(--theia-button-secondaryForeground)';
-
-        return (
-            <div data-fs-menu-root={id} style={{ position: 'relative', display: 'inline-flex' }}>
-                <button
-                    style={{
-                        padding: '6px 10px',
-                        backgroundColor,
-                        color,
-                        border: 'none',
-                        borderRadius: '4px 0 0 4px',
-                        cursor: disabled ? 'default' : 'pointer',
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}
-                    onClick={onClick}
-                    disabled={disabled}
-                    title={title}
-                >
-                    {loading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
-                    {label}
-                </button>
-                <button
-                    style={{
-                        padding: '6px 6px',
-                        backgroundColor,
-                        color,
-                        border: 'none',
-                        borderLeft: '1px solid var(--theia-panel-border)',
-                        borderRadius: '0 4px 4px 0',
-                        cursor: disabled ? 'default' : 'pointer',
-                        fontSize: '12px'
-                    }}
-                    onClick={onToggleMenu}
-                    disabled={disabled}
-                    title="Autres options"
-                >
-                    <span className="codicon codicon-chevron-down" />
-                </button>
-
-                {isMenuOpen && (
-                    <div style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: 0,
-                        marginTop: '4px',
-                        backgroundColor: 'var(--theia-dropdown-background)',
-                        border: '1px solid var(--theia-dropdown-border)',
-                        borderRadius: '4px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                        zIndex: 10,
-                        minWidth: '220px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden'
-                    }}>
-                        {menuItems.map((item, idx) => (
-                            <button
-                                key={idx}
-                                className="formula-solver-menu-item"
-                                style={{
-                                    padding: '8px 12px',
-                                    backgroundColor: 'transparent',
-                                    color: 'var(--theia-dropdown-foreground)',
-                                    border: 'none',
-                                    textAlign: 'left',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    whiteSpace: 'nowrap'
-                                }}
-                                onClick={item.onClick}
-                                title={item.title}
-                            >
-                                {item.label}
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
+    protected renderSplitButton(options: SplitButtonProps): React.ReactNode {
+        return <SplitButton {...options} />;
     }
 
-    protected getLatestFormulaExecution(stage: 'detection' | 'questions' | 'answers'): NonNullable<ReturnType<GeoAppAiExecutionService['getLatestExecution']>> | undefined {
+    protected getLatestFormulaExecution(stage: 'detection' | 'questions' | 'answers'): AiExecution | undefined {
         const operationPrefixes: Record<typeof stage, string[]> = {
             detection: ['formula-détection-formules-'],
             questions: ['formula-extraction-questions-'],
@@ -3185,57 +2533,8 @@ export class FormulaSolverWidget extends ReactWidget {
             .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
     }
 
-    protected renderAiExecutionBadge(label: string, execution?: NonNullable<ReturnType<GeoAppAiExecutionService['getLatestExecution']>>): React.ReactNode {
-        if (!execution) {
-            return null;
-        }
-        const statusLabel = {
-            running: 'en cours',
-            succeeded: 'succès',
-            failed: 'échec',
-            cancelled: 'annulée',
-        }[execution.status];
-        const model = execution.reportedModel || execution.resolution.displayModel || execution.resolution.resolvedModelId || 'modèle inconnu';
-        const provider = execution.reportedProvider || execution.resolution.provider;
-        const duration = typeof execution.durationMs === 'number'
-            ? `${(execution.durationMs / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`
-            : undefined;
-        const usage = execution.tokenUsage
-            ? `Tokens : ${execution.tokenUsage.inputTokens ?? '?'} entrée / ${execution.tokenUsage.outputTokens ?? '?'} sortie`
-            : undefined;
-        const title = [
-            `Tâche : ${execution.taskLabel}`,
-            `Statut : ${statusLabel}`,
-            provider ? `Fournisseur : ${provider}` : undefined,
-            `Modèle : ${model}`,
-            usage,
-            execution.errorCode ? `Code : ${execution.errorCode}` : undefined,
-            execution.errorMessage ? `Erreur : ${execution.errorMessage}` : undefined,
-        ].filter(Boolean).join('\n');
-        const color = execution.status === 'failed'
-            ? 'var(--theia-errorForeground, #f87171)'
-            : execution.status === 'cancelled'
-                ? 'var(--theia-charts-orange, #d18616)'
-                : execution.status === 'succeeded'
-                    ? 'var(--theia-charts-green, #4ade80)'
-                    : 'var(--theia-charts-blue, #3794ff)';
-        return (
-            <span
-                style={{
-                    border: `1px solid ${color}`,
-                    borderRadius: '10px',
-                    color,
-                    display: 'inline-flex',
-                    fontSize: '11px',
-                    padding: '2px 8px',
-                    whiteSpace: 'nowrap',
-                }}
-                title={title}
-                aria-label={title}
-            >
-                {label} · {statusLabel} · {model}{duration ? ` · ${duration}` : ''}
-            </span>
-        );
+    protected renderAiExecutionBadge(label: string, execution?: AiExecution): React.ReactNode {
+        return <AiExecutionBadge label={label} execution={execution} />;
     }
 
     protected renderDetectionStep(): React.ReactNode {
@@ -3376,7 +2675,7 @@ export class FormulaSolverWidget extends ReactWidget {
                                 currentStep: 'questions'
                             });
                             this.updateMapPreviewOverlay(new Map());
-                            void this.extractQuestions(formula);
+                            void this.runQuestionsStep(formula);
                         }}
                         onEditFormula={(formula, north, east) => this.handleEditFormula(formula, north, east)}
                         loading={this.state.loading}
@@ -3526,206 +2825,52 @@ export class FormulaSolverWidget extends ReactWidget {
                     </div>
 
                     {this.bulkValuesOpen && (
-                        <div style={{
-                            padding: '10px',
-                            backgroundColor: 'var(--theia-input-background)',
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: '4px',
-                            marginBottom: '12px'
-                        }}>
-                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
-                                Saisie groupée des valeurs
-                            </div>
-                            <textarea
-                                autoFocus
-                                value={this.bulkValuesText}
-                                onChange={e => {
-                                    this.bulkValuesText = e.target.value;
-                                    this.update();
-                                }}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                                        e.preventDefault();
-                                        this.applyBulkValues();
-                                    }
-                                }}
-                                placeholder={'A=3, B=7, C=12\nou une lettre par ligne :\nD = Tour Eiffel'}
-                                style={{
-                                    width: '100%',
-                                    minHeight: '70px',
-                                    padding: '8px 10px',
-                                    fontFamily: 'var(--theia-code-font-family)',
-                                    backgroundColor: 'var(--theia-editor-background)',
-                                    color: 'var(--theia-foreground)',
-                                    border: '1px solid var(--theia-input-border)',
-                                    borderRadius: '4px'
-                                }}
-                            />
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
-                                <button
-                                    className="fs-btn fs-btn--primary"
-                                    onClick={() => this.applyBulkValues()}
-                                    disabled={!this.bulkValuesText.trim()}
-                                    title="Remplace la valeur des lettres citées (Ctrl+Entrée)"
-                                >
-                                    Appliquer
-                                </button>
-                                <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
-                                    Remplace la valeur des lettres citées ; le type de calcul de chaque lettre est conservé.
-                                </span>
-                            </div>
-                        </div>
+                        <BulkValuesPanel
+                            text={this.bulkValuesText}
+                            onTextChange={text => {
+                                this.bulkValuesText = text;
+                                this.update();
+                            }}
+                            onApply={() => this.applyBulkValues()}
+                        />
                     )}
 
                     {this.questionsAiHintOpen && (
-                        <div style={{
-                            padding: '10px',
-                            backgroundColor: 'var(--theia-input-background)',
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: '4px',
-                            marginBottom: '12px'
-                        }}>
-                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
-                                Indice (optionnel) pour l’IA lors de l’extraction des questions
-                            </div>
-                            <textarea
-                                value={this.questionsAiUserHint}
-                                onChange={e => {
-                                    this.questionsAiUserHint = e.target.value;
-                                    this.update();
-                                }}
-                                placeholder="Ex: Le listing est sous la forme 'A = ...' / 'B = ...'. Ne renvoie pas des numéros, renvoie la consigne textuelle."
-                                style={{
-                                    width: '100%',
-                                    minHeight: '70px',
-                                    padding: '8px 10px',
-                                    fontFamily: 'var(--theia-code-font-family)',
-                                    backgroundColor: 'var(--theia-editor-background)',
-                                    color: 'var(--theia-foreground)',
-                                    border: '1px solid var(--theia-input-border)',
-                                    borderRadius: '4px'
-                                }}
-                            />
-                        </div>
-                    )}
-
-                    <div className="fs-panel" style={{
-                        padding: '10px',
-                        borderRadius: '4px',
-                        marginBottom: '12px'
-                    }}>
-                        <button
-                            style={{
-                                width: '100%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: 0,
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--theia-foreground)',
-                                cursor: 'pointer',
-                                fontWeight: 'bold'
-                            }}
-                            onClick={() => {
-                                this.answeringContextOpen = !this.answeringContextOpen;
+                        <QuestionsHintPanel
+                            value={this.questionsAiUserHint}
+                            onChange={value => {
+                                this.questionsAiUserHint = value;
                                 this.update();
                             }}
-                            title={this.answeringContextOpen ? 'Replier' : 'Déplier'}
-                        >
-                            <span>IA : Contexte & consignes de réponse</span>
-                            <span className={`codicon ${this.answeringContextOpen ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} />
-                        </button>
+                        />
+                    )}
 
-                        {this.answeringContextOpen && (
-                            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                                    <button
-                                        className="fs-btn fs-btn--primary"
-                                        disabled={this.state.loading}
-                                        onClick={() => void this.refreshAnsweringContext(false)}
-                                        title="Construit (ou relit du cache) le contexte IA"
-                                    >
-                                        Charger / rafraîchir
-                                    </button>
-                                    <button
-                                        className="fs-btn fs-btn--secondary"
-                                        disabled={this.state.loading}
-                                        onClick={() => void this.refreshAnsweringContext(true)}
-                                        title="Force le recalcul du contexte IA (ignore le cache)"
-                                    >
-                                        Forcer recalcul
-                                    </button>
-
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={this.answeringContextUseOverride}
-                                            onChange={e => {
-                                                this.answeringContextUseOverride = e.target.checked;
-                                                this.update();
-                                            }}
-                                        />
-                                        Utiliser mon contexte (override)
-                                    </label>
-                                </div>
-
-                                <div>
-                                    <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
-                                        Contexte IA (JSON) – modifiable
-                                    </div>
-                                    <textarea
-                                        value={this.answeringContextJson}
-                                        onChange={e => {
-                                            this.answeringContextJson = e.target.value;
-                                            this.parseAnsweringContextOverrideFromJson();
-                                            this.update();
-                                        }}
-                                        placeholder='{"geocache_summary":"","global_rules":[],"per_letter_rules":{}}'
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '160px',
-                                            padding: '8px 10px',
-                                            fontFamily: 'var(--theia-code-font-family)',
-                                            backgroundColor: 'var(--theia-input-background)',
-                                            color: 'var(--theia-input-foreground)',
-                                            border: `1px solid ${this.answeringContextJsonError ? 'var(--theia-errorForeground)' : 'var(--theia-input-border)'}`,
-                                            borderRadius: '4px'
-                                        }}
-                                    />
-                                    {this.answeringContextJsonError && (
-                                        <div style={{ marginTop: '6px', color: 'var(--theia-errorForeground)', fontSize: '12px' }}>
-                                            ⚠️ {this.answeringContextJsonError}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
-                                        Instructions supplémentaires (ajoutées à chaque question)
-                                    </div>
-                                    <textarea
-                                        value={this.answeringAdditionalInstructions}
-                                        onChange={e => {
-                                            this.answeringAdditionalInstructions = e.target.value;
-                                            this.update();
-                                        }}
-                                        placeholder="Ex: Respecte la casse exacte, conserve les accents, ne mets pas d'article, etc."
-                                        style={{
-                                            width: '100%',
-                                            minHeight: '70px',
-                                            padding: '8px 10px',
-                                            fontFamily: 'var(--theia-code-font-family)',
-                                            backgroundColor: 'var(--theia-input-background)',
-                                            color: 'var(--theia-input-foreground)',
-                                            border: '1px solid var(--theia-input-border)',
-                                            borderRadius: '4px'
-                                        }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <AnsweringContextPanel
+                        open={this.answeringContextOpen}
+                        onToggleOpen={() => {
+                            this.answeringContextOpen = !this.answeringContextOpen;
+                            this.update();
+                        }}
+                        loading={this.state.loading}
+                        onRefresh={force => void this.refreshAnsweringContext(force)}
+                        useOverride={this.answeringContextUseOverride}
+                        onUseOverrideChange={useOverride => {
+                            this.answeringContextUseOverride = useOverride;
+                            this.update();
+                        }}
+                        json={this.answeringContextJson}
+                        jsonError={this.answeringContextJsonError}
+                        onJsonChange={json => {
+                            this.answeringContextJson = json;
+                            this.parseAnsweringContextOverrideFromJson();
+                            this.update();
+                        }}
+                        additionalInstructions={this.answeringAdditionalInstructions}
+                        onAdditionalInstructionsChange={instructions => {
+                            this.answeringAdditionalInstructions = instructions;
+                            this.update();
+                        }}
+                    />
 
                     {this.state.questions.length === 0 ? (
                         <EmptyState
@@ -3887,38 +3032,4 @@ export class FormulaSolverWidget extends ReactWidget {
         );
     }
 
-}
-
-function intersectBoundsWithCircleBBox(
-    bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number },
-    centerLat: number,
-    centerLon: number,
-    radiusMeters: number
-): { minLat: number; maxLat: number; minLon: number; maxLon: number } | undefined {
-    // Approximation suffisante pour 2 miles: conversion mètres -> degrés
-    const latRad = (centerLat * Math.PI) / 180;
-    const metersPerDegreeLat = 111_320;
-    const metersPerDegreeLon = Math.max(1, metersPerDegreeLat * Math.cos(latRad));
-
-    const dLat = radiusMeters / metersPerDegreeLat;
-    const dLon = radiusMeters / metersPerDegreeLon;
-
-    const circleBBox = {
-        minLat: centerLat - dLat,
-        maxLat: centerLat + dLat,
-        minLon: centerLon - dLon,
-        maxLon: centerLon + dLon
-    };
-
-    const clipped = {
-        minLat: Math.max(bounds.minLat, circleBBox.minLat),
-        maxLat: Math.min(bounds.maxLat, circleBBox.maxLat),
-        minLon: Math.max(bounds.minLon, circleBBox.minLon),
-        maxLon: Math.min(bounds.maxLon, circleBBox.maxLon)
-    };
-
-    if (clipped.minLat > clipped.maxLat || clipped.minLon > clipped.maxLon) {
-        return undefined;
-    }
-    return clipped;
 }

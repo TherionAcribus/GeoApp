@@ -14,12 +14,6 @@
  * Exemple : `1-3,7,>=8` → 1, 2, 3, 7, 8, 9.
  */
 
-export interface ValueRange {
-    letter: string;
-    pattern: string;
-    values: number[];
-}
-
 /** Au-delà, un pattern est refusé plutôt que développé (`0-99999999`). */
 export const MAX_VALUES_PER_PATTERN = 1000;
 
