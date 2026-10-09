@@ -125,7 +125,8 @@ class FormulaQuestionsService:
             # Format: Question ... (A) ?  (la lettre en fin de ligne, entre parenthèses)
             # Exemple: "Coté artistique ... (A) ?"
             # Note: On limite volontairement à une seule ligne pour éviter les faux positifs.
-            rf'(?:^|\n)\s*([^\n]{5,200}?)\s*\(\s*({letters_pattern})\s*\)\s*[?!\.…]*\s*(?=\n|$)',
+            # (accolades doublées : dans une f-string, {5,200} serait évalué comme un tuple)
+            rf'(?:^|\n)\s*([^\n]{{5,200}}?)\s*\(\s*({letters_pattern})\s*\)\s*[?!\.…]*\s*(?=\n|$)',
             
             # Format: Question A:  (la lettre après le texte) - DERNIÈRE PRIORITÉ
             # Exemple: "Nombre de fenêtres A:"
@@ -212,9 +213,11 @@ class FormulaQuestionsService:
                 if description:
                     description = self._clean_html(description)
 
-            # Fallback final vers description
+            # Fallback final vers description (qui peut contenir du HTML)
             if not description:
                 description = getattr(geocache, 'description', None)
+                if description:
+                    description = self._clean_html(description)
 
             if description:
                 content_parts.append("=== DESCRIPTION PRINCIPALE ===\n")

@@ -751,3 +751,15 @@ Changements de comportement :
 `formatValueList()` (inutilisée) est supprimée ; `formatValues()` sert à décrire un pattern dans le panneau (« 6 valeurs : 1-3, 7-9 »).
 
 Tests : `src/browser/tests/value-pattern.test.ts` (chaque pattern donne les mêmes valeurs dans le panneau et dans le champ Valeur).
+
+---
+
+## 23. Défauts révélés par les tests backend en échec (octobre 2026)
+
+Sept tests backend du Formula Solver échouaient depuis avant ce chantier. Ils cachaient trois défauts réels :
+
+- **Format « Question … (A) ? » jamais reconnu** (`formula_questions_service.py`). Le pattern était écrit dans une f-string avec `{5,200}` au lieu de `{{5,200}}` : Python évaluait l'accolade comme un tuple et insérait le texte `(5, 200)` dans la regex, qui ne pouvait donc rien trouver. Les questions dont la lettre est entre parenthèses en fin de ligne sont maintenant extraites.
+- **Description HTML non nettoyée** (`_prepare_content_for_analysis()`). Quand une géocache n'a ni `description_raw` ni `description_html`, le champ `description` était utilisé tel quel ; s'il contenait du HTML, les balises empêchaient de repérer « A. … » en début de ligne. Il passe maintenant par `_clean_html()`, comme les deux autres.
+- **Repli de la détection dépendant du dossier de lancement** (`_execute_formula_parser()`). Quand le PluginManager ne fournit pas `formula_parser`, le repli faisait `from plugins.official.formula_parser…`, qui ne fonctionne que si la racine du dépôt est dans `sys.path` — donc pas quand le backend est lancé depuis `backend/`. `_load_formula_parser_fallback()` charge maintenant le plugin par son chemin (`PLUGINS_DIR` ou `<dépôt>/plugins`).
+
+Le quatrième cas était un jeu de test périmé : `MockGeocache` n'avait pas d'`id`, attribut par lequel le service reconnaît une géocache.

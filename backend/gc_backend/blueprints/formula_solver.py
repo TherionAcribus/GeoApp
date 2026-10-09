@@ -3,7 +3,9 @@ Blueprint Formula Solver
 Routes API pour la résolution de formules de coordonnées GPS
 """
 
+import importlib.util
 import unicodedata
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, jsonify, current_app
 from loguru import logger
@@ -55,9 +57,29 @@ def _execute_formula_parser(text: str):
             return result
         logger.warning("Plugin formula_parser indisponible via PluginManager, fallback direct")
 
-    from plugins.official.formula_parser.main import execute as execute_formula_parser
+    return _load_formula_parser_fallback()({'text': text})
 
-    return execute_formula_parser({'text': text})
+
+_formula_parser_fallback = None
+
+
+def _load_formula_parser_fallback():
+    """
+    Charge le plugin formula_parser depuis son fichier, sans passer par le PluginManager.
+
+    Le chargement se fait par chemin et non par `import plugins...` : le dossier
+    `plugins/` est à la racine du dépôt, qui n'est dans `sys.path` que si le
+    backend est lancé depuis cette racine.
+    """
+    global _formula_parser_fallback
+    if _formula_parser_fallback is None:
+        plugins_dir = current_app.config.get('PLUGINS_DIR') or Path(__file__).resolve().parents[3] / 'plugins'
+        main_path = Path(plugins_dir) / 'official' / 'formula_parser' / 'main.py'
+        spec = importlib.util.spec_from_file_location('geoapp_formula_parser_fallback', main_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _formula_parser_fallback = module.execute
+    return _formula_parser_fallback
 
 
 def _get_geocache_text(geocache, include_waypoints: bool = True) -> str:

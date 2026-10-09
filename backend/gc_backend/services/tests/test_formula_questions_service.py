@@ -13,6 +13,8 @@ class MockGeocache:
     """Mock d'une géocache pour les tests"""
     
     def __init__(self, description="", waypoints=None, hint=""):
+        # Le service reconnaît une géocache à la présence d'un `id`
+        self.id = 1
         self.description = description
         self.additional_waypoints = waypoints or []
         self.hint = hint
