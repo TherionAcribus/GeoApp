@@ -147,7 +147,9 @@ L'ordre de rendu (`GeocacheDetailsView`) :
    - **split-button Chat IA** affichant le profil effectif + menu de sélection de profil (`Auto`/`Fast`/`Strong`/`Web`/`Local`) ;
    - **Chat Libre** ;
    - groupe **Logs / Loguer / Notes** (avec compteur de notes) ;
-   - bouton **rafraîchir** et bouton **statut d'archive** (couleur/icône selon l'état).
+   - menu **« ⋯ » Plus d'actions**, à droite de la barre collante : rafraîchir la géocache, ouvrir sur Geocaching.com, (re)synchroniser l'archive. Le bouton porte l'état « en cours » (icône animée) pendant un rafraîchissement ou une synchronisation.
+
+   La **ligne d'info** sous la barre ne porte que deux raccourcis, sur l'info elle-même — le **code GC** ouvre la fiche Geocaching.com, la pastille **« Non archivée »** lance la synchronisation de l'archive : l'identité (code, type, D/T, propriétaire) puis les statuts (trouvée, résolution, archivée / désactivée, et « Non archivée » uniquement quand l'archive est à synchroniser).
 2. **Overview** (`GeocacheOverviewSection`) : carte « Statistiques » (D/T en étoiles, taille, favoris, nombre de logs, date de pose, résumé des logs, attributs) + carte « Coordonnées » (`CoordinatesEditor`).
 3. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
 4. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
@@ -230,7 +232,7 @@ par chunk que le prompt part. Voir `documentation/lexique-geocaching-technique.m
 
 ### Statut d'archive
 
-`GeocacheDetailsArchiveController` mappe la réponse backend en `synced` / `needs_sync` / `none`. Le bouton du header déclenche `forceSyncArchive()`.
+`GeocacheDetailsArchiveController` mappe la réponse backend en `synced` / `needs_sync` / `none`. L'entrée « Synchroniser l'archive » du menu « ⋯ » déclenche `forceSyncArchive()` ; seul l'état `needs_sync` reste affiché en permanence, par la pastille cliquable « Non archivée » de la ligne d'info, qui déclenche la même action.
 
 ### Navigation inter-widgets
 
@@ -266,7 +268,7 @@ Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieu
 ## UX & accessibilité
 
 - **Indicateur de rechargement discret** : pas de flash ni de perte de scroll lors des rechargements déclenchés par une action.
-- **Menus cohérents** : « Analyser » et « profil de chat » se ferment tous deux au clic extérieur **et** à la touche **Échap**.
+- **Menus cohérents** : « Analyser », « profil de chat », « statut de résolution » et « ⋯ » se ferment au clic extérieur **et** à la touche **Échap**, via le hook commun `useMenuDismiss` (`geocache-details-sections.tsx`).
 - **Accessibilité des menus** : déclencheurs avec `aria-haspopup='menu'` + `aria-expanded` ; conteneurs `role='menu'` ; items `role='menuitem'` / `role='menuitemradio'` (`aria-checked`) focusables (`tabIndex`), activables au clavier (Enter/Espace), `aria-disabled` si désactivés.
 - **Boutons icône-seule** (`▾`, `🔄`) : `aria-label` explicite ; emojis purement décoratifs marqués `aria-hidden='true'`.
 - **Confirmations** : suppression de waypoint, push vers GC.com, écrasement d'overrides par traduction et stockage local des images passent par une `ConfirmDialog`.

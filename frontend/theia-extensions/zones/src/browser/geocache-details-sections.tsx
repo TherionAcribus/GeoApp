@@ -26,6 +26,29 @@ type ChatProfileOption = {
     description?: string;
 };
 
+/** Ferme un menu déroulant au clic hors de `ref` et à la touche Échap. */
+function useMenuDismiss(isOpen: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void): void {
+    const closeRef = React.useRef(close);
+    closeRef.current = close;
+    React.useEffect(() => {
+        if (!isOpen) { return; }
+        const handleClickOutside = (event: MouseEvent): void => {
+            if (ref.current && !ref.current.contains(event.target as Node)) {
+                closeRef.current();
+            }
+        };
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') { closeRef.current(); }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isOpen, ref]);
+}
+
 interface GeocacheDetailsHeaderProps {
     geocacheData: GeocacheDto;
     notesCount?: number;
@@ -121,37 +144,24 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onNavigateZoneNext,
     onUpdateSolvedStatus
 }) => {
-    const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
-    const archiveColor = getArchiveColor(archiveStatus);
-    const archiveLabel = getArchiveLabel(archiveStatus);
-    const archiveIconClass = getArchiveIconClass(archiveStatus);
-
     const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
     const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
     const chatProfileMenuRef = React.useRef<HTMLDivElement>(null);
+    useMenuDismiss(isAnalyzeMenuOpen, analyzeMenuRef, () => setIsAnalyzeMenuOpen(false));
+    useMenuDismiss(isChatProfileMenuOpen, chatProfileMenuRef, onCloseChatProfileMenu);
+
+    // --- Menu « Plus d'actions » (rafraîchir, GC.com, archive) ---
+    const [isMoreMenuOpen, setIsMoreMenuOpen] = React.useState(false);
+    const moreMenuRef = React.useRef<HTMLDivElement>(null);
+    useMenuDismiss(isMoreMenuOpen, moreMenuRef, () => setIsMoreMenuOpen(false));
+    const isArchiveBusy = archiveStatus === 'loading' || isSyncingArchive;
+    const isMoreBusy = isRefreshing || isSyncingArchive;
 
     // --- Badge statut de résolution (menu Non résolu / En cours / Résolu) ---
     const solvedStatus = geocacheData.solved ?? 'not_solved';
     const [solvedMenuOpen, setSolvedMenuOpen] = React.useState(false);
     const solvedMenuRef = React.useRef<HTMLDivElement>(null);
-
-    React.useEffect(() => {
-        if (!solvedMenuOpen) { return; }
-        const handleClickOutside = (event: MouseEvent): void => {
-            if (solvedMenuRef.current && !solvedMenuRef.current.contains(event.target as Node)) {
-                setSolvedMenuOpen(false);
-            }
-        };
-        const handleKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') { setSolvedMenuOpen(false); }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [solvedMenuOpen]);
+    useMenuDismiss(solvedMenuOpen, solvedMenuRef, () => setSolvedMenuOpen(false));
 
     const solvedMeta: Record<GeocacheSolvedStatus, { label: string; iconClass: string; color: string; filled: boolean }> = {
         solved: { label: 'Résolu', iconClass: 'codicon codicon-check', color: 'var(--theia-charts-green, #10b981)', filled: true },
@@ -231,42 +241,6 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
         }
     ];
 
-    React.useEffect(() => {
-        if (!isAnalyzeMenuOpen) { return; }
-        const handleClickOutside = (event: MouseEvent): void => {
-            if (analyzeMenuRef.current && !analyzeMenuRef.current.contains(event.target as Node)) {
-                setIsAnalyzeMenuOpen(false);
-            }
-        };
-        const handleKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') { setIsAnalyzeMenuOpen(false); }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [isAnalyzeMenuOpen]);
-
-    React.useEffect(() => {
-        if (!isChatProfileMenuOpen) { return; }
-        const handleClickOutside = (event: MouseEvent): void => {
-            if (chatProfileMenuRef.current && !chatProfileMenuRef.current.contains(event.target as Node)) {
-                onCloseChatProfileMenu();
-            }
-        };
-        const handleKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') { onCloseChatProfileMenu(); }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [isChatProfileMenuOpen, onCloseChatProfileMenu]);
-
     // Active un item de menu au clavier (Enter / Espace), comme un clic.
     const handleMenuItemKeyDown = (event: React.KeyboardEvent, activate: () => void): void => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -295,7 +269,13 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const pillFirstStyle: React.CSSProperties = { ...pillBtnStyle, borderTopLeftRadius: 4, borderBottomLeftRadius: 4, marginLeft: 0 };
     const pillLastStyle: React.CSSProperties = { ...pillBtnStyle, borderTopRightRadius: 4, borderBottomRightRadius: 4 };
     const tbIconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
+    const moreMenuItemStyle: React.CSSProperties = {
+        display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+        textAlign: 'left', border: 'none', padding: '7px 12px', fontSize: 12,
+    };
     const vSep: React.CSSProperties = { width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px', flexShrink: 0 };
+
+    const infoSep = <span style={{ opacity: 0.4 }} aria-hidden='true'>·</span>;
 
     // Bouton de la moitié principale du split Chat IA (fond/hover : .geoapp-gcd-split-btn)
     const splitMainStyle: React.CSSProperties = {
@@ -577,6 +557,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     </button>
                 </div>
 
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
                 {/* ── Navigation ‹ › dans la zone (ordre gc_code) ── */}
                 {typeof zoneNavIndex === 'number' && zoneNavIndex >= 0 && (zoneNavTotal ?? 0) > 1 ? (
                     <div className='geoapp-gcd-zone-nav'>
@@ -608,32 +589,135 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         </button>
                     </div>
                 ) : undefined}
+
+                {/* ── Plus d'actions : rafraîchir, fiche GC.com, archive ──
+                    Dans la barre collante, ces actions restent accessibles en bas de fiche.
+                    Le bouton porte l'état « en cours » (icône animée) quand le menu est fermé. */}
+                <div ref={moreMenuRef} style={{ position: 'relative' }}>
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => setIsMoreMenuOpen(open => !open)}
+                        style={{ ...toolbarBtnStyle, ...tbIconBtn, padding: '4px 8px', minWidth: 0 }}
+                        title={isRefreshing ? 'Rafraîchissement en cours…' : isSyncingArchive ? 'Synchronisation de l\'archive en cours…' : 'Plus d\'actions'}
+                        aria-label="Plus d'actions"
+                        aria-haspopup='menu'
+                        aria-expanded={isMoreMenuOpen}
+                        aria-busy={isMoreBusy}
+                    >
+                        <span
+                            aria-hidden='true'
+                            className={isMoreBusy
+                                ? 'codicon codicon-refresh geoapp-gcd-refresh-icon geoapp-gcd-refresh-icon--spinning'
+                                : 'codicon codicon-ellipsis'}
+                        />
+                    </button>
+                    {isMoreMenuOpen && (
+                        <div
+                            role='menu'
+                            aria-label="Plus d'actions"
+                            onKeyDown={(e) => handleMenuArrowKeys(e, e.currentTarget)}
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                marginTop: 4,
+                                minWidth: 240,
+                                background: 'var(--theia-menu-background)',
+                                border: '1px solid var(--theia-menu-border)',
+                                borderRadius: 4,
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                                zIndex: 100,
+                                padding: '4px 0',
+                            }}
+                        >
+                            {onRefresh ? (
+                                <button
+                                    type='button'
+                                    role='menuitem'
+                                    className='geoapp-menu-item'
+                                    disabled={isRefreshing}
+                                    onClick={() => { setIsMoreMenuOpen(false); void onRefresh(); }}
+                                    title='Relire cette géocache sur Geocaching.com'
+                                    style={{ ...moreMenuItemStyle, cursor: isRefreshing ? 'wait' : 'pointer', opacity: isRefreshing ? 0.5 : 1 }}
+                                >
+                                    <span className='codicon codicon-refresh' aria-hidden='true' />
+                                    <span>{isRefreshing ? 'Rafraîchissement en cours…' : 'Rafraîchir la géocache'}</span>
+                                </button>
+                            ) : undefined}
+                            {geocacheData.url && onOpenGeocachePage ? (
+                                <button
+                                    type='button'
+                                    role='menuitem'
+                                    className='geoapp-menu-item'
+                                    onClick={() => { setIsMoreMenuOpen(false); onOpenGeocachePage(); }}
+                                    style={moreMenuItemStyle}
+                                >
+                                    <span className='codicon codicon-link-external' aria-hidden='true' />
+                                    <span>Ouvrir sur Geocaching.com</span>
+                                </button>
+                            ) : undefined}
+                            {archiveStatus !== 'none' ? (
+                                <button
+                                    type='button'
+                                    role='menuitem'
+                                    className='geoapp-menu-item'
+                                    disabled={isArchiveBusy}
+                                    onClick={() => { setIsMoreMenuOpen(false); void onForceSyncArchive(); }}
+                                    title={getArchiveTooltip(archiveStatus, archiveUpdatedAt)}
+                                    style={{ ...moreMenuItemStyle, cursor: isArchiveBusy ? 'wait' : 'pointer', opacity: isArchiveBusy ? 0.5 : 1 }}
+                                >
+                                    <span className='codicon codicon-archive' aria-hidden='true' />
+                                    <span style={{ flex: 1 }}>
+                                        {isArchiveBusy
+                                            ? 'Synchronisation de l\'archive…'
+                                            : archiveStatus === 'synced' ? 'Re-synchroniser l\'archive' : 'Synchroniser l\'archive'}
+                                    </span>
+                                    {!isArchiveBusy ? (
+                                        <span style={{ fontSize: 11, opacity: 0.7 }}>
+                                            {archiveStatus === 'synced' ? 'à jour' : 'non synchronisée'}
+                                        </span>
+                                    ) : undefined}
+                                </button>
+                            ) : undefined}
+                        </div>
+                    )}
+                </div>
+                </div>
             </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 14, flexWrap: 'wrap' }}>
-                <span style={{ opacity: 0.7 }}>{geocacheData.gc_code}</span>
+            {/* Ligne d'info : l'identité (code, type, D/T, propriétaire) puis les statuts.
+                Les actions vivent dans le menu « ⋯ » de la barre ; deux raccourcis restent ici, portés
+                par l'info elle-même : le code GC ouvre la fiche Geocaching.com, la pastille
+                « Non archivée » lance la synchronisation. */}
+            <div style={{ display: 'flex', gap: '6px 10px', alignItems: 'center', fontSize: 13, flexWrap: 'wrap' }}>
                 {geocacheData.url && onOpenGeocachePage ? (
                     <button
-                        className='theia-button secondary'
+                        type='button'
+                        className='geoapp-gcd-code-link'
                         onClick={onOpenGeocachePage}
-                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         title='Ouvrir la fiche sur Geocaching.com'
-                        aria-label='Ouvrir la fiche sur Geocaching.com'
+                        aria-label={`${geocacheData.gc_code} — ouvrir la fiche sur Geocaching.com`}
                     >
+                        <span>{geocacheData.gc_code}</span>
                         <span className='codicon codicon-link-external' aria-hidden='true' />
-                        <span>GC.com</span>
                     </button>
+                ) : (
+                    <span style={{ fontWeight: 600 }}>{geocacheData.gc_code}</span>
+                )}
+                {geocacheData.type ? (
+                    <>
+                        {infoSep}
+                        <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
+                    </>
                 ) : undefined}
-                <span style={{ opacity: 0.7 }}>|</span>
-                <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
-                <span style={{ opacity: 0.7 }}>|</span>
                 {(geocacheData.difficulty !== undefined || geocacheData.terrain !== undefined) && (
                     <>
-                        <span style={{ opacity: 0.7 }}>{`D ${geocacheData.difficulty ?? '?'}/T ${geocacheData.terrain ?? '?'}`}</span>
-                        <span style={{ opacity: 0.7 }}>|</span>
+                        {infoSep}
+                        <span style={{ opacity: 0.7 }}>{`D ${geocacheData.difficulty ?? '?'} / T ${geocacheData.terrain ?? '?'}`}</span>
                     </>
                 )}
+                {infoSep}
                 {ownerName ? (
                     <span style={{ opacity: 0.7, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         Par
@@ -673,6 +757,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         onClose={() => setOwnerMenuPosition(null)}
                     />
                 ) : undefined}
+                {/* Les statuts forment un groupe distinct, détaché de l'identité. */}
+                <span style={{ width: 6 }} aria-hidden='true' />
                 {renderFoundBadge(geocacheData)}
                 {onUpdateSolvedStatus ? (
                     <span ref={solvedMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
@@ -776,45 +862,21 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         <span className='codicon codicon-warning' aria-hidden='true' /> Désactivée
                     </span>
                 )}
-                {onRefresh && (
+                {/* Seul l'état qui demande une action reste visible ; l'archive à jour se lit dans le menu « ⋯ ». */}
+                {archiveStatus === 'needs_sync' ? (
                     <button
-                        className='theia-button secondary'
-                        onClick={() => { void onRefresh(); }}
-                        disabled={isRefreshing}
-                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: isRefreshing ? 'wait' : undefined }}
-                        title={isRefreshing ? 'Rafraîchissement en cours…' : 'Rafraîchir cette géocache'}
-                        aria-label={isRefreshing ? 'Rafraîchissement en cours…' : 'Rafraîchir cette géocache'}
-                        aria-busy={isRefreshing}
+                        type='button'
+                        className='geoapp-gcd-archive-chip'
+                        onClick={() => { void onForceSyncArchive(); }}
+                        disabled={isSyncingArchive}
+                        aria-busy={isSyncingArchive}
+                        title={isSyncingArchive ? "Synchronisation de l'archive en cours…" : 'Archive non synchronisée — cliquer pour la synchroniser'}
                     >
                         <span
+                            className={isSyncingArchive ? 'codicon codicon-loading codicon-modifier-spin' : 'codicon codicon-warning'}
                             aria-hidden='true'
-                            className={`codicon codicon-refresh geoapp-gcd-refresh-icon${isRefreshing ? ' geoapp-gcd-refresh-icon--spinning' : ''}`}
                         />
-                    </button>
-                )}
-                {archiveStatus !== 'none' ? (
-                    <button
-                        onClick={() => { void onForceSyncArchive(); }}
-                        disabled={archiveStatus === 'loading' || isSyncingArchive}
-                        title={archiveTooltip}
-                        aria-label={archiveTooltip}
-                        style={{
-                            background: 'none',
-                            border: '1px solid',
-                            borderRadius: 12,
-                            cursor: archiveStatus === 'loading' ? 'wait' : 'pointer',
-                            padding: '2px 8px',
-                            fontSize: 11,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            borderColor: archiveColor,
-                            color: archiveColor,
-                            opacity: isSyncingArchive ? 0.6 : 1,
-                        }}
-                    >
-                        <span className={archiveIconClass} aria-hidden='true' />
-                        <span>{archiveLabel}</span>
+                        <span>{isSyncingArchive ? 'Archivage…' : 'Non archivée'}</span>
                     </button>
                 ) : undefined}
             </div>
@@ -1184,40 +1246,10 @@ function getAttributeIconUrlFromAttribute(attribute: GeocacheAttribute): string 
 
 function getArchiveTooltip(status: ArchiveStatus, updatedAt?: string): string {
     if (status === 'synced') {
-        return `Archive à jour${updatedAt ? ` (${new Date(updatedAt).toLocaleString()})` : ''} - Cliquer pour re-synchroniser`;
+        return `Archive à jour${updatedAt ? ` (${new Date(updatedAt).toLocaleString()})` : ''}`;
     }
     if (status === 'loading') {
         return 'Synchronisation en cours...';
     }
-    return 'Archive non synchronisée - Cliquer pour synchroniser';
-}
-
-function getArchiveColor(status: ArchiveStatus): string {
-    if (status === 'synced') {
-        return 'var(--theia-charts-green, #10b981)';
-    }
-    if (status === 'loading') {
-        return 'var(--theia-charts-blue, #60a5fa)';
-    }
-    return 'var(--theia-charts-orange, #f59e0b)';
-}
-
-function getArchiveLabel(status: ArchiveStatus): string {
-    if (status === 'synced') {
-        return 'Archive';
-    }
-    if (status === 'loading') {
-        return 'Sync...';
-    }
-    return 'Non archivée';
-}
-
-function getArchiveIconClass(status: ArchiveStatus): string {
-    if (status === 'synced') {
-        return 'codicon codicon-archive';
-    }
-    if (status === 'loading') {
-        return 'codicon codicon-loading codicon-modifier-spin';
-    }
-    return 'codicon codicon-warning';
+    return 'Archive non synchronisée';
 }

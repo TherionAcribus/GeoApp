@@ -235,11 +235,69 @@
     background: transparent;
 }
 
+/* ── Ligne d'info : raccourcis portés par l'info elle-même ── */
+/* Code GC : ouvre la fiche Geocaching.com. */
+.geoapp-gcd-code-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-textLink-foreground);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.geoapp-gcd-code-link .codicon {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.geoapp-gcd-code-link:hover {
+    color: var(--theia-textLink-activeForeground, var(--theia-textLink-foreground));
+    text-decoration: underline;
+}
+
+.geoapp-gcd-code-link:hover .codicon {
+    opacity: 1;
+}
+
+/* Pastille « Non archivée » : lance la synchronisation de l'archive. */
+.geoapp-gcd-archive-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid var(--theia-charts-orange, #f59e0b);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--theia-charts-orange, #f59e0b);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 8px;
+}
+
+.geoapp-gcd-archive-chip:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--theia-charts-orange, #f59e0b) 15%, transparent);
+}
+
+.geoapp-gcd-archive-chip:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.geoapp-gcd-code-link:focus-visible,
+.geoapp-gcd-archive-chip:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
 /* ── Navigation ‹ › dans la zone (toolbar sticky) ── */
 .geoapp-gcd-zone-nav {
     display: inline-flex;
     align-items: stretch;
-    margin-left: auto;
     border: 1px solid var(--theia-panel-border);
     border-radius: 10px;
     overflow: hidden;
