@@ -48,7 +48,7 @@ export function computeLetterValue(
         if (values.length > 0) {
             value = values[0];
         } else {
-            error = 'liste de valeurs vide';
+            error = 'liste de valeurs invalide';
         }
     } else if (trimmed && isTextType) {
         // Le calcul porte sur le texte saisi tel quel ("007" a une longueur de 3,

@@ -94,67 +94,54 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     };
 
     /**
-     * Génère toutes les combinaisons
+     * Valeurs à essayer pour chaque lettre :
+     * - pattern saisi ici, s'il y en a un ;
+     * - sinon la saisie du champ Valeur : sa liste si c'est un brute force
+     *   (`*1-5`), sa valeur unique autrement.
+     * `invalid` liste les lettres dont le pattern n'est pas compris, `missing`
+     * celles qui n'ont ni pattern ni valeur.
      */
-    const generateCombinations = () => {
+    const resolveRanges = (): { ranges: Map<string, number[]>; invalid: string[]; missing: string[] } => {
         const ranges = new Map<string, number[]>();
-        
-        // Pour chaque lettre, déterminer les valeurs possibles
+        const invalid: string[] = [];
+        const missing: string[] = [];
+
         for (const letter of letters) {
             const pattern = patterns.get(letter);
-            
             if (pattern) {
-                // Pattern défini → parser
                 const parsedValues = ValueRangeParser.parsePattern(pattern);
                 if (parsedValues.length > 0) {
                     ranges.set(letter, parsedValues);
                 } else {
-                    // Pattern invalide → utiliser valeur actuelle si disponible
-                    const currentValue = usableValue(letter);
-                    if (currentValue) {
-                        ranges.set(letter, [currentValue.value]);
-                    }
+                    invalid.push(letter);
                 }
+                continue;
+            }
+
+            const currentValue = usableValue(letter);
+            if (!currentValue || currentValue.rawValue.trim() === '') {
+                missing.push(letter);
+            } else if (currentValue.isList && currentValue.values && currentValue.values.length > 0) {
+                ranges.set(letter, currentValue.values);
             } else {
-                // Pas de pattern → utiliser valeur actuelle
-                const currentValue = usableValue(letter);
-                if (currentValue) {
-                    ranges.set(letter, [currentValue.value]);
-                } else {
-                    // Pas de valeur → ignorer cette lettre (erreur)
-                    return;
-                }
+                ranges.set(letter, [currentValue.value]);
             }
         }
-        
-        const combinations = CombinationGenerator.generateCombinations(ranges);
-        onBruteForceExecute(combinations);
+
+        return { ranges, invalid, missing };
     };
 
-    /**
-     * Calcule le nombre de combinaisons
-     */
-    const getCombinationCount = (): number => {
-        const ranges = new Map<string, number[]>();
-        
-        for (const letter of letters) {
-            const pattern = patterns.get(letter);
-            
-            if (pattern) {
-                const parsedValues = ValueRangeParser.parsePattern(pattern);
-                if (parsedValues.length > 0) {
-                    ranges.set(letter, parsedValues);
-                } else {
-                    ranges.set(letter, [0]); // Valeur par défaut
-                }
-            } else {
-                const currentValue = usableValue(letter);
-                ranges.set(letter, currentValue ? [currentValue.value] : [0]);
-            }
+    const { ranges, invalid: invalidLetters, missing: missingLetters } = resolveRanges();
+    const canRun = invalidLetters.length === 0 && missingLetters.length === 0;
+
+    const generateCombinations = () => {
+        if (!canRun) {
+            return;
         }
-        
-        return CombinationGenerator.countCombinations(ranges);
+        onBruteForceExecute(CombinationGenerator.generateCombinations(ranges));
     };
+
+    const getCombinationCount = (): number => canRun ? CombinationGenerator.countCombinations(ranges) : 0;
 
     const combinationCount = getCombinationCount();
     const maxCombinations = CombinationGenerator.getMaxCombinations();
@@ -250,19 +237,18 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     fontSize: '12px',
                     fontFamily: 'var(--theia-code-font-family)'
                 }}>
-                    <strong>Patterns disponibles :</strong>
+                    <strong>Valeurs à essayer pour une lettre :</strong>
                     <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
-                        <li><code>*</code> : Toutes les valeurs de 0 à 9</li>
-                        <li><code>&lt;X</code> : Valeurs strictement inférieures à X</li>
-                        <li><code>&lt;=X</code> : Valeurs inférieures ou égales à X</li>
-                        <li><code>&gt;X</code> : Valeurs strictement supérieures à X</li>
-                        <li><code>&gt;=X</code> : Valeurs supérieures ou égales à X</li>
-                        <li><code>X&lt;&gt;Y</code> : Valeurs strictement entre X et Y</li>
-                        <li><code>X&lt;==&gt;Y</code> : Valeurs entre X et Y inclus</li>
-                        <li><code>10,20,25</code> : Liste de valeurs spécifiques (virgule ou point-virgule)</li>
+                        <li><code>2,4,7</code> : ces valeurs (virgule ou point-virgule)</li>
+                        <li><code>1-5</code> : de 1 à 5 inclus (<code>1&lt;&gt;5</code> est équivalent)</li>
+                        <li><code>&lt;5</code> <code>&lt;=5</code> <code>&gt;5</code> <code>&gt;=5</code> : chiffres de 0 à 9 répondant à la condition</li>
+                        <li><code>*</code> : tous les chiffres, de 0 à 9</li>
+                        <li><code>1-3,7,&gt;=8</code> : les formes se combinent</li>
                     </ul>
                     <div style={{ marginTop: '8px', color: 'var(--theia-descriptionForeground)' }}>
-                        💡 Laissez vide pour utiliser la valeur saisie normalement
+                        Laissez vide pour garder la valeur saisie à l'étape 2. La même syntaxe fonctionne
+                        directement dans le champ Valeur d'une lettre, précédée de <code>*</code> (par
+                        exemple <code>*1-5</code>) : le calcul se lance alors tout seul.
                     </div>
                 </div>
             )}
@@ -285,7 +271,9 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                     type="text"
                                     value={pattern}
                                     onChange={(e) => updatePattern(letter, e.target.value)}
-                                    placeholder={currentValue ? `Valeur actuelle: ${currentValue.value}` : 'Pattern (ex: 10,20,25 ou *)'}
+                                    placeholder={currentValue && currentValue.rawValue.trim()
+                                        ? `Valeur saisie : ${currentValue.rawValue.trim()}`
+                                        : 'Valeurs à essayer (ex: 1-5 ou 2,4,7 ou *)'}
                                     style={{
                                         flex: 1,
                                         padding: '6px 8px',
@@ -324,7 +312,15 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className={`codicon ${tooManyCombinations ? 'codicon-warning' : 'codicon-info'}`} />
                     <span style={{ fontSize: '12px' }}>
-                        <strong>{combinationCount.toLocaleString()}</strong> combinaison{combinationCount > 1 ? 's' : ''} 
+                        {!canRun ? (
+                            <span style={{ color: 'var(--theia-errorText)' }}>
+                                {invalidLetters.length > 0
+                                    ? `Syntaxe non comprise pour ${invalidLetters.join(', ')}`
+                                    : `Aucune valeur pour ${missingLetters.join(', ')}`}
+                            </span>
+                        ) : (
+                            <><strong>{combinationCount.toLocaleString()}</strong> combinaison{combinationCount > 1 ? 's' : ''}</>
+                        )}
                         {tooManyCombinations && (
                             <span style={{ color: 'var(--theia-errorText)', marginLeft: '8px' }}>
                                 (Maximum : {maxCombinations})

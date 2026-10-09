@@ -1,6 +1,17 @@
 /**
- * Parser pour les patterns de plages de valeurs
- * Permet de tester plusieurs valeurs pour une lettre
+ * Syntaxe unique des listes de valeurs à essayer (brute force).
+ *
+ * Utilisée par le panneau « Mode Brute Force » et, précédée de `*`, par le
+ * champ Valeur d'une lettre (`*1-5`).
+ *
+ * Un pattern est une suite d'éléments séparés par `,` ou `;` :
+ * - `7`        : une valeur
+ * - `1-5`      : de 1 à 5 inclus (`1<>5` et `1<==>5` sont équivalents)
+ * - `<5` `<=5` : chiffres de 0 jusqu'à 5 (exclu / inclus)
+ * - `>5` `>=5` : chiffres de 5 (exclu / inclus) jusqu'à 9
+ * - `*`        : tous les chiffres, 0 à 9
+ *
+ * Exemple : `1-3,7,>=8` → 1, 2, 3, 7, 8, 9.
  */
 
 export interface ValueRange {
@@ -9,184 +20,138 @@ export interface ValueRange {
     values: number[];
 }
 
+/** Au-delà, un pattern est refusé plutôt que développé (`0-99999999`). */
+export const MAX_VALUES_PER_PATTERN = 1000;
+
+const ALL_DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
 /**
- * Parse un pattern et génère les valeurs correspondantes
- *
- * Patterns supportés :
- * - * : 0-9
- * - <X : valeurs < X
- * - <=X : valeurs <= X
- * - >X : valeurs > X
- * - >=X : valeurs >= X
- * - X<>Y : valeurs strictement entre X et Y (X < v < Y)
- * - X<==>Y : valeurs entre X et Y inclus (X <= v <= Y)
- * - 10,20,25 : liste de valeurs spécifiques
- * - 10;20;25 : liste de valeurs (alternative avec point-virgule)
+ * Développe un élément de pattern, ou retourne undefined s'il est invalide.
  */
+function parsePatternItem(item: string): number[] | undefined {
+    if (item === '*') {
+        return ALL_DIGITS;
+    }
+
+    if (/^\d+$/.test(item)) {
+        return [parseInt(item, 10)];
+    }
+
+    // Plage inclusive : 1-5, 1<>5, 1<=>5, 1<==>5
+    const range = item.match(/^(\d+)\s*(?:-|<=?=?>)\s*(\d+)$/);
+    if (range) {
+        const a = parseInt(range[1], 10);
+        const b = parseInt(range[2], 10);
+        const min = Math.min(a, b);
+        const max = Math.max(a, b);
+        if (max - min + 1 > MAX_VALUES_PER_PATTERN) {
+            return undefined;
+        }
+        const values: number[] = [];
+        for (let value = min; value <= max; value++) {
+            values.push(value);
+        }
+        return values;
+    }
+
+    // Comparaison, bornée aux chiffres 0 à 9
+    const comparison = item.match(/^(<=?|>=?)\s*(\d+)$/);
+    if (comparison) {
+        const threshold = parseInt(comparison[2], 10);
+        switch (comparison[1]) {
+            case '<': return ALL_DIGITS.filter(digit => digit < threshold);
+            case '<=': return ALL_DIGITS.filter(digit => digit <= threshold);
+            case '>': return ALL_DIGITS.filter(digit => digit > threshold);
+            default: return ALL_DIGITS.filter(digit => digit >= threshold);
+        }
+    }
+
+    return undefined;
+}
+
+/**
+ * Développe un pattern en valeurs triées et sans doublon. Retourne une liste
+ * vide si le pattern est vide, contient un élément invalide ou donne plus de
+ * `MAX_VALUES_PER_PATTERN` valeurs : un pattern à moitié compris n'est jamais
+ * appliqué partiellement.
+ */
+export function parseValuePattern(pattern: string): number[] {
+    const items = pattern.split(/[,;]/).map(item => item.trim()).filter(item => item.length > 0);
+    if (items.length === 0) {
+        return [];
+    }
+
+    const values = new Set<number>();
+    for (const item of items) {
+        const itemValues = parsePatternItem(item);
+        if (!itemValues) {
+            return [];
+        }
+        itemValues.forEach(value => values.add(value));
+        if (values.size > MAX_VALUES_PER_PATTERN) {
+            return [];
+        }
+    }
+
+    return Array.from(values).sort((a, b) => a - b);
+}
+
+/**
+ * Écrit une liste de valeurs triées de façon compacte : "1-3, 7, 9".
+ */
+export function formatValues(values: number[]): string {
+    const parts: string[] = [];
+    let start = 0;
+    while (start < values.length) {
+        let end = start;
+        while (end + 1 < values.length && values[end + 1] === values[end] + 1) {
+            end++;
+        }
+        if (end - start >= 2) {
+            parts.push(`${values[start]}-${values[end]}`);
+        } else {
+            for (let i = start; i <= end; i++) {
+                parts.push(String(values[i]));
+            }
+        }
+        start = end + 1;
+    }
+    return parts.join(', ');
+}
+
 export class ValueRangeParser {
 
     /**
-     * Parse un pattern et retourne les valeurs correspondantes
+     * Parse un pattern et retourne les valeurs correspondantes. Le `*` de tête
+     * du champ Valeur (`*1-5`) est accepté ici aussi.
      */
     static parsePattern(pattern: string): number[] {
         const trimmed = pattern.trim();
-
-        // Pattern : * (toutes les valeurs 0-9)
         if (trimmed === '*') {
-            return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+            return ALL_DIGITS;
         }
+        return parseValuePattern(trimmed.startsWith('*') ? trimmed.slice(1) : trimmed);
+    }
 
-        // Pattern : liste de valeurs séparées par virgule ou point-virgule (ex: 10,20,25 ou 10;20;25)
-        const listMatch = trimmed.match(/^[\d\s,;]+$/);
-        if (listMatch && (trimmed.includes(',') || trimmed.includes(';'))) {
-            const values = trimmed.split(/[,;]/)
-                .map(s => s.trim())
-                .filter(s => s.length > 0)
-                .map(s => parseInt(s, 10))
-                .filter(n => !isNaN(n));
-            // Supprimer les doublons et trier
-            return [...new Set(values)].sort((a, b) => a - b);
-        }
-        
-        // Pattern : X<==>Y (inclus)
-        const inclusiveRangeMatch = trimmed.match(/^(\d+)<==?>(\d+)$/);
-        if (inclusiveRangeMatch) {
-            const start = parseInt(inclusiveRangeMatch[1], 10);
-            const end = parseInt(inclusiveRangeMatch[2], 10);
-            return this.generateRange(start, end, true, true);
-        }
-        
-        // Pattern : X<>Y (exclusif)
-        const exclusiveRangeMatch = trimmed.match(/^(\d+)<>(\d+)$/);
-        if (exclusiveRangeMatch) {
-            const start = parseInt(exclusiveRangeMatch[1], 10);
-            const end = parseInt(exclusiveRangeMatch[2], 10);
-            return this.generateRange(start, end, false, false);
-        }
-        
-        // Pattern : <=X
-        const lteMatch = trimmed.match(/^<=(\d+)$/);
-        if (lteMatch) {
-            const max = parseInt(lteMatch[1], 10);
-            return this.generateRange(0, max, true, true);
-        }
-        
-        // Pattern : <X
-        const ltMatch = trimmed.match(/^<(\d+)$/);
-        if (ltMatch) {
-            const max = parseInt(ltMatch[1], 10);
-            return this.generateRange(0, max, true, false);
-        }
-        
-        // Pattern : >=X
-        const gteMatch = trimmed.match(/^>=(\d+)$/);
-        if (gteMatch) {
-            const min = parseInt(gteMatch[1], 10);
-            return this.generateRange(min, 9, true, true);
-        }
-        
-        // Pattern : >X
-        const gtMatch = trimmed.match(/^>(\d+)$/);
-        if (gtMatch) {
-            const min = parseInt(gtMatch[1], 10);
-            return this.generateRange(min, 9, false, true);
-        }
-        
-        // Valeur unique (nombre simple)
-        const singleValue = parseInt(trimmed, 10);
-        if (!isNaN(singleValue)) {
-            return [singleValue];
-        }
-        
-        // Pattern invalide
-        return [];
-    }
-    
-    /**
-     * Génère une plage de valeurs
-     */
-    private static generateRange(
-        start: number, 
-        end: number, 
-        includeStart: boolean, 
-        includeEnd: boolean
-    ): number[] {
-        const values: number[] = [];
-        const min = includeStart ? start : start + 1;
-        const max = includeEnd ? end : end - 1;
-        
-        for (let i = min; i <= max; i++) {
-            values.push(i);
-        }
-        
-        return values;
-    }
-    
     /**
      * Vérifie si un pattern est valide
      */
     static isValidPattern(pattern: string): boolean {
-        const values = this.parsePattern(pattern);
-        return values.length > 0;
+        return this.parsePattern(pattern).length > 0;
     }
-    
+
     /**
      * Retourne une description textuelle du pattern
      */
     static getPatternDescription(pattern: string): string {
-        const trimmed = pattern.trim();
-
-        if (trimmed === '*') {
-            return 'Toutes les valeurs (0-9)';
+        const values = this.parsePattern(pattern);
+        if (values.length === 0) {
+            return 'Pattern invalide';
         }
-
-        // Liste de valeurs séparées par virgule ou point-virgule
-        if (trimmed.match(/^[\d\s,;]+$/) && (trimmed.includes(',') || trimmed.includes(';'))) {
-            const values = trimmed.split(/[,;]/)
-                .map(s => s.trim())
-                .filter(s => s.length > 0)
-                .map(s => parseInt(s, 10))
-                .filter(n => !isNaN(n));
-            const uniqueValues = [...new Set(values)].sort((a, b) => a - b);
-            return `${uniqueValues.length} valeur${uniqueValues.length > 1 ? 's' : ''}: ${uniqueValues.join(', ')}`;
+        if (values.length === 1) {
+            return `Valeur unique : ${values[0]}`;
         }
-        
-        const inclusiveRangeMatch = trimmed.match(/^(\d+)<==?>(\d+)$/);
-        if (inclusiveRangeMatch) {
-            return `Valeurs entre ${inclusiveRangeMatch[1]} et ${inclusiveRangeMatch[2]} inclus`;
-        }
-        
-        const exclusiveRangeMatch = trimmed.match(/^(\d+)<>(\d+)$/);
-        if (exclusiveRangeMatch) {
-            return `Valeurs entre ${exclusiveRangeMatch[1]} et ${exclusiveRangeMatch[2]} (exclusif)`;
-        }
-        
-        const lteMatch = trimmed.match(/^<=(\d+)$/);
-        if (lteMatch) {
-            return `Valeurs <= ${lteMatch[1]}`;
-        }
-        
-        const ltMatch = trimmed.match(/^<(\d+)$/);
-        if (ltMatch) {
-            return `Valeurs < ${ltMatch[1]}`;
-        }
-        
-        const gteMatch = trimmed.match(/^>=(\d+)$/);
-        if (gteMatch) {
-            return `Valeurs >= ${gteMatch[1]}`;
-        }
-        
-        const gtMatch = trimmed.match(/^>(\d+)$/);
-        if (gtMatch) {
-            return `Valeurs > ${gtMatch[1]}`;
-        }
-        
-        const singleValue = parseInt(trimmed, 10);
-        if (!isNaN(singleValue)) {
-            return `Valeur unique : ${singleValue}`;
-        }
-        
-        return 'Pattern invalide';
+        return `${values.length} valeurs : ${formatValues(values)}`;
     }
 }
 

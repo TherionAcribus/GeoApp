@@ -65,13 +65,49 @@ class FormulaQuestionsService:
         # Initialiser le résultat
         result = {letter: "" for letter in letters}
         
+        # Passe principale : lettres telles que demandées (majuscules)
+        self._collect_questions(prepared_content, letters, letters, result, r'[A-Z]')
+
+        # Listing rédigé avec des lettres minuscules ("a = ...") : seconde passe pour
+        # les lettres restées sans question, sans le format "Question a:" de fin de
+        # ligne, trop exposé aux faux positifs avec le mot « a ».
+        missing = [letter for letter in letters if not result[letter]]
+        if missing:
+            self._collect_questions(
+                prepared_content, letters, [letter.lower() for letter in missing], result, r'[a-z]',
+                include_trailing_letter_format=False
+            )
+
+        # Compter les questions trouvées
+        found_count = len([q for q in result.values() if q])
+        logger.info(f"Extraction regex terminée: {found_count}/{len(letters)} questions trouvées")
+
+        return result
+
+    def _collect_questions(
+        self,
+        prepared_content: str,
+        letters: List[str],
+        searched_letters: List[str],
+        result: Dict[str, str],
+        header_class: str,
+        include_trailing_letter_format: bool = True
+    ) -> None:
+        """
+        Cherche les questions des lettres `searched_letters` (telles qu'écrites dans
+        le texte) et complète `result`, indexé par les lettres demandées `letters`.
+
+        Args:
+            header_class: classe regex d'une lettre d'en-tête, qui borne la fin d'une question
+            include_trailing_letter_format: inclure le format "Question A:" (lettre en fin de ligne)
+        """
         # Créer le pattern pour les lettres recherchées
-        letters_pattern = '|'.join(re.escape(letter) for letter in letters)
-        
+        letters_pattern = '|'.join(re.escape(letter) for letter in searched_letters)
+
         # Définir les séparateurs possibles
         # Point, double-points, parenthèse fermante, tiret, tiret long, tiret cadratin, slash
         separators_class = r'[.:\)\-–—/]'  # NB: '=' est traité par un pattern dédié ci-dessous
-        
+
         # Patterns regex pour différents formats de questions
         patterns = [
             # Format très courant: "A = instruction..." (ou "A=...")
@@ -80,11 +116,11 @@ class FormulaQuestionsService:
 
             # Format: A. / A: / A) / A- suivi du texte jusqu'au prochain en-tête ou fin
             # Exemple: "A. Combien de fenêtres?"
-            rf'(?:^|\n)\s*({letters_pattern})\s*{separators_class}\s*(.*?)(?=\n\s*[A-Z]\s*{separators_class}|\n\s*\d+\s*{separators_class}|$)',
+            rf'(?:^|\n)\s*({letters_pattern})\s*{separators_class}\s*(.*?)(?=\n\s*{header_class}\s*{separators_class}|\n\s*\d+\s*{separators_class}|$)',
             
             # Format: 1. (A) Question?
             # Exemple: "1. (A) Combien de fenêtres?"
-            rf'(?:^|\n)\s*\d+\s*{separators_class}\s*\(({letters_pattern})\)\s*(.*?)(?=\n\s*\d+\s*{separators_class}|\n\s*[A-Z]\s*{separators_class}|$)',
+            rf'(?:^|\n)\s*\d+\s*{separators_class}\s*\(({letters_pattern})\)\s*(.*?)(?=\n\s*\d+\s*{separators_class}|\n\s*{header_class}\s*{separators_class}|$)',
 
             # Format: Question ... (A) ?  (la lettre en fin de ligne, entre parenthèses)
             # Exemple: "Coté artistique ... (A) ?"
@@ -96,7 +132,9 @@ class FormulaQuestionsService:
             # Note: Ce pattern doit être le dernier car il peut capturer de faux positifs
             rf'(?:^|\n)\s*([^:\n]{{5,50}}?)\s+({letters_pattern})\s*{separators_class}\s*$',
         ]
-        
+        if not include_trailing_letter_format:
+            patterns = patterns[:-1]
+
         # Parcourir tous les patterns
         for pattern_idx, pattern in enumerate(patterns):
             logger.debug(f"Traitement pattern {pattern_idx + 1}: {pattern}")
@@ -138,13 +176,7 @@ class FormulaQuestionsService:
                             logger.debug(f"Question mise à jour pour {letter}: {question[:50]}...")
                     else:
                         logger.debug(f"Lettre {letter} ignorée (pas dans la liste recherchée)")
-        
-        # Compter les questions trouvées
-        found_count = len([q for q in result.values() if q])
-        logger.info(f"Extraction regex terminée: {found_count}/{len(letters)} questions trouvées")
-        
-        return result
-    
+
     def _prepare_content_for_analysis(
         self,
         content: Union[str, Any]

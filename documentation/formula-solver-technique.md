@@ -713,3 +713,41 @@ Dans une formule tout en minuscules, `x` n'est une multiplication que s'il est i
 Non pris en charge : modulo, fonctions (racine, partie entière), variables à plusieurs caractères (`A1`, `AA`), multiplication implicite (`2(A+B)` reste une juxtaposition de chiffres, comme avant).
 
 Tests : `src/browser/tests/formula-normalizer.test.ts`, `backend/tests/test_coordinate_calculator.py`, `plugins/official/formula_parser/test_formula_parser.py`.
+
+### Questions rédigées en minuscules
+
+Une formule `5a.bcd` est convertie en `5A.BCD`, mais l'extraction des questions par regex (`formula_questions_service.py`) cherchait les lettres telles quelles et ne retrouvait pas « a = … ». `extract_questions_with_regex()` fait maintenant deux passes, via `_collect_questions()` :
+
+1. les lettres en majuscules, comme avant ;
+2. pour les lettres restées sans question, les mêmes lettres en minuscules, **sans** le format « Question a: » (lettre en fin de ligne), trop exposé aux faux positifs avec le mot « a ».
+
+Une question trouvée en majuscule n'est jamais remplacée par une ligne en minuscule.
+
+---
+
+## 22. Syntaxe unique du brute force (octobre 2026)
+
+Deux syntaxes coexistaient : `*1-5` dans le champ Valeur d'une lettre (`utils/value-parser.ts`) et `<X`, `X<>Y`, `X<==>Y` dans le panneau « Mode Brute Force » (`common/value-range-parser.ts`), avec deux parseurs et des différences (`2<>9` inclus d'un côté, exclu de l'autre ; `1-5` et les combinaisons refusés dans le panneau).
+
+Il n'y a plus qu'un parseur, `parseValuePattern()` dans `common/value-range-parser.ts`, utilisé par les deux. Un pattern est une suite d'éléments séparés par `,` ou `;` :
+
+| Élément | Valeurs |
+|---------|---------|
+| `7` | 7 |
+| `1-5` | 1 à 5 inclus |
+| `1<>5`, `1<==>5` | identiques à `1-5` |
+| `<5`, `<=5`, `>5`, `>=5` | chiffres de 0 à 9 répondant à la condition |
+| `*` | 0 à 9 |
+
+Exemple : `1-3,7,>=8` → 1, 2, 3, 7, 8, 9. Dans le champ Valeur, le pattern est précédé de `*` (`*1-5`) ; sans `*`, la saisie reste une valeur unique. Le panneau accepte aussi le `*` de tête.
+
+Changements de comportement :
+
+- **`X<>Y` est inclusif partout.** Il était exclusif dans le panneau. Le choix inclusif est le plus sûr : au pire deux candidats de plus sont testés, alors que l'exclusif pouvait écarter la bonne valeur sans le dire.
+- **Un pattern invalide n'est jamais appliqué à moitié** : `2,3x` donnait `[2, 3]` ; il est maintenant refusé (champ en rouge, `error = 'liste de valeurs invalide'` côté champ Valeur).
+- **Plage bornée** : un pattern qui donnerait plus de `MAX_VALUES_PER_PATTERN` (1000) valeurs est refusé au lieu d'être développé en mémoire.
+- **Panneau** (`resolveRanges()`) : une lettre sans pattern reprend la saisie du champ Valeur, **y compris sa liste** si c'est un brute force (`*1-5`) — seule la première valeur était reprise. Le lancement est désactivé, avec un message, si un pattern n'est pas compris ou si une lettre n'a aucune valeur ; avant, le pattern invalide était remplacé en silence par la valeur courante et la lettre sans valeur comptée comme 0.
+
+`formatValueList()` (inutilisée) est supprimée ; `formatValues()` sert à décrire un pattern dans le panneau (« 6 valeurs : 1-3, 7-9 »).
+
+Tests : `src/browser/tests/value-pattern.test.ts` (chaque pattern donne les mêmes valeurs dans le panneau et dans le champ Valeur).

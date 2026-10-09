@@ -264,6 +264,39 @@ class TestFormulaQuestionsService:
         assert "jimi hendrix" in result['F'].lower()
 
 
+class TestLowercaseLetters:
+    """Listings rédigés avec des lettres minuscules"""
+
+    def setup_method(self):
+        self.service = FormulaQuestionsService()
+
+    def test_lettres_minuscules_retrouvees(self):
+        """Les lettres demandées en majuscules sont retrouvées en minuscules dans le texte"""
+        text = "Enigme\na = nombre de marches\nb = annee de construction\nc) couleur du banc\n"
+        result = self.service.extract_questions_with_regex(text, ['A', 'B', 'C', 'D'])
+
+        assert result == {
+            'A': 'nombre de marches',
+            'B': 'annee de construction',
+            'C': 'couleur du banc',
+            'D': ''
+        }
+
+    def test_majuscule_prioritaire_sur_minuscule(self):
+        """Une question trouvée en majuscule n'est pas remplacée par une ligne en minuscule"""
+        text = "A = nombre de marches\na) autre chose de bien plus long que la vraie question\nB: annee"
+        result = self.service.extract_questions_with_regex(text, ['A', 'B'])
+
+        assert result == {'A': 'nombre de marches', 'B': 'annee'}
+
+    def test_mot_a_en_fin_de_ligne_ignore(self):
+        """Le mot « a » en fin de ligne n'est pas pris pour la lettre A"""
+        text = "Voici ce qu'il y a:\nB = annee"
+        result = self.service.extract_questions_with_regex(text, ['A', 'B'])
+
+        assert result == {'A': '', 'B': 'annee'}
+
+
 class TestCleanHTML:
     """Tests de la méthode _clean_html"""
     

@@ -204,13 +204,23 @@ La deduction suppose que chaque lettre manquante vaut un seul chiffre et que la 
 
 Si certaines variables restent inconnues, vous pouvez utiliser le **Brute Force** :
 
-1. Selectionnez les lettres a tester et la plage de valeurs (0-9 par defaut)
-2. Cliquez sur **Executer**
+1. Dans le panneau **Mode Brute Force**, indiquez pour chaque lettre inconnue les valeurs a essayer (voir la syntaxe ci-dessous). Une lettre laissee vide garde la valeur saisie a l'etape 2.
+2. Cliquez sur **Calculer toutes les combinaisons**
 3. Formula Solver teste toutes les combinaisons et garde celles qui produisent des coordonnees valides
 4. Les resultats apparaissent avec leurs valeurs et coordonnees
 5. Pour chaque resultat, vous pouvez **Creer un waypoint** ou **Ajouter et valider** directement
 
-Le brute force est utile quand il reste une ou deux lettres inconnues. Au-dela de 3 lettres, le nombre de combinaisons devient tres grand.
+Le brute force est utile quand il reste une ou deux lettres inconnues. Au-dela de 3 lettres, le nombre de combinaisons devient tres grand (1000 au maximum).
+
+| Vous ecrivez | Valeurs essayees |
+|--------------|------------------|
+| `2,4,7` | 2, 4 et 7 (virgule ou point-virgule) |
+| `1-5` | de 1 a 5 inclus (`1<>5` est equivalent) |
+| `<5`, `<=5`, `>5`, `>=5` | les chiffres de 0 a 9 qui repondent a la condition |
+| `*` | tous les chiffres, de 0 a 9 |
+| `1-3,7,>=8` | les formes se combinent : 1, 2, 3, 7, 8, 9 |
+
+La meme syntaxe fonctionne directement dans le champ **Valeur** d'une lettre, precedee de `*` : saisir `*1-5` pour la lettre A lance le calcul tout seul des que les autres lettres sont renseignees. Une syntaxe non comprise est signalee en rouge et bloque le calcul ; elle n'est jamais appliquee a moitie.
 
 Quand la geocache a des coordonnees publiees, les resultats sont **tries du plus proche au plus loin** et la case **Dans les 2 miles de l'origine uniquement** est cochee : seuls les candidats a moins de 2 miles (3,2 km) sont affiches, dans la liste comme sur la carte. C'est la distance maximale autorisee entre les coordonnees publiees d'une Mystery et sa finale. Decochez la case pour voir tous les candidats, par exemple pour une multi-cache, qui n'a pas cette limite.
 
