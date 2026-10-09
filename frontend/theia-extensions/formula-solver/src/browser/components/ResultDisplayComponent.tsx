@@ -292,6 +292,19 @@ export const ResultDisplayComponent: React.FC<ResultDisplayComponentProps> = ({
                         <span className='codicon codicon-location' style={{ color: 'var(--theia-descriptionForeground)' }}></span>
                         <span style={{ fontWeight: 'bold', fontSize: '13px' }}>Distance depuis l'origine</span>
                     </div>
+                    {result.distance.miles > 2 && (
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            marginBottom: '8px',
+                            fontSize: '12px',
+                            color: 'var(--theia-editorWarning-foreground)'
+                        }}>
+                            <span className='codicon codicon-warning' />
+                            <span>Au-delà des 2 miles autorisés entre les coordonnées publiées d'une Mystery et sa finale.</span>
+                        </div>
+                    )}
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr',

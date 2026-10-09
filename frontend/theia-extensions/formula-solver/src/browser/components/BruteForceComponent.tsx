@@ -16,12 +16,21 @@ export interface BruteForceResult {
         ddm: string;
         decimal: { lat: number; lon: number };
     };
+    /** Distance aux coordonnées publiées, si elles sont connues */
+    distance?: { km: number; miles: number };
 }
 
 interface BruteForceComponentProps {
     letters: string[];
     values: Map<string, LetterValue>;
+    /** Candidats à afficher (déjà filtrés et triés) */
     results: BruteForceResult[];
+    /** Nombre total de candidats, filtre compris */
+    totalCount: number;
+    /** Vrai si la distance à l'origine est connue (le filtre a un sens) */
+    canLimitToRadius: boolean;
+    limitToRadius: boolean;
+    onToggleLimitToRadius: (enabled: boolean) => void;
     onBruteForceExecute: (combinations: Array<Record<string, number>>) => void;
     onCreateWaypoint: (resultId: string, autoSave: boolean) => void;
     onRemoveResult: (resultId: string) => void;
@@ -37,6 +46,10 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     letters,
     values,
     results,
+    totalCount,
+    canLimitToRadius,
+    limitToRadius,
+    onToggleLimitToRadius,
     onBruteForceExecute,
     onCreateWaypoint,
     onRemoveResult,
@@ -50,11 +63,13 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     // Basculer automatiquement vers l'onglet résultats quand des résultats arrivent (une seule fois)
     const previousResultsLength = React.useRef(0);
     React.useEffect(() => {
-        if (results.length > 0 && previousResultsLength.current === 0) {
+        if (totalCount > 0 && previousResultsLength.current === 0) {
             setActiveTab('results');
         }
-        previousResultsLength.current = results.length;
-    }, [results.length]);
+        previousResultsLength.current = totalCount;
+    }, [totalCount]);
+
+    const hiddenByRadius = totalCount - results.length;
 
     /**
      * Valeur saisie pour une lettre, ignorée si elle est inutilisable (ex: texte
@@ -158,8 +173,8 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
                     Mode Brute Force
                 </h4>
-                {results.length > 0 && (
-                    <div role='tablist' aria-label='Mode Brute Force' style={{
+                {totalCount > 0 && (
+                    <div role='tablist'  aria-label='Mode Brute Force' style={{
                         display: 'flex',
                         gap: '4px',
                         marginLeft: 'auto'
@@ -212,7 +227,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 <button
                     onClick={() => setShowHelp(!showHelp)}
                     style={{
-                        marginLeft: results.length > 0 ? '8px' : 'auto',
+                        marginLeft: totalCount > 0 ? '8px' : 'auto',
                         padding: '4px 8px',
                         fontSize: '11px',
                         backgroundColor: 'var(--theia-button-secondaryBackground)',
@@ -348,12 +363,32 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
             )}
 
             {/* Onglet Résultats */}
-            {activeTab === 'results' && results.length > 0 && (
+            {activeTab === 'results' && totalCount > 0 && (
                 <div style={{
                     maxHeight: '400px',
                     overflowY: 'auto',
                     fontSize: '12px'
                 }}>
+                    {canLimitToRadius && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                            <input
+                                type='checkbox'
+                                checked={limitToRadius}
+                                onChange={e => onToggleLimitToRadius(e.target.checked)}
+                            />
+                            <span>Dans les 2 miles de l'origine uniquement</span>
+                            {hiddenByRadius > 0 && (
+                                <span style={{ color: 'var(--theia-descriptionForeground)' }}>
+                                    ({hiddenByRadius} hors zone masqué{hiddenByRadius > 1 ? 's' : ''})
+                                </span>
+                            )}
+                        </label>
+                    )}
+                    {results.length === 0 && (
+                        <div style={{ padding: '8px', color: 'var(--theia-descriptionForeground)' }}>
+                            Aucun candidat dans les 2 miles de l'origine.
+                        </div>
+                    )}
                     {results.slice(0, visibleCount).map((result) => {
                         const hasCoordinates = Boolean(result.coordinates);
                         return (
@@ -380,6 +415,11 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                     <div style={{ fontFamily: 'var(--theia-code-font-family)', color: 'var(--theia-descriptionForeground)' }}>
                                         {result.coordinates?.ddm || '—'}
                                     </div>
+                                    {result.distance && (
+                                        <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                                            à {result.distance.km.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} km de l'origine
+                                        </div>
+                                    )}
                                 </div>
                                 <div style={{
                                     display: 'flex',

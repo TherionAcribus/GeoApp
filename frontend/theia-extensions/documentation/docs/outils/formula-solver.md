@@ -97,9 +97,22 @@ Tapez directement la valeur dans le champ **Valeur** de chaque lettre. Selection
 | **Valeur** | Utilise le nombre tel quel | `1867` → `1867` |
 | **Checksum** | Somme des chiffres (ou positions alphabetiques A=1..Z=26) | `Paris` → `16+1+18+9+19 = 63` |
 | **Checksum reduit** | Checksum iteratif jusqu'a un seul chiffre | `63` → `6+3 = 9` |
-| **Longueur** | Nombre de caracteres (sans espaces) | `Paris` → `5` |
+| **Longueur** | Nombre de lettres et de chiffres (sans espaces ni ponctuation) | `Paris` → `5` |
 
 Quand l'IA repond, elle detecte automatiquement le bon type de calcul d'apres la question. Vous pouvez toujours le modifier manuellement.
+
+Avec le type **Valeur**, la saisie doit etre un nombre entier. Un texte (`Paris`, `2CV`) est signale en rouge avec `= ?` et bloque le calcul : choisissez Checksum ou Longueur, ou corrigez la valeur.
+
+### Saisie groupee
+
+Pour entrer plusieurs valeurs d'un coup (par exemple au retour du terrain), cliquez sur **Saisie groupee** en haut de la section, collez vos valeurs puis cliquez sur **Appliquer** (ou Ctrl+Entree) :
+
+```
+A=3, B=7, C=12
+D = Tour Eiffel
+```
+
+Les separateurs acceptes sont la virgule, le point-virgule, l'espace ou le retour a la ligne, avec `=` ou `:`. Chaque lettre citee voit sa valeur remplacee et garde son type de calcul. Les lettres absentes de la formule sont ignorees et signalees.
 
 ### Details de la reponse
 
@@ -163,6 +176,8 @@ Si certaines variables restent inconnues, vous pouvez utiliser le **Brute Force*
 5. Pour chaque resultat, vous pouvez **Creer un waypoint** ou **Ajouter et valider** directement
 
 Le brute force est utile quand il reste une ou deux lettres inconnues. Au-dela de 3 lettres, le nombre de combinaisons devient tres grand.
+
+Quand la geocache a des coordonnees publiees, les resultats sont **tries du plus proche au plus loin** et la case **Dans les 2 miles de l'origine uniquement** est cochee : seuls les candidats a moins de 2 miles (3,2 km) sont affiches, dans la liste comme sur la carte. C'est la distance maximale autorisee entre les coordonnees publiees d'une Mystery et sa finale. Decochez la case pour voir tous les candidats, par exemple pour une multi-cache, qui n'a pas cette limite.
 
 ## Configuration
 

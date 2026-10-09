@@ -3,6 +3,8 @@ import * as assert from 'assert/strict';
 import { LetterValue } from '../../common/types';
 import { CoordinatePreviewEngine } from '../preview/coordinate-preview-engine';
 import { computeLetterValue, ValueCalculator } from '../utils/letter-value';
+import { parseBulkValues } from '../utils/bulk-values';
+import { distanceKm, MYSTERY_MAX_DISTANCE_KM } from '../utils/distance';
 import { FormulaSolverServiceImpl } from '../formula-solver-service';
 
 const calculator: ValueCalculator = new FormulaSolverServiceImpl({
@@ -112,7 +114,40 @@ function testShortDecimalsReadAsWrittenWithWarning(): void {
     assert.equal(literal.north.message, 'Coordonnée valide');
 }
 
+function testBulkValuesSeparators(): void {
+    const expected = [{ letter: 'A', value: '3' }, { letter: 'B', value: '7' }, { letter: 'C', value: '12' }];
+    assert.deepEqual(parseBulkValues('A=3, B=7, C=12'), expected);
+    assert.deepEqual(parseBulkValues('A: 3; B: 7; C: 12'), expected);
+    assert.deepEqual(parseBulkValues('A=3 B=7 C=12'), expected);
+    assert.deepEqual(parseBulkValues('A = 3\nB = 7\r\nC = 12\n'), expected);
+    assert.deepEqual(parseBulkValues('a=3,b=7,c=12'), expected);
+}
+
+function testBulkValuesTextAndEdgeCases(): void {
+    assert.deepEqual(parseBulkValues('D = Tour Eiffel\nE = 1889'), [
+        { letter: 'D', value: 'Tour Eiffel' },
+        { letter: 'E', value: '1889' }
+    ]);
+    // Une lettre répétée : la dernière affectation l'emporte
+    assert.deepEqual(parseBulkValues('A=1, A=2'), [{ letter: 'A', value: '2' }]);
+    // Valeur vide ignorée, texte sans affectation ignoré
+    assert.deepEqual(parseBulkValues('A=, B=4'), [{ letter: 'B', value: '4' }]);
+    assert.deepEqual(parseBulkValues('rien à lire ici'), []);
+    // Une lettre au sein d'un mot n'est pas une affectation
+    assert.deepEqual(parseBulkValues('total=5, AB=3'), []);
+}
+
+function testDistanceAndMysteryLimit(): void {
+    // 1 minute de latitude = 1 mille marin = 1,852 km environ
+    assert.ok(Math.abs(distanceKm(47, 6, 47 + 1 / 60, 6) - 1.853) < 0.01);
+    assert.equal(distanceKm(47, 6, 47, 6), 0);
+    assert.ok(Math.abs(MYSTERY_MAX_DISTANCE_KM - 3.218688) < 1e-9);
+}
+
 function run(): void {
+    testBulkValuesSeparators();
+    testBulkValuesTextAndEdgeCases();
+    testDistanceAndMysteryLimit();
     testChecksumIgnoresAccentsAndLigatures();
     testLengthCountsLettersAndDigitsOnly();
     testTextTypesUseTheRawText();

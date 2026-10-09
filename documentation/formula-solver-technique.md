@@ -573,3 +573,25 @@ Un calcul automatique ne produit plus de toast (« Coordonnées calculées », �
 ### 16.5 Journalisation
 
 Les `console.log` du widget et de `FormulaSolverLLMService` (prompts et réponses complets) sont retirés ; les `console.error` / `console.warn` restent.
+
+---
+
+## 17. Filtre des 2 miles et saisie groupée (octobre 2026)
+
+### 17.1 Filtre des 2 miles sur le brute force
+
+- `utils/distance.ts` : `distanceKm()` (Haversine) et `MYSTERY_MAX_DISTANCE_KM` (2 miles = 3,218688 km), aussi utilisé pour le cercle de l'overlay carte.
+- Chaque candidat reçoit sa `distance` à l'origine (`originLat` / `originLon`), calculée côté frontend : la distance du backend est arrondie à 10 m et pouvait écarter à tort un candidat juste sous la limite.
+- Les candidats sont triés du plus proche au plus loin, puis numérotés (`Solution 1` = le plus proche).
+- `bruteForceLimitToRadius` (vrai par défaut) : `getVisibleBruteForceResults()` ne garde que les candidats à 2 miles au plus. Le filtre s'applique à la liste **et** à la carte. `bruteForceResults` conserve tous les candidats : décocher la case les réaffiche sans recalcul.
+- Sans origine connue (texte collé, pas de géocache), aucun candidat n'a de distance : la case n'est pas affichée et rien n'est filtré.
+- `ResultDisplayComponent` affiche un avertissement quand le résultat d'un calcul simple est à plus de 2 miles.
+
+Le filtre est un réglage d'affichage, pas une règle : le solver ne connaît pas le type de la cache, et une multi n'a pas cette limite.
+
+### 17.2 Saisie groupée
+
+- `utils/bulk-values.ts` : `parseBulkValues()` extrait les affectations « lettre = valeur » d'un texte libre (`=` ou `:` ; séparateurs virgule, point-virgule, espace, retour à la ligne ; valeur texte acceptée ; la dernière affectation d'une lettre l'emporte). Une lettre au sein d'un mot (`AB=3`) n'est pas une affectation.
+- `applyBulkValues()` applique les valeurs en une seule mise à jour d'état, via `computeLetterValue()` (mêmes règles que la saisie champ par champ, type de calcul de la lettre conservé). Les lettres absentes de la formule sont ignorées et listées dans la notification.
+
+Tests : `src/browser/tests/coordinate-preview-engine.test.ts`.

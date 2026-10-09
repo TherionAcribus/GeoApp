@@ -18,6 +18,8 @@ import { AnswerDetail } from './strategies/types';
 import { Formula, Question, LetterValue, FormulaSolverState } from '../common/types';
 import { FormulaSessionManager, SessionIndex } from './formula-solver-session-manager';
 import { computeLetterValue } from './utils/letter-value';
+import { parseBulkValues } from './utils/bulk-values';
+import { distanceKm, KM_PER_MILE, MYSTERY_MAX_DISTANCE_KM } from './utils/distance';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
@@ -162,7 +164,14 @@ export class FormulaSolverWidget extends ReactWidget {
         label: string;
         values: Record<string, number>;
         coordinates?: any;
+        distance?: { km: number; miles: number };
     }> = [];
+    // N'afficher (liste et carte) que les candidats dans les 2 miles de l'origine
+    protected bruteForceLimitToRadius: boolean = true;
+
+    // Saisie groupée des valeurs ("A=3, B=7")
+    protected bulkValuesOpen: boolean = false;
+    protected bulkValuesText: string = '';
 
     protected detectionRequestId: number = 0;
 
@@ -488,7 +497,7 @@ export class FormulaSolverWidget extends ReactWidget {
         const originLat = this.state.originLat;
         const originLon = this.state.originLon;
         const hasOrigin = typeof originLat === 'number' && typeof originLon === 'number' && isFinite(originLat) && isFinite(originLon);
-        const radiusMeters = 2 * 1609.344; // 2 miles
+        const radiusMeters = MYSTERY_MAX_DISTANCE_KM * 1000; // 2 miles
 
         const formula = this.state.selectedFormula;
         if (!formula) {
@@ -1750,7 +1759,9 @@ export class FormulaSolverWidget extends ReactWidget {
                 return;
             }
 
-            const results: Array<{ id: string; label: string; values: Record<string, number>; coordinates?: any }> = [];
+            const results: FormulaSolverWidget['bruteForceResults'] = [];
+            const originLat = this.state.originLat;
+            const originLon = this.state.originLon;
 
             for (const item of batchResults) {
                 if (item.status !== 'success' || !item.coordinates) {
@@ -1763,28 +1774,40 @@ export class FormulaSolverWidget extends ReactWidget {
                     .map(([k, v]) => `${k}${v}`)
                     .join('-');
 
-                const label = `Solution ${results.length + 1}`;
+                // Distance à l'origine calculée ici, sans l'arrondi du backend, pour
+                // ne pas écarter à tort un candidat situé juste sous la limite.
+                let distance: { km: number; miles: number } | undefined;
+                if (typeof originLat === 'number' && typeof originLon === 'number') {
+                    const km = distanceKm(originLat, originLon, item.coordinates.latitude, item.coordinates.longitude);
+                    distance = { km, miles: km / KM_PER_MILE };
+                }
 
                 results.push({
                     id,
-                    label,
+                    label: '',
                     values: item.values,
-                    coordinates: item.coordinates
+                    coordinates: item.coordinates,
+                    distance
                 });
             }
+
+            // Les candidats les plus proches de l'origine d'abord
+            results.sort((a, b) => (a.distance?.km ?? Infinity) - (b.distance?.km ?? Infinity));
+            results.forEach((result, index) => {
+                result.label = `Solution ${index + 1}`;
+            });
 
             this.bruteForceResults = results;
             this.updateState({ result: undefined });
 
-            // Afficher tous les points sur la carte (uniquement ceux avec coordonnées)
-            const validResults = results.filter((r): r is { id: string; label: string; values: Record<string, number>; coordinates: any } =>
-                r.coordinates !== undefined
-            );
-            this.showAllResultsOnMap(validResults);
+            const visibleResults = this.getVisibleBruteForceResults();
+            this.showAllResultsOnMap(visibleResults);
 
             if (!silent) {
+                const hiddenCount = results.length - visibleResults.length;
                 this.messageService.info(
-                    `${results.length} résultat${results.length > 1 ? 's' : ''} calculé${results.length > 1 ? 's' : ''} avec succès !`
+                    `${results.length} résultat${results.length > 1 ? 's' : ''} calculé${results.length > 1 ? 's' : ''}`
+                    + (hiddenCount > 0 ? `, dont ${visibleResults.length} dans les 2 miles` : '')
                 );
             }
 
@@ -1798,6 +1821,64 @@ export class FormulaSolverWidget extends ReactWidget {
         } finally {
             this.pendingCalculations--;
             this.update();
+        }
+    }
+
+    /**
+     * Candidats du brute force à afficher (liste et carte) : tous, ou seulement
+     * ceux dans les 2 miles de l'origine quand le filtre est actif. Un candidat
+     * sans distance connue (pas d'origine) n'est jamais écarté.
+     */
+    protected getVisibleBruteForceResults(): FormulaSolverWidget['bruteForceResults'] {
+        if (!this.bruteForceLimitToRadius) {
+            return this.bruteForceResults;
+        }
+        return this.bruteForceResults.filter(r => !r.distance || r.distance.km <= MYSTERY_MAX_DISTANCE_KM);
+    }
+
+    /**
+     * Applique une saisie groupée ("A=3, B=7") aux lettres de la formule.
+     */
+    protected applyBulkValues(): void {
+        const pairs = parseBulkValues(this.bulkValuesText);
+        if (pairs.length === 0) {
+            this.messageService.warn('Aucune valeur reconnue. Format attendu : A=3, B=7 (ou une lettre par ligne).');
+            return;
+        }
+
+        const knownLetters = new Set(this.state.questions.map(q => q.letter));
+        const nextValues = new Map(this.state.values);
+        const applied: string[] = [];
+        const ignored: string[] = [];
+
+        for (const { letter, value } of pairs) {
+            if (!knownLetters.has(letter)) {
+                ignored.push(letter);
+                continue;
+            }
+            const type = nextValues.get(letter)?.type || this.globalValueType;
+            const letterValue = computeLetterValue(letter, value, type, this.formulaSolverService);
+            this.valuesMemory.set(letter, letterValue);
+            nextValues.set(letter, letterValue);
+            applied.push(letter);
+        }
+
+        if (applied.length === 0) {
+            this.messageService.warn(`Aucune de ces lettres n'est dans la formule : ${ignored.join(', ')}`);
+            return;
+        }
+
+        this.bulkValuesText = '';
+        this.bulkValuesOpen = false;
+        this.updateState({ values: nextValues });
+        this.updateMapPreviewOverlay(nextValues);
+        this.tryAutoCalculateOrBruteForce();
+
+        const summary = `${applied.length} valeur${applied.length > 1 ? 's' : ''} appliquée${applied.length > 1 ? 's' : ''} : ${applied.join(', ')}`;
+        if (ignored.length > 0) {
+            this.messageService.warn(`${summary}. Lettres absentes de la formule ignorées : ${ignored.join(', ')}`);
+        } else {
+            this.messageService.info(summary);
         }
     }
 
@@ -1947,7 +2028,8 @@ export class FormulaSolverWidget extends ReactWidget {
     /**
      * Affiche tous les résultats du brute force sur la carte
      */
-    protected showAllResultsOnMap(results: Array<{ id: string; label: string; values: Record<string, number>; coordinates: any }>): void {
+    protected showAllResultsOnMap(candidates: FormulaSolverWidget['bruteForceResults']): void {
+        const results = candidates.filter(r => r.coordinates !== undefined);
         if (results.length === 0) {
             window.dispatchEvent(new CustomEvent('geoapp-map-highlight-clear'));
             return;
@@ -3054,6 +3136,16 @@ export class FormulaSolverWidget extends ReactWidget {
                         >
                             Aide IA (questions)
                         </button>
+                        <button
+                            className="fs-btn fs-btn--outline"
+                            onClick={() => {
+                                this.bulkValuesOpen = !this.bulkValuesOpen;
+                                this.update();
+                            }}
+                            title="Coller plusieurs valeurs d'un coup : A=3, B=7, C=12"
+                        >
+                            Saisie groupée
+                        </button>
                         {this.renderAiExecutionBadge('Questions IA', this.getLatestFormulaExecution('questions'))}
 
                         <button
@@ -3117,6 +3209,58 @@ export class FormulaSolverWidget extends ReactWidget {
                             })}
                         </div>
                     </div>
+
+                    {this.bulkValuesOpen && (
+                        <div style={{
+                            padding: '10px',
+                            backgroundColor: 'var(--theia-input-background)',
+                            border: '1px solid var(--theia-panel-border)',
+                            borderRadius: '4px',
+                            marginBottom: '12px'
+                        }}>
+                            <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
+                                Saisie groupée des valeurs
+                            </div>
+                            <textarea
+                                autoFocus
+                                value={this.bulkValuesText}
+                                onChange={e => {
+                                    this.bulkValuesText = e.target.value;
+                                    this.update();
+                                }}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                        e.preventDefault();
+                                        this.applyBulkValues();
+                                    }
+                                }}
+                                placeholder={'A=3, B=7, C=12\nou une lettre par ligne :\nD = Tour Eiffel'}
+                                style={{
+                                    width: '100%',
+                                    minHeight: '70px',
+                                    padding: '8px 10px',
+                                    fontFamily: 'var(--theia-code-font-family)',
+                                    backgroundColor: 'var(--theia-editor-background)',
+                                    color: 'var(--theia-foreground)',
+                                    border: '1px solid var(--theia-input-border)',
+                                    borderRadius: '4px'
+                                }}
+                            />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
+                                <button
+                                    className="fs-btn fs-btn--primary"
+                                    onClick={() => this.applyBulkValues()}
+                                    disabled={!this.bulkValuesText.trim()}
+                                    title="Remplace la valeur des lettres citées (Ctrl+Entrée)"
+                                >
+                                    Appliquer
+                                </button>
+                                <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
+                                    Remplace la valeur des lettres citées ; le type de calcul de chaque lettre est conservé.
+                                </span>
+                            </div>
+                        </div>
+                    )}
 
                     {this.questionsAiHintOpen && (
                         <div style={{
@@ -3387,7 +3531,15 @@ export class FormulaSolverWidget extends ReactWidget {
                 <BruteForceComponent
                     letters={this.extractLettersFromFormula(this.state.selectedFormula)}
                     values={this.state.values}
-                    results={this.bruteForceResults}
+                    results={this.getVisibleBruteForceResults()}
+                    totalCount={this.bruteForceResults.length}
+                    canLimitToRadius={this.bruteForceResults.some(r => !!r.distance)}
+                    limitToRadius={this.bruteForceLimitToRadius}
+                    onToggleLimitToRadius={(enabled) => {
+                        this.bruteForceLimitToRadius = enabled;
+                        this.showAllResultsOnMap(this.getVisibleBruteForceResults());
+                        this.update();
+                    }}
                     onBruteForceExecute={(combinations) => this.executeBruteForceFromCombinations(combinations)}
                     onCreateWaypoint={(resultId, autoSave) => this.createWaypointFromBrute(resultId, autoSave)}
                     onRemoveResult={(resultId) => this.removeBruteForceResult(resultId)}
