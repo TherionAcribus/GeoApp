@@ -20,6 +20,7 @@ import { FormulaSessionManager, SessionIndex } from './formula-solver-session-ma
 import { computeLetterValue } from './utils/letter-value';
 import { parseBulkValues } from './utils/bulk-values';
 import { distanceKm, KM_PER_MILE, MYSTERY_MAX_DISTANCE_KM } from './utils/distance';
+import { deduceMissingLetters, describeDigits, DeductionResult, MAX_DEDUCED_LETTERS } from './utils/deduction';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
@@ -168,6 +169,18 @@ export class FormulaSolverWidget extends ReactWidget {
     }> = [];
     // N'afficher (liste et carte) que les candidats dans les 2 miles de l'origine
     protected bruteForceLimitToRadius: boolean = true;
+
+    // Cache mono-entrée de la déduction des lettres manquantes (même principe
+    // que `previewCache` : recalcul seulement si la formule, les valeurs ou
+    // l'origine changent).
+    private deductionCache?: {
+        north: string;
+        east: string;
+        values: Map<string, LetterValue>;
+        originLat: number;
+        originLon: number;
+        result: DeductionResult | undefined;
+    };
 
     // Saisie groupée des valeurs ("A=3, B=7")
     protected bulkValuesOpen: boolean = false;
@@ -1846,6 +1859,33 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
+        const { applied, ignored } = this.setLetterValues(pairs);
+        if (applied.length === 0) {
+            this.messageService.warn(`Aucune de ces lettres n'est dans la formule : ${ignored.join(', ')}`);
+            return;
+        }
+
+        this.bulkValuesText = '';
+        this.bulkValuesOpen = false;
+        this.update();
+
+        const summary = `${applied.length} valeur${applied.length > 1 ? 's' : ''} appliquée${applied.length > 1 ? 's' : ''} : ${applied.join(', ')}`;
+        if (ignored.length > 0) {
+            this.messageService.warn(`${summary}. Lettres absentes de la formule ignorées : ${ignored.join(', ')}`);
+        } else {
+            this.messageService.info(summary);
+        }
+    }
+
+    /**
+     * Remplace la valeur de plusieurs lettres en une seule mise à jour d'état.
+     * Les lettres absentes de la formule sont ignorées. Le type de calcul de
+     * chaque lettre est conservé, sauf si `forcedType` est donné.
+     */
+    protected setLetterValues(
+        pairs: Array<{ letter: string; value: string }>,
+        forcedType?: LetterValue['type']
+    ): { applied: string[]; ignored: string[] } {
         const knownLetters = new Set(this.state.questions.map(q => q.letter));
         const nextValues = new Map(this.state.values);
         const applied: string[] = [];
@@ -1856,30 +1896,169 @@ export class FormulaSolverWidget extends ReactWidget {
                 ignored.push(letter);
                 continue;
             }
-            const type = nextValues.get(letter)?.type || this.globalValueType;
+            const type = forcedType || nextValues.get(letter)?.type || this.globalValueType;
             const letterValue = computeLetterValue(letter, value, type, this.formulaSolverService);
             this.valuesMemory.set(letter, letterValue);
             nextValues.set(letter, letterValue);
             applied.push(letter);
         }
 
-        if (applied.length === 0) {
-            this.messageService.warn(`Aucune de ces lettres n'est dans la formule : ${ignored.join(', ')}`);
-            return;
+        if (applied.length > 0) {
+            this.updateState({ values: nextValues });
+            this.updateMapPreviewOverlay(nextValues);
+            this.tryAutoCalculateOrBruteForce();
         }
 
-        this.bulkValuesText = '';
-        this.bulkValuesOpen = false;
-        this.updateState({ values: nextValues });
-        this.updateMapPreviewOverlay(nextValues);
-        this.tryAutoCalculateOrBruteForce();
+        return { applied, ignored };
+    }
 
-        const summary = `${applied.length} valeur${applied.length > 1 ? 's' : ''} appliquée${applied.length > 1 ? 's' : ''} : ${applied.join(', ')}`;
-        if (ignored.length > 0) {
-            this.messageService.warn(`${summary}. Lettres absentes de la formule ignorées : ${ignored.join(', ')}`);
-        } else {
-            this.messageService.info(summary);
+    /**
+     * Déduction des lettres manquantes : chiffres 0-9 qui donnent une coordonnée
+     * valide dans les 2 miles de l'origine. Disponible quand il manque 1 à 3
+     * lettres, que l'origine est connue et qu'aucune valeur saisie n'est
+     * inutilisable ou en liste (le brute force gère les listes).
+     */
+    protected getDeduction(): DeductionResult | undefined {
+        const formula = this.state.selectedFormula;
+        const originLat = this.state.originLat;
+        const originLon = this.state.originLon;
+        if (!formula || typeof originLat !== 'number' || typeof originLon !== 'number' ||
+            !isFinite(originLat) || !isFinite(originLon)) {
+            return undefined;
         }
+
+        const values = this.state.values;
+        const cache = this.deductionCache;
+        if (cache && cache.north === formula.north && cache.east === formula.east && cache.values === values &&
+            cache.originLat === originLat && cache.originLon === originLon) {
+            return cache.result;
+        }
+
+        let result: DeductionResult | undefined;
+        const provided = Array.from(values.values()).filter(v => v.rawValue.trim() !== '');
+        const missing = this.extractLettersFromFormula(formula)
+            .filter(letter => !(values.get(letter)?.rawValue || '').trim());
+
+        if (missing.length >= 1 && missing.length <= MAX_DEDUCED_LETTERS && !provided.some(v => v.error || v.isList)) {
+            result = deduceMissingLetters(
+                this.previewEngine,
+                { north: formula.north, east: formula.east },
+                values,
+                missing,
+                { latitude: originLat, longitude: originLon },
+                MYSTERY_MAX_DISTANCE_KM
+            );
+        }
+
+        this.deductionCache = { north: formula.north, east: formula.east, values, originLat, originLon, result };
+        return result;
+    }
+
+    /**
+     * Affiche les candidats de la déduction dans la liste et sur la carte, via
+     * le calcul batch du brute force (les lettres déjà saisies gardent leur valeur).
+     */
+    protected showDeductionCandidates(deduction: DeductionResult): void {
+        const base: Record<string, number> = {};
+        this.state.values.forEach((letterValue, letter) => {
+            if (letterValue.rawValue.trim() !== '') {
+                base[letter] = letterValue.value;
+            }
+        });
+        void this.executeBruteForceFromCombinations(
+            deduction.candidates.map(candidate => ({ ...base, ...candidate.values }))
+        );
+    }
+
+    protected renderDeductionPanel(): React.ReactNode {
+        const deduction = this.getDeduction();
+        if (!deduction) {
+            return null;
+        }
+
+        const { letters, candidates, possibleByLetter, tested } = deduction;
+        const certain = letters.filter(letter => possibleByLetter.get(letter)!.length === 1);
+        const formatAssignment = (assignedLetters: string[], source: Record<string, number>): string =>
+            assignedLetters.map(letter => `${letter}=${source[letter]}`).join(', ');
+        const applyLetters = (assignedLetters: string[], source: Record<string, number>): void => {
+            // Un chiffre déduit est une valeur directe, quel que soit le type de la lettre
+            this.setLetterValues(assignedLetters.map(letter => ({ letter, value: String(source[letter]) })), 'value');
+        };
+
+        return (
+            <div className="fs-panel" style={{ padding: '12px', borderRadius: '4px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <span className="codicon codicon-lightbulb" />
+                    <strong style={{ fontSize: '13px' }}>
+                        Déduction {letters.length > 1 ? 'des lettres manquantes' : 'de la lettre manquante'} ({letters.join(', ')})
+                    </strong>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
+                    Chiffres de 0 à 9 qui donnent une coordonnée valide à moins de 2 miles de l'origine.
+                </div>
+
+                {candidates.length === 0 ? (
+                    <div style={{ fontSize: '12px', color: 'var(--theia-editorWarning-foreground)', display: 'flex', gap: '6px' }}>
+                        <span className="codicon codicon-warning" />
+                        <span>
+                            Aucun chiffre ne convient : une valeur déjà saisie est probablement fausse,
+                            ou {letters.length > 1 ? 'une de ces lettres' : 'cette lettre'} vaut plus de 9.
+                        </span>
+                    </div>
+                ) : (
+                    <>
+                        <div style={{ fontSize: '12px', fontFamily: 'var(--theia-code-font-family)', marginBottom: '8px' }}>
+                            {letters.map(letter => (
+                                <div key={letter}>
+                                    <strong>{letter}</strong> : {describeDigits(possibleByLetter.get(letter)!)}
+                                </div>
+                            ))}
+                        </div>
+
+                        {candidates.length === 1 ? (
+                            <div style={{ fontSize: '12px', marginBottom: '8px' }}>
+                                Une seule possibilité : <strong>{candidates[0].formatted}</strong>
+                                {' '}(à {candidates[0].distanceKm.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} km de l'origine)
+                            </div>
+                        ) : (
+                            <div style={{ fontSize: '12px', marginBottom: '8px' }}>
+                                {candidates.length} combinaisons possibles sur {tested}.
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {candidates.length === 1 && (
+                                <button
+                                    className="fs-btn fs-btn--primary"
+                                    onClick={() => applyLetters(letters, candidates[0].values)}
+                                    title="Renseigne ces valeurs dans les champs"
+                                >
+                                    Appliquer {formatAssignment(letters, candidates[0].values)}
+                                </button>
+                            )}
+                            {candidates.length > 1 && certain.length > 0 && (
+                                <button
+                                    className="fs-btn fs-btn--primary"
+                                    onClick={() => applyLetters(certain, candidates[0].values)}
+                                    title="Seule valeur possible pour cette lettre, quelle que soit l'autre"
+                                >
+                                    Appliquer {formatAssignment(certain, candidates[0].values)}
+                                </button>
+                            )}
+                            {candidates.length > 1 && (
+                                <button
+                                    className="fs-btn fs-btn--secondary"
+                                    onClick={() => this.showDeductionCandidates(deduction)}
+                                    title="Liste les candidats et les place sur la carte"
+                                >
+                                    Afficher les {candidates.length} candidats
+                                </button>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        );
     }
 
     /**
@@ -3526,6 +3705,9 @@ export class FormulaSolverWidget extends ReactWidget {
                         this.state.values
                     )}
                 />
+
+                {/* Déduction des lettres manquantes */}
+                {this.renderDeductionPanel()}
 
                 {/* Mode Brute Force */}
                 <BruteForceComponent

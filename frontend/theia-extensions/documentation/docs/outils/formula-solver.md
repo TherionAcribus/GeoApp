@@ -165,6 +165,16 @@ Quand toutes les variables sont remplies et que la previsualisation est valide, 
 - un bouton **Creer waypoint** pour enregistrer le resultat
 - un bouton **Afficher sur la carte** pour visualiser le point
 
+### Deduction des lettres manquantes
+
+Quand il ne manque plus qu'**une a trois lettres** et que la geocache a des coordonnees publiees, un panneau **Deduction** apparait sous la previsualisation. Il essaie les chiffres de 0 a 9 pour chaque lettre manquante et ne garde que ceux qui donnent une coordonnee valide a moins de 2 miles de l'origine.
+
+- **Une seule possibilite** : cliquez sur **Appliquer** pour renseigner les lettres.
+- **Plusieurs possibilites** : le panneau liste les chiffres encore possibles pour chaque lettre (par exemple `A : 2 a 4`). **Afficher les candidats** les place dans la liste et sur la carte.
+- **Aucun chiffre ne convient** : une valeur deja saisie est probablement fausse, ou la lettre vaut plus de 9.
+
+La deduction suppose que chaque lettre manquante vaut un seul chiffre et que la finale est a moins de 2 miles, ce qui est la regle pour une Mystery mais pas pour une multi-cache. Une lettre placee dans les milliemes de minute n'est presque jamais contrainte : la deduction est surtout utile pour les lettres des minutes et des dixiemes.
+
 ### Brute Force
 
 Si certaines variables restent inconnues, vous pouvez utiliser le **Brute Force** :

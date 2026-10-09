@@ -595,3 +595,21 @@ Le filtre est un réglage d'affichage, pas une règle : le solver ne connaît pa
 - `applyBulkValues()` applique les valeurs en une seule mise à jour d'état, via `computeLetterValue()` (mêmes règles que la saisie champ par champ, type de calcul de la lettre conservé). Les lettres absentes de la formule sont ignorées et listées dans la notification.
 
 Tests : `src/browser/tests/coordinate-preview-engine.test.ts`.
+
+---
+
+## 18. Déduction des lettres manquantes (octobre 2026)
+
+Quand il manque 1 à 3 lettres (`MAX_DEDUCED_LETTERS`) et que l'origine est connue, un panneau de l'étape 3 indique quels chiffres peuvent prendre ces lettres.
+
+- `utils/deduction.ts` : `deduceMissingLetters()` essaie les chiffres 0 à 9 pour chaque lettre manquante (10, 100 ou 1000 combinaisons), calcule chaque coordonnée **localement** avec `CoordinatePreviewEngine` (aucun appel backend) et garde celles qui sont valides et à 2 miles au plus de l'origine. Retourne les candidats triés par distance et, par lettre, les chiffres encore possibles (`possibleByLetter`).
+- `getDeduction()` (widget) : cache mono-entrée sur la formule, la référence de la Map de valeurs et l'origine. Pas de déduction si une valeur saisie est inutilisable (`error`) ou en liste (`isList`, géré par le brute force).
+- `renderDeductionPanel()` :
+  - aucun candidat : avertissement (une valeur déjà saisie est probablement fausse, ou une lettre vaut plus de 9) ;
+  - un seul candidat : bouton « Appliquer » qui renseigne les lettres ;
+  - plusieurs : chiffres possibles par lettre, bouton « Appliquer » pour les lettres qui n'ont qu'un chiffre possible, et bouton « Afficher les N candidats » qui passe par `executeBruteForceFromCombinations()` (liste + carte).
+- Un chiffre déduit est appliqué avec le type `value` (`setLetterValues(pairs, 'value')`), quel que soit le type de la lettre.
+
+**Hypothèse** : chaque lettre manquante vaut un seul chiffre. C'est vrai pour une lettre écrite dans la coordonnée (`5A.BCD`), pas forcément pour une lettre qui n'apparaît que dans une expression (`(A+B)`). Comme pour le filtre des 2 miles, la règle ne vaut que pour les Mystery.
+
+Tests : `src/browser/tests/deduction.test.ts`.
