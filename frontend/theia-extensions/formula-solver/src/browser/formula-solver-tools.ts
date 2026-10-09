@@ -413,7 +413,7 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                     break;
                 
                 case 'length':
-                    result = answer.replace(/\s/g, '').length;
+                    result = this.formulaSolverService.calculateLength(answer);
                     break;
                 
                 default:

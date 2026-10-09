@@ -1,7 +1,7 @@
 # Formula Solver — Documentation technique
 
 > Extension Theia pour résoudre les formules de coordonnées GPS des géocaches Mystery.  
-> Dernière mise à jour : juin 2025
+> Dernière mise à jour : octobre 2026
 
 ---
 
@@ -394,7 +394,7 @@ Chaque lettre a un type de calcul appliqué automatiquement :
 | `value` | Nombre direct | `1867` → `1867` |
 | `checksum` | Somme des chiffres (ou positions alpha A=1..Z=26) | `"Paris"` → `16+1+18+9+19 = 63` |
 | `reduced` | Checksum itératif jusqu'à 1 chiffre | `63` → `9` |
-| `length` | Longueur sans espaces | `"Paris"` → `5` |
+| `length` | Nombre de lettres et chiffres (sans espaces ni ponctuation) | `"Paris"` → `5` |
 
 Le type peut être :
 - Déduit par l'IA (champ `valueType` dans `AnswerDetail`)
@@ -507,4 +507,40 @@ GeoAppFormulaSolverAgents   → singleton (agents IA)
 - **Nouveaux moteurs de recherche** : ajouter Google Custom Search, Bing, etc. au `WebSearchService`
 - **Persistance** : sauvegarder l'état du solver (formule + valeurs) dans la BDD pour reprendre plus tard
 - **Export** : exporter les résultats (coordonnées + raisonnement) en format texte/CSV
-- **Tests** : ajouter des tests unitaires pour `CoordinatePreviewEngine` et `_clean_query_for_search`
+- **Tests** : ajouter des tests unitaires pour `_clean_query_for_search`
+
+---
+
+## 15. Justesse du calcul (octobre 2026)
+
+Règle générale : une saisie ou une formule incohérente donne une **erreur visible**, jamais une coordonnée fausse en « succès ».
+
+### 15.1 Calculateur backend (`coordinate_calculator.py`)
+
+- Le résultat d'une expression doit être un **entier positif** (`_to_coordinate_integer`) : `(6/2)` s'insère comme `3` (et non `3.0`), un résultat négatif ou non entier lève une `ValueError`.
+- `_parse_coordinate` exige que **toute** la chaîne substituée soit une coordonnée (`re.fullmatch`) : minutes sur 2 chiffres au plus, décimales sur 3 chiffres au plus, aucun reste ignoré. Seule une marque de minutes finale (`'`, `′`) est tolérée.
+- Les opérations hors parenthèses sont évaluées par segment (`_evaluate_top_level_segments`) : `53.A+B`.
+- Des décimales courtes gardent leur lecture écrite : `53.5` = `53.500`.
+
+### 15.2 Preview et déclenchement du calcul
+
+- `calculateCoordinates()` n'appelle le backend que si la preview est `valid` sur les deux axes ; sinon le résultat affiché est retiré (`clearStaleResult()`).
+- `calculationRequestId` : seule la réponse du dernier calcul demandé est prise en compte.
+- Décimales : la preview complète à droite comme le backend (`padRightZerosIfNumeric`) et ajoute un avertissement quand une variable ou une expression donne moins de 3 chiffres (« lu .500 »).
+- Une valeur inutilisable (`LetterValue.error`), négative ou non entière rend la preview `invalid` et désigne la lettre comme suspecte.
+
+### 15.3 Valeurs des lettres (`utils/letter-value.ts`)
+
+`computeLetterValue()` remplace la logique qui était dans `updateValue()` :
+
+- Type `value` : seul un entier complet est numérique. `2CV` ou `Paris` donnent `error = 'valeur non numérique'` (affiché `= ?` sur la carte) au lieu de 2 ou 0.
+- Types `checksum` / `reduced` / `length` : le calcul porte sur le texte saisi tel quel (`007` a une longueur de 3).
+- Checksum : accents ignorés (`É` = `E`), ligatures développées (`œ` = `oe`). Longueur : lettres et chiffres uniquement (`François-Marie` = 13). Mêmes règles côté backend (`_calculate_checksum`, `_calculate_length`).
+
+### 15.4 Changements de contexte
+
+- `valuesMemory` : dernière valeur saisie par lettre, reprise quand on sélectionne une autre formule du même texte. Vidée à chaque nouvelle détection ou nouvelle géocache.
+- `answersRunId` : incrémenté par `loadFromGeocache()`, `detectFormulasFromText()` et `restoreSession()`. Une réponse IA lancée avant le changement est ignorée à son retour (l'appel LLM lui-même n'est pas annulé).
+- `resetAnsweringState()` vide aussi les détails de réponse, profils et infos par lettre, qui passaient d'une géocache à l'autre.
+
+Tests : `backend/tests/test_coordinate_calculator.py`, `src/browser/tests/coordinate-preview-engine.test.ts`.

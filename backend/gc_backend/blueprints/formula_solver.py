@@ -3,6 +3,7 @@ Blueprint Formula Solver
 Routes API pour la résolution de formules de coordonnées GPS
 """
 
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, jsonify, current_app
 from loguru import logger
@@ -753,16 +754,39 @@ def ai_search_answer():
         return _internal_error_response("[AI] Erreur recherche web", e)
 
 
+def _expand_ligatures(text: str) -> str:
+    """Développe les ligatures en lettres simples (œ -> oe) pour le checksum."""
+    for ligature, letters in (('œ', 'oe'), ('Œ', 'OE'), ('æ', 'ae'), ('Æ', 'AE'), ('ß', 'ss')):
+        text = text.replace(ligature, letters)
+    return text
+
+
+def _strip_diacritics(text: str) -> str:
+    """Retire les accents (é -> e) sans supprimer la lettre porteuse."""
+    return ''.join(ch for ch in unicodedata.normalize('NFD', text) if not unicodedata.combining(ch))
+
+
+def _calculate_length(text: str) -> int:
+    """
+    Nombre de lettres et de chiffres, sans espaces ni ponctuation
+    ("François-Marie" -> 13).
+
+    Aligné sur `FormulaSolverServiceImpl.calculateLength()` (frontend).
+    """
+    return sum(1 for ch in _strip_diacritics(text or '') if ch.isalnum())
+
+
 def _calculate_checksum(text: str) -> int:
     """
     Somme des positions des lettres (A=1..Z=26) et des valeurs des chiffres.
+    Les accents sont ignorés (É compte comme E) et les ligatures développées.
 
     Aligné sur `FormulaSolverServiceImpl.calculateChecksum()` (frontend, utilisé
     par le champ "Checksum" du widget) pour que la suggestion IA et la saisie
     manuelle produisent le même résultat pour la même réponse.
     """
     total = 0
-    for ch in (text or '').upper():
+    for ch in _strip_diacritics(_expand_ligatures(text or '')).upper():
         if 'A' <= ch <= 'Z':
             total += ord(ch) - ord('A') + 1
         elif '0' <= ch <= '9':
@@ -976,14 +1000,14 @@ def ai_suggest_calculation_type():
         
         suggestions = []
         
-        # 1. Longueur (sans espaces)
-        length = len(answer.replace(' ', ''))
+        # 1. Longueur (lettres et chiffres, sans espaces ni ponctuation)
+        length = _calculate_length(answer)
         length_confidence = 0.8 if length > 0 and length < 100 else 0.3
         suggestions.append({
             'type': 'length',
             'confidence': length_confidence,
             'result': length,
-            'description': 'Longueur du texte (sans espaces)'
+            'description': 'Longueur du texte (sans espaces ni ponctuation)'
         })
         
         # 2. Checksum (lettres A=1..Z=26 + chiffres)

@@ -17,7 +17,7 @@ import { AnsweringContextCache, PreparedAnsweringContext } from './answering-con
 import { AnswerDetail } from './strategies/types';
 import { Formula, Question, LetterValue, FormulaSolverState } from '../common/types';
 import { FormulaSessionManager, SessionIndex } from './formula-solver-session-manager';
-import { parseValueList } from './utils/value-parser';
+import { computeLetterValue } from './utils/letter-value';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
@@ -168,6 +168,18 @@ export class FormulaSolverWidget extends ReactWidget {
     protected detectionRequestId: number = 0;
 
     protected questionsRequestId: number = 0;
+
+    // Incrémenté à chaque changement de contexte (géocache, détection, session) :
+    // une réponse IA lancée avant le changement est ignorée à son retour.
+    protected answersRunId: number = 0;
+
+    // Seule la réponse du dernier calcul demandé est prise en compte.
+    protected calculationRequestId: number = 0;
+    protected pendingCalculations: number = 0;
+
+    // Dernière valeur saisie par lettre pour le texte en cours, conservée quand on
+    // change de formule (les étapes d'une multi partagent souvent leurs lettres).
+    protected valuesMemory: Map<string, LetterValue> = new Map();
 
     private readonly aiExecutionDisposables: Array<{ dispose: () => void }> = [];
 
@@ -570,6 +582,7 @@ export class FormulaSolverWidget extends ReactWidget {
             this.manualEast = '';
             this.manualFormulaOpen = false;
             this.pendingSessionRestore = null;
+            this.resetAnsweringState();
             this.updateState({
                 loading: true,
                 error: undefined,
@@ -643,6 +656,22 @@ export class FormulaSolverWidget extends ReactWidget {
             });
             this.messageService.error(`Erreur: ${errorMsg}`);
         }
+    }
+
+    /**
+     * Abandonne les réponses IA en cours et oublie tout ce qui est propre aux
+     * lettres de la géocache précédente (détails, profils, infos, valeurs).
+     */
+    protected resetAnsweringState(): void {
+        this.answersRunId++;
+        this.calculationRequestId++;
+        this.isAnsweringLoading = false;
+        this.loadingLetters.clear();
+        this.answerDetails.clear();
+        this.expandedDetailLetters.clear();
+        this.perLetterExtraInfo.clear();
+        this.perQuestionProfiles.clear();
+        this.valuesMemory.clear();
     }
 
     /**
@@ -901,6 +930,9 @@ export class FormulaSolverWidget extends ReactWidget {
         }
 
         const requestId = ++this.detectionRequestId;
+        this.answersRunId++;
+        this.calculationRequestId++;
+        this.valuesMemory.clear();
         this.bruteForceMode = false;
         this.bruteForceResults = [];
 
@@ -1236,7 +1268,7 @@ export class FormulaSolverWidget extends ReactWidget {
 
             const values = new Map<string, LetterValue>();
             for (const letter of letters) {
-                const existing = previousValues.get(letter);
+                const existing = previousValues.get(letter) ?? this.valuesMemory.get(letter);
                 if (existing) {
                     values.set(letter, existing);
                 }
@@ -1252,6 +1284,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 values,
                 currentStep: 'values'
             });
+            this.updateMapPreviewOverlay(values);
 
             // Auto-lancer les réponses IA si le mode est configuré pour IA et moteur = IA
             const shouldAutoAnswer = this.answersEngine === 'ai' &&
@@ -1364,6 +1397,7 @@ export class FormulaSolverWidget extends ReactWidget {
         // Si le mode est 'manual', utiliser 'ai-per-question' par défaut pour le bulk
         const effectiveMode = this.stepConfig.answersMode === 'manual' ? 'ai-per-question' : this.stepConfig.answersMode;
 
+        const runId = this.answersRunId;
         this.isAnsweringLoading = true;
         this.updateState({ loading: true, error: undefined });
         try {
@@ -1371,6 +1405,10 @@ export class FormulaSolverWidget extends ReactWidget {
 
             // Callback pour mise à jour progressive (streaming)
             const onAnswer = effectiveMode === 'ai-per-question' ? (letter: string, answer: string, detail: AnswerDetail) => {
+                // Réponse d'une géocache ou d'une détection précédente : ne pas l'écrire ici
+                if (runId !== this.answersRunId) {
+                    return;
+                }
                 // Mettre à jour le détail
                 this.answerDetails.set(letter, detail);
 
@@ -1402,6 +1440,10 @@ export class FormulaSolverWidget extends ReactWidget {
                 webContext: (this.state.text || '').substring(0, 200),
                 onAnswer
             });
+
+            if (runId !== this.answersRunId) {
+                return;
+            }
 
             // Store answer details (pour les modes non-streaming)
             if (result.detailsByLetter && effectiveMode !== 'ai-per-question') {
@@ -1445,13 +1487,19 @@ export class FormulaSolverWidget extends ReactWidget {
                 this.messageService.info(`Réponses obtenues: ${filled}/${questionsByLetter.size}`);
             }
         } catch (error) {
+            if (runId !== this.answersRunId) {
+                return;
+            }
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             console.error('[FORMULA-SOLVER] Erreur answerAllQuestions:', error);
             this.messageService.error(`Erreur réponses: ${message}`);
             this.updateState({ error: message });
         } finally {
-            this.isAnsweringLoading = false;
-            this.updateState({ loading: false });
+            // Après un changement de contexte, l'état de chargement appartient au nouveau contexte
+            if (runId === this.answersRunId) {
+                this.isAnsweringLoading = false;
+                this.updateState({ loading: false });
+            }
         }
     }
 
@@ -1469,6 +1517,7 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
+        const runId = this.answersRunId;
         this.loadingLetters.add(letter);
         this.update();
         try {
@@ -1492,6 +1541,10 @@ export class FormulaSolverWidget extends ReactWidget {
                 webContext: (this.state.text || '').substring(0, 200)
             });
 
+            if (runId !== this.answersRunId) {
+                return;
+            }
+
             const answer = result.answersByLetter.get(letter) || '';
             const existing = this.state.values.get(letter);
             const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
@@ -1512,13 +1565,18 @@ export class FormulaSolverWidget extends ReactWidget {
                 this.updateValue(letter, answer, type);
             }
         } catch (error) {
+            if (runId !== this.answersRunId) {
+                return;
+            }
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             console.error('[FORMULA-SOLVER] Erreur answerSingleQuestion:', error);
             this.messageService.error(`Erreur réponse: ${message}`);
             this.updateState({ error: message });
         } finally {
-            this.loadingLetters.delete(letter);
-            this.update();
+            if (runId === this.answersRunId) {
+                this.loadingLetters.delete(letter);
+                this.update();
+            }
         }
     }
 
@@ -1533,11 +1591,21 @@ export class FormulaSolverWidget extends ReactWidget {
         // Vérifier que toutes les valeurs sont renseignées
         const letters = this.extractLettersFromFormula(this.state.selectedFormula);
         const missingValues = letters.filter(letter => !this.state.values.has(letter));
-        
+
         if (missingValues.length === 0) {
             // Toutes les lettres sont remplies, calculer automatiquement
-            console.log('[FORMULA-SOLVER] Toutes les lettres sont remplies, calcul automatique...');
             this.calculateCoordinates();
+        }
+    }
+
+    /**
+     * Retire un résultat qui ne correspond plus aux valeurs saisies et fait
+     * ignorer la réponse d'un calcul encore en cours.
+     */
+    protected clearStaleResult(): void {
+        this.calculationRequestId++;
+        if (this.state.result) {
+            this.updateState({ result: undefined, currentStep: 'values' });
         }
     }
 
@@ -1558,6 +1626,17 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
+        // La preview est l'arbitre : tant qu'elle signale une incohérence (longueur,
+        // résultat négatif ou non entier, valeur non numérique...), on ne calcule pas
+        // et on n'affiche pas de résultat. Le détail est visible dans la preview.
+        const preview = this.getPreview(this.state.selectedFormula, this.state.values);
+        if (preview.north.status !== 'valid' || preview.east.status !== 'valid') {
+            this.clearStaleResult();
+            return;
+        }
+
+        const requestId = ++this.calculationRequestId;
+        this.pendingCalculations++;
         this.updateState({ loading: true, error: undefined });
 
         try {
@@ -1576,6 +1655,11 @@ export class FormulaSolverWidget extends ReactWidget {
                 originLon: this.state.originLon
             });
 
+            if (requestId !== this.calculationRequestId) {
+                // Les valeurs ont changé pendant le calcul : ce résultat est périmé
+                return;
+            }
+
             if (result.status === 'success') {
                 this.messageService.info('Coordonnées calculées avec succès !');
                 this.updateState({
@@ -1590,9 +1674,18 @@ export class FormulaSolverWidget extends ReactWidget {
                 throw new Error(result.error || 'Erreur lors du calcul');
             }
         } catch (error) {
+            if (requestId !== this.calculationRequestId) {
+                return;
+            }
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             this.messageService.error(`Erreur : ${message}`);
-            this.updateState({ loading: false, error: message });
+            this.updateState({ loading: false, error: message, result: undefined });
+        } finally {
+            this.pendingCalculations--;
+            if (requestId !== this.calculationRequestId && this.pendingCalculations === 0 && !this.isAnsweringLoading) {
+                // Calcul périmé sans successeur : libérer l'indicateur de chargement
+                this.updateState({ loading: false });
+            }
         }
     }
 
@@ -1686,6 +1779,9 @@ export class FormulaSolverWidget extends ReactWidget {
         const letterValuesMap: Record<string, number[]> = {};
 
         for (const [letter, letterValue] of this.state.values.entries()) {
+            if (letterValue.error) {
+                continue;
+            }
             if (letterValue.values && letterValue.values.length > 0) {
                 // Utiliser la liste de valeurs
                 letterValuesMap[letter] = letterValue.values;
@@ -1851,31 +1947,15 @@ export class FormulaSolverWidget extends ReactWidget {
 
     /**
      * Extrait les lettres (variables) d'une formule
-     * Ignore uniquement les lettres cardinales (N, S, E, W) en début de coordonnées
+     * Ignore le point cardinal (N, S, E, W, O) en début de coordonnée
      */
     protected extractLettersFromFormula(formula: Formula): string[] {
         // Supprimer les directions cardinales au début de chaque partie
-        // Ex: "N 48°AB.CDE" -> "48°AB.CDE", "E 007°FG.HIJ" -> "007°FG.HIJ"
-        const northCleaned = formula.north.replace(/^[NSEW]\s*/i, '');
-        const eastCleaned = formula.east.replace(/^[NSEW]\s*/i, '');
-        const text = `${northCleaned} ${eastCleaned}`;
-        
-        const letters = new Set<string>();
-        
-        // Extraire toutes les lettres A-Z maintenant que les directions sont retirées
-        const matches = text.matchAll(/([A-Z])/g);
-        for (const match of matches) {
-            letters.add(match[1]);
-        }
-        
-        console.log('[FORMULA-SOLVER] Lettres extraites:', {
-            north: formula.north,
-            east: formula.east,
-            northCleaned,
-            eastCleaned,
-            letters: Array.from(letters).sort()
-        });
-        
+        // Ex: "N 48°AB.CDE" -> "48°AB.CDE", "O 007°FG.HIJ" -> "007°FG.HIJ"
+        const northCleaned = formula.north.replace(/^\s*[NSEWO]\s*/i, '');
+        const eastCleaned = formula.east.replace(/^\s*[NSEWO]\s*/i, '');
+
+        const letters = new Set<string>(`${northCleaned} ${eastCleaned}`.match(/[A-Z]/g) || []);
         return Array.from(letters).sort();
     }
 
@@ -1883,81 +1963,8 @@ export class FormulaSolverWidget extends ReactWidget {
      * Met à jour la valeur d'une variable
      */
     protected updateValue(letter: string, rawValue: string, type: 'value' | 'checksum' | 'reduced' | 'length' | 'custom'): void {
-        console.log(`[FORMULA-SOLVER] updateValue: ${letter} = "${rawValue}" (type: ${type})`);
-
-        // Parser la valeur pour détecter les listes (ex: "2,3,4" ou "1-5")
-        const parsed = parseValueList(rawValue);
-        console.log(`[FORMULA-SOLVER] Parsed values:`, parsed.values);
-
-        // Calculer la valeur pour le premier élément (ou appliquer le calcul sur la chaîne brute)
-        let calculatedValue: number = 0;
-        let calculatedValues: number[] = [];
-
-        if (parsed.values.length > 0) {
-            // Il y a des valeurs numériques parsées (nombres ou listes)
-            console.log(`[FORMULA-SOLVER] Using parsed numeric values`);
-            for (const val of parsed.values) {
-                let calculated: number;
-                const strVal = val.toString();
-
-                switch (type) {
-                    case 'checksum':
-                        calculated = this.formulaSolverService.calculateChecksum(strVal);
-                        break;
-                    case 'reduced':
-                        calculated = this.formulaSolverService.calculateReducedChecksum(strVal);
-                        break;
-                    case 'length':
-                        calculated = this.formulaSolverService.calculateLength(strVal);
-                        break;
-                    case 'custom':
-                    case 'value':
-                    default:
-                        calculated = val;
-                        break;
-                }
-
-                calculatedValues.push(calculated);
-            }
-
-            calculatedValue = calculatedValues[0];
-        } else if (rawValue.trim() && (type === 'checksum' || type === 'reduced' || type === 'length')) {
-            // Pas de valeurs numériques parsées, mais on a du texte et un type qui travaille sur du texte
-            console.log(`[FORMULA-SOLVER] Applying ${type} calculation on raw text: "${rawValue}"`);
-
-            switch (type) {
-                case 'checksum':
-                    calculatedValue = this.formulaSolverService.calculateChecksum(rawValue.trim());
-                    break;
-                case 'reduced':
-                    calculatedValue = this.formulaSolverService.calculateReducedChecksum(rawValue.trim());
-                    break;
-                case 'length':
-                    calculatedValue = this.formulaSolverService.calculateLength(rawValue.trim());
-                    break;
-                default:
-                    calculatedValue = 0;
-                    break;
-            }
-
-            calculatedValues = [calculatedValue];
-        } else {
-            // Valeur vide ou type 'value' sans contenu parsable
-            console.log(`[FORMULA-SOLVER] No calculation applied`);
-            calculatedValue = 0;
-            calculatedValues = [];
-        }
-
-        console.log(`[FORMULA-SOLVER] Final calculated value: ${calculatedValue}`);
-
-        const letterValue: LetterValue = {
-            letter,
-            rawValue,
-            value: calculatedValue,
-            type,
-            values: calculatedValues.length > 0 ? calculatedValues : undefined,
-            isList: parsed.isList
-        };
+        const letterValue = computeLetterValue(letter, rawValue, type, this.formulaSolverService);
+        this.valuesMemory.set(letter, letterValue);
 
         const nextValues = new Map(this.state.values);
         nextValues.set(letter, letterValue);
@@ -1980,10 +1987,13 @@ export class FormulaSolverWidget extends ReactWidget {
             return val && val.rawValue.trim() !== '';
         });
         
-        if (!allFilled) {
+        const hasUnusableValue = Array.from(this.state.values.values()).some((v: LetterValue) => !!v.error);
+
+        if (!allFilled || hasUnusableValue) {
+            this.clearStaleResult();
             return;
         }
-        
+
         // Vérifier si au moins un champ contient une liste
         const hasLists = Array.from(this.state.values.values()).some((v: LetterValue) => !!v.isList);
         
@@ -2044,6 +2054,8 @@ export class FormulaSolverWidget extends ReactWidget {
         this.manualNorth = '';
         this.manualEast = '';
         this.manualFormulaOpen = false;
+        this.resetAnsweringState();
+        this.valuesMemory = new Map(session.values || []);
         this.bruteForceMode = false;
         this.bruteForceResults = session.bruteForceResults || [];
         this.answerDetails = new Map(session.answerDetails || []);
@@ -2926,10 +2938,12 @@ export class FormulaSolverWidget extends ReactWidget {
                         formulas={this.state.formulas}
                         selectedFormula={this.state.selectedFormula}
                         onSelect={(formula) => {
+                            // Les valeurs ne sont pas vidées ici : runQuestionsStep reprend
+                            // celles des lettres communes à la nouvelle formule.
+                            this.calculationRequestId++;
                             this.updateState({
                                 selectedFormula: formula,
                                 questions: [],
-                                values: new Map<string, LetterValue>(),
                                 result: undefined,
                                 currentStep: 'questions'
                             });

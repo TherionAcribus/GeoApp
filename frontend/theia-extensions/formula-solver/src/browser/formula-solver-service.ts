@@ -123,14 +123,24 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
     }
 
     async calculateCoordinates(params: CalculateCoordinatesParams): Promise<CalculationResult> {
-        const response = await this.api.post('/calculate', {
-            north_formula: params.northFormula,
-            east_formula: params.eastFormula,
-            values: params.values,
-            origin_lat: params.originLat,
-            origin_lon: params.originLon
-        });
-        return response.data;
+        try {
+            const response = await this.api.post('/calculate', {
+                north_formula: params.northFormula,
+                east_formula: params.eastFormula,
+                values: params.values,
+                origin_lat: params.originLat,
+                origin_lon: params.originLon
+            });
+            return response.data;
+        } catch (error) {
+            // Un calcul refusé (400) porte la raison dans le corps : la remonter
+            // telle quelle plutôt que le message générique d'axios.
+            const backendError = (error as { response?: { data?: { error?: unknown } } })?.response?.data?.error;
+            if (typeof backendError === 'string' && backendError) {
+                throw new Error(backendError);
+            }
+            throw error;
+        }
     }
 
     async calculateCoordinatesBatch(params: CalculateBatchParams): Promise<BatchCalculationResult[]> {
@@ -208,7 +218,13 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
     }
 
     calculateChecksum(value: string | number): number {
-        const str = value.toString().toUpperCase();
+        // Les accents sont ignorés (É compte comme E) et les ligatures développées (œ → oe).
+        const str = stripDiacritics(
+            value.toString()
+                .replace(/œ/g, 'oe').replace(/Œ/g, 'OE')
+                .replace(/æ/g, 'ae').replace(/Æ/g, 'AE')
+                .replace(/ß/g, 'ss')
+        ).toUpperCase();
 
         // Si la chaîne contient des lettres, convertir chaque lettre en sa position dans l'alphabet
         // et additionner. Sinon, utiliser seulement les chiffres présents.
@@ -240,8 +256,19 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
         return result;
     }
 
+    /**
+     * Nombre de lettres et de chiffres, sans espaces ni ponctuation
+     * ("François-Marie" → 13).
+     */
     calculateLength(value: string | number): number {
-        return value.toString().replace(/\s+/g, '').length;
+        let count = 0;
+        for (const char of stripDiacritics(value.toString())) {
+            const isLetter = char.toLowerCase() !== char.toUpperCase();
+            if (isLetter || (char >= '0' && char <= '9')) {
+                count++;
+            }
+        }
+        return count;
     }
 
     async setCorrectedCoordinates(geocacheId: number, coordinatesRaw: string): Promise<void> {
@@ -295,4 +322,9 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
     protected getBackendBaseUrl(): string {
         return String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
     }
+}
+
+/** Retire les accents (é → e) sans supprimer la lettre porteuse. */
+function stripDiacritics(text: string): string {
+    return text.normalize('NFD').replace(/[̀-ͯ]/g, '');
 }

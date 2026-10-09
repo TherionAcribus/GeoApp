@@ -371,8 +371,16 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                     <option value="length">Longueur</option>
                 </select>
 
-                <div style={{ minWidth: '60px', textAlign: 'right', fontWeight: 'bold' }}>
-                    = {value?.value || '-'}
+                <div
+                    style={{
+                        minWidth: '60px',
+                        textAlign: 'right',
+                        fontWeight: 'bold',
+                        color: value?.error ? 'var(--theia-errorText)' : undefined
+                    }}
+                    title={value?.error ? `Saisie inutilisable : ${value.error}` : undefined}
+                >
+                    = {value?.error ? '?' : (hasValue && value ? value.value : '-')}
                 </div>
             </div>
         </div>

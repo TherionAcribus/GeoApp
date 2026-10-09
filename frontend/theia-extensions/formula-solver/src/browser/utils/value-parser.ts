@@ -37,9 +37,10 @@ export function parseValueList(input: string): ParsedValue {
     const isBruteForce = trimmed.startsWith('*');
     const content = isBruteForce ? trimmed.substring(1).trim() : trimmed;
 
-    // Si pas de préfixe *, c'est une valeur simple
+    // Si pas de préfixe *, c'est une valeur simple. Seul un entier complet est
+    // numérique : "2CV" ou "007 bis" ne valent pas 2 ou 7.
     if (!isBruteForce) {
-        const num = parseInt(content, 10);
+        const num = /^[+-]?\d+$/.test(content) ? parseInt(content, 10) : NaN;
         if (!isNaN(num)) {
             return {
                 raw: input,

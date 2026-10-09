@@ -32,8 +32,9 @@ export class CoordinatePreviewEngine {
         const minutes = this.resolveSegment(axis, 'minutes', parsed.minutesExpr, 2, values, {
             padLeftZerosIfNumeric: true
         });
+        // Décimales : lecture « telle qu'écrite » (53.5 = 53.500), comme le calcul final.
         const decimals = this.resolveSegment(axis, 'decimals', parsed.decimalsExpr, 3, values, {
-            padLeftZerosIfNumeric: true
+            padRightZerosIfNumeric: true
         });
 
         issues.push(...degrees.issues, ...minutes.issues, ...decimals.issues);
@@ -111,7 +112,9 @@ export class CoordinatePreviewEngine {
         // devant le symbole degré. On le supprime pour éviter des tokens "other".
         const compact = trimmed
             .replace(/\s+/g, '')
-            .replace(/\u00C2/g, '');
+            .replace(/\u00C2/g, '')
+            // Marque de minutes finale tol\u00E9r\u00E9e (N 47\u00B0 53.ABC')
+            .replace(/['\u2032\u2019]+$/, '');
 
         const cardinalMatch = compact.match(/^([NSEWO])/i);
         const cardinal = (cardinalMatch ? cardinalMatch[1] : (axis === 'north' ? 'N' : 'E')).toUpperCase();
@@ -150,7 +153,7 @@ export class CoordinatePreviewEngine {
         expr: string,
         expectedLength: number,
         values: Map<string, LetterValue>,
-        options: { padLeftZerosIfNumeric?: boolean }
+        options: { padLeftZerosIfNumeric?: boolean; padRightZerosIfNumeric?: boolean }
     ): { segment: PreviewDigitSegment; issues: PreviewIssue[] } {
         const issues: PreviewIssue[] = [];
         const rawExpression = (expr || '').trim();
@@ -183,6 +186,14 @@ export class CoordinatePreviewEngine {
                         sourcesPerChar.push([]);
                         continue;
                     }
+                    const unusable = unusableValueReason(v);
+                    if (unusable) {
+                        issues.push(issue('error', axis, 'value', `${letter} : ${unusable}`, id, [letter]));
+                        outDigits += '?';
+                        outText += letter;
+                        sourcesPerChar.push([]);
+                        continue;
+                    }
                     outDigits += String(v.value);
                     outText += String(v.value);
                     // La valeur peut produire plusieurs digits; on attribue la provenance au bloc complet
@@ -199,6 +210,17 @@ export class CoordinatePreviewEngine {
                 missing.forEach(l => missingLettersSet.add(l));
                 if (missing.length > 0) {
                     // Interne: '?' pour ranges, UI: afficher l'expression brute
+                    outDigits += '?';
+                    outText += token.raw;
+                    sourcesPerChar.push([]);
+                    continue;
+                }
+
+                const invalid = token.variables.filter(l => getProvidedValue(values, l)!.error);
+                if (invalid.length > 0) {
+                    for (const l of invalid) {
+                        issues.push(issue('error', axis, 'value', `${l} : ${getProvidedValue(values, l)!.error}`, id, [l]));
+                    }
                     outDigits += '?';
                     outText += token.raw;
                     sourcesPerChar.push([]);
@@ -252,9 +274,26 @@ export class CoordinatePreviewEngine {
             sourcesPerChar.push([]);
         }
 
-        // Normalisation: padding à gauche si entièrement numérique et plus court que prévu
+        // Normalisation: padding si entièrement numérique et plus court que prévu
         let padded = false;
-        if (options.padLeftZerosIfNumeric && outDigits && /^[0-9]+$/.test(outDigits) && outDigits.length < expectedLength) {
+        if (options.padRightZerosIfNumeric && outDigits && /^[0-9]+$/.test(outDigits) && outDigits.length < expectedLength) {
+            const padCount = expectedLength - outDigits.length;
+            // Avec une variable ou une expression, .5 peut vouloir dire .500 ou .005 :
+            // on garde la lecture écrite, mais on la signale.
+            if (tokens.some(t => t.kind !== 'digits')) {
+                issues.push(issue(
+                    'warn', axis, 'short',
+                    `${segmentLabel(id)} sur ${outDigits.length} chiffre${outDigits.length > 1 ? 's' : ''} : lu .${outDigits.padEnd(expectedLength, '0')}`,
+                    id
+                ));
+            }
+            outDigits = outDigits.padEnd(expectedLength, '0');
+            outText = outText.padEnd(expectedLength, '0');
+            for (let i = 0; i < padCount; i++) {
+                sourcesPerChar.push([]);
+            }
+            padded = true;
+        } else if (options.padLeftZerosIfNumeric && outDigits && /^[0-9]+$/.test(outDigits) && outDigits.length < expectedLength) {
             const padCount = expectedLength - outDigits.length;
             outDigits = outDigits.padStart(expectedLength, '0');
             for (let i = 0; i < padCount; i++) {
@@ -518,6 +557,23 @@ function getProvidedValue(values: Map<string, LetterValue>, letter: string): Let
         return undefined;
     }
     return v;
+}
+
+/**
+ * Raison pour laquelle une valeur ne peut pas s'insérer comme chiffres dans une
+ * coordonnée, ou undefined si elle est utilisable.
+ */
+function unusableValueReason(v: LetterValue): string | undefined {
+    if (v.error) {
+        return v.error;
+    }
+    if (!Number.isInteger(v.value)) {
+        return `valeur non entière (${v.value})`;
+    }
+    if (v.value < 0) {
+        return `valeur négative (${v.value})`;
+    }
+    return undefined;
 }
 
 function suspectsForRangeImpossible(seg: PreviewDigitSegment, min: number, max: number): string[] {

@@ -53,6 +53,15 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     }, [results.length]);
 
     /**
+     * Valeur saisie pour une lettre, ignorée si elle est inutilisable (ex: texte
+     * avec le type « Valeur ») pour ne pas la compter comme 0.
+     */
+    const usableValue = (letter: string): LetterValue | undefined => {
+        const current = values.get(letter);
+        return current && !current.error ? current : undefined;
+    };
+
+    /**
      * Met à jour le pattern d'une lettre
      */
     const updatePattern = (letter: string, pattern: string) => {
@@ -82,14 +91,14 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     ranges.set(letter, parsedValues);
                 } else {
                     // Pattern invalide → utiliser valeur actuelle si disponible
-                    const currentValue = values.get(letter);
+                    const currentValue = usableValue(letter);
                     if (currentValue) {
                         ranges.set(letter, [currentValue.value]);
                     }
                 }
             } else {
                 // Pas de pattern → utiliser valeur actuelle
-                const currentValue = values.get(letter);
+                const currentValue = usableValue(letter);
                 if (currentValue) {
                     ranges.set(letter, [currentValue.value]);
                 } else {
@@ -120,7 +129,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     ranges.set(letter, [0]); // Valeur par défaut
                 }
             } else {
-                const currentValue = values.get(letter);
+                const currentValue = usableValue(letter);
                 ranges.set(letter, currentValue ? [currentValue.value] : [0]);
             }
         }
@@ -247,7 +256,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     const pattern = patterns.get(letter) || '';
                     const isValid = pattern === '' || ValueRangeParser.isValidPattern(pattern);
                     const description = pattern ? ValueRangeParser.getPatternDescription(pattern) : '';
-                    const currentValue = values.get(letter);
+                    const currentValue = usableValue(letter);
 
                     return (
                         <div key={letter} style={{ marginBottom: '8px' }}>

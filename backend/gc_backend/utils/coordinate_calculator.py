@@ -98,6 +98,9 @@ class CoordinateCalculator:
         # Normaliser les espaces (y compris NBSP, etc.)
         result = re.sub(r'\s+', ' ', result).strip().replace('\u00C2', '')
 
+        # Retirer une \u00E9ventuelle marque de minutes finale (N 47\u00B0 53.ABC')
+        result = re.sub(r"\s*['\u2032\u2019]+$", '', result)
+
         # Nettoyer les formules qui commencent par "X=" où X est une direction cardinale
         # (Cas d'erreur de génération AI)
         for cardinal in ['N', 'S', 'E', 'W']:
@@ -130,6 +133,9 @@ class CoordinateCalculator:
         # Ex: substituer Z avant Y pour éviter que "Y" ne devienne "5Z" si Y=5
         for var in sorted(variables, reverse=True):
             value = values[var]
+            # Un entier transmis en flottant (3.0) doit s'insérer comme "3"
+            if isinstance(value, float) and value.is_integer():
+                value = int(value)
             # Remplacer toutes les occurrences de la lettre dans le corps uniquement
             body = body.replace(var, str(value))
         
@@ -138,8 +144,59 @@ class CoordinateCalculator:
 
         # Normaliser les séparateurs DDM (évite "49. 333" qui serait parsé comme "49.000")
         body = re.sub(r'\s*\.\s*', '.', body)
-        
+
+        # Évaluer les opérations hors parenthèses, segment par segment (ex: "53.A+B")
+        body = self._evaluate_top_level_segments(body)
+
         return f"{prefix}{body}"
+
+    def _to_coordinate_integer(self, expr: str, result: float) -> int:
+        """
+        Convertit le résultat d'une expression en entier positif.
+
+        Un résultat négatif ou non entier ne peut pas s'insérer dans une
+        coordonnée : on le refuse plutôt que de produire un texte ("3.0", "-3")
+        qui serait ensuite mal lu.
+
+        Raises:
+            ValueError: Si le résultat est négatif ou non entier
+        """
+        if result != int(result):
+            raise ValueError(f"Résultat non entier : {expr} = {result}")
+        if result < 0:
+            raise ValueError(f"Résultat négatif : {expr} = {int(result)}")
+        return int(result)
+
+    def _evaluate_top_level_segments(self, body: str) -> str:
+        """
+        Évalue les opérations écrites hors parenthèses dans chaque segment
+        (degrés, minutes, décimales), ex: "47° 53.1+2" -> "47° 53.3".
+
+        Args:
+            body: Corps de la coordonnée, sans cardinal, variables substituées
+
+        Returns:
+            Corps avec chaque segment réduit à un entier quand il contenait une opération
+        """
+        degree_match = re.search(r'[°º]', body)
+        if not degree_match:
+            return body
+
+        def evaluate(segment: str) -> str:
+            stripped = segment.strip()
+            if not re.search(r'[+\-*/]', stripped) or not re.match(r'^[0-9+\-*/\s]+$', stripped):
+                return segment
+            return str(self._to_coordinate_integer(stripped, self._safe_eval(stripped)))
+
+        degrees = evaluate(body[:degree_match.start()])
+        rest = body[degree_match.end():]
+        if '.' in rest:
+            minutes, decimals = rest.split('.', 1)
+            rest = f"{evaluate(minutes)}.{evaluate(decimals)}"
+        else:
+            rest = evaluate(rest)
+
+        return f"{degrees}{degree_match.group(0)}{rest}"
     
     def _evaluate_expressions(self, formula: str) -> str:
         """
@@ -163,7 +220,7 @@ class CoordinateCalculator:
             expr = match.group(1)
             try:
                 # Évaluation sécurisée (seulement nombres et opérateurs)
-                result = self._safe_eval(expr)
+                result = self._to_coordinate_integer(f"({expr})", self._safe_eval(expr))
                 formula = formula[:match.start()] + str(result) + formula[match.end():]
             except Exception as e:
                 logger.warning(f"Impossible d'évaluer l'expression '{expr}': {e}")
@@ -241,13 +298,24 @@ class CoordinateCalculator:
         Raises:
             ValueError: Si format invalide
         """
-        # Pattern pour DDM: N 47° 53.900
-        pattern = r'([NSEWO])?\s*(\d{1,3})\s*[\u00b0\u00ba]\s*(\d{1,2}(?:\.\d+)?)'
-        
-        match = re.search(pattern, coord_str)
+        # Pattern pour DDM: N 47° 53.900. La chaîne entière doit correspondre :
+        # un reste non reconnu ("512.345", "53.-345", "41.3.012") est une erreur,
+        # pas un morceau à ignorer.
+        pattern = r'\s*([NSEWO])?\s*(\d+)\s*[°º]\s*(\d+)(?:\.(\d*))?\s*'
+
+        match = re.fullmatch(pattern, coord_str, flags=re.IGNORECASE)
         if not match:
             raise ValueError(f"Format de coordonnée invalide: {coord_str}")
-        
+
+        if len(match.group(3)) > 2:
+            raise ValueError(f"Minutes invalides: {match.group(3)} (2 chiffres attendus)")
+
+        decimals_digits = match.group(4) or ''
+        if len(decimals_digits) > 3:
+            raise ValueError(
+                f"Décimales invalides: {decimals_digits} (3 chiffres attendus, {len(decimals_digits)} obtenus)"
+            )
+
         detected_hemisphere = (match.group(1) or hemisphere).upper()
         if detected_hemisphere == 'O':
             detected_hemisphere = 'W'
@@ -259,7 +327,7 @@ class CoordinateCalculator:
             raise ValueError(f"Cardinal inattendu pour {expected_label}: {match.group(1)}")
 
         degrees = int(match.group(2))
-        minutes = float(match.group(3))
+        minutes = float(f"{match.group(3)}.{decimals_digits or '0'}")
 
         if not 0 <= minutes < 60:
             raise ValueError(f"Minutes hors limites: {minutes}")

@@ -56,6 +56,12 @@ export interface LetterValue {
     type: ValueType;
     values?: number[];
     isList?: boolean;
+    /**
+     * Raison pour laquelle la saisie ne donne pas de nombre exploitable
+     * (ex: texte avec le type « Valeur »). `value` vaut alors 0 mais ne doit
+     * pas être utilisé dans un calcul.
+     */
+    error?: string;
 }
 
 export interface CalculatedCoordinates {
