@@ -1102,7 +1102,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             const archiveState = await this.archiveController.syncArchive(gcCode);
             this.applyArchiveState(archiveState);
             if (archiveState.status === 'synced') {
-                this.messages.info(`Archive ${gcCode} synchronisee`);
+                this.messages.info(`Archive ${gcCode} synchronisée`);
             }
         } catch (e) {
             this.applyArchiveState({ status: 'needs_sync' });

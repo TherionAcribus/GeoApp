@@ -578,7 +578,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
         didWarnChatImageLimitRef.current = true;
-        messages.info(`Plus de ${maxChatImages} image(s) selectionnees: le prompt sera plus lourd et pourra ralentir l'analyse.`);
+        messages.info(`Plus de ${maxChatImages} image(s) sélectionnées: le prompt sera plus lourd et pourra ralentir l'analyse.`);
     }, [maxChatImages, messages]);
 
     const selected = React.useMemo(() => visibleImages.find(i => i.id === selectedId) ?? null, [visibleImages, selectedId]);
@@ -2421,7 +2421,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                 onClick={() => { void analyzeChatImages(); }}
                                 disabled={isSaving || selectedChatImages.length === 0}
                                 type='button'
-                                title={`Envoyer les images selectionnees au chat. Conseil: ${maxChatImages} image(s) pour garder un prompt leger.`}
+                                title={`Envoyer les images sélectionnées au chat. Conseil: ${maxChatImages} image(s) pour garder un prompt léger.`}
                             >
                                 <span className='codicon codicon-comment-discussion' />
                                 Chat ({selectedChatImages.length})

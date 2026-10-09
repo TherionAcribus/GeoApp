@@ -456,7 +456,7 @@ export class GeocacheNotesWidget extends ReactWidget {
             }
             this.applyGcPersonalNoteState(data);
             if (!silent) {
-                this.messages.info('Note Geocaching.com synchronisee');
+                this.messages.info('Note Geocaching.com synchronisée');
             }
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to sync from Geocaching.com:', error);

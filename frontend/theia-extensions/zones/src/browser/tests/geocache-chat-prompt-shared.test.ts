@@ -63,7 +63,7 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Code : GC424242'));
     assert.ok(prompt.includes('Type : Mystery Cache'));
     assert.ok(prompt.includes('Taille : Regular'));
-    assert.ok(prompt.includes('Coordonnees originales : N 48° 50.000 E 002° 20.000'));
+    assert.ok(prompt.includes('Coordonnées originales : N 48° 50.000 E 002° 20.000'));
     assert.ok(prompt.includes('Description (extrait) :'));
     assert.ok(prompt.includes('Formule A=2 puis lire l image.'));
     assert.ok(prompt.includes('Indices (extrait) :'));
@@ -123,7 +123,7 @@ function testBuildGeocacheFreeChatContext(): void {
     assert.ok(ctx.includes('Code : GC424242'));
     assert.ok(ctx.includes('Type : Mystery Cache'));
     assert.ok(ctx.includes('Taille : Regular'));
-    assert.ok(ctx.includes('Coordonnees originales : N 48° 50.000 E 002° 20.000'));
+    assert.ok(ctx.includes('Coordonnées originales : N 48° 50.000 E 002° 20.000'));
     assert.ok(ctx.includes('Description :'));
     assert.ok(ctx.includes('Formule A=2 puis lire l image.'));
     assert.ok(ctx.includes('Indices :'));

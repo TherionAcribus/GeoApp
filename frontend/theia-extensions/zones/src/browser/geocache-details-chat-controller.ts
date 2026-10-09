@@ -163,10 +163,10 @@ export class GeocacheDetailsChatController {
         const prompt = [
             buildGeocacheFreeChatContext(geocacheData),
             '',
-            'Analyse les images selectionnees pour cette geocache.',
-            'Separe strictement ce qui est visible sur les images, ce qui est une interpretation, et ce qui reste une hypothese.',
+            'Analyse les images sélectionnées pour cette géocache.',
+            'Sépare strictement ce qui est visible sur les images, ce qui est une interprétation, et ce qui reste une hypothèse.',
             '',
-            'Images selectionnees:',
+            'Images sélectionnées:',
             imageList,
         ].join('\n');
         dispatchGeoAppOpenChatRequest(

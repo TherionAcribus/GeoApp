@@ -149,7 +149,7 @@ function buildWaypointsDetails(waypoints: GeocachePromptWaypoint[]): string[] {
 
         const parts: string[] = [
             `- ${title}${type ? ` (${type})` : ''}`,
-            ...(coords ? [`  Coordonnees : ${coords}`] : []),
+            ...(coords ? [`  Coordonnées : ${coords}`] : []),
             ...(decimalCoords ? [`  Decimal : ${decimalCoords}`] : []),
             ...(notePreview ? [`  Note : ${notePreview}`] : []),
         ];
@@ -167,13 +167,13 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
         `Nom : ${data.name}`,
         `ID : ${data.id}`,
         `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
-        `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
-        `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
-        `Coordonnees affichees : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignees'}`,
+        `Difficulté / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
+        `Propriétaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
+        `Coordonnées affichées : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignées'}`,
         data.original_coordinates_raw && data.coordinates_raw && data.original_coordinates_raw !== data.coordinates_raw
-            ? `Coordonnees originales : ${data.original_coordinates_raw}`
+            ? `Coordonnées originales : ${data.original_coordinates_raw}`
             : undefined,
-        data.placed_at ? `Placee le : ${data.placed_at}` : undefined,
+        data.placed_at ? `Placée le : ${data.placed_at}` : undefined,
         `Favoris : ${data.favorites_count ?? 0} • Logs : ${data.logs_count ?? 0}`,
         data.waypoints?.length ? `Waypoints (${data.waypoints.length}) : ${buildWaypointsSummary(data.waypoints)}` : undefined,
         data.checkers?.length
@@ -235,13 +235,13 @@ export function buildGeocacheFreeChatContext(data: GeocachePromptData): string {
         `Nom : ${data.name}`,
         data.id !== undefined ? `ID (geocache_id) : ${data.id}` : undefined,
         `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
-        `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
-        `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
-        `Coordonnees : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignees'}`,
+        `Difficulté / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
+        `Propriétaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
+        `Coordonnées : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignées'}`,
         data.original_coordinates_raw && data.coordinates_raw && data.original_coordinates_raw !== data.coordinates_raw
-            ? `Coordonnees originales : ${data.original_coordinates_raw}`
+            ? `Coordonnées originales : ${data.original_coordinates_raw}`
             : undefined,
-        data.placed_at ? `Placee le : ${data.placed_at}` : undefined,
+        data.placed_at ? `Placée le : ${data.placed_at}` : undefined,
         `Favoris : ${data.favorites_count ?? 0} • Logs : ${data.logs_count ?? 0}`,
         data.waypoints?.length ? `Waypoints (${data.waypoints.length}) : ${buildWaypointsSummary(data.waypoints)}` : undefined,
         data.checkers?.length
@@ -294,13 +294,13 @@ export function buildGeocacheFullListingContext(
         `Nom : ${data.name}`,
         data.id !== undefined ? `ID (geocache_id) : ${data.id}` : undefined,
         `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
-        `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
-        `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
-        `Coordonnees : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignees'}`,
+        `Difficulté / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
+        `Propriétaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
+        `Coordonnées : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignées'}`,
         data.original_coordinates_raw && data.coordinates_raw && data.original_coordinates_raw !== data.coordinates_raw
-            ? `Coordonnees originales : ${data.original_coordinates_raw}`
+            ? `Coordonnées originales : ${data.original_coordinates_raw}`
             : undefined,
-        data.placed_at ? `Placee le : ${data.placed_at}` : undefined,
+        data.placed_at ? `Placée le : ${data.placed_at}` : undefined,
         `Favoris : ${data.favorites_count ?? 0} • Logs : ${data.logs_count ?? 0}`,
         data.checkers?.length
             ? `Checkers : ${data.checkers.map(c => (c.url ? `${c.name || 'Checker'}: ${c.url}` : (c.name || 'Checker'))).join(' • ')}`

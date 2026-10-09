@@ -224,7 +224,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
             label: isResolvingOwner
                 ? 'Recherche du profil...'
                 : ownerMessageUrl
-                    ? `Envoyer un message a propos de ${geocacheData.gc_code || 'cette cache'}`
+                    ? `Envoyer un message à propos de ${geocacheData.gc_code || 'cette cache'}`
                     : 'Message indisponible (profil introuvable)',
             iconClass: 'codicon codicon-mail',
             disabled: !ownerMessageUrl,
@@ -851,7 +851,7 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
             <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Statistiques</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
-                    <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Difficulte</div>
+                    <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Difficulté</div>
                     <div>{renderStars(geocacheData.difficulty, 'var(--theia-charts-yellow, #fbbf24)')}</div>
                 </div>
                 <div>
@@ -888,7 +888,7 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
         </div>
 
         <div style={cardStyle}>
-            <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Coordonnees</h4>
+            <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Coordonnées</h4>
             {coordinatesEditor}
         </div>
     </div>
@@ -916,14 +916,14 @@ export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionPr
         <table className='theia-table' style={{ width: '100%', marginTop: 8 }}>
             <tbody>
                 {renderRow('Code', geocacheData.gc_code)}
-                {renderRow('Proprietaire', geocacheData.owner)}
+                {renderRow('Propriétaire', geocacheData.owner)}
                 {renderRow('Type', geocacheData.type)}
                 {renderRow('Taille', geocacheData.size)}
-                {renderRow('Difficulte', geocacheData.difficulty?.toString())}
+                {renderRow('Difficulté', geocacheData.difficulty?.toString())}
                 {renderRow('Terrain', geocacheData.terrain?.toString())}
                 {renderRow('Favoris', geocacheData.favorites_count?.toString())}
                 {renderRow('Logs', geocacheData.logs_count?.toString())}
-                {renderRow('Placee le', geocacheData.placed_at)}
+                {renderRow('Placée le', geocacheData.placed_at)}
                 {renderRow('Statut', geocacheData.status)}
                 {renderRow('Trouvée', geocacheData.found ? 'Oui' : 'Non')}
                 {renderRow('Trouvée le', formatFoundDate(geocacheData.found_date))}
@@ -1247,12 +1247,12 @@ function getAttributeIconUrlFromAttribute(attribute: GeocacheAttribute): string 
 
 function getArchiveTooltip(status: ArchiveStatus, updatedAt?: string): string {
     if (status === 'synced') {
-        return `Archive a jour${updatedAt ? ` (${new Date(updatedAt).toLocaleString()})` : ''} - Cliquer pour re-synchroniser`;
+        return `Archive à jour${updatedAt ? ` (${new Date(updatedAt).toLocaleString()})` : ''} - Cliquer pour re-synchroniser`;
     }
     if (status === 'loading') {
         return 'Synchronisation en cours...';
     }
-    return 'Archive non synchronisee - Cliquer pour synchroniser';
+    return 'Archive non synchronisée - Cliquer pour synchroniser';
 }
 
 function getArchiveColor(status: ArchiveStatus): string {
@@ -1272,7 +1272,7 @@ function getArchiveLabel(status: ArchiveStatus): string {
     if (status === 'loading') {
         return 'Sync...';
     }
-    return 'Non archivee';
+    return 'Non archivée';
 }
 
 function getArchiveIconClass(status: ArchiveStatus): string {
