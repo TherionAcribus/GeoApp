@@ -189,6 +189,17 @@ Le brute force est utile quand il reste une ou deux lettres inconnues. Au-dela d
 
 Quand la geocache a des coordonnees publiees, les resultats sont **tries du plus proche au plus loin** et la case **Dans les 2 miles de l'origine uniquement** est cochee : seuls les candidats a moins de 2 miles (3,2 km) sont affiches, dans la liste comme sur la carte. C'est la distance maximale autorisee entre les coordonnees publiees d'une Mystery et sa finale. Decochez la case pour voir tous les candidats, par exemple pour une multi-cache, qui n'a pas cette limite.
 
+## Sessions
+
+Formula Solver **enregistre automatiquement** votre travail (formule, questions, valeurs, reponses IA, resultat) des qu'une premiere valeur est saisie pour une geocache. L'heure du dernier enregistrement s'affiche en haut du widget. Ouvrir une geocache sans rien y saisir ne cree pas de session.
+
+- **Reprendre** : en rouvrant Formula Solver sur la meme geocache, une banniere propose de **Restaurer** la session ou de lancer une **Nouvelle recherche**.
+- **Changer de geocache** : le travail en cours est enregistre avant le changement, vous pouvez y revenir plus tard.
+- **Sessions (N)** : liste toutes les sessions enregistrees, pour en restaurer ou en supprimer une.
+- **Sauvegarder** : enregistre tout de suite, y compris avant la premiere valeur.
+
+Les sessions sont stockees sur cet ordinateur. Les 30 plus recentes sont conservees.
+
 ## Configuration
 
 Ouvrez le panneau de configuration (icone engrenage en haut du widget) pour regler :

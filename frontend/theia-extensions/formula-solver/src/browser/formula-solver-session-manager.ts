@@ -43,6 +43,8 @@ export interface SessionIndex {
 
 const SESSIONS_INDEX_KEY = 'geoapp:formula-solver:sessions-index';
 const SESSION_PREFIX = 'geoapp:formula-solver:session:';
+/** Chaque session embarque le texte du listing : on borne leur nombre. */
+const MAX_SESSIONS = 30;
 
 export class FormulaSessionManager {
 
@@ -63,17 +65,43 @@ export class FormulaSessionManager {
         return this.listSessions().find(s => s.geocacheId === geocacheId);
     }
 
-    static saveSession(session: FormulaSession): void {
-        localStorage.setItem(SESSION_PREFIX + session.geocacheId, JSON.stringify(session));
-        // Mettre à jour l'index (le plus récent en premier)
-        const index = this.listSessions().filter(s => s.geocacheId !== session.geocacheId);
-        index.unshift({
+    /**
+     * Enregistre une session. Les sessions les plus anciennes au-delà de
+     * `MAX_SESSIONS` sont supprimées ; si le stockage est plein, d'autres le
+     * sont jusqu'à ce que l'écriture passe.
+     *
+     * @returns false si la session n'a pas pu être enregistrée
+     */
+    static saveSession(session: FormulaSession): boolean {
+        // Index sans la session en cours, le plus récent en premier
+        const others = this.listSessions().filter(s => s.geocacheId !== session.geocacheId);
+        const entry: SessionIndex = {
             geocacheId: session.geocacheId,
             gcCode: session.gcCode,
             geocacheName: session.geocacheName,
             savedAt: session.savedAt
-        });
-        localStorage.setItem(SESSIONS_INDEX_KEY, JSON.stringify(index));
+        };
+        const payload = JSON.stringify(session);
+
+        while (others.length >= MAX_SESSIONS) {
+            localStorage.removeItem(SESSION_PREFIX + others.pop()!.geocacheId);
+        }
+
+        for (;;) {
+            try {
+                localStorage.setItem(SESSION_PREFIX + session.geocacheId, payload);
+                localStorage.setItem(SESSIONS_INDEX_KEY, JSON.stringify([entry, ...others]));
+                return true;
+            } catch {
+                // Stockage plein : libérer la session la plus ancienne et réessayer
+                const oldest = others.pop();
+                if (!oldest) {
+                    localStorage.removeItem(SESSION_PREFIX + session.geocacheId);
+                    return false;
+                }
+                localStorage.removeItem(SESSION_PREFIX + oldest.geocacheId);
+            }
+        }
     }
 
     static loadSession(geocacheId: number): FormulaSession | undefined {

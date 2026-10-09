@@ -154,6 +154,11 @@ export class FormulaSolverWidget extends ReactWidget {
     protected manualFormulaOpen: boolean = false;
 
     // Gestion des sessions sauvegardées
+    // Sauvegarde automatique : après une pause dans les modifications
+    private static readonly AUTOSAVE_DEBOUNCE_MS = 1000;
+    private autosaveTimer?: ReturnType<typeof setTimeout>;
+    protected lastSavedAt?: number;
+    private autosaveFailureNotified: boolean = false;
     protected pendingSessionRestore: SessionIndex | null = null;
     protected showSessionsPanel: boolean = false;
     protected savedSessionsIndex: SessionIndex[] = [];
@@ -340,6 +345,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 this.handleExternalBruteForceRemoval as EventListener
             );
             window.addEventListener('click', this.handleGlobalClickForMenus);
+            window.addEventListener('beforeunload', this.flushAutosave);
         }
 
         // Charger les préférences
@@ -354,6 +360,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 this.handleExternalBruteForceRemoval as EventListener
             );
             window.removeEventListener('click', this.handleGlobalClickForMenus);
+            window.removeEventListener('beforeunload', this.flushAutosave);
             if (this.calculationTimer) {
                 clearTimeout(this.calculationTimer);
                 this.calculationTimer = undefined;
@@ -361,6 +368,9 @@ export class FormulaSolverWidget extends ReactWidget {
             // Nettoyer l'overlay preview si le widget se ferme
             window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
         }
+
+        // Ne pas perdre les dernières modifications si le widget se ferme
+        this.flushAutosave();
 
         // Flush immédiat d'une éventuelle persistance de webMaxResults en attente
         // (debounce), pour ne pas perdre la dernière valeur saisie si le widget
@@ -601,6 +611,8 @@ export class FormulaSolverWidget extends ReactWidget {
      * Charge le Formula Solver depuis une geocache
      */
     async loadFromGeocache(geocacheId: number): Promise<void> {
+        // Enregistrer le travail en cours avant de passer à une autre géocache
+        this.flushAutosave();
 
         // Rafraîchir l'index des sessions
         this.savedSessionsIndex = FormulaSessionManager.listSessions();
@@ -701,6 +713,7 @@ export class FormulaSolverWidget extends ReactWidget {
         this.perLetterExtraInfo.clear();
         this.perQuestionProfiles.clear();
         this.valuesMemory.clear();
+        this.lastSavedAt = undefined;
     }
 
     /**
@@ -709,6 +722,11 @@ export class FormulaSolverWidget extends ReactWidget {
     protected updateState(updates: Partial<FormulaSolverState>): void {
         this.state = { ...this.state, ...updates };
         this.update();
+
+        if ('values' in updates || 'questions' in updates || 'selectedFormula' in updates ||
+            'formulas' in updates || 'result' in updates) {
+            this.scheduleAutosave();
+        }
     }
 
     /**
@@ -2303,18 +2321,39 @@ export class FormulaSolverWidget extends ReactWidget {
     // Gestion des sessions sauvegardées
     // -----------------------------------------------------------------------
 
+    /**
+     * Sauvegarde manuelle (bouton) : possible dès qu'une géocache est chargée.
+     */
     protected saveCurrentSession(): void {
-        const { geocacheId, gcCode, geocacheName } = this.state;
-        if (!geocacheId || !gcCode) {
+        if (!this.state.geocacheId || !this.state.gcCode) {
             this.messageService.warn('Aucune géocache chargée, impossible de sauvegarder.');
             return;
         }
 
-        FormulaSessionManager.saveSession({
+        this.cancelAutosave();
+        if (this.persistSession()) {
+            this.messageService.info(`Session sauvegardée pour ${this.state.gcCode}.`);
+        } else {
+            this.messageService.error('Impossible de sauvegarder la session : le stockage local est plein.');
+        }
+        this.update();
+    }
+
+    /**
+     * Écrit la session en cours dans le stockage local.
+     */
+    private persistSession(): boolean {
+        const { geocacheId, gcCode, geocacheName } = this.state;
+        if (!geocacheId || !gcCode) {
+            return false;
+        }
+
+        const savedAt = Date.now();
+        const saved = FormulaSessionManager.saveSession({
             geocacheId,
             gcCode,
             geocacheName,
-            savedAt: Date.now(),
+            savedAt,
             currentStep: this.state.currentStep,
             text: this.state.text,
             originLat: this.state.originLat,
@@ -2331,11 +2370,71 @@ export class FormulaSolverWidget extends ReactWidget {
         });
 
         this.savedSessionsIndex = FormulaSessionManager.listSessions();
-        this.messageService.info(`Session sauvegardée pour ${gcCode}.`);
+        if (saved) {
+            this.lastSavedAt = savedAt;
+        }
+        return saved;
+    }
+
+    /**
+     * La sauvegarde automatique ne démarre qu'à partir d'une première valeur
+     * saisie : ouvrir une géocache sans rien y faire ne crée pas de session.
+     * Tant que la bannière « Session sauvegardée trouvée » attend une réponse,
+     * on n'écrase pas la session existante.
+     */
+    private canAutosave(): boolean {
+        return Boolean(this.state.geocacheId && this.state.gcCode && this.state.selectedFormula)
+            && !this.pendingSessionRestore
+            && Array.from(this.state.values.values()).some(v => v.rawValue.trim() !== '');
+    }
+
+    protected scheduleAutosave(): void {
+        this.cancelAutosave();
+        this.autosaveTimer = setTimeout(() => {
+            this.autosaveTimer = undefined;
+            this.autosaveNow();
+        }, FormulaSolverWidget.AUTOSAVE_DEBOUNCE_MS);
+    }
+
+    private cancelAutosave(): void {
+        if (this.autosaveTimer) {
+            clearTimeout(this.autosaveTimer);
+            this.autosaveTimer = undefined;
+        }
+    }
+
+    /**
+     * Exécute tout de suite une sauvegarde automatique en attente.
+     */
+    private flushAutosave = (): void => {
+        if (this.autosaveTimer) {
+            this.cancelAutosave();
+            this.autosaveNow();
+        }
+    };
+
+    private autosaveNow(): void {
+        if (!this.canAutosave()) {
+            return;
+        }
+        if (this.persistSession()) {
+            this.autosaveFailureNotified = false;
+        } else if (!this.autosaveFailureNotified) {
+            // Une seule notification, pas une par modification
+            this.autosaveFailureNotified = true;
+            this.messageService.warn('Sauvegarde automatique impossible : le stockage local est plein. Supprimez d\'anciennes sessions.');
+        }
         this.update();
     }
 
     protected restoreSession(geocacheId: number): void {
+        // Enregistrer le travail en cours avant de le remplacer
+        if (geocacheId !== this.state.geocacheId) {
+            this.flushAutosave();
+        } else {
+            this.cancelAutosave();
+        }
+
         const session = FormulaSessionManager.loadSession(geocacheId);
         if (!session) {
             this.messageService.error('Session introuvable.');
@@ -2348,6 +2447,7 @@ export class FormulaSolverWidget extends ReactWidget {
         this.manualFormulaOpen = false;
         this.resetAnsweringState();
         this.valuesMemory = new Map(session.values || []);
+        this.lastSavedAt = session.savedAt;
         this.bruteForceMode = false;
         this.bruteForceResults = session.bruteForceResults || [];
         this.answerDetails = new Map(session.answerDetails || []);
@@ -2412,10 +2512,18 @@ export class FormulaSolverWidget extends ReactWidget {
                     <h2 style={{ marginTop: 0, marginBottom: 0 }}>Formula Solver</h2>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {/* Bouton Sauvegarder (visible si une geocache est chargée) */}
+                        {this.state.geocacheId && this.lastSavedAt && (
+                            <span
+                                style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', whiteSpace: 'nowrap' }}
+                                title="La session est enregistrée automatiquement dès qu'une valeur est saisie"
+                            >
+                                Enregistré à {new Date(this.lastSavedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        )}
                         {this.state.geocacheId && (
                             <button
                                 onClick={() => this.saveCurrentSession()}
-                                title="Sauvegarder la session en cours pour y revenir plus tard"
+                                title="Enregistrer la session maintenant. Elle est aussi enregistrée automatiquement dès qu'une valeur est saisie."
                                 className="fs-btn fs-btn--icon fs-btn--secondary"
                             >
                                 <span className="codicon codicon-save" />
@@ -3646,6 +3754,7 @@ export class FormulaSolverWidget extends ReactWidget {
                                                 const idx = this.state.questions.findIndex(q => q.letter === letter);
                                                 if (idx >= 0) {
                                                     this.state.questions[idx].question = newQuestion;
+                                                    this.scheduleAutosave();
                                                 }
                                             }}
                                             onExtraInfoChange={(letter, val) => {
@@ -3654,6 +3763,7 @@ export class FormulaSolverWidget extends ReactWidget {
                                                 } else {
                                                     this.perLetterExtraInfo.set(letter, val);
                                                 }
+                                                this.scheduleAutosave();
                                                 this.update();
                                             }}
                                         />

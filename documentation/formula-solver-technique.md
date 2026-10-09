@@ -613,3 +613,24 @@ Quand il manque 1 à 3 lettres (`MAX_DEDUCED_LETTERS`) et que l'origine est conn
 **Hypothèse** : chaque lettre manquante vaut un seul chiffre. C'est vrai pour une lettre écrite dans la coordonnée (`5A.BCD`), pas forcément pour une lettre qui n'apparaît que dans une expression (`(A+B)`). Comme pour le filtre des 2 miles, la règle ne vaut que pour les Mystery.
 
 Tests : `src/browser/tests/deduction.test.ts`.
+
+---
+
+## 19. Sauvegarde automatique des sessions (octobre 2026)
+
+Les sessions (`FormulaSessionManager`, localStorage, une par géocache) étaient enregistrées uniquement par le bouton « Sauvegarder ». Elles le sont maintenant automatiquement.
+
+- **Déclenchement** : `updateState()` appelle `scheduleAutosave()` dès qu'un des champs `values`, `questions`, `selectedFormula`, `formulas` ou `result` est modifié ; la question éditée et l'info complémentaire par lettre, qui ne passent pas par `updateState()`, l'appellent aussi. L'écriture attend 1 s sans nouvelle modification (`AUTOSAVE_DEBOUNCE_MS`).
+- **Condition** (`canAutosave()`) : une géocache chargée, une formule sélectionnée et au moins une valeur saisie. Ouvrir une géocache sans rien y faire ne crée donc pas de session. Tant que la bannière « Session sauvegardée trouvée » attend une réponse, rien n'est écrit (on n'écrase pas la session existante).
+- **Pas de perte au changement de contexte** : `flushAutosave()` exécute tout de suite une sauvegarde en attente au début de `loadFromGeocache()`, dans `restoreSession()` d'une autre géocache, dans `onBeforeDetach()` et sur `beforeunload`.
+- **Restauration** : inchangée, toujours proposée par la bannière (pas de restauration automatique).
+- **Bouton « Sauvegarder »** : conservé, il enregistre immédiatement et sans la condition sur les valeurs. L'heure du dernier enregistrement (`lastSavedAt`) est affichée à côté.
+
+### Stockage
+
+`FormulaSessionManager.saveSession()` retourne maintenant un booléen :
+
+- au plus `MAX_SESSIONS` (30) sessions, les plus anciennes étant supprimées (chaque session embarque le texte du listing) ;
+- si le stockage est plein, les sessions les plus anciennes sont supprimées une à une jusqu'à ce que l'écriture passe ; si la session ne tient pas même seule, `false` est retourné. Le widget le signale une seule fois pour la sauvegarde automatique, à chaque fois pour le bouton.
+
+Tests : `src/browser/tests/session-manager.test.ts`.
