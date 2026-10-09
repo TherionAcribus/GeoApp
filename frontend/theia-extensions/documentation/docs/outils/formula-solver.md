@@ -50,6 +50,21 @@ Cliquez sur une formule pour la selectionner. Vous pouvez aussi **modifier** la 
 
 Si aucune formule n'est trouvee, essayez la methode IA ou collez le texte manuellement.
 
+### Ecritures acceptees
+
+Dans une formule, les operations sont `+`, `-`, `*`, `/` et la puissance `^`, avec des parentheses. Les ecritures suivantes sont reconnues et converties automatiquement, que la formule soit detectee ou saisie a la main :
+
+| Vous ecrivez | Formula Solver comprend |
+|--------------|-------------------------|
+| `A×B`, `A·B`, `A x B` | `A*B` |
+| `A÷B`, `A:B` | `A/B` |
+| `[A+B]`, `{A+B}` | `(A+B)` |
+| `A²`, `A³` | `A^2`, `A^3` |
+| `N 47° 53,ABC` | `N 47° 53.ABC` |
+| `n 47° 5a.bcd` | `N 47° 5A.BCD` |
+
+La formule affichee apres detection est la version convertie. Un `X` majuscule reste une variable ; seul le `x` minuscule place entre deux valeurs est lu comme une multiplication. Le resultat d'une operation doit etre un entier positif : une division qui ne tombe pas juste est signalee comme une erreur.
+
 ## Etape 2 — Identifier les questions
 
 Une fois la formule selectionnee, Formula Solver extrait les **variables** (lettres A, B, C...) et cherche les **questions** associees dans le texte.

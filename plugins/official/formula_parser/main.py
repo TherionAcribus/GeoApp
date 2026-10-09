@@ -12,6 +12,18 @@ import re
 from typing import Dict, Any, List, Optional
 
 
+# Symboles équivalents aux opérateurs de base, remplacés dans le texte avant la
+# détection pour que les formules qui les utilisent soient capturées en entier.
+# (Sous-ensemble sans ambiguïté de `normalize_formula` du calculateur backend.)
+_SYMBOL_ALIASES = {
+    '\u00d7': '*', '\u2715': '*', '\u00b7': '*', '\u22c5': '*', '\u2219': '*',
+    '\u00f7': '/',
+    '\u2212': '-', '\u2013': '-', '\u2014': '-',
+    '[': '(', '{': '(', ']': ')', '}': ')',
+    '\u00b2': '^2', '\u00b3': '^3',
+}
+
+
 class FormulaParserPlugin:
     """Plugin pour parser des formules de coordonnées GPS dans un texte."""
     
@@ -55,6 +67,9 @@ class FormulaParserPlugin:
                 "summary": "Erreur : texte vide"
             }
         
+        for symbol, replacement in _SYMBOL_ALIASES.items():
+            text = text.replace(symbol, replacement)
+
         coordinates = self._detect_coordinates(text)
         
         # Formater les résultats
@@ -98,7 +113,7 @@ class FormulaParserPlugin:
         Returns:
             Chaîne nettoyée
         """
-        if not coord_str or '.' not in coord_str:
+        if not coord_str or ('.' not in coord_str and ',' not in coord_str):
             return coord_str
         
         # Pour le format N 48° 41.X Y Z, transformer en N 48° 41.XYZ
@@ -188,27 +203,27 @@ class FormulaParserPlugin:
 
     def _north_patterns(self) -> List[str]:
         degree = r'[\u00b0\u00ba]'
-        paren_expr = r'\([A-Z0-9()+*/\-\s]+\)'
+        paren_expr = r'\([A-Z0-9()+*/:^\-\s]+\)'
         return [
-            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}\.\s*({paren_expr}\s*)+",
-            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}\.\s*(?:[A-Z0-9]+|{paren_expr})+",
-            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}\.\s*\d{{1,3}}",
-            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}\.\s*[A-Z]{{1,5}}(?!\s*\()",
-            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*[A-Z0-9()+*/\-]{{1,20}}\.\s*[A-Z0-9()+*/\-]{{1,20}}",
-            rf"[NS]\s+\d{{1,2}}\s*{degree}\s+\d{{1,2}}\.\s*[A-Z][ \t\n]*[A-Z][ \t\n]*[A-Z]"
+            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*({paren_expr}\s*)+",
+            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*(?:[A-Z0-9]+|{paren_expr})+",
+            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*\d{{1,3}}",
+            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*[A-Z]{{1,5}}(?!\s*\()",
+            rf"[NS]\s*\d{{1,2}}\s*{degree}\s*[A-Z0-9()+*/:^\-]{{1,20}}(?:\.|,(?=\S))\s*[A-Z0-9()+*/:^\-]{{1,20}}",
+            rf"[NS]\s+\d{{1,2}}\s*{degree}\s+\d{{1,2}}(?:\.|,(?=\S))\s*[A-Z][ \t\n]*[A-Z][ \t\n]*[A-Z]"
         ]
 
     def _east_patterns(self) -> List[str]:
         degree = r'[\u00b0\u00ba]'
-        paren_expr = r'\([A-Z0-9()+*/\-\s]+\)'
+        paren_expr = r'\([A-Z0-9()+*/:^\-\s]+\)'
         east_cardinal = r'[EWO]'
         return [
-            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}\.\s*({paren_expr}\s*)+",
-            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}\.\s*(?:[A-Z0-9]+|{paren_expr})+",
-            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}\.\s*\d{{1,3}}",
-            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}\.\s*[A-Z]{{1,5}}(?!\s*\()",
-            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*[A-Z0-9()+*/\-]{{1,20}}\.\s*[A-Z0-9()+*/\-]{{1,20}}",
-            rf"{east_cardinal}\s+\d{{1,3}}\s*{degree}\s+\d{{1,2}}\.\s+[A-Z]\s+[A-Z]\s+\([A-Z]\s*/\s*\d+\)"
+            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*({paren_expr}\s*)+",
+            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*(?:[A-Z0-9]+|{paren_expr})+",
+            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*\d{{1,3}}",
+            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*\d{{1,2}}(?:\.|,(?=\S))\s*[A-Z]{{1,5}}(?!\s*\()",
+            rf"{east_cardinal}\s*\d{{1,3}}\s*{degree}\s*[A-Z0-9()+*/:^\-]{{1,20}}(?:\.|,(?=\S))\s*[A-Z0-9()+*/:^\-]{{1,20}}",
+            rf"{east_cardinal}\s+\d{{1,3}}\s*{degree}\s+\d{{1,2}}(?:\.|,(?=\S))\s+[A-Z]\s+[A-Z]\s+\([A-Z]\s*/\s*\d+\)"
         ]
     
     def _find_north(self, description: str) -> Optional[re.Match]:

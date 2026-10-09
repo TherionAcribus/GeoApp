@@ -674,3 +674,42 @@ Le mode en masse (`searchAnswersWithAI`) reçoit seulement la consigne de laisse
 Le niveau de confiance est celui que le modèle annonce, pas une mesure : il sert à attirer l'attention, pas à valider une réponse.
 
 Tests : `src/browser/tests/answer-status.test.ts`.
+
+---
+
+## 21. Écritures de formule acceptées (octobre 2026)
+
+Seuls `+ - * /`, les parenthèses et les lettres A-Z étaient compris. Les autres écritures courantes sont maintenant ramenées à cette forme par une **normalisation**, faite à l'identique en deux endroits :
+
+- frontend : `normalizeFormulaAxis()` (`utils/formula-normalizer.ts`), appliquée par `annotateFormulas()` à toute formule qui entre dans l'état (détection, saisie manuelle, modification) ;
+- backend : `normalize_formula()` (`coordinate_calculator.py`), appliquée au début de `substitute_variables()` — pour les appelants qui ne passent pas par le widget (outils IA, orchestrateur).
+
+Les deux implémentations partagent la même table de symboles et la **même liste de cas de test** : toute évolution doit être faite des deux côtés.
+
+| Écriture | Devient | Remarque |
+|----------|---------|----------|
+| `×` `·` `⋅` | `*` | |
+| `÷` | `/` | |
+| `−` `–` `—` | `-` | tirets typographiques |
+| `[ ]` `{ }` | `( )` | |
+| `²` `³` | `^2` `^3` | |
+| `x` minuscule entre deux opérandes | `*` | `(A x B)`, `(AxB)` ; `X` majuscule reste une variable |
+| `:` entre deux opérandes | `/` | |
+| `53,ABC` | `53.ABC` | une seule virgule, après les degrés, et aucun point |
+| `n 47° 5a.bcd` | `N 47° 5A.BCD` | seulement si la formule n'a **aucune** majuscule |
+
+Dans une formule tout en minuscules, `x` n'est une multiplication que s'il est isolé par des espaces ou collé à un chiffre ou une parenthèse ; `axb` reste trois variables.
+
+### Puissance
+
+`^` est évalué des deux côtés (converti en `**`). Côté backend, `_safe_eval()` n'accepte qu'un exposant entier de 1 ou 2 chiffres écrit en clair, sans enchaînement (`9^9^9` refusé), pour borner la taille du résultat. Comme toute expression, le résultat doit rester un entier positif.
+
+### Détection (`plugins/official/formula_parser`)
+
+- Les symboles sans ambiguïté (`×`, `÷`, tirets, crochets, exposants) sont remplacés dans le texte avant la recherche, sinon la formule était tronquée au premier symbole inconnu.
+- Les classes de caractères acceptent `^` et `:` dans les expressions.
+- La virgule décimale est acceptée à la place du point, uniquement si elle est suivie d'un caractère (`53,ABC`), pas d'un espace (`N 47° 53, puis…` n'est pas une formule).
+
+Non pris en charge : modulo, fonctions (racine, partie entière), variables à plusieurs caractères (`A1`, `AA`), multiplication implicite (`2(A+B)` reste une juxtaposition de chiffres, comme avant).
+
+Tests : `src/browser/tests/formula-normalizer.test.ts`, `backend/tests/test_coordinate_calculator.py`, `plugins/official/formula_parser/test_formula_parser.py`.

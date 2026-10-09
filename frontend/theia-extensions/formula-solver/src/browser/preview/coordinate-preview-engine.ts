@@ -506,7 +506,7 @@ function hasTopLevelOperator(expr: string): boolean {
         const ch = expr[i];
         if (ch === '(') depth++;
         else if (ch === ')') depth = Math.max(0, depth - 1);
-        else if (depth === 0 && /[+\-*/]/.test(ch)) {
+        else if (depth === 0 && /[+\-*/^]/.test(ch)) {
             return true;
         }
     }

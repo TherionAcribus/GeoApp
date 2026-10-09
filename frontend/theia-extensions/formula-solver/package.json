@@ -21,7 +21,7 @@
     "build": "tsc && yarn run copy:assets",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
     "watch": "tsc -w",
-    "test": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/ai-per-question-answering.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-local-model.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-service.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/coordinate-preview-engine.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/deduction.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/session-manager.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/answer-status.test.ts",
+    "test": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/ai-per-question-answering.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-local-model.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-solver-service.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/coordinate-preview-engine.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/deduction.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/session-manager.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/answer-status.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/formula-normalizer.test.ts",
     "update:theia": "ts-node ../../scripts/update-theia-version.ts",
     "update:next": "ts-node ../../scripts/update-theia-version.ts next"
   },

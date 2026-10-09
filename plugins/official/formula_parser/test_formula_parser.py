@@ -202,6 +202,24 @@ class TestBasicClean:
     def setup_method(self):
         self.plugin = FormulaParserPlugin()
     
+    def test_symboles_alternatifs(self):
+        """Test : \u00d7, \u00f7, crochets et exposants sont capturés dans la formule"""
+        text = "Final : N 47\u00b0 53.[A\u00d7B](C\u00b2) E 006\u00b0 09.(D\u00f72)(E\u2212F)G"
+        result = self.plugin.execute({"text": text})
+
+        assert len(result["results"]) == 1
+        assert result["results"][0]["north"] == "N 47\u00b0 53.(A*B)(C^2)"
+        assert result["results"][0]["east"] == "E 006\u00b0 09.(D/2)(E-F)G"
+
+    def test_virgule_decimale(self):
+        """Test : virgule à la place du point entre minutes et décimales"""
+        text = "N 47\u00b0 53,ABC E 006\u00b0 09,DEF"
+        result = self.plugin.execute({"text": text})
+
+        assert len(result["results"]) == 1
+        assert result["results"][0]["north"] == "N 47\u00b0 53,ABC"
+        assert result["results"][0]["east"] == "E 006\u00b0 09,DEF"
+
     def test_clean_spaces_between_letters(self):
         """Test nettoyage des espaces entre lettres"""
         input_str = "N 48° 41. E D B"

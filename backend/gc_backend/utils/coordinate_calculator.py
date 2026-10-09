@@ -9,6 +9,65 @@ from typing import Dict, Any
 from loguru import logger
 
 
+# Écritures équivalentes ramenées aux opérateurs de base. Même table que
+# `formula-normalizer.ts` (frontend) : toute évolution doit être faite des deux côtés.
+_SYMBOL_ALIASES = {
+    '\u00d7': '*', '\u2715': '*', '\u00b7': '*', '\u22c5': '*', '\u2219': '*',
+    '\u00f7': '/',
+    '\u2212': '-', '\u2013': '-', '\u2014': '-',
+    '[': '(', '{': '(', ']': ')', '}': ')',
+    '\u00b2': '^2', '\u00b3': '^3',
+}
+
+
+def normalize_formula(formula: str) -> str:
+    """
+    Ramène une coordonnée-formule à l'écriture attendue par le calcul.
+
+    - symboles : ``×`` ``·`` -> ``*``, ``÷`` -> ``/``, tirets longs -> ``-``,
+      crochets et accolades -> parenthèses, ``²`` ``³`` -> ``^2`` ``^3`` ;
+    - ``x`` minuscule entre deux opérandes -> ``*`` ;
+    - variables en minuscules -> majuscules, si la formule n'a aucune majuscule ;
+    - ``:`` entre deux opérandes -> ``/`` ;
+    - virgule décimale -> point (``53,ABC`` -> ``53.ABC``).
+
+    Le point cardinal de tête n'est jamais modifié, sauf pour sa casse.
+    """
+    result = formula or ''
+    for symbol, replacement in _SYMBOL_ALIASES.items():
+        result = result.replace(symbol, replacement)
+    result = re.sub(r'\s+', ' ', result).strip()
+
+    prefix = ''
+    body = result
+    cardinal = re.match(r'^([NSEWO])(\s*)', result, flags=re.IGNORECASE)
+    if cardinal:
+        prefix = cardinal.group(1).upper() + cardinal.group(2)
+        body = result[cardinal.end():]
+
+    if re.search(r'[A-Z]', body):
+        # Variables en majuscules : un x minuscule entre deux opérandes est une multiplication
+        for _ in range(2):
+            body = re.sub(r'([0-9A-Z)])\s*x\s*([0-9A-Z(])', r'\1*\2', body)
+    else:
+        # Tout en minuscules : x n'est une multiplication que s'il est isolé par des
+        # espaces ou collé à un chiffre ou une parenthèse ("axb" reste trois variables)
+        for _ in range(2):
+            body = re.sub(r'([0-9a-z)])\s+x\s+([0-9a-z(])', r'\1*\2', body)
+            body = re.sub(r'([0-9)])x([0-9a-z(])', r'\1*\2', body)
+            body = re.sub(r'([0-9a-z)])x([0-9(])', r'\1*\2', body)
+        body = body.upper()
+
+    for _ in range(2):
+        body = re.sub(r'([0-9A-Z)])\s*:\s*([0-9A-Z(])', r'\1/\2', body)
+
+    # Virgule décimale : une seule virgule, après les degrés, et aucun point
+    if '.' not in body and re.fullmatch(r'[^,]*[\u00b0\u00ba][^,]*,[^,]*', body):
+        body = body.replace(',', '.')
+
+    return f"{prefix}{body}"
+
+
 class CoordinateCalculator:
     """Calculateur de coordonnées GPS à partir de formules avec variables"""
     
@@ -93,7 +152,7 @@ class CoordinateCalculator:
         Raises:
             ValueError: Si une variable n'a pas de valeur
         """
-        result = formula
+        result = normalize_formula(formula)
 
         # Normaliser les espaces (y compris NBSP, etc.)
         result = re.sub(r'\s+', ' ', result).strip().replace('\u00C2', '')
@@ -184,7 +243,7 @@ class CoordinateCalculator:
 
         def evaluate(segment: str) -> str:
             stripped = segment.strip()
-            if not re.search(r'[+\-*/]', stripped) or not re.match(r'^[0-9+\-*/\s]+$', stripped):
+            if not re.search(r'[+\-*/^]', stripped) or not re.match(r'^[0-9+\-*/^\s]+$', stripped):
                 return segment
             return str(self._to_coordinate_integer(stripped, self._safe_eval(stripped)))
 
@@ -213,7 +272,7 @@ class CoordinateCalculator:
         
         # 1. Évaluer les expressions entre parenthèses
         while True:
-            match = re.search(r'\(([0-9+\-*/\s]+)\)', formula)
+            match = re.search(r'\(([0-9+\-*/^\s]+)\)', formula)
             if not match:
                 break
             
@@ -245,8 +304,13 @@ class CoordinateCalculator:
         Raises:
             ValueError: Si expression invalide ou dangereuse
         """
-        # Nettoyer l'expression
-        expr = expr.strip()
+        # Nettoyer l'expression ("^" est l'écriture de la puissance dans les formules)
+        expr = expr.strip().replace('^', '**')
+
+        # Puissance : exposant entier court écrit en chiffres, sans enchaînement
+        # ("2**3**4"), pour borner la taille du résultat.
+        if len(re.findall(r'\*\*', expr)) != len(re.findall(r'\*\*\s*\d{1,2}(?![\d.])(?!\s*\*\*)', expr)):
+            raise ValueError(f"Puissance non prise en charge: {expr}")
         
         # Vérifier que l'expression ne contient que des caractères autorisés
         if not re.match(r'^[0-9+\-*/\s().]+$', expr):

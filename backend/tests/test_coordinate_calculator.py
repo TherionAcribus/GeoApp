@@ -3,7 +3,7 @@ Tests unitaires pour CoordinateCalculator
 """
 
 import pytest
-from gc_backend.utils.coordinate_calculator import CoordinateCalculator
+from gc_backend.utils.coordinate_calculator import CoordinateCalculator, normalize_formula
 
 
 class TestCoordinateCalculator:
@@ -257,6 +257,49 @@ class TestCoordinateCalculator:
 
         assert result['status'] == 'success'
         assert result['coordinates']['ddm'].startswith('N 47° 53.123')
+
+    # Mêmes cas que frontend/.../tests/formula-normalizer.test.ts
+    @pytest.mark.parametrize('raw, expected', [
+        ('N 47\u00b0 53.(A\u00d7B)', 'N 47\u00b0 53.(A*B)'),
+        ('N 47\u00b0 53.(A\u00f7B)', 'N 47\u00b0 53.(A/B)'),
+        ('N 47\u00b0 53.[A+B]{C\u2212D}', 'N 47\u00b0 53.(A+B)(C-D)'),
+        ('N 47\u00b0 53.(A\u00b2+B\u00b3)', 'N 47\u00b0 53.(A^2+B^3)'),
+        ('N 47\u00b0 53.(A x B)', 'N 47\u00b0 53.(A*B)'),
+        ('N 47\u00b0 53.(AxBxC)', 'N 47\u00b0 53.(A*B*C)'),
+        ('N 47\u00b0 53.(A:B)', 'N 47\u00b0 53.(A/B)'),
+        ('N 47\u00b0 53,ABC', 'N 47\u00b0 53.ABC'),
+        ('n 47\u00b0 5a.bcd', 'N 47\u00b0 5A.BCD'),
+        ('e 006\u00b0 0a.(b x 2)c', 'E 006\u00b0 0A.(B*2)C'),
+        ('n 47\u00b0 53.axb', 'N 47\u00b0 53.AXB'),
+        ('E 006\u00b0 5E.EXE', 'E 006\u00b0 5E.EXE'),
+        ('N 47\u00b0 53.ABC', 'N 47\u00b0 53.ABC'),
+    ])
+    def test_normalize_formula(self, raw, expected):
+        """Test : écritures équivalentes ramenées aux opérateurs de base"""
+        assert normalize_formula(raw) == expected
+
+    def test_calculate_with_alternative_symbols(self):
+        """Test : calcul avec \u00d7, crochets, puissance et virgule décimale"""
+        result = self.calc.calculate_coordinates(
+            "N 47\u00b0 53,[A\u00d7B](C\u00b2)",
+            "e 006\u00b0 09.(a x b)(c:1)",
+            {'A': 3, 'B': 4, 'C': 3}
+        )
+
+        assert result['status'] == 'success'
+        # [3x4]=12, (3^2)=9 -> 53.129 ; (3x4)=12, (3:1)=3 -> 09.123
+        assert result['coordinates']['ddm'] == 'N 47\u00b0 53.129 E 006\u00b0 09.123'
+
+    def test_power_evaluated(self):
+        """Test : puissance"""
+        assert self.calc._safe_eval("2^10") == 1024
+        assert self.calc._safe_eval("(1+2)^2") == 9
+
+    def test_power_limits(self):
+        """Test : puissances enchaînées ou à exposant non littéral refusées"""
+        for expr in ("9^9^9", "2^(3)", "2^-1", "2^123"):
+            with pytest.raises(ValueError):
+                self.calc._safe_eval(expr)
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

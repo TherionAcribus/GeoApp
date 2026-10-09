@@ -22,6 +22,7 @@ import { parseBulkValues } from './utils/bulk-values';
 import { distanceKm, KM_PER_MILE, MYSTERY_MAX_DISTANCE_KM } from './utils/distance';
 import { deduceMissingLetters, describeDigits, DeductionResult, MAX_DEDUCED_LETTERS } from './utils/deduction';
 import { ensureFormulaFragments } from './utils/formula-fragments';
+import { normalizeFormulaAxis } from './utils/formula-normalizer';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
 import { CoordinatePreviewState } from './preview/types';
@@ -730,11 +731,16 @@ export class FormulaSolverWidget extends ReactWidget {
     }
 
     /**
-     * Génère les fragments pour chaque formule
+     * Normalise l'écriture de chaque formule (×, crochets, minuscules, virgule
+     * décimale...) puis génère ses fragments. Toute formule entrant dans l'état
+     * passe par ici : détection, saisie manuelle, modification.
      */
     protected annotateFormulas(formulas: Formula[]): Formula[] {
         return formulas.map(formula => {
-            const cloned: Formula = { ...formula };
+            const north = normalizeFormulaAxis(formula.north);
+            const east = normalizeFormulaAxis(formula.east);
+            // Les fragments sont recalculés : ceux d'une formule modifiée seraient périmés
+            const cloned: Formula = { ...formula, north, east, text_output: `${north} ${east}`, fragments: undefined };
             ensureFormulaFragments(cloned);
             return cloned;
         });
@@ -1052,6 +1058,9 @@ export class FormulaSolverWidget extends ReactWidget {
      * Préserve les questions et valeurs existantes pour les lettres communes
      */
     protected async handleEditFormula(formula: Formula, updatedNorth: string, updatedEast: string): Promise<void> {
+        updatedNorth = normalizeFormulaAxis(updatedNorth);
+        updatedEast = normalizeFormulaAxis(updatedEast);
+
         // Mise à jour de la formule dans la liste
         const updatedFormulasRaw = this.state.formulas.map((f: Formula) => {
             if (f.id === formula.id) {

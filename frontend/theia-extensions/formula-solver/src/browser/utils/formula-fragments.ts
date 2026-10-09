@@ -201,7 +201,7 @@ export function evaluateExpression(expression: string, values?: Map<string, { va
         let cleaned = expression.replace(/\s+/g, '');
 
         // Vérifier que l'expression ne contient que des caractères autorisés (chiffres, opérateurs, parenthèses, lettres)
-        if (!/^[0-9+\-*/().A-Z]+$/.test(cleaned)) {
+        if (!/^[0-9+\-*/^().A-Z]+$/.test(cleaned)) {
             console.warn(`[FORMULA-FRAGMENTS] Expression invalide (caractères non autorisés): ${expression}`);
             return NaN;
         }
@@ -219,6 +219,9 @@ export function evaluateExpression(expression: string, values?: Map<string, { va
             console.warn(`[FORMULA-FRAGMENTS] Variables non définies dans l'expression: ${cleaned} (original: ${expression})`);
             return NaN;
         }
+
+        // "^" est l'écriture de la puissance dans les formules
+        cleaned = cleaned.replace(/\^/g, '**');
 
         // Évaluation sécurisée avec Function (plus sûr que eval)
         // eslint-disable-next-line no-new-func
