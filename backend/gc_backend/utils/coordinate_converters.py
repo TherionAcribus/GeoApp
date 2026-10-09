@@ -382,6 +382,11 @@ def find_coordinate_candidates(text: str, max_results: int = 20) -> List[Canonic
             return
         if fmt == "geohash" and not re.search(r"\d", raw):
             return
+        # Un carré DFCI de 100 km s'écrit avec deux lettres seules : dans un texte
+        # libre, ce serait n'importe quel mot court ("de", "le", "la"). On exige
+        # au moins le niveau 20 km, qui contient des chiffres ("KD64").
+        if fmt == "dfci_grid" and not re.search(r"\d", raw):
+            return
         try:
             coord = parse_coordinate(raw, fmt)
         except CoordinateConversionError:

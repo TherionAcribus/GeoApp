@@ -242,3 +242,17 @@ def test_plus_code_short_requires_reference_and_mapcode_roundtrip():
     mapcode_result = parse_coordinate(first, "mapcode")
     assert math.isfinite(mapcode_result.latitude)
     assert math.isfinite(mapcode_result.longitude)
+
+
+def test_find_candidates_ignores_two_letter_words_as_dfci():
+    """A bare 100 km DFCI square is two letters: common words must not match in free text."""
+
+    assert find_coordinate_candidates("Le la de ne me ce") == []
+
+    candidates = find_coordinate_candidates("Depuis u09tunqu5, projetez vous de 100 m a 90 degres")
+    assert [c.source_format for c in candidates] == ["geohash"]
+
+    # A DFCI code with its numeric level is still found, and an explicit conversion
+    # of a bare square still works.
+    assert find_coordinate_candidates("Rendez-vous en KD64E3")[0].source_format == "dfci_grid"
+    assert parse_coordinate("KD", "dfci_grid").source_format == "dfci_grid"
