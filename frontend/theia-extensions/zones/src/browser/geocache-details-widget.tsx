@@ -1764,7 +1764,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onSaveCoordinates: this.handleSaveCoordinates,
                     onResetCoordinates: this.handleResetCoordinates,
                     onPushCorrectedCoordinates: this.handlePushCorrectedCoordinates,
-                    onUpdateSolvedStatus: this.handleUpdateSolvedStatus,
                     onOpenExternalUrl: this.openExternalLink,
                 }}
                 descriptionEditorProps={{

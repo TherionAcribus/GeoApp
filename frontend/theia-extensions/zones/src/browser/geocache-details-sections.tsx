@@ -858,6 +858,18 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Favoris</div>
                     <div style={{ color: 'var(--theia-charts-purple, #a78bfa)' }}>{geocacheData.favorites_count || 0}</div>
                 </div>
+                {typeof geocacheData.logs_count === 'number' ? (
+                    <div>
+                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Logs</div>
+                        <div>{geocacheData.logs_count}</div>
+                    </div>
+                ) : undefined}
+                {geocacheData.placed_at ? (
+                    <div>
+                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Placée le</div>
+                        <div>{formatShortDate(geocacheData.placed_at) ?? geocacheData.placed_at}</div>
+                    </div>
+                ) : undefined}
             </div>
 
             {(logsSummaryEntries && logsSummaryEntries.length > 0) || isLogsSummaryLoading ? (
@@ -881,37 +893,6 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
             {coordinatesEditor}
         </GeocacheSection>
     </div>
-);
-
-interface GeocacheDetailedInfoSectionProps extends CollapsibleSectionProps {
-    geocacheData: GeocacheDto;
-}
-
-export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionProps> = ({ geocacheData, collapsed, onSectionCollapsedChange }) => (
-    <GeocacheSection
-        title='Informations détaillées'
-        sectionId='details'
-        collapsed={collapsed}
-        onSectionCollapsedChange={onSectionCollapsedChange}
-    >
-        <table className='theia-table' style={{ width: '100%' }}>
-            <tbody>
-                {renderRow('Code', geocacheData.gc_code)}
-                {renderRow('Propriétaire', geocacheData.owner)}
-                {renderRow('Type', geocacheData.type)}
-                {renderRow('Taille', geocacheData.size)}
-                {renderRow('Difficulté', geocacheData.difficulty?.toString())}
-                {renderRow('Terrain', geocacheData.terrain?.toString())}
-                {renderRow('Favoris', geocacheData.favorites_count?.toString())}
-                {renderRow('Logs', geocacheData.logs_count?.toString())}
-                {renderRow('Placée le', geocacheData.placed_at)}
-                {renderRow('Statut', geocacheData.status)}
-                {renderRow('Trouvée', geocacheData.found ? 'Oui' : 'Non')}
-                {renderRow('Trouvée le', formatFoundDate(geocacheData.found_date))}
-                {renderRow('Lien', geocacheData.url ? <a href={geocacheData.url} target='_blank' rel='noreferrer'>{geocacheData.url}</a> : undefined)}
-            </tbody>
-        </table>
-    </GeocacheSection>
 );
 
 interface GeocacheHintsSectionProps extends CollapsibleSectionProps {
@@ -1078,21 +1059,8 @@ export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = (
     );
 };
 
-function renderRow(label: string, value?: React.ReactNode): React.ReactNode {
-    if (value === undefined || value === null || value === '') {
-        return undefined;
-    }
-
-    return (
-        <tr>
-            <td style={{ opacity: 0.7, paddingRight: 8 }}>{label}</td>
-            <td>{value}</td>
-        </tr>
-    );
-}
-
-/** Date de decouverte au format court FR, ou `undefined` si absente / invalide. */
-function formatFoundDate(iso?: string): string | undefined {
+/** Date ISO au format court FR, ou `undefined` si absente / invalide. */
+function formatShortDate(iso?: string): string | undefined {
     if (!iso) {
         return undefined;
     }
@@ -1110,7 +1078,7 @@ function formatFoundDate(iso?: string): string | undefined {
  */
 function renderFoundBadge(geocacheData: GeocacheDto): React.ReactNode {
     const isFound = geocacheData.found === true;
-    const foundDate = formatFoundDate(geocacheData.found_date);
+    const foundDate = formatShortDate(geocacheData.found_date);
     const label = isFound
         ? (foundDate ? `Trouvée le ${foundDate}` : 'Trouvée')
         : 'Non trouvée';

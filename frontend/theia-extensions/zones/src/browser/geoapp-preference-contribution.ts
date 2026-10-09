@@ -224,11 +224,9 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
         },
         'geoApp.geocache.details.collapsedSections': {
             type: 'array',
-            // 'details' repliée par défaut : une fois que l'utilisateur la
-            // déplie, [] est écrit explicitement et son choix persiste.
-            default: ['details'],
+            default: [],
             items: { type: 'string' },
-            description: 'Sections repliées de la fiche détail géocache (details, description, hints, images, waypoints, checkers). Par défaut : details.',
+            description: 'Sections repliées de la fiche détail géocache (trackables, description, hints, images, waypoints, checkers).',
         },
 
     },

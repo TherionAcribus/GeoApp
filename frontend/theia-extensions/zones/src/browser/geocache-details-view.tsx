@@ -3,7 +3,6 @@ import { CoordinatesEditor } from './geocache-coordinates-editor';
 import { DescriptionEditor } from './geocache-description-editor';
 import {
     GeocacheCheckersSection,
-    GeocacheDetailedInfoSection,
     GeocacheDetailsHeader,
     GeocacheHintsSection,
     GeocacheOverviewSection
@@ -34,7 +33,6 @@ const MemoCoordinatesEditor = React.memo(CoordinatesEditor);
 const MemoDescriptionEditor = React.memo(DescriptionEditor);
 const MemoGeocacheImagesPanel = React.memo(GeocacheImagesPanel);
 const MemoWaypointsEditorWrapper = React.memo(WaypointsEditorWrapper);
-const MemoGeocacheDetailedInfoSection = React.memo(GeocacheDetailedInfoSection);
 
 interface GeocacheDetailsViewProps {
     isLoading: boolean;
@@ -147,12 +145,6 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     logsSummaryTotalCount={logsSummaryTotalCount}
                     isLogsSummaryLoading={isLogsSummaryLoading}
                     onOpenLogs={onOpenLogs}
-                />
-
-                <MemoGeocacheDetailedInfoSection
-                    geocacheData={geocacheData}
-                    collapsed={collapsedSections?.has('details')}
-                    onSectionCollapsedChange={onSectionCollapsedChange}
                 />
 
                 {apiBaseUrl && geocacheData.gc_code ? (

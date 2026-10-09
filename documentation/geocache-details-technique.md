@@ -22,7 +22,7 @@ Particularité notable : le widget est **multi-instances** (un onglet par géoca
 |---|---|
 | `geocache-details-widget.tsx` | `ReactWidget` Theia (`StatefulWidget`). Détient tout l'état, orchestre les actions, écoute les événements (DOM + service inter-widgets), et délègue le rendu à `GeocacheDetailsView`. ~1300 lignes : c'est le chef d'orchestre. |
 | `geocache-details-view.tsx` | Composant React **sans état** : assemble les sections dans l'ordre et applique l'overlay de rechargement. Contient les wrappers `React.memo` des composants feuilles coûteux. |
-| `geocache-details-sections.tsx` | Composants présentationnels du header et des sections (overview, infos détaillées, indices, checkers) + helpers de rendu (étoiles, attributs, badges d'archive et de découverte). |
+| `geocache-details-sections.tsx` | Composants présentationnels du header et des sections (overview, indices, checkers) + helpers de rendu (étoiles, attributs, badges d'archive et de découverte). |
 | `geocache-section.tsx` | Carte commune des sections : `GeocacheSection` (cadre, ligne de titre, résumé, actions, repli) et `SectionTitle` (chevron + intitulé en un seul bouton). Styles `.geoapp-gcd-section*` dans `style/geocache-details-header.css`. |
 | `geocache-details-types.ts` | DTO et types partagés (`GeocacheDto`, `GeocacheWaypoint`, `GeocacheChecker`, `DescriptionVariant`, `WaypointPrefillPayload`…). |
 | `geocache-details-service.ts` | Client HTTP (via `BackendApiClient`) : description, coordonnées, waypoints, statut solved, contenu traduit, archive, workflow chat, résumé des logs. |
@@ -34,7 +34,7 @@ Particularité notable : le widget est **multi-instances** (un onglet par géoca
 | `geocache-details-navigation-controller.ts` | Navigation inter-widgets par événements DOM (ouverture logs / éditeur de log / notes) et (dé)activation de la carte associée. |
 | `geocache-details-notes-controller.ts` | Comptage des notes + auto-sync de la note perso GC.com (selon préférence). |
 | `geocache-details-header-actions.ts` | Registre d'actions de header extensibles via `ContributionProvider` (ex. action EarthCache). |
-| `geocache-coordinates-editor.tsx` | Éditeur des coordonnées + statut « solved » (composant autonome). |
+| `geocache-coordinates-editor.tsx` | Éditeur des coordonnées (composant autonome). Le statut de résolution se change depuis le badge du header. |
 | `geocache-description-editor.tsx` | Éditeur de description (bascule variante, édition, traduction) ; rendu HTML **sanitizé**. |
 | `geocache-waypoints-editor.tsx` | Éditeur de waypoints (création/édition, projection, antipode, actions). |
 | `geocache-images-panel.tsx` | Galerie d'images (stockage local, OCR, sélection pour chat) — composant le plus lourd. |
@@ -148,13 +148,12 @@ L'ordre de rendu (`GeocacheDetailsView`) :
    - **Chat Libre** ;
    - groupe **Logs / Loguer / Notes** (avec compteur de notes) ;
    - bouton **rafraîchir** et bouton **statut d'archive** (couleur/icône selon l'état).
-2. **Overview** (`GeocacheOverviewSection`) : carte « Statistiques » (D/T en étoiles, taille, favoris, résumé des logs, attributs) + carte « Coordonnées » (`CoordinatesEditor`).
-3. **Infos détaillées** (`GeocacheDetailedInfoSection`) : section repliable avec le tableau complet (dont « Trouvee » et « Trouvee le »).
-4. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
-5. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
-6. **Images** (`GeocacheImagesPanel`) : galerie, stockage local, OCR, sélection pour chat.
-7. **Waypoints** (`WaypointsEditorWrapper`) : CRUD, projection/antipode, push GC.com, définir comme coords corrigées.
-8. **Checkers** (`GeocacheCheckersSection`) : liens vers les checkers, menu contextuel d'ouverture (même groupe / nouveau groupe / fenêtre externe), avertissement spécifique GeoCheck (captcha).
+2. **Overview** (`GeocacheOverviewSection`) : carte « Statistiques » (D/T en étoiles, taille, favoris, nombre de logs, date de pose, résumé des logs, attributs) + carte « Coordonnées » (`CoordinatesEditor`).
+3. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
+4. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
+5. **Images** (`GeocacheImagesPanel`) : galerie, stockage local, OCR, sélection pour chat.
+6. **Waypoints** (`WaypointsEditorWrapper`) : CRUD, projection/antipode, push GC.com, définir comme coords corrigées.
+7. **Checkers** (`GeocacheCheckersSection`) : liens vers les checkers, menu contextuel d'ouverture (même groupe / nouveau groupe / fenêtre externe), avertissement spécifique GeoCheck (captcha).
 
 ### Habillage commun des sections
 
@@ -252,7 +251,7 @@ par chunk que le prompt part. Voir `documentation/lexique-geocaching-technique.m
 
 Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieurs optimisations rendent ce coût négligeable hors changement réel de données :
 
-- **Composants feuilles mémoïsés** (`React.memo` dans `geocache-details-view.tsx`) : `CoordinatesEditor`, `DescriptionEditor`, `GeocacheImagesPanel` (le plus lourd), `WaypointsEditorWrapper`, `GeocacheDetailedInfoSection`. Comme les props sont passées en spread, `memo` compare chaque **valeur** individuellement (l'identité de l'objet de props n'a pas d'importance).
+- **Composants feuilles mémoïsés** (`React.memo` dans `geocache-details-view.tsx`) : `CoordinatesEditor`, `DescriptionEditor`, `GeocacheImagesPanel` (le plus lourd), `WaypointsEditorWrapper`. Comme les props sont passées en spread, `memo` compare chaque **valeur** individuellement (l'identité de l'objet de props n'a pas d'importance).
 - **Références de callbacks stables** : le widget expose des champs-flèches `readonly` (`handleSaveCoordinates`, `handleSaveWaypoint`, `handleThumbnailSizeChange`…) au lieu de fermetures recréées à chaque `render()`. C'est la condition pour que `memo` court-circuite.
 - **Cache de `hiddenDomains`** : le getter de préférence reconstruit un tableau à chaque appel (référence instable) ; `getStableHiddenDomains()` ne le recalcule que si le texte source change.
 - **Rendu progressif sans démontage** : pendant un rechargement, le contenu existant reste monté (préservation du scroll), atténué et coiffé d'un badge « Mise à jour… » ; seul le **tout premier** chargement affiche un « Chargement… » plein écran.

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ConfirmDialog } from '@theia/core/lib/browser';
-import { GeocacheDto, GeocacheSolvedStatus } from './geocache-details-types';
+import { GeocacheDto } from './geocache-details-types';
 import { parseFlexibleGCCoords } from './geocache-details-utils';
 import { calculateDistance } from './map/map-utils';
 import { handleMenuArrowKeys } from './context-menu';
@@ -12,7 +12,6 @@ export interface CoordinatesEditorProps {
     onSaveCoordinates: (coordinatesRaw: string) => Promise<void>;
     onResetCoordinates: () => Promise<void>;
     onPushCorrectedCoordinates: () => Promise<void>;
-    onUpdateSolvedStatus: (newStatus: GeocacheSolvedStatus) => Promise<void>;
     /** Ouverture des liens externes (les cartes en ligne sont forcées en fenêtre externe). */
     onOpenExternalUrl?: (url: string) => void;
 }
@@ -70,7 +69,6 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     onSaveCoordinates,
     onResetCoordinates,
     onPushCorrectedCoordinates,
-    onUpdateSolvedStatus,
     onOpenExternalUrl
 }) => {
     const [isEditing, setIsEditing] = React.useState(false);
@@ -79,9 +77,6 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     const [isMapMenuOpen, setIsMapMenuOpen] = React.useState(false);
     const [copiedFeedback, setCopiedFeedback] = React.useState(false);
     const mapMenuRef = React.useRef<HTMLDivElement | null>(null);
-    const [solvedStatus, setSolvedStatus] = React.useState<GeocacheSolvedStatus>(
-        geocacheData.solved || 'not_solved'
-    );
 
     const displayCoords = geocacheData.coordinates_raw || geocacheData.original_coordinates_raw || '';
     const originalCoords = geocacheData.original_coordinates_raw || '';
@@ -176,10 +171,6 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
     }, [editedCoords]);
     const canSave = editedCoords.trim().length > 0 && !coordsError;
 
-    React.useEffect(() => {
-        setSolvedStatus(geocacheData.solved || 'not_solved');
-    }, [geocacheData.solved]);
-
     const startEdit = () => {
         setEditedCoords(displayCoords);
         setIsEditing(true);
@@ -226,21 +217,12 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
         }
     };
 
-    const updateSolvedStatus = async (newStatus: GeocacheSolvedStatus) => {
-        try {
-            await onUpdateSolvedStatus(newStatus);
-            setSolvedStatus(newStatus);
-        } catch (e) {
-            console.error('Update solved status error', e);
-        }
-    };
-
     return (
         <div style={{ display: 'grid', gap: 12 }}>
             {!isEditing && (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <strong>Coordonnées {isCorrected && '(corrigées)'}</strong>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <span style={{ opacity: 0.7, fontSize: 12 }}>{isCorrected ? 'Coordonnées corrigées' : ''}</span>
                         <div style={{ display: 'flex', gap: 6 }}>
                             {isCorrected && (
                                 <button
@@ -500,28 +482,6 @@ export const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
                     </div>
                 </div>
             )}
-
-            <div>
-                <div style={{ marginBottom: 8 }}>
-                    <strong>Statut de résolution</strong>
-                </div>
-                <select
-                    value={solvedStatus}
-                    onChange={(e) => updateSolvedStatus(e.target.value as GeocacheSolvedStatus)}
-                    style={{
-                        width: '100%',
-                        padding: 8,
-                        backgroundColor: 'var(--theia-input-background)',
-                        color: 'var(--theia-input-foreground)',
-                        border: '1px solid var(--theia-input-border)',
-                        borderRadius: 4
-                    }}
-                >
-                    <option value="not_solved">Non résolu</option>
-                    <option value="in_progress">En cours</option>
-                    <option value="solved">Résolu</option>
-                </select>
-            </div>
         </div>
     );
 };
