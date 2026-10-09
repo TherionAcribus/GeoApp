@@ -88,6 +88,16 @@ Chaque variable apparait dans une carte contenant :
 - **Internet** : cliquez sur **Internet** pour lancer une recherche web. DuckDuckGo est interroge et la meilleure reponse est extraite automatiquement.
 - **Tout repondre** : utilisez les boutons en haut de la section pour repondre a toutes les questions en une seule fois (IA ou Internet).
 
+### Quand l'IA ne peut pas repondre
+
+L'IA a pour consigne de ne jamais inventer. Sur la carte d'une question, elle peut signaler :
+
+- **A relever sur place** : la reponse demande d'etre sur le terrain (compter des marches, lire une plaque). Le champ reste vide ; l'IA indique ce qu'il faut relever.
+- **Reponse non trouvee par l'IA** : essayez le profil **Web**, le bouton **Internet**, ou precisez la question.
+- **Reponse IA incertaine, a verifier** : une valeur est proposee, mais l'IA annonce une confiance faible.
+
+Si vous connaissez deja une observation de terrain, saisissez-la dans le champ d'info complementaire de la lettre (bouton **Afficher champs IA**) : l'IA peut alors l'utiliser. Le niveau de confiance est celui que le modele annonce lui-meme ; il attire l'attention mais ne valide pas une reponse.
+
 ### Repondre manuellement
 
 Tapez directement la valeur dans le champ **Valeur** de chaque lettre. Selectionnez le bon type de calcul :

@@ -83,6 +83,8 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                         profile,
                         explanation: result.explanation || undefined,
                         valueType: (result.valueType as ValueType) || undefined,
+                        status: result.status,
+                        confidence: result.confidence,
                         timestampMs: Date.now()
                     };
                 }
@@ -195,6 +197,8 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                 profile: 'web',
                 explanation: result.explanation || undefined,
                 valueType: (result.valueType as ValueType) || undefined,
+                status: result.status,
+                confidence: result.confidence,
                 webResults: webSearchResult.results,
                 timestampMs: Date.now()
             }

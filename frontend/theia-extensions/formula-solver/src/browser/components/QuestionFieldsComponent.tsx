@@ -229,6 +229,49 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                 </div>
             )}
 
+            {/* L'IA n'a pas répondu : à relever sur place, ou réponse inconnue.
+                Masqué dès qu'une valeur est saisie pour la lettre. */}
+            {detail && !detail.error && !hasValue && (detail.status === 'field' || detail.status === 'unknown') && (
+                <div style={{
+                    marginBottom: '8px',
+                    padding: '6px 10px',
+                    backgroundColor: 'var(--theia-editor-background)',
+                    border: '1px solid var(--theia-editorWarning-foreground)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '6px'
+                }}>
+                    <span
+                        className={`codicon ${detail.status === 'field' ? 'codicon-location' : 'codicon-question'}`}
+                        style={{ color: 'var(--theia-editorWarning-foreground)', marginTop: '2px' }}
+                    />
+                    <span>
+                        <strong>
+                            {detail.status === 'field' ? 'À relever sur place' : 'Réponse non trouvée par l\'IA'}
+                        </strong>
+                        {detail.explanation ? ` — ${detail.explanation}` : ''}
+                    </span>
+                </div>
+            )}
+
+            {/* Réponse IA peu sûre, tant que c'est elle qui est dans le champ */}
+            {detail && !detail.error && detail.status === 'answered' && detail.confidence === 'low' &&
+                (value?.rawValue || '').trim() === detail.answer.trim() && (
+                <div style={{
+                    marginBottom: '8px',
+                    fontSize: '12px',
+                    color: 'var(--theia-editorWarning-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                }}>
+                    <span className="codicon codicon-warning" />
+                    <span>Réponse IA incertaine, à vérifier.</span>
+                </div>
+            )}
+
             {/* Expandable answer detail bubble */}
             {detail && isDetailExpanded && (
                 <div style={{
@@ -251,6 +294,17 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                         }}>
                             {detail.source === 'ai' ? `IA (${detail.profile || '?'})` : 'Internet'}
                         </span>
+                        {detail.status === 'answered' && detail.confidence && (
+                            <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '3px',
+                                fontSize: '11px',
+                                border: '1px solid var(--theia-panel-border)',
+                                color: detail.confidence === 'low' ? 'var(--theia-editorWarning-foreground)' : undefined
+                            }}>
+                                Confiance {detail.confidence === 'high' ? 'élevée' : detail.confidence === 'medium' ? 'moyenne' : 'faible'}
+                            </span>
+                        )}
                         {detail.valueType && detail.valueType !== 'value' && (
                             <span style={{
                                 padding: '2px 6px',

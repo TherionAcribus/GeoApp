@@ -7,6 +7,24 @@ import {
 import { Formula } from '../common/types';
 import { FormulaSolverAiProfile, FormulaSolverTaskIdsByProfile } from './geoapp-formula-solver-agents';
 
+/**
+ * Ce que l'IA a pu faire d'une question :
+ * - `answered` : une réponse est proposée ;
+ * - `field` : à relever sur place, l'IA ne peut pas le savoir ;
+ * - `unknown` : l'IA ne connaît pas la réponse avec assez de certitude.
+ */
+export type AnswerStatus = 'answered' | 'field' | 'unknown';
+export type AnswerConfidence = 'high' | 'medium' | 'low';
+
+export interface SingleAnswer {
+    /** Réponse brute, vide si `status` n'est pas `answered` */
+    answer: string;
+    explanation: string;
+    valueType: string;
+    status: AnswerStatus;
+    confidence?: AnswerConfidence;
+}
+
 @injectable()
 export class FormulaSolverLLMService {
     @inject(GeoAppAiExecutionService)
@@ -255,6 +273,7 @@ ${questionsText}
 INSTRUCTIONS:
 - Réponds uniquement pour les clés fournies (${keys.join(', ')})
 - Respecte strictement les consignes de format si elles sont présentes dans le contexte
+- N'INVENTE JAMAIS une réponse : si elle ne peut être obtenue qu'en se rendant sur place (compter, lire un panneau, une plaque...) ou si tu ne la connais pas avec certitude, mets une chaîne vide pour cette clé
 - Retourne UNIQUEMENT un objet JSON (pas de texte autour), exactement de cette forme:
 ${JSON.stringify(exampleObject, null, 2)}`;
 
@@ -356,7 +375,7 @@ INSTRUCTIONS:
             per_letter_rules: Record<string, string>;
         };
         extraUserInfo?: string;
-    }, profile: FormulaSolverAiProfile = 'fast'): Promise<{ answer: string; explanation: string; valueType: string }> {
+    }, profile: FormulaSolverAiProfile = 'fast'): Promise<SingleAnswer> {
         const rule = params.context.per_letter_rules?.[params.letter] || '';
         const rulesText = [
             ...(params.context.global_rules || []),
@@ -393,18 +412,42 @@ INSTRUCTIONS IMPORTANTES:
   - Question "Nombre de lettres du prénom de Voltaire ?" → réponse "François-Marie", valueType "length"
   - Question "En quelle année est née Marie Curie ?" → réponse "1867", valueType "value"
   - Question "Checksum réduit du nom de l'inventeur de la radio ?" → réponse "Marconi", valueType "reduced"
+- N'INVENTE JAMAIS une réponse. Indique dans "status" ce que tu as pu faire :
+  - "answered" : tu donnes une réponse. Précise ta certitude dans "confidence" : "high" (fait établi ou donné dans les informations ci-dessus), "medium" (probable), "low" (incertain, à vérifier).
+  - "field" : la réponse ne peut être obtenue qu'en se rendant sur place (compter des marches, lire un panneau, une plaque, une date gravée, relever une couleur, un numéro...) et elle ne figure pas dans les informations ci-dessus. Réponse = chaîne vide.
+  - "unknown" : la réponse pourrait se trouver par une recherche, mais tu ne la connais pas avec assez de certitude. Réponse = chaîne vide.
+- Dans "explanation", dis d'où vient ta réponse, ou ce qu'il faut relever ou chercher si tu n'en donnes pas.
 - Retourne UNIQUEMENT un JSON strict sans texte autour, avec cette forme:
-{ "${params.letter}": "<réponse brute>", "valueType": "<value|checksum|reduced|length>", "explanation": "<explication courte de ton raisonnement et de la source de ta réponse>" }`;
+{ "${params.letter}": "<réponse brute, ou chaîne vide>", "valueType": "<value|checksum|reduced|length>", "status": "<answered|field|unknown>", "confidence": "<high|medium|low>", "explanation": "<explication courte>" }`;
 
         const response = await this.callLLM(prompt, `reponse-${params.letter}`, profile);
         const parsed = this.extractJsonObject(response);
-        if (!Object.prototype.hasOwnProperty.call(parsed, params.letter)) {
+        const declaresNoAnswer = ['field', 'unknown'].includes(String(parsed.status ?? '').toLowerCase().trim());
+        if (!declaresNoAnswer && !Object.prototype.hasOwnProperty.call(parsed, params.letter)) {
             throw new GeoAppAiOutputError(
                 'schema-mismatch',
                 `Formula Solver : la réponse JSON ne contient pas la lettre « ${params.letter} ».`,
                 true
             );
         }
+        const answer = String(parsed[params.letter] ?? '').trim();
+
+        // "status" et "confidence" sont lus avec tolérance (un modèle peut les
+        // omettre) : sans statut exploitable, une réponse vide vaut "unknown".
+        const rawStatus = String(parsed.status ?? '').toLowerCase().trim();
+        let status: AnswerStatus = rawStatus === 'field' || rawStatus === 'unknown' ? rawStatus : 'answered';
+        if (!answer && status === 'answered') {
+            status = 'unknown';
+        }
+        const rawConfidence = String(parsed.confidence ?? '').toLowerCase().trim();
+        const confidence = (['high', 'medium', 'low'] as const).find(level => level === rawConfidence);
+
+        if (status !== 'answered') {
+            // Pas de réponse : une réponse accompagnée de "field"/"unknown" est écartée
+            // (le modèle dit lui-même qu'il ne sait pas), et valueType n'a pas d'objet.
+            return { answer: '', explanation: String(parsed.explanation ?? ''), valueType: 'value', status };
+        }
+
         const rawValueType = String(parsed.valueType ?? 'value').toLowerCase().trim();
         const validTypes = ['value', 'checksum', 'reduced', 'length'];
         if (!validTypes.includes(rawValueType)) {
@@ -415,9 +458,11 @@ INSTRUCTIONS IMPORTANTES:
             );
         }
         return {
-            answer: String(parsed[params.letter] ?? ''),
+            answer,
             explanation: String(parsed.explanation ?? ''),
-            valueType: rawValueType
+            valueType: rawValueType,
+            status,
+            confidence
         };
     }
 }

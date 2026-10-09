@@ -1496,12 +1496,26 @@ export class FormulaSolverWidget extends ReactWidget {
                 .map(([letter]) => letter)
                 .sort();
 
+            // Lettres pour lesquelles l'IA dit elle-même ne pas pouvoir répondre
+            const lettersWithStatus = (status: AnswerDetail['status']): string[] =>
+                Array.from(result.detailsByLetter?.entries() ?? [])
+                    .filter(([, detail]) => !detail.error && detail.status === status)
+                    .map(([letter]) => letter)
+                    .sort();
+            const fieldLetters = lettersWithStatus('field');
+            const unknownLetters = lettersWithStatus('unknown');
+
+            const summary = [
+                `Réponses obtenues: ${filled}/${questionsByLetter.size}`,
+                fieldLetters.length > 0 ? `à relever sur place : ${fieldLetters.join(', ')}` : '',
+                unknownLetters.length > 0 ? `non trouvées : ${unknownLetters.join(', ')}` : '',
+                failedLetters.length > 0 ? `échec pour ${failedLetters.join(', ')} (voir la carte concernée)` : ''
+            ].filter(Boolean).join(' — ');
+
             if (failedLetters.length > 0) {
-                this.messageService.warn(
-                    `Réponses obtenues: ${filled}/${questionsByLetter.size} — échec pour ${failedLetters.join(', ')} (voir la carte concernée)`
-                );
+                this.messageService.warn(summary);
             } else {
-                this.messageService.info(`Réponses obtenues: ${filled}/${questionsByLetter.size}`);
+                this.messageService.info(summary);
             }
         } catch (error) {
             if (runId !== this.answersRunId) {
@@ -1575,6 +1589,11 @@ export class FormulaSolverWidget extends ReactWidget {
             if (detail?.error) {
                 // Erreur isolée à cette lettre (voir la carte pour le détail complet).
                 this.messageService.warn(`Échec pour la lettre ${letter} : ${detail.error}`);
+            } else if (detail?.status === 'field' || detail?.status === 'unknown') {
+                // L'IA dit ne pas pouvoir répondre : la valeur en place n'est pas touchée
+                this.messageService.info(detail.status === 'field'
+                    ? `Lettre ${letter} : à relever sur place, l'IA ne peut pas répondre.`
+                    : `Lettre ${letter} : l'IA n'a pas trouvé de réponse.`);
             } else if (shouldFill && answer.trim()) {
                 // Use valueType from AI if available, otherwise keep existing type
                 const aiValueType = detail?.valueType;

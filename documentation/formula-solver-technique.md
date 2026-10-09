@@ -634,3 +634,43 @@ Les sessions (`FormulaSessionManager`, localStorage, une par géocache) étaient
 - si le stockage est plein, les sessions les plus anciennes sont supprimées une à une jusqu'à ce que l'écriture passe ; si la session ne tient pas même seule, `false` est retourné. Le widget le signale une seule fois pour la sauvegarde automatique, à chaque fois pour le bouton.
 
 Tests : `src/browser/tests/session-manager.test.ts`.
+
+---
+
+## 20. Réponses IA : « je ne sais pas » et niveau de confiance (octobre 2026)
+
+Le prompt par question n'offrait aucune sortie quand l'IA ne pouvait pas répondre (question de terrain : « nombre de marches ») : elle inventait une valeur, qui était ensuite calculée comme les autres.
+
+### 20.1 Prompt et lecture de la réponse (`FormulaSolverLLMService`)
+
+`answerSingleQuestionWithContext()` demande maintenant deux champs de plus et retourne un `SingleAnswer` :
+
+| Champ | Valeurs | Sens |
+|-------|---------|------|
+| `status` | `answered` | une réponse est proposée |
+| | `field` | à relever sur place et absent des informations fournies : réponse vide |
+| | `unknown` | trouvable par une recherche, mais l'IA ne la connaît pas avec assez de certitude : réponse vide |
+| `confidence` | `high` / `medium` / `low` | certitude annoncée, pour `answered` uniquement |
+
+Lecture tolérante, pour ne pas casser un modèle qui omet ces champs :
+
+- `status` absent ou non reconnu : `answered` si la réponse est non vide, `unknown` sinon ;
+- `confidence` absente ou non reconnue : `undefined`, sans erreur ;
+- `status` = `field` / `unknown` avec une réponse quand même : la réponse est **écartée** (le modèle dit lui-même ne pas savoir) ; la clé de la lettre et un `valueType` valide ne sont alors pas exigés.
+
+Les erreurs de schéma restent levées pour une réponse `answered` (lettre absente, `valueType` inconnu).
+
+Le mode en masse (`searchAnswersWithAI`) reçoit seulement la consigne de laisser une chaîne vide plutôt que d'inventer ; il n'a ni statut ni confiance.
+
+### 20.2 Propagation et affichage
+
+- `AnswerDetail` gagne `status` et `confidence`, renseignés par `AiPerQuestionAnswering` (y compris le profil `web`).
+- `QuestionFieldCard` :
+  - `field` / `unknown` : bannière « À relever sur place » ou « Réponse non trouvée par l'IA », avec l'explication de l'IA ; masquée dès qu'une valeur est saisie pour la lettre ;
+  - `confidence = low` : ligne « Réponse IA incertaine, à vérifier », tant que la valeur du champ est celle de l'IA ;
+  - le niveau de confiance apparaît aussi dans le détail de la réponse.
+- Widget : une réponse vide ne remplit jamais le champ et ne touche pas une valeur existante. Le récapitulatif de « Répondre » liste les lettres à relever sur place et non trouvées.
+
+Le niveau de confiance est celui que le modèle annonce, pas une mesure : il sert à attirer l'attention, pas à valider une réponse.
+
+Tests : `src/browser/tests/answer-status.test.ts`.

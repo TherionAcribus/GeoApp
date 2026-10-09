@@ -75,6 +75,14 @@ export interface AnswerDetail {
     profile?: FormulaSolverAiProfile;
     explanation?: string;
     valueType?: ValueType;
+    /**
+     * Ce que l'IA a pu faire de la question (mode par question) : réponse
+     * proposée, à relever sur place, ou réponse inconnue. Absent pour les
+     * réponses issues d'une recherche web pure ou du mode en masse.
+     */
+    status?: 'answered' | 'field' | 'unknown';
+    /** Certitude annoncée par l'IA pour une réponse proposée */
+    confidence?: 'high' | 'medium' | 'low';
     webResults?: Array<{
         text?: string;
         source?: string;
