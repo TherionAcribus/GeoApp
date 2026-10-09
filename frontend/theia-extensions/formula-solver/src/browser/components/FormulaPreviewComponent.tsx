@@ -16,10 +16,9 @@ interface FormulaPreviewProps {
      * directement au lieu de reconstruire la preview dans le composant.
      */
     preview?: CoordinatePreviewState;
-    onPartialCalculate?: (part: 'north' | 'east', result: string) => void;
 }
 
-const InnerFormulaPreviewComponent: React.FC<FormulaPreviewProps> = ({ formula, values, preview: providedPreview, onPartialCalculate }) => {
+const InnerFormulaPreviewComponent: React.FC<FormulaPreviewProps> = ({ formula, values, preview: providedPreview }) => {
     const engine = React.useMemo(() => new CoordinatePreviewEngine(), []);
     const preview = React.useMemo(
         () => providedPreview ?? engine.build({ north: formula.north, east: formula.east }, values),
@@ -28,19 +27,6 @@ const InnerFormulaPreviewComponent: React.FC<FormulaPreviewProps> = ({ formula, 
 
     const northPreview = preview.north;
     const eastPreview = preview.east;
-
-    // Calculer automatiquement les parties complètes
-    React.useEffect(() => {
-        if (northPreview.status === 'valid' && onPartialCalculate) {
-            onPartialCalculate('north', northPreview.display);
-        }
-    }, [northPreview.status, northPreview.display]);
-
-    React.useEffect(() => {
-        if (eastPreview.status === 'valid' && onPartialCalculate) {
-            onPartialCalculate('east', eastPreview.display);
-        }
-    }, [eastPreview.status, eastPreview.display]);
 
     /**
      * Retourne la classe CSS selon le statut

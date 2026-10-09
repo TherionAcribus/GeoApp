@@ -17,11 +17,7 @@ export class FormulaSolverLLMService {
      */
     protected async callLLM(prompt: string, task: string, profile: FormulaSolverAiProfile = 'fast'): Promise<string> {
         try {
-            console.log(`[FORMULA-SOLVER-LLM] 🤖 DÉBUT APPEL LLM pour: ${task}`);
-            console.log(`[FORMULA-SOLVER-LLM] 📝 PROMPT ENVOYÉ:`, prompt.substring(0, 500) + (prompt.length > 500 ? '...' : ''));
-
             const taskId = FormulaSolverTaskIdsByProfile[profile] ?? FormulaSolverTaskIdsByProfile.fast;
-            console.log(`[FORMULA-SOLVER-LLM] 🔍 Résolution du modèle pour la tâche ${taskId}...`);
             let execution;
             try {
                 execution = await this.aiExecutionService.beginTaskExecution(taskId, {
@@ -34,14 +30,6 @@ export class FormulaSolverLLMService {
                 throw error;
             }
 
-            console.log(`[FORMULA-SOLVER-LLM] ✅ Modèle trouvé:`, {
-                id: execution.resolution.resolvedModelId,
-                name: execution.resolution.displayModel,
-                source: execution.resolution.sourceLabel
-            });
-
-            console.log(`[FORMULA-SOLVER-LLM] 📤 Envoi requête au LLM...`);
-
             const response = (await execution.sendRequest({
                 messages: [
                     {
@@ -52,29 +40,20 @@ export class FormulaSolverLLMService {
                 ],
             })).response;
 
-            console.log(`[FORMULA-SOLVER-LLM] 📥 RÉPONSE BRUTE REÇUE du LLM:`, response);
-            console.log(`[FORMULA-SOLVER-LLM] ✅ Réponse LLM reçue pour: ${task}`);
-
             // Extraire le texte de la réponse
             let responseText: string;
             if (isLanguageModelParsedResponse(response)) {
-                console.log(`[FORMULA-SOLVER-LLM] 📋 Réponse structurée détectée`);
                 responseText = JSON.stringify(response.parsed);
-                console.log(`[FORMULA-SOLVER-LLM] 📄 Contenu structuré:`, response.parsed);
             } else {
-                console.log(`[FORMULA-SOLVER-LLM] 📝 Extraction du texte de la réponse...`);
-
                 // Utiliser la fonction utilitaire de Theia pour extraire le texte
                 try {
                     responseText = await getTextOfResponse(response);
-                    console.log(`[FORMULA-SOLVER-LLM] 📄 Texte extrait:`, responseText.substring(0, 200) + (responseText.length > 200 ? '...' : ''));
                 } catch (textError) {
                     console.warn(`[FORMULA-SOLVER-LLM] ⚠️ Erreur extraction texte, tentative avec getJsonOfResponse:`, textError);
                     // Fallback : essayer getJsonOfResponse, mais ne pas masquer l'erreur originale (ex: quota 429)
                     try {
                         const jsonResponse = await getJsonOfResponse(response) as any;
                         responseText = typeof jsonResponse === 'string' ? jsonResponse : JSON.stringify(jsonResponse);
-                        console.log(`[FORMULA-SOLVER-LLM] 📄 Texte extrait (fallback):`, responseText.substring(0, 200) + (responseText.length > 200 ? '...' : ''));
                     } catch (jsonError) {
                         console.error(`[FORMULA-SOLVER-LLM] ❌ Impossible d'extraire la réponse (texte+json).`, jsonError);
                         // Remonter l'erreur initiale (souvent plus explicite: 429, 401, etc.)
@@ -84,9 +63,7 @@ export class FormulaSolverLLMService {
             }
 
             const cleaned = this.stripThinkingBlocks(responseText);
-            console.log(`[FORMULA-SOLVER-LLM] 🎯 TEXTE FINAL RETOURNÉ (nettoyé):`, cleaned);
             return cleaned;
-
         } catch (error) {
             console.error(`[FORMULA-SOLVER-LLM] ❌ Erreur LLM pour ${task}:`, error);
             throw error;
@@ -150,8 +127,6 @@ export class FormulaSolverLLMService {
      * Détecte les formules GPS dans un texte avec IA
      */
     async detectFormulasWithAI(text: string, profile: FormulaSolverAiProfile = 'fast'): Promise<Formula[]> {
-        console.log(`[FORMULA-SOLVER-LLM] 🎯 DÉTECTION FORMULES - Texte d'entrée:`, text.substring(0, 300) + (text.length > 300 ? '...' : ''));
-
         const prompt = `Analyse ce texte de géocache et détecte les formules de coordonnées GPS qu'il contient.
 
 Texte à analyser:
@@ -180,11 +155,7 @@ INSTRUCTIONS IMPORTANTES:
 
 Si aucune formule n'est trouvée, retourne {"formulas": []}`;
 
-        console.log(`[FORMULA-SOLVER-LLM] 🎯 PROMPT CRÉÉ pour détection formules`);
-
         const response = await this.callLLM(prompt, 'détection-formules', profile);
-
-        console.log(`[FORMULA-SOLVER-LLM] 🎯 RÉPONSE BRUTE pour détection:`, response);
 
         const parsed = this.extractJsonObject(response);
         const formulasRaw = parsed.formulas;
@@ -195,7 +166,6 @@ Si aucune formule n'est trouvée, retourne {"formulas": []}`;
                 true
             );
         }
-        console.log(`[FORMULA-SOLVER-LLM] 🎯 Formules trouvées:`, formulasRaw.length);
 
         return formulasRaw.map((f: any, index: number) => ({
             id: String(f?.id || `ai_formula_${index + 1}`),
@@ -450,5 +420,4 @@ INSTRUCTIONS IMPORTANTES:
             valueType: rawValueType
         };
     }
-
 }

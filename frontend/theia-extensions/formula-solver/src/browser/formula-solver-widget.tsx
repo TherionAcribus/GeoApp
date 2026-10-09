@@ -70,7 +70,6 @@ export class FormulaSolverWidget extends ReactWidget {
     @inject(AnsweringContextCache)
     protected readonly answeringContextCache!: AnsweringContextCache;
 
-
     // État du widget
     protected state: FormulaSolverState = {
         currentStep: 'detect',
@@ -175,7 +174,14 @@ export class FormulaSolverWidget extends ReactWidget {
 
     // Seule la réponse du dernier calcul demandé est prise en compte.
     protected calculationRequestId: number = 0;
+    // Calculs en cours (indicateur propre, distinct de `state.loading` qui
+    // appartient aux étapes détection / questions / réponses).
     protected pendingCalculations: number = 0;
+    // Le calcul automatique attend une pause dans la saisie.
+    private static readonly CALCULATION_DEBOUNCE_MS = 300;
+    private calculationTimer?: ReturnType<typeof setTimeout>;
+    // Formule + valeurs du dernier calcul réussi, pour ne pas le refaire à l'identique.
+    private lastCalculationKey?: string;
 
     // Dernière valeur saisie par lettre pour le texte en cours, conservée quand on
     // change de formule (les étapes d'une multi partagent souvent leurs lettres).
@@ -326,6 +332,10 @@ export class FormulaSolverWidget extends ReactWidget {
                 this.handleExternalBruteForceRemoval as EventListener
             );
             window.removeEventListener('click', this.handleGlobalClickForMenus);
+            if (this.calculationTimer) {
+                clearTimeout(this.calculationTimer);
+                this.calculationTimer = undefined;
+            }
             // Nettoyer l'overlay preview si le widget se ferme
             window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
         }
@@ -569,7 +579,6 @@ export class FormulaSolverWidget extends ReactWidget {
      * Charge le Formula Solver depuis une geocache
      */
     async loadFromGeocache(geocacheId: number): Promise<void> {
-        console.log(`[FORMULA-SOLVER] Chargement depuis geocache ${geocacheId}`);
 
         // Rafraîchir l'index des sessions
         this.savedSessionsIndex = FormulaSessionManager.listSessions();
@@ -603,8 +612,6 @@ export class FormulaSolverWidget extends ReactWidget {
             
             // Récupérer les données de la geocache
             const geocache = await this.formulaSolverService.getGeocache(geocacheId);
-            
-            console.log(`[FORMULA-SOLVER] Geocache ${geocache.gc_code} chargée`);
 
             // Vérifier s'il existe une session sauvegardée pour cette geocache
             if (FormulaSessionManager.hasSavedSession(geocache.id)) {
@@ -664,7 +671,7 @@ export class FormulaSolverWidget extends ReactWidget {
      */
     protected resetAnsweringState(): void {
         this.answersRunId++;
-        this.calculationRequestId++;
+        this.invalidateCalculation();
         this.isAnsweringLoading = false;
         this.loadingLetters.clear();
         this.answerDetails.clear();
@@ -696,7 +703,7 @@ export class FormulaSolverWidget extends ReactWidget {
     /**
      * Affiche le résultat sur la carte via événement window
      */
-    protected showOnMap(): void {
+    protected showOnMap(options?: { silent?: boolean }): void {
         if (!this.state.result || !this.state.result.coordinates) {
             this.messageService.error('Aucun résultat à afficher sur la carte');
             return;
@@ -719,12 +726,6 @@ export class FormulaSolverWidget extends ReactWidget {
             // Construire la note détaillée
             const note = `Solution Formula Solver\n\nFormule: ${formulaText}\nValeurs: ${valuesText}\n\nCoordonnées:\n${formattedCoords}`;
 
-            console.log('[FORMULA-SOLVER] Émission événement geoapp-map-highlight-coordinate', {
-                lat: coords.latitude,
-                lon: coords.longitude,
-                formatted: coords.ddm
-            });
-
             // Émettre événement pour la carte (compatible avec MapService de zones)
             window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
                 detail: {
@@ -741,7 +742,9 @@ export class FormulaSolverWidget extends ReactWidget {
                 }
             }));
 
-            this.messageService.info('Coordonnées affichées sur la carte !');
+            if (!options?.silent) {
+                this.messageService.info('Coordonnées affichées sur la carte !');
+            }
             
         } catch (error) {
             console.error('[FORMULA-SOLVER] Erreur lors de l\'affichage sur la carte:', error);
@@ -931,7 +934,7 @@ export class FormulaSolverWidget extends ReactWidget {
 
         const requestId = ++this.detectionRequestId;
         this.answersRunId++;
-        this.calculationRequestId++;
+        this.invalidateCalculation();
         this.valuesMemory.clear();
         this.bruteForceMode = false;
         this.bruteForceResults = [];
@@ -949,7 +952,6 @@ export class FormulaSolverWidget extends ReactWidget {
 
         try {
             const method = this.stepConfig.formulaDetectionMethod;
-            console.log(`[FORMULA-SOLVER] 🎯 Étape Formule: ${method}`);
 
             const detection = await this.pipeline.detectFormula({
                 text,
@@ -1004,7 +1006,6 @@ export class FormulaSolverWidget extends ReactWidget {
             this.updateState({ loading: false, error: message });
         }
     }
-
 
     /**
      * Modifie manuellement une formule détectée
@@ -1176,20 +1177,11 @@ export class FormulaSolverWidget extends ReactWidget {
             // Auto-lancer les réponses IA si le mode est configuré pour IA et moteur = IA
             const shouldAutoAnswer = this.answersEngine === 'ai' &&
                 (this.stepConfig.answersMode === 'ai-bulk' || this.stepConfig.answersMode === 'ai-per-question');
-            console.log('[FORMULA-SOLVER] Auto-answer check:', {
-                answersEngine: this.answersEngine,
-                answersMode: this.stepConfig.answersMode,
-                shouldAutoAnswer,
-                questionsCount: allQuestions.length
-            });
             if (shouldAutoAnswer && allQuestions.length > 0) {
-                console.log('[FORMULA-SOLVER] Auto-lancement des réponses IA après extraction des questions');
                 // Petit délai pour laisser l'UI se mettre à jour
                 setTimeout(() => {
                     void this.answerAllQuestions({ overwrite: false });
                 }, 100);
-            } else {
-                console.log('[FORMULA-SOLVER] Auto-answer skipped: engine=' + this.answersEngine + ', mode=' + this.stepConfig.answersMode);
             }
 
             // Recalculer automatiquement si toutes les valeurs sont présentes
@@ -1220,15 +1212,6 @@ export class FormulaSolverWidget extends ReactWidget {
         const requestId = ++this.questionsRequestId;
         const method = options?.method ?? this.stepConfig.questionsMethod;
         const aiProfile = options?.aiProfile ?? this.stepConfig.aiProfileForQuestions;
-
-        console.log('[FORMULA-SOLVER] runQuestionsStep start', {
-            requestId,
-            method,
-            answersEngine: this.answersEngine,
-            answersMode: this.stepConfig.answersMode,
-            geocacheId: this.state.geocacheId,
-            gcCode: this.state.gcCode
-        });
 
         // Conserver les valeurs déjà saisies si la lettre existe toujours
         const previousValues = new Map(this.state.values);
@@ -1285,18 +1268,12 @@ export class FormulaSolverWidget extends ReactWidget {
                 currentStep: 'values'
             });
             this.updateMapPreviewOverlay(values);
+            this.tryAutoCalculateOrBruteForce();
 
             // Auto-lancer les réponses IA si le mode est configuré pour IA et moteur = IA
             const shouldAutoAnswer = this.answersEngine === 'ai' &&
                 (this.stepConfig.answersMode === 'ai-bulk' || this.stepConfig.answersMode === 'ai-per-question');
-            console.log('[FORMULA-SOLVER] Auto-answer check (runQuestionsStep):', {
-                answersEngine: this.answersEngine,
-                answersMode: this.stepConfig.answersMode,
-                shouldAutoAnswer,
-                questionsCount: questions.length
-            });
             if (shouldAutoAnswer && questions.length > 0) {
-                console.log('[FORMULA-SOLVER] Auto-lancement des réponses IA après extraction des questions');
                 setTimeout(() => {
                     void this.answerAllQuestions({ overwrite: false });
                 }, 100);
@@ -1599,14 +1576,46 @@ export class FormulaSolverWidget extends ReactWidget {
     }
 
     /**
+     * Annule le calcul programmé et fait ignorer la réponse d'un calcul en cours.
+     */
+    protected invalidateCalculation(): void {
+        this.calculationRequestId += 1;
+        this.lastCalculationKey = undefined;
+        if (this.calculationTimer) {
+            clearTimeout(this.calculationTimer);
+            this.calculationTimer = undefined;
+        }
+    }
+
+    /**
      * Retire un résultat qui ne correspond plus aux valeurs saisies et fait
      * ignorer la réponse d'un calcul encore en cours.
      */
     protected clearStaleResult(): void {
-        this.calculationRequestId++;
+        this.invalidateCalculation();
         if (this.state.result) {
             this.updateState({ result: undefined, currentStep: 'values' });
         }
+    }
+
+    /**
+     * Programme le calcul (simple ou brute force) après une courte pause : une
+     * rafale de saisies ou de réponses IA ne déclenche qu'un seul appel.
+     */
+    protected scheduleCalculation(bruteForce: boolean): void {
+        // Un calcul encore en cours porte sur d'anciennes valeurs : ignorer sa réponse
+        this.calculationRequestId += 1;
+        if (this.calculationTimer) {
+            clearTimeout(this.calculationTimer);
+        }
+        this.calculationTimer = setTimeout(() => {
+            this.calculationTimer = undefined;
+            if (bruteForce) {
+                void this.executeBruteForceFromFields();
+            } else {
+                this.tryAutoCalculate();
+            }
+        }, FormulaSolverWidget.CALCULATION_DEBOUNCE_MS);
     }
 
     /**
@@ -1635,17 +1644,27 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
-        const requestId = ++this.calculationRequestId;
-        this.pendingCalculations++;
-        this.updateState({ loading: true, error: undefined });
-
-        try {
-            // Construire l'objet values
-            const values: Record<string, number> = {};
+        // Construire l'objet values
+        const values: Record<string, number> = {};
         this.state.values.forEach((letterValue: LetterValue, letter: string) => {
             values[letter] = letterValue.value;
         });
 
+        const calculationKey = JSON.stringify([
+            this.state.selectedFormula.north,
+            this.state.selectedFormula.east,
+            Object.entries(values).sort(([a], [b]) => a.localeCompare(b))
+        ]);
+        if (this.state.result && calculationKey === this.lastCalculationKey) {
+            // Même formule, mêmes valeurs : le résultat affiché est déjà le bon
+            return;
+        }
+
+        const requestId = ++this.calculationRequestId;
+        this.pendingCalculations++;
+        this.updateState({ error: undefined });
+
+        try {
             // Appeler l'API
             const result = await this.formulaSolverService.calculateCoordinates({
                 northFormula: this.state.selectedFormula.north,
@@ -1661,15 +1680,18 @@ export class FormulaSolverWidget extends ReactWidget {
             }
 
             if (result.status === 'success') {
-                this.messageService.info('Coordonnées calculées avec succès !');
+                this.lastCalculationKey = calculationKey;
+                // Un calcul simple remplace les candidats d'un brute force précédent
+                this.bruteForceMode = false;
+                this.bruteForceResults = [];
                 this.updateState({
-                    loading: false,
                     result,
                     currentStep: 'calculate'
                 });
-                
-                // Afficher automatiquement le point sur la carte
-                this.showOnMap();
+
+                // Afficher automatiquement le point sur la carte (sans notification :
+                // le calcul est automatique, le résultat s'affiche dans le panneau)
+                this.showOnMap({ silent: true });
             } else {
                 throw new Error(result.error || 'Erreur lors du calcul');
             }
@@ -1679,20 +1701,22 @@ export class FormulaSolverWidget extends ReactWidget {
             }
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             this.messageService.error(`Erreur : ${message}`);
-            this.updateState({ loading: false, error: message, result: undefined });
+            this.updateState({ error: message, result: undefined });
         } finally {
             this.pendingCalculations--;
-            if (requestId !== this.calculationRequestId && this.pendingCalculations === 0 && !this.isAnsweringLoading) {
-                // Calcul périmé sans successeur : libérer l'indicateur de chargement
-                this.updateState({ loading: false });
-            }
+            this.update();
         }
     }
 
     /**
      * Exécute le brute force depuis une liste de combinaisons prédéfinies
      */
-    protected async executeBruteForceFromCombinations(combinations: Array<Record<string, number>>): Promise<void> {
+    protected async executeBruteForceFromCombinations(
+        combinations: Array<Record<string, number>>,
+        options?: { silent?: boolean }
+    ): Promise<void> {
+        // `silent` : déclenchement automatique pendant la saisie, sans notification
+        const silent = Boolean(options?.silent);
         if (!this.state.selectedFormula) {
             this.messageService.error('Aucune formule sélectionnée');
             return;
@@ -1708,11 +1732,10 @@ export class FormulaSolverWidget extends ReactWidget {
             combinations = combinations.slice(0, 1000);
         }
 
+        const requestId = ++this.calculationRequestId;
+        this.pendingCalculations++;
         this.bruteForceMode = true;
-        this.bruteForceResults = [];
-        this.updateState({ loading: true, error: undefined });
-
-        this.messageService.info(`Calcul de ${combinations.length} combinaisons...`);
+        this.updateState({ error: undefined });
 
         try {
             // Un seul appel batch au backend au lieu de N requêtes séquentielles
@@ -1721,6 +1744,11 @@ export class FormulaSolverWidget extends ReactWidget {
                 eastFormula: this.state.selectedFormula.east,
                 combinations
             });
+
+            if (requestId !== this.calculationRequestId) {
+                // Les valeurs ont changé pendant le calcul : ces résultats sont périmés
+                return;
+            }
 
             const results: Array<{ id: string; label: string; values: Record<string, number>; coordinates?: any }> = [];
 
@@ -1746,7 +1774,7 @@ export class FormulaSolverWidget extends ReactWidget {
             }
 
             this.bruteForceResults = results;
-            this.updateState({ loading: false });
+            this.updateState({ result: undefined });
 
             // Afficher tous les points sur la carte (uniquement ceux avec coordonnées)
             const validResults = results.filter((r): r is { id: string; label: string; values: Record<string, number>; coordinates: any } =>
@@ -1754,14 +1782,22 @@ export class FormulaSolverWidget extends ReactWidget {
             );
             this.showAllResultsOnMap(validResults);
 
-            this.messageService.info(
-                `${results.length} résultat${results.length > 1 ? 's' : ''} calculé${results.length > 1 ? 's' : ''} avec succès !`
-            );
+            if (!silent) {
+                this.messageService.info(
+                    `${results.length} résultat${results.length > 1 ? 's' : ''} calculé${results.length > 1 ? 's' : ''} avec succès !`
+                );
+            }
 
         } catch (error) {
+            if (requestId !== this.calculationRequestId) {
+                return;
+            }
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             this.messageService.error(`Erreur brute force : ${message}`);
-            this.updateState({ loading: false, error: message });
+            this.updateState({ error: message });
+        } finally {
+            this.pendingCalculations--;
+            this.update();
         }
     }
 
@@ -1804,7 +1840,7 @@ export class FormulaSolverWidget extends ReactWidget {
             this.messageService.warn(`${totalCombinations} combinaisons détectées. Limité à ${maxCombinations} pour éviter les calculs trop longs.`);
         }
 
-        await this.executeBruteForceFromCombinations(combinations);
+        await this.executeBruteForceFromCombinations(combinations, { silent: true });
     }
 
     /**
@@ -1846,7 +1882,6 @@ export class FormulaSolverWidget extends ReactWidget {
      * Supprime un résultat brute force spécifique
      */
     protected removeBruteForceResult(resultId: string): void {
-        console.log('[FORMULA-SOLVER] Suppression du résultat', resultId);
         
         // Retirer du tableau
         this.bruteForceResults = this.bruteForceResults.filter(r => r.id !== resultId);
@@ -1882,7 +1917,6 @@ export class FormulaSolverWidget extends ReactWidget {
             return;
         }
 
-        console.log('[FORMULA-SOLVER] Résultat supprimé depuis la carte', bruteForceId);
         this.bruteForceResults = this.bruteForceResults.filter(result => result.id !== bruteForceId);
 
         if (this.bruteForceResults.length === 0) {
@@ -1914,35 +1948,38 @@ export class FormulaSolverWidget extends ReactWidget {
      * Affiche tous les résultats du brute force sur la carte
      */
     protected showAllResultsOnMap(results: Array<{ id: string; label: string; values: Record<string, number>; coordinates: any }>): void {
-        console.log('[FORMULA-SOLVER] Affichage de', results.length, 'résultats sur la carte');
+        if (results.length === 0) {
+            window.dispatchEvent(new CustomEvent('geoapp-map-highlight-clear'));
+            return;
+        }
 
-        // Effacer les points précédents
-        window.dispatchEvent(new CustomEvent('geoapp-map-highlight-clear'));
+        // Un seul événement pour tous les points : la carte ne reconstruit sa
+        // couche et ne se recentre qu'une fois, quel que soit le nombre de candidats.
+        window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinates', {
+            detail: {
+                highlights: results.map(result => {
+                    const coords = result.coordinates;
+                    const valuesText = Object.entries(result.values)
+                        .map(([letter, value]) => `${letter}=${value}`)
+                        .join(', ');
 
-        // Ajouter chaque point
-        results.forEach(result => {
-            const coords = result.coordinates;
-            const valuesText = Object.entries(result.values)
-                .map(([letter, value]) => `${letter}=${value}`)
-                .join(', ');
-
-            window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
-                detail: {
-                    gcCode: this.state.gcCode,
-                    pluginName: 'Formula Solver (Brute Force)',
-                    coordinates: {
-                        latitude: coords.latitude,
-                        longitude: coords.longitude,
-                        formatted: coords.ddm
-                    },
-                    waypointTitle: result.label,
-                    waypointNote: `Valeurs: ${valuesText}\n\nCoordonnées:\n${coords.ddm}`,
-                    sourceResultText: coords.ddm,
-                    replaceExisting: false, // Ajouter sans remplacer
-                    bruteForceId: result.id // ID pour la suppression
-                }
-            }));
-        });
+                    return {
+                        gcCode: this.state.gcCode,
+                        pluginName: 'Formula Solver (Brute Force)',
+                        coordinates: {
+                            latitude: coords.latitude,
+                            longitude: coords.longitude,
+                            formatted: coords.ddm
+                        },
+                        waypointTitle: result.label,
+                        waypointNote: `Valeurs: ${valuesText}\n\nCoordonnées:\n${coords.ddm}`,
+                        sourceResultText: coords.ddm,
+                        replaceExisting: false,
+                        bruteForceId: result.id // ID pour la suppression
+                    };
+                })
+            }
+        }));
     }
 
     /**
@@ -1997,14 +2034,8 @@ export class FormulaSolverWidget extends ReactWidget {
         // Vérifier si au moins un champ contient une liste
         const hasLists = Array.from(this.state.values.values()).some((v: LetterValue) => !!v.isList);
         
-        if (hasLists) {
-            // Brute force automatique
-            console.log('[FORMULA-SOLVER] Listes détectées, déclenchement automatique du brute force');
-            this.executeBruteForceFromFields();
-        } else {
-            // Calcul simple
-            this.tryAutoCalculate();
-        }
+        // Les contrôles ci-dessus sont immédiats ; l'appel au backend attend une pause
+        this.scheduleCalculation(hasLists);
     }
 
     // -----------------------------------------------------------------------
@@ -2940,7 +2971,7 @@ export class FormulaSolverWidget extends ReactWidget {
                         onSelect={(formula) => {
                             // Les valeurs ne sont pas vidées ici : runQuestionsStep reprend
                             // celles des lettres communes à la nouvelle formule.
-                            this.calculationRequestId++;
+                            this.invalidateCalculation();
                             this.updateState({
                                 selectedFormula: formula,
                                 questions: [],
@@ -3335,7 +3366,12 @@ export class FormulaSolverWidget extends ReactWidget {
 
         return (
             <div id='formula-solver-step-calculate' className='calculate-step' style={{ marginBottom: '20px' }}>
-                <h3>3. Calcul des coordonnées</h3>
+                <h3>
+                    3. Calcul des coordonnées
+                    {this.pendingCalculations > 0 && (
+                        <span className="formula-solver-spinner" style={{ width: '12px', height: '12px' }} title="Calcul en cours..." />
+                    )}
+                </h3>
                 
                 {/* Prévisualisation en temps réel avec calcul automatique */}
                 <FormulaPreviewComponent
@@ -3345,11 +3381,6 @@ export class FormulaSolverWidget extends ReactWidget {
                         { north: this.state.selectedFormula.north, east: this.state.selectedFormula.east },
                         this.state.values
                     )}
-                    onPartialCalculate={(part, result) => {
-                        console.log(`[FORMULA-SOLVER] Partie ${part} calculée automatiquement:`, result);
-                        // Vérifier si les deux parties sont complètes pour calculer automatiquement
-                        this.tryAutoCalculate();
-                    }}
                 />
 
                 {/* Mode Brute Force */}

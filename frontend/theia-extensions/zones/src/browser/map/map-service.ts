@@ -201,6 +201,7 @@ export class MapService {
     constructor() {
         if (typeof window !== 'undefined') {
             window.addEventListener('geoapp-map-highlight-coordinate', this.handleHighlightCoordinateEvent as EventListener);
+            window.addEventListener('geoapp-map-highlight-coordinates', this.handleHighlightCoordinatesEvent as EventListener);
             window.addEventListener('geoapp-map-highlight-clear', this.handleHighlightClearEvent as EventListener);
             window.addEventListener('geoapp-map-remove-brute-force-point', this.handleRemoveBruteForcePointEvent as EventListener);
             window.addEventListener('geoapp-map-formula-solver-preview-overlay', this.handleFormulaSolverPreviewOverlayEvent as EventListener);
@@ -208,22 +209,19 @@ export class MapService {
         }
     }
 
-    private handleHighlightCoordinateEvent = (event: Event): void => {
-        const customEvent = event as CustomEvent<DetectedCoordinateHighlightEventDetail>;
-        const detail = customEvent.detail;
-
+    private toHighlight(detail?: DetectedCoordinateHighlightEventDetail): DetectedCoordinateHighlight | undefined {
         if (!detail?.coordinates) {
             console.warn('[MapService] Highlight event ignoré: detail.coordinates absent', detail);
-            return;
+            return undefined;
         }
 
         const { latitude, longitude, formatted } = detail.coordinates;
         if (typeof latitude !== 'number' || typeof longitude !== 'number') {
             console.warn('[MapService] Highlight event ignoré: latitude/longitude non numériques', detail.coordinates);
-            return;
+            return undefined;
         }
 
-        this.highlightDetectedCoordinate({
+        return {
             latitude,
             longitude,
             formatted,
@@ -236,7 +234,34 @@ export class MapService {
             waypointNote: detail.waypointNote,
             sourceResultText: detail.sourceResultText,
             bruteForceId: detail.bruteForceId
-        });
+        };
+    }
+
+    private handleHighlightCoordinateEvent = (event: Event): void => {
+        const highlight = this.toHighlight((event as CustomEvent<DetectedCoordinateHighlightEventDetail>).detail);
+        if (highlight) {
+            this.highlightDetectedCoordinate(highlight);
+        }
+    };
+
+    /**
+     * Lot de coordonnées (brute force) : remplace tous les points en une seule fois.
+     */
+    private handleHighlightCoordinatesEvent = (event: Event): void => {
+        const details = (event as CustomEvent<{ highlights?: DetectedCoordinateHighlightEventDetail[] }>).detail?.highlights;
+        if (!Array.isArray(details)) {
+            console.warn('[MapService] Highlight event ignoré: detail.highlights absent');
+            return;
+        }
+
+        const highlights: DetectedCoordinateHighlight[] = [];
+        for (const detail of details) {
+            const highlight = this.toHighlight(detail);
+            if (highlight) {
+                highlights.push(highlight);
+            }
+        }
+        this.highlightDetectedCoordinates(highlights);
     };
 
     private handleHighlightClearEvent = (): void => {
@@ -464,6 +489,20 @@ export class MapService {
     /**
      * Supprime un point brute force spécifique par son ID
      */
+    /**
+     * Remplace tous les points mis en avant par un lot, avec une seule notification
+     * (au lieu d'une par point, chacune reconstruisant toute la couche).
+     */
+    highlightDetectedCoordinates(coordinates: DetectedCoordinateHighlight[]): void {
+        if (coordinates.length === 0) {
+            this.clearHighlightedCoordinate();
+            return;
+        }
+        this.lastHighlightedCoordinate = coordinates[coordinates.length - 1];
+        this.highlightedCoordinates = [...coordinates];
+        this.onDidHighlightCoordinatesEmitter.fire([...this.highlightedCoordinates]);
+    }
+
     removeBruteForcePoint(bruteForceId: string): void {
         
         // Retirer du tableau
@@ -563,6 +602,7 @@ export class MapService {
 
         if (typeof window !== 'undefined') {
             window.removeEventListener('geoapp-map-highlight-coordinate', this.handleHighlightCoordinateEvent as EventListener);
+            window.removeEventListener('geoapp-map-highlight-coordinates', this.handleHighlightCoordinatesEvent as EventListener);
             window.removeEventListener('geoapp-map-highlight-clear', this.handleHighlightClearEvent as EventListener);
             window.removeEventListener('geoapp-map-remove-brute-force-point', this.handleRemoveBruteForcePointEvent as EventListener);
             window.removeEventListener('geoapp-map-formula-solver-preview-overlay', this.handleFormulaSolverPreviewOverlayEvent as EventListener);

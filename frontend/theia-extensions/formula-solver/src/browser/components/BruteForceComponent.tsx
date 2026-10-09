@@ -30,6 +30,9 @@ interface BruteForceComponentProps {
 
 type BruteForceTab = 'inputs' | 'results';
 
+/** Nombre de résultats affichés d'emblée, puis ajoutés à chaque « Afficher plus ». */
+const RESULTS_PAGE_SIZE = 50;
+
 export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     letters,
     values,
@@ -42,6 +45,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
     const [patterns, setPatterns] = React.useState<Map<string, string>>(new Map());
     const [showHelp, setShowHelp] = React.useState(false);
     const [activeTab, setActiveTab] = React.useState<BruteForceTab>('inputs');
+    const [visibleCount, setVisibleCount] = React.useState(RESULTS_PAGE_SIZE);
 
     // Basculer automatiquement vers l'onglet résultats quand des résultats arrivent (une seule fois)
     const previousResultsLength = React.useRef(0);
@@ -350,7 +354,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     overflowY: 'auto',
                     fontSize: '12px'
                 }}>
-                    {results.map((result) => {
+                    {results.slice(0, visibleCount).map((result) => {
                         const hasCoordinates = Boolean(result.coordinates);
                         return (
                             <div key={result.id} style={{
@@ -446,10 +450,21 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                             </div>
                         );
                     })}
+                    {results.length > visibleCount && (
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => setVisibleCount(visibleCount + RESULTS_PAGE_SIZE)}
+                            style={{ width: '100%', margin: 0, fontSize: '12px' }}
+                        >
+                            Afficher {Math.min(RESULTS_PAGE_SIZE, results.length - visibleCount)} de plus
+                            ({results.length - visibleCount} masqué{results.length - visibleCount > 1 ? 's' : ''})
+                        </button>
+                    )}
                     <button
                         onClick={() => {
                             onClearAll();
                             setActiveTab('inputs');
+                            setVisibleCount(RESULTS_PAGE_SIZE);
                         }}
                         style={{
                             marginTop: '12px',

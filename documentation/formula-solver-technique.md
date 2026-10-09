@@ -544,3 +544,32 @@ Règle générale : une saisie ou une formule incohérente donne une **erreur vi
 - `resetAnsweringState()` vide aussi les détails de réponse, profils et infos par lettre, qui passaient d'une géocache à l'autre.
 
 Tests : `backend/tests/test_coordinate_calculator.py`, `src/browser/tests/coordinate-preview-engine.test.ts`.
+
+---
+
+## 16. Performances du calcul (octobre 2026)
+
+### 16.1 Déclenchement du calcul
+
+- **Un seul point d'entrée** : `tryAutoCalculateOrBruteForce()`. Les effets React de `FormulaPreviewComponent` (`onPartialCalculate`) qui relançaient le calcul sont supprimés : une frappe provoquait jusqu'à 3 appels `/calculate`.
+- **Contrôles immédiats, appel différé** : les vérifications (champs remplis, valeur inutilisable) restent synchrones ; l'appel au backend passe par `scheduleCalculation()`, qui attend 300 ms sans nouvelle saisie (`CALCULATION_DEBOUNCE_MS`). Une rafale de frappes ou de réponses IA donne un seul appel. Même règle pour le brute force automatique (champ `*…`).
+- **Pas de recalcul à l'identique** : `lastCalculationKey` (formule + valeurs du dernier succès).
+- `invalidateCalculation()` annule le calcul programmé et périme les réponses en vol ; appelé à chaque changement de contexte.
+
+### 16.2 Indicateur de chargement
+
+Le calcul n'utilise plus `state.loading` (qui appartient aux étapes détection / questions / réponses) mais `pendingCalculations`, affiché par un petit spinner dans le titre de l'étape 3. Un calcul automatique ne réactive donc plus les boutons au milieu d'un lot de réponses IA.
+
+### 16.3 Notifications
+
+Un calcul automatique ne produit plus de toast (« Coordonnées calculées », « affichées sur la carte », « N résultats calculés ») : le résultat apparaît dans le panneau. Les toasts restent pour les actions demandées par l'utilisateur (bouton carte, brute force lancé à la main) et pour les erreurs.
+
+### 16.4 Brute force et carte
+
+- Nouvel événement `geoapp-map-highlight-coordinates` (`detail.highlights[]`, même forme que `geoapp-map-highlight-coordinate`), traité par `MapService.highlightDetectedCoordinates()` : la couche est reconstruite et la carte recentrée **une fois** pour tout le lot. Avant, chaque point reconstruisait toute la couche et lançait deux animations (coût quadratique).
+- La liste des résultats affiche 50 lignes, puis 50 de plus à la demande.
+- Un calcul simple réussi remplace les candidats d'un brute force précédent (`bruteForceMode` repasse à `false`), sinon son résultat restait masqué.
+
+### 16.5 Journalisation
+
+Les `console.log` du widget et de `FormulaSolverLLMService` (prompts et réponses complets) sont retirés ; les `console.error` / `console.warn` restent.
