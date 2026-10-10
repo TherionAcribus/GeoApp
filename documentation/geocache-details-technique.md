@@ -154,7 +154,7 @@ L'ordre de rendu (`GeocacheDetailsView`) :
 3. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
 4. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
 5. **Images** (`GeocacheImagesPanel`) : galerie, stockage local, OCR, sélection pour chat.
-6. **Waypoints** (`WaypointsEditorWrapper`) : CRUD, projection/antipode, push GC.com, définir comme coords corrigées.
+6. **Waypoints** (`WaypointsEditorWrapper`) : CRUD, projection/antipode, push GC.com, définir comme coords corrigées. Par ligne, deux actions visibles (éditer, définir comme coords corrigées) et un menu « ⋯ » (dupliquer, envoyer vers GC.com, puis supprimer, séparé). Le formulaire d'édition s'ouvre sous la ligne concernée ; celui d'un nouveau waypoint, au-dessus du tableau.
 7. **Checkers** (`GeocacheCheckersSection`) : liens vers les checkers, menu contextuel d'ouverture (même groupe / nouveau groupe / fenêtre externe), avertissement spécifique GeoCheck (captcha).
 
 ### Habillage commun des sections

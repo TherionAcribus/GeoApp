@@ -13,6 +13,7 @@ import {
     parseFlexibleGCCoords,
     toGCFormat
 } from './geocache-details-utils';
+import { ContextMenu, ContextMenuItem } from './context-menu';
 import { GeocacheSection } from './geocache-section';
 
 interface WaypointsEditorProps {
@@ -68,6 +69,8 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [pendingAction, setPendingAction] = React.useState<{ waypointId: number; action: 'delete' | 'push' | 'correct' } | null>(null);
     const [showCalcTools, setShowCalcTools] = React.useState(false);
+    const [rowMenu, setRowMenu] = React.useState<{ waypointId: number; x: number; y: number } | null>(null);
+    const closeRowMenu = React.useCallback(() => setRowMenu(null), []);
     const initialEditFormRef = React.useRef<Partial<GeocacheWaypoint>>({});
 
     const coordsError = React.useMemo(() => {
@@ -204,6 +207,17 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
     }, [pendingAction, onPushWaypointToGeocaching]);
 
+    // Le menu contextuel est en position fixe et ne se recale pas tout seul : on l'aligne
+    // sur le bord droit du bouton (dernière colonne) et on le remonte s'il sortirait en bas.
+    const openRowMenu = (event: React.MouseEvent<HTMLButtonElement>, waypointId: number): void => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const menuWidth = 240;
+        const menuHeight = 120;
+        const x = Math.max(8, rect.right - menuWidth);
+        const y = rect.bottom + menuHeight > window.innerHeight ? Math.max(8, rect.top - menuHeight) : rect.bottom + 2;
+        setRowMenu({ waypointId, x, y });
+    };
+
     const setCurrentFormAsCorrectedCoords = async (coordsOverride?: string) => {
         const coords = coordsOverride ?? editForm.gc_coords;
         if (!coords) {
@@ -279,6 +293,234 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
     };
 
+    const editFormPanel = editingId !== null ? (
+        <div style={{
+            border: '1px solid var(--theia-panel-border)',
+            borderRadius: 4,
+            padding: 12,
+            background: 'var(--theia-editor-background)'
+        }}>
+            <h5 style={{ marginTop: 0 }}>{editingId === 'new' ? 'Nouveau Waypoint' : 'Éditer Waypoint'}</h5>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                    <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Préfixe</label>
+                    <input
+                        type='text'
+                        className='theia-input'
+                        value={editForm.prefix || ''}
+                        onChange={e => setEditForm({ ...editForm, prefix: e.target.value })}
+                        style={{ width: '100%' }}
+                    />
+                </div>
+                <div>
+                    <label
+                        style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}
+                        title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
+                    >
+                        Lookup
+                    </label>
+                    <input
+                        type='text'
+                        className='theia-input'
+                        value={editForm.lookup || ''}
+                        onChange={e => setEditForm({ ...editForm, lookup: e.target.value })}
+                        placeholder='ex : GC001'
+                        title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
+                        style={{ width: '100%' }}
+                    />
+                </div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Nom</label>
+                <input
+                    type='text'
+                    className='theia-input'
+                    value={editForm.name || ''}
+                    onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                    style={{ width: '100%' }}
+                />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Type</label>
+                <input
+                    type='text'
+                    list='waypoint-type-options'
+                    className='theia-input'
+                    value={editForm.type || ''}
+                    onChange={e => setEditForm({ ...editForm, type: e.target.value })}
+                    placeholder='Sélectionner ou saisir un type'
+                    style={{ width: '100%' }}
+                />
+                <datalist id='waypoint-type-options'>
+                    <option value='Parking Area' />
+                    <option value='Virtual Stage' />
+                    <option value='Physical Stage' />
+                    <option value='Final Location' />
+                    <option value='Trailhead' />
+                    <option value='Reference Point' />
+                    <option value='Question to Answer' />
+                </datalist>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Coordonnées (format GC)</label>
+                <input
+                    type='text'
+                    className='theia-input'
+                    value={editForm.gc_coords || ''}
+                    onChange={e => setEditForm({ ...editForm, gc_coords: e.target.value })}
+                    placeholder='N 48° 51.402, E 002° 21.048'
+                    style={{ width: '100%', borderColor: coordsError ? 'var(--theia-inputValidation-errorBorder)' : undefined }}
+                />
+                {coordsError && (
+                    <div style={{ fontSize: 11, color: 'var(--theia-inputValidation-errorForeground)', marginTop: 2 }}>
+                        {coordsError}
+                    </div>
+                )}
+            </div>
+            <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Note</label>
+                <textarea
+                    className='theia-input'
+                    value={editForm.note_override ?? editForm.note ?? ''}
+                    onChange={e => setEditForm({ ...editForm, note_override: e.target.value })}
+                    rows={3}
+                    style={{ width: '100%', resize: 'vertical' }}
+                />
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 10, marginTop: 10 }}>
+                <button
+                    className='theia-button secondary'
+                    onClick={() => setShowCalcTools(v => !v)}
+                    aria-expanded={showCalcTools}
+                    style={{ fontSize: 12, padding: '2px 8px', marginBottom: showCalcTools ? 8 : 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                >
+                    <span className={`codicon ${showCalcTools ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} style={{ fontSize: 12 }} aria-hidden='true' />
+                    Outils de calcul
+                </button>
+                {showCalcTools && (
+                    <>
+                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
+                            Calcule à partir des coordonnées saisies ci-dessus.
+                        </div>
+
+                        {/* Antipode */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                            <button
+                                className='theia-button secondary'
+                                onClick={handleCalculateAntipode}
+                                disabled={!!coordsError || !editForm.gc_coords}
+                                style={{ minWidth: 110 }}
+                            >
+                                Antipode
+                            </button>
+                            <span style={{ fontSize: 11, opacity: 0.6 }}>Point diamétralement opposé sur le globe</span>
+                        </div>
+
+                        {/* Projection */}
+                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Distance</label>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    <input
+                                        type='number'
+                                        className='theia-input'
+                                        value={projectionParams.distance}
+                                        onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
+                                        style={{ width: 80 }}
+                                    />
+                                    <select
+                                        className='theia-input'
+                                        value={projectionParams.unit}
+                                        onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
+                                    >
+                                        <option value='m'>m</option>
+                                        <option value='km'>km</option>
+                                        <option value='miles'>miles</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Cap (0–360°)</label>
+                                <input
+                                    type='number'
+                                    min={0}
+                                    max={360}
+                                    className='theia-input'
+                                    value={projectionParams.bearing}
+                                    onChange={e => setProjectionParams({ ...projectionParams, bearing: Number(e.target.value) })}
+                                    style={{ width: 90 }}
+                                />
+                            </div>
+                            <button
+                                className='theia-button secondary'
+                                onClick={handleCalculateProjection}
+                                disabled={!!coordsError || !editForm.gc_coords}
+                                style={{ minWidth: 110 }}
+                            >
+                                Projeter
+                            </button>
+                        </div>
+
+                        {calculatedCoords && (
+                            <div style={{
+                                border: '1px solid var(--theia-panel-border)',
+                                borderRadius: 4,
+                                padding: 8,
+                                marginTop: 4,
+                                background: 'var(--theia-editorWidget-background)'
+                            }}>
+                                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
+                                    Résultat du calcul {calculatedCoordsLabel && <strong>— {calculatedCoordsLabel}</strong>}
+                                </div>
+                                <code style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>{calculatedCoords}</code>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    <button className='theia-button' onClick={applyCalculatedCoords} title='Remplace les coordonnées du waypoint par ce résultat'>
+                                        Appliquer au waypoint
+                                    </button>
+                                    <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }} title='Sauvegarde le waypoint et le définit comme coordonnées corrigées de la géocache'>
+                                        Définir comme coordonnées corrigées
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button className='theia-button' onClick={() => { void saveWaypoint(); }} disabled={isSubmitting}>
+                    {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
+                </button>
+                <button className='theia-button secondary' onClick={() => { void cancelEdit(); }} disabled={isSubmitting}>Annuler</button>
+            </div>
+        </div>
+    ) : undefined;
+    // Édition d'un waypoint existant : le formulaire s'ouvre sous sa ligne, pas en tête de tableau.
+    const isEditingExistingRow = typeof editingId === 'number' && (waypoints || []).some(w => w.id === editingId);
+
+    // Menu « ⋯ » d'une ligne : les actions rares, et la suppression à l'écart.
+    const rowMenuWaypoint = rowMenu ? (waypoints || []).find(w => w.id === rowMenu.waypointId) : undefined;
+    const rowMenuItems: ContextMenuItem[] = rowMenuWaypoint ? [
+        {
+            label: 'Dupliquer',
+            iconClass: 'codicon codicon-copy',
+            action: () => duplicateWaypoint(rowMenuWaypoint)
+        },
+        {
+            label: 'Envoyer vers Geocaching.com',
+            iconClass: 'codicon codicon-cloud-upload',
+            action: () => { void pushWaypointToGeocaching(rowMenuWaypoint); }
+        },
+        { separator: true },
+        {
+            label: 'Supprimer',
+            iconClass: 'codicon codicon-trash',
+            danger: true,
+            action: () => { void deleteWaypoint(rowMenuWaypoint); }
+        }
+    ] : [];
+
     return (
         // keepMounted : pas de démontage au repli, pour conserver l'état d'édition en cours
         <GeocacheSection
@@ -300,209 +542,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 </button>
             }
         >
-            {editingId !== null && (
-                <div style={{
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 4,
-                    padding: 12,
-                    background: 'var(--theia-editor-background)'
-                }}>
-                    <h5 style={{ marginTop: 0 }}>{editingId === 'new' ? 'Nouveau Waypoint' : 'Éditer Waypoint'}</h5>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-                        <div>
-                            <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Préfixe</label>
-                            <input
-                                type='text'
-                                className='theia-input'
-                                value={editForm.prefix || ''}
-                                onChange={e => setEditForm({ ...editForm, prefix: e.target.value })}
-                                style={{ width: '100%' }}
-                            />
-                        </div>
-                        <div>
-                            <label
-                                style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}
-                                title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
-                            >
-                                Lookup
-                            </label>
-                            <input
-                                type='text'
-                                className='theia-input'
-                                value={editForm.lookup || ''}
-                                onChange={e => setEditForm({ ...editForm, lookup: e.target.value })}
-                                placeholder='ex : GC001'
-                                title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
-                                style={{ width: '100%' }}
-                            />
-                        </div>
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Nom</label>
-                        <input
-                            type='text'
-                            className='theia-input'
-                            value={editForm.name || ''}
-                            onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-                            style={{ width: '100%' }}
-                        />
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Type</label>
-                        <input
-                            type='text'
-                            list='waypoint-type-options'
-                            className='theia-input'
-                            value={editForm.type || ''}
-                            onChange={e => setEditForm({ ...editForm, type: e.target.value })}
-                            placeholder='Sélectionner ou saisir un type'
-                            style={{ width: '100%' }}
-                        />
-                        <datalist id='waypoint-type-options'>
-                            <option value='Parking Area' />
-                            <option value='Virtual Stage' />
-                            <option value='Physical Stage' />
-                            <option value='Final Location' />
-                            <option value='Trailhead' />
-                            <option value='Reference Point' />
-                            <option value='Question to Answer' />
-                        </datalist>
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Coordonnées (format GC)</label>
-                        <input
-                            type='text'
-                            className='theia-input'
-                            value={editForm.gc_coords || ''}
-                            onChange={e => setEditForm({ ...editForm, gc_coords: e.target.value })}
-                            placeholder='N 48° 51.402, E 002° 21.048'
-                            style={{ width: '100%', borderColor: coordsError ? 'var(--theia-inputValidation-errorBorder)' : undefined }}
-                        />
-                        {coordsError && (
-                            <div style={{ fontSize: 11, color: 'var(--theia-inputValidation-errorForeground)', marginTop: 2 }}>
-                                {coordsError}
-                            </div>
-                        )}
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Note</label>
-                        <textarea
-                            className='theia-input'
-                            value={editForm.note_override ?? editForm.note ?? ''}
-                            onChange={e => setEditForm({ ...editForm, note_override: e.target.value })}
-                            rows={3}
-                            style={{ width: '100%', resize: 'vertical' }}
-                        />
-                    </div>
-
-                    <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 10, marginTop: 10 }}>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => setShowCalcTools(v => !v)}
-                            aria-expanded={showCalcTools}
-                            style={{ fontSize: 12, padding: '2px 8px', marginBottom: showCalcTools ? 8 : 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                            <span className={`codicon ${showCalcTools ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} style={{ fontSize: 12 }} aria-hidden='true' />
-                            Outils de calcul
-                        </button>
-                        {showCalcTools && (
-                            <>
-                                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
-                                    Calcule à partir des coordonnées saisies ci-dessus.
-                                </div>
-
-                                {/* Antipode */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={handleCalculateAntipode}
-                                        disabled={!!coordsError || !editForm.gc_coords}
-                                        style={{ minWidth: 110 }}
-                                    >
-                                        Antipode
-                                    </button>
-                                    <span style={{ fontSize: 11, opacity: 0.6 }}>Point diamétralement opposé sur le globe</span>
-                                </div>
-
-                                {/* Projection */}
-                                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Distance</label>
-                                        <div style={{ display: 'flex', gap: 4 }}>
-                                            <input
-                                                type='number'
-                                                className='theia-input'
-                                                value={projectionParams.distance}
-                                                onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
-                                                style={{ width: 80 }}
-                                            />
-                                            <select
-                                                className='theia-input'
-                                                value={projectionParams.unit}
-                                                onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
-                                            >
-                                                <option value='m'>m</option>
-                                                <option value='km'>km</option>
-                                                <option value='miles'>miles</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Cap (0–360°)</label>
-                                        <input
-                                            type='number'
-                                            min={0}
-                                            max={360}
-                                            className='theia-input'
-                                            value={projectionParams.bearing}
-                                            onChange={e => setProjectionParams({ ...projectionParams, bearing: Number(e.target.value) })}
-                                            style={{ width: 90 }}
-                                        />
-                                    </div>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={handleCalculateProjection}
-                                        disabled={!!coordsError || !editForm.gc_coords}
-                                        style={{ minWidth: 110 }}
-                                    >
-                                        Projeter
-                                    </button>
-                                </div>
-
-                                {calculatedCoords && (
-                                    <div style={{
-                                        border: '1px solid var(--theia-panel-border)',
-                                        borderRadius: 4,
-                                        padding: 8,
-                                        marginTop: 4,
-                                        background: 'var(--theia-editorWidget-background)'
-                                    }}>
-                                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
-                                            Résultat du calcul {calculatedCoordsLabel && <strong>— {calculatedCoordsLabel}</strong>}
-                                        </div>
-                                        <code style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>{calculatedCoords}</code>
-                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                            <button className='theia-button' onClick={applyCalculatedCoords} title='Remplace les coordonnées du waypoint par ce résultat'>
-                                                Appliquer au waypoint
-                                            </button>
-                                            <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }} title='Sauvegarde le waypoint et le définit comme coordonnées corrigées de la géocache'>
-                                                Définir comme coordonnées corrigées
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                        <button className='theia-button' onClick={() => { void saveWaypoint(); }} disabled={isSubmitting}>
-                            {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
-                        </button>
-                        <button className='theia-button secondary' onClick={() => { void cancelEdit(); }} disabled={isSubmitting}>Annuler</button>
-                    </div>
-                </div>
-            )}
+            {editFormPanel && !isEditingExistingRow ? editFormPanel : undefined}
 
             {(!waypoints || waypoints.length === 0) && editingId === null ? (
                 <div style={{ opacity: 0.6, fontStyle: 'italic' }}>Aucun waypoint</div>
@@ -517,7 +557,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                             <th>Type</th>
                             <th>Coordonnées</th>
                             <th>Note</th>
-                            <th style={{ width: 220 }}>Actions</th>
+                            <th style={{ width: 1, whiteSpace: 'nowrap' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -527,15 +567,17 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                             const rowPending = w.id ? pendingAction?.waypointId === w.id ? pendingAction.action : null : null;
                             const isRowBusy = rowPending !== null;
                             const isGlobalBusy = editingId !== null || (pendingAction !== null && !isRowBusy);
+                            const isEditedRow = isEditingExistingRow && w.id === editingId;
                             return (
-                                <tr key={w.id ?? i}>
+                                <React.Fragment key={w.id ?? i}>
+                                <tr>
                                     <td>{w.prefix || ''}</td>
                                     <td>{w.name || ''}</td>
                                     <td>{w.type || ''}</td>
                                     <td style={{ fontFamily: 'monospace' }}>{w.gc_coords || ''}</td>
                                     <td style={{ whiteSpace: 'pre-wrap', maxWidth: 200 }} title={note.length > 80 ? note : undefined}>{noteDisplay}</td>
                                     <td>
-                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', gap: 4 }}>
                                             <button
                                                 className='theia-button secondary'
                                                 onClick={() => startEdit(w)}
@@ -545,16 +587,6 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 aria-label='Éditer'
                                             >
                                                 <span className='codicon codicon-edit' aria-hidden='true' />
-                                            </button>
-                                            <button
-                                                className='theia-button secondary'
-                                                onClick={() => duplicateWaypoint(w)}
-                                                disabled={editingId !== null || isRowBusy || isGlobalBusy}
-                                                style={{ padding: '2px 8px', fontSize: 11 }}
-                                                title='Dupliquer'
-                                                aria-label='Dupliquer'
-                                            >
-                                                <span className='codicon codicon-copy' aria-hidden='true' />
                                             </button>
                                             <button
                                                 className='theia-button secondary'
@@ -570,35 +602,37 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                             </button>
                                             <button
                                                 className='theia-button secondary'
-                                                onClick={() => { void pushWaypointToGeocaching(w); }}
+                                                onClick={(e) => { if (w.id) { openRowMenu(e, w.id); } }}
                                                 disabled={!w.id || isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
-                                                title='Envoyer vers Geocaching.com'
-                                                aria-label='Envoyer vers Geocaching.com'
+                                                title={rowPending === 'push' ? 'Envoi vers Geocaching.com en cours…'
+                                                    : rowPending === 'delete' ? 'Suppression en cours…'
+                                                    : 'Plus d\'actions : dupliquer, envoyer vers Geocaching.com, supprimer'}
+                                                aria-label="Plus d'actions"
+                                                aria-haspopup='menu'
+                                                aria-expanded={rowMenu?.waypointId === w.id}
                                             >
-                                                {rowPending === 'push'
+                                                {rowPending === 'push' || rowPending === 'delete'
                                                     ? <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
-                                                    : <span className='codicon codicon-cloud-upload' aria-hidden='true' />}
-                                            </button>
-                                            <button
-                                                className='theia-button secondary'
-                                                onClick={() => { void deleteWaypoint(w); }}
-                                                disabled={isRowBusy || isGlobalBusy}
-                                                style={{ padding: '2px 8px', fontSize: 11 }}
-                                                title='Supprimer'
-                                                aria-label='Supprimer'
-                                            >
-                                                {rowPending === 'delete'
-                                                    ? <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
-                                                    : <span className='codicon codicon-trash' aria-hidden='true' />}
+                                                    : <span className='codicon codicon-ellipsis' aria-hidden='true' />}
                                             </button>
                                         </div>
                                     </td>
                                 </tr>
+                                {isEditedRow ? (
+                                    <tr>
+                                        <td colSpan={6} style={{ padding: '4px 0 12px' }}>{editFormPanel}</td>
+                                    </tr>
+                                ) : undefined}
+                                </React.Fragment>
                             );
                         })}
                     </tbody>
                 </table>
+            ) : undefined}
+
+            {rowMenu && rowMenuItems.length > 0 ? (
+                <ContextMenu items={rowMenuItems} x={rowMenu.x} y={rowMenu.y} onClose={closeRowMenu} />
             ) : undefined}
         </GeocacheSection>
     );
