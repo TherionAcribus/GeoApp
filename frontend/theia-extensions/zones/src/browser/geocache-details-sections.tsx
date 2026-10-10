@@ -165,12 +165,12 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
 
     const solvedMeta: Record<GeocacheSolvedStatus, { label: string; iconClass: string; color: string; filled: boolean }> = {
         solved: { label: 'Résolu', iconClass: 'codicon codicon-check', color: 'var(--theia-charts-green, #10b981)', filled: true },
-        in_progress: { label: 'En cours', iconClass: 'fa fa-hourglass-half', color: 'var(--theia-charts-orange, #d18616)', filled: true },
+        in_progress: { label: 'En cours', iconClass: 'codicon codicon-clock', color: 'var(--theia-charts-orange, #d18616)', filled: true },
         not_solved: { label: 'Non résolu', iconClass: 'codicon codicon-circle-outline', color: 'var(--theia-descriptionForeground)', filled: false },
     };
     const solvedOptions: { value: GeocacheSolvedStatus; label: string; iconClass: string }[] = [
         { value: 'not_solved', label: 'Non résolu', iconClass: 'codicon codicon-circle-outline' },
-        { value: 'in_progress', label: 'En cours', iconClass: 'fa fa-hourglass-half' },
+        { value: 'in_progress', label: 'En cours', iconClass: 'codicon codicon-clock' },
         { value: 'solved', label: 'Résolu', iconClass: 'codicon codicon-check' },
     ];
     const solvedBadge = solvedMeta[solvedStatus];
@@ -322,7 +322,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 padding: '4px 22px 6px 16px',
                 borderBottom: '1px solid var(--theia-panel-border)',
             }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <div className='geoapp-gcd-toolbar' style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
 
                 {/* ── Analyse ── */}
                 <div ref={analyzeMenuRef} style={{ position: 'relative' }}>
@@ -334,9 +334,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         aria-haspopup='menu'
                         aria-expanded={isAnalyzeMenuOpen}
                     >
-                        <i className='fa fa-flask' aria-hidden='true' />
+                        <span className='codicon codicon-beaker' aria-hidden='true' />
                         <span>Analyser</span>
-                        <i className='fa fa-caret-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
+                        <span className='codicon codicon-chevron-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
                     </button>
                     {isAnalyzeMenuOpen && (
                         <div
@@ -409,7 +409,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             style={splitMainStyle}
                             title={`Chat IA dédié à cette géocache — profil : ${effectiveChatProfile}, workflow : ${chatWorkflowPreview}`}
                         >
-                            <i className='fa fa-comments' aria-hidden='true' />
+                            <span className='codicon codicon-comment-discussion' aria-hidden='true' />
                             <span>Chat IA</span>
                             {/* Badge de profil actif */}
                             <span style={{
@@ -423,7 +423,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                 transition: 'opacity 0.2s',
                             }}>
                                 {isChatRoutingPreviewLoading
-                                    ? <i className='fa fa-circle-o-notch fa-spin' aria-hidden='true' />
+                                    ? <span className='codicon codicon-loading codicon-modifier-spin' style={{ fontSize: 10 }} aria-hidden='true' />
                                     : effectiveChatProfile}
                             </span>
                         </button>
@@ -436,7 +436,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             aria-expanded={isChatProfileMenuOpen}
                             title={`Choisir le profil de chat IA (actuel : ${chatProfileOverrideLabel})`}
                         >
-                            <i className='fa fa-caret-down' style={{ fontSize: 11 }} aria-hidden='true' />
+                            <span className='codicon codicon-chevron-down' style={{ fontSize: 11 }} aria-hidden='true' />
                         </button>
                     </div>
 
@@ -486,9 +486,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             ? `Profil déterminé automatiquement par le workflow (${chatProfilePreview})${option.description ? ` — ${option.description}` : ''}`
                                             : `Forcer le profil ${option.label}${option.description ? ` — ${option.description}` : ''}`}
                                     >
-                                        <i
-                                            className={isSelected ? 'fa fa-dot-circle-o' : 'fa fa-circle-o'}
-                                            style={{ fontSize: 11, width: 14, textAlign: 'center' }}
+                                        <span
+                                            className={isSelected ? 'codicon codicon-circle-filled' : 'codicon codicon-circle-outline'}
+                                            style={{ fontSize: 12 }}
                                             aria-hidden='true'
                                         />
                                         <span>{`${option.label}${autoSuffix}`}</span>
@@ -506,7 +506,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     style={{ ...toolbarBtnStyle, ...tbIconBtn }}
                     title="Chat libre lié à cette géocache (message modifiable avant envoi, possibilité d'ajouter des images)"
                 >
-                    <i className='fa fa-comment-o' aria-hidden='true' />
+                    <span className='codicon codicon-comment' aria-hidden='true' />
                     <span>Chat libre</span>
                 </button>
 
@@ -520,7 +520,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         style={{ ...pillFirstStyle, ...tbIconBtn }}
                         title='Voir les logs de cette géocache'
                     >
-                        <i className='fa fa-list-alt' aria-hidden='true' />
+                        <span className='codicon codicon-list-unordered' aria-hidden='true' />
                         <span>Logs</span>
                     </button>
                     <button
@@ -529,7 +529,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         style={{ ...pillBtnStyle, ...tbIconBtn }}
                         title='Rédiger un log pour cette géocache'
                     >
-                        <i className='fa fa-pencil' aria-hidden='true' />
+                        <span className='codicon codicon-edit' aria-hidden='true' />
                         <span>Loguer</span>
                     </button>
                     <button
@@ -538,7 +538,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         style={{ ...pillLastStyle, ...tbIconBtn }}
                         title='Notes personnelles sur cette géocache'
                     >
-                        <i className='fa fa-sticky-note-o' aria-hidden='true' />
+                        <span className='codicon codicon-note' aria-hidden='true' />
                         <span>Notes</span>
                         {typeof notesCount === 'number' && notesCount > 0 && (
                             <span style={{
@@ -743,7 +743,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             }}
                         >
                             {ownerName}
-                            <i className='fa fa-caret-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
+                            <span className='codicon codicon-chevron-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
                         </span>
                     </span>
                 ) : (
@@ -1167,7 +1167,7 @@ function renderFoundBadge(geocacheData: GeocacheDto): React.ReactNode {
                 opacity: isFound ? 1 : 0.85,
             }}
         >
-            <span aria-hidden='true'>{isFound ? '✔' : '○'}</span>
+            <span className={isFound ? 'codicon codicon-check' : 'codicon codicon-circle-outline'} style={{ fontSize: 13 }} aria-hidden='true' />
             <span>{label}</span>
         </span>
     );
@@ -1182,11 +1182,21 @@ function renderStars(rating?: number, color: string = 'gold'): React.ReactNode {
     const hasHalfStar = rating % 1 >= 0.5;
     const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
 
+    const valueLabel = rating.toLocaleString('fr-FR');
+    const star = (iconName: string, key: string, opacity?: number): React.ReactNode => (
+        <span key={key} className={`codicon codicon-${iconName}`} style={{ color, opacity }} aria-hidden='true' />
+    );
+
     return (
-        <span style={{ color, fontSize: 16 }}>
-            {'★'.repeat(fullStars)}
-            {hasHalfStar ? '◐' : ''}
-            {emptyStars > 0 ? <span style={{ opacity: 0.3 }}>{'☆'.repeat(emptyStars)}</span> : undefined}
+        <span
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}
+            title={`${valueLabel} sur 5`}
+            aria-label={`${valueLabel} sur 5`}
+        >
+            {Array.from({ length: fullStars }, (_, i) => star('star-full', `full-${i}`))}
+            {hasHalfStar ? star('star-half', 'half') : undefined}
+            {Array.from({ length: Math.max(emptyStars, 0) }, (_, i) => star('star-empty', `empty-${i}`, 0.35))}
+            <span style={{ marginLeft: 6, fontSize: 12, opacity: 0.7 }} aria-hidden='true'>{valueLabel}</span>
         </span>
     );
 }

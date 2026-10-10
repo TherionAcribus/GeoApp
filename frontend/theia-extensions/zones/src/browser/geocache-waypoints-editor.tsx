@@ -293,9 +293,10 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                     onClick={() => startEdit()}
                     disabled={editingId !== null}
                     title={editingId !== null ? 'Fermez le formulaire en cours avant d\'ajouter un waypoint' : undefined}
-                    style={{ padding: '4px 12px', fontSize: 13 }}
+                    style={{ padding: '4px 12px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                 >
-                    + Ajouter un waypoint
+                    <span className='codicon codicon-add' style={{ fontSize: 14 }} aria-hidden='true' />
+                    Ajouter un waypoint
                 </button>
             }
         >
@@ -398,9 +399,11 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                         <button
                             className='theia-button secondary'
                             onClick={() => setShowCalcTools(v => !v)}
-                            style={{ fontSize: 12, padding: '2px 8px', marginBottom: showCalcTools ? 8 : 0 }}
+                            aria-expanded={showCalcTools}
+                            style={{ fontSize: 12, padding: '2px 8px', marginBottom: showCalcTools ? 8 : 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                            {showCalcTools ? '▾' : '▸'} Outils de calcul
+                            <span className={`codicon ${showCalcTools ? 'codicon-chevron-down' : 'codicon-chevron-right'}`} style={{ fontSize: 12 }} aria-hidden='true' />
+                            Outils de calcul
                         </button>
                         {showCalcTools && (
                             <>

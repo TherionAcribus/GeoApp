@@ -139,7 +139,11 @@ export const GeocacheTrackablesSection: React.FC<GeocacheTrackablesSectionProps>
                     title='Relire les trackables de cette cache sur Geocaching.com'
                     onClick={() => setReloadToken(token => token + 1)}
                 >
-                    {state.loading ? '⏳ Relecture…' : '⟳ Rafraîchir'}
+                    <span
+                        className={state.loading ? 'codicon codicon-loading codicon-modifier-spin' : 'codicon codicon-refresh'}
+                        aria-hidden='true'
+                    />
+                    {state.loading ? 'Relecture…' : 'Rafraîchir'}
                 </button>
             </div>
 

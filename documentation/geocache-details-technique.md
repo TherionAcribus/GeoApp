@@ -270,7 +270,8 @@ Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieu
 - **Indicateur de rechargement discret** : pas de flash ni de perte de scroll lors des rechargements déclenchés par une action.
 - **Menus cohérents** : « Analyser », « profil de chat », « statut de résolution » et « ⋯ » se ferment au clic extérieur **et** à la touche **Échap**, via le hook commun `useMenuDismiss` (`geocache-details-sections.tsx`).
 - **Accessibilité des menus** : déclencheurs avec `aria-haspopup='menu'` + `aria-expanded` ; conteneurs `role='menu'` ; items `role='menuitem'` / `role='menuitemradio'` (`aria-checked`) focusables (`tabIndex`), activables au clavier (Enter/Espace), `aria-disabled` si désactivés.
-- **Boutons icône-seule** (`▾`, `🔄`) : `aria-label` explicite ; emojis purement décoratifs marqués `aria-hidden='true'`.
+- **Boutons icône-seule** (`⋯`, chevrons, actions des waypoints) : `aria-label` explicite ; icônes décoratives marquées `aria-hidden='true'`.
+- **Un seul jeu d'icônes** : la fiche utilise les **codicons** partout (ni emoji ni caractère Unicode en guise d'icône). Deux exceptions assumées en Font Awesome : la barre de mise en forme de l'éditeur de description (les codicons n'ont ni souligné, ni alignements, ni retrait de lien) et les composants partagés avec d'autres widgets (`LogsRecentSummary` et ses icônes de type de log, `EmptyState`). Les notes D/T sont des étoiles codicon (`star-full` / `star-half` / `star-empty`) suivies de la valeur chiffrée.
 - **Confirmations** : suppression de waypoint, push vers GC.com, écrasement d'overrides par traduction et stockage local des images passent par une `ConfirmDialog`.
 - **Couleurs thémisées** : usage des variables `var(--theia-*)` pour rester lisible en thème clair comme sombre.
 

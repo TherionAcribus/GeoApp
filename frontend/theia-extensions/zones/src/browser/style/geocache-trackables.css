@@ -46,8 +46,15 @@
 }
 
 .geoapp-gc-trackables__refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 1px 8px;
     font-size: 11px;
+}
+
+.geoapp-gc-trackables__refresh .codicon {
+    font-size: 12px;
 }
 
 .geoapp-gc-trackables__error {

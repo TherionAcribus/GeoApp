@@ -87,7 +87,7 @@ export const GeocacheNotePreview: React.FC<GeocacheNotePreviewProps> = ({
                 <div className='geoapp-gcd-note-preview-body'>
                     {loading ? (
                         <span style={{ opacity: 0.7, fontSize: 12 }}>
-                            <i className='fa fa-spinner fa-spin' aria-hidden='true' /> Chargement…
+                            <span className='codicon codicon-loading codicon-modifier-spin' style={{ fontSize: 12, verticalAlign: 'middle' }} aria-hidden='true' /> Chargement…
                         </span>
                     ) : undefined}
                     {error ? (

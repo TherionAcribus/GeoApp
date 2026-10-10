@@ -217,7 +217,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     pointerEvents: 'none'
                 }}
             >
-                <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                <span className='codicon codicon-loading codicon-modifier-spin' style={{ fontSize: 12 }} aria-hidden='true' />
                 <span>Mise à jour…</span>
             </div>
         ) : undefined}

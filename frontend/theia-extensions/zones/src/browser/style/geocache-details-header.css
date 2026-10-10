@@ -55,6 +55,13 @@
     color: var(--theia-list-activeSelectionForeground);
 }
 
+/* Icônes des boutons de la barre d'outils : les codicons font 16px par défaut,
+   trop pour des libellés en 12px. */
+.geoapp-gcd-toolbar .theia-button .codicon,
+.geoapp-gcd-toolbar .geoapp-gcd-split-btn .codicon {
+    font-size: 14px;
+}
+
 /* ── Split button « Chat IA » ──
    Les deux moitiés partagent le fond du bouton ; le hover/focus est en CSS. */
 .geoapp-gcd-split-btn {

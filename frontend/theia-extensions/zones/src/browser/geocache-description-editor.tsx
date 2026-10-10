@@ -188,13 +188,15 @@ function segmentStyle(active: boolean, disabled: boolean): React.CSSProperties {
 
 /** Indicateur visuel d'une phase de traduction (en cours / done / failed). */
 const PhaseIndicator: React.FC<{ label: string; status: TranslationPhaseStatus }> = ({ label, status }) => {
-    const icon = status === 'done' ? '✓' : status === 'failed' ? '✗' : '…';
+    const iconClass = status === 'done' ? 'codicon codicon-check'
+        : status === 'failed' ? 'codicon codicon-close'
+        : 'codicon codicon-loading codicon-modifier-spin';
     const color = status === 'done' ? 'var(--theia-charts-green, #4ade80)'
         : status === 'failed' ? 'var(--theia-errorForeground, #f87171)'
         : 'var(--theia-descriptionForeground, var(--theia-foreground))';
     return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span aria-hidden='true' style={{ color, fontWeight: 600 }}>{icon}</span>
+            <span className={iconClass} aria-hidden='true' style={{ color, fontSize: 12 }} />
             <span>{label}</span>
         </span>
     );
@@ -517,7 +519,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                     style={modifiedChipStyle}
                     title={overrideDate ? `Version ${isTranslated ? 'traduite' : 'modifiée'} disponible (mise à jour le ${overrideDate})` : `Une version ${isTranslated ? 'traduite' : 'modifiée'} existe`}
                 >
-                    <span aria-hidden='true'>✦</span>
+                    <span className={isTranslated ? 'codicon codicon-globe' : 'codicon codicon-edit'} style={{ fontSize: 11 }} aria-hidden='true' />
                     {overrideDate ? `${modifiedLabel} · ${overrideDate}` : modifiedLabel}
                 </span>
             ) : (
@@ -541,14 +543,14 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 >
                     {isAnyTranslating ? (
                         <>
-                            <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                            <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
                             <span>Traduction…</span>
                         </>
                     ) : (
                         <>
-                            <span aria-hidden='true'>🌐</span>
+                            <span className='codicon codicon-globe' aria-hidden='true' />
                             <span>Traduire</span>
-                            <span aria-hidden='true' style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
+                            <span className='codicon codicon-chevron-down' aria-hidden='true' style={{ fontSize: 10 }} />
                         </>
                     )}
                 </button>
@@ -561,7 +563,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             onClick={() => runTranslate(onTranslateToFrench)}
                             style={translateMenuItemStyle}
                         >
-                            <span aria-hidden='true' style={translateMenuIconStyle}>📝</span>
+                            <span className='codicon codicon-file-text' aria-hidden='true' style={translateMenuIconStyle} />
                             <span style={translateMenuTextColStyle}>
                                 <span style={translateMenuTitleStyle}>Description seule</span>
                                 <span style={translateMenuSubStyle}>Conserve le HTML, traduit uniquement le texte</span>
@@ -574,7 +576,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             onClick={() => runTranslate(onTranslateAllToFrench)}
                             style={translateMenuItemStyle}
                         >
-                            <span aria-hidden='true' style={translateMenuIconStyle}>🌍</span>
+                            <span className='codicon codicon-files' aria-hidden='true' style={translateMenuIconStyle} />
                             <span style={translateMenuTextColStyle}>
                                 <span style={translateMenuTitleStyle}>Tout le contenu</span>
                                 <span style={translateMenuSubStyle}>Description + indices + notes de waypoints</span>
@@ -592,7 +594,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                     disabled={isAnyTranslating}
                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                    <span aria-hidden='true'>✎</span>
+                    <span className='codicon codicon-edit' aria-hidden='true' />
                     <span>Éditer</span>
                 </button>
             ) : undefined}
@@ -618,7 +620,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
             {/* Bannière de progression de la traduction */}
             {isAnyTranslating ? (
                 <div style={translateBannerStyle} role='status' aria-live='polite'>
-                    <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                    <span className='codicon codicon-loading codicon-modifier-spin' aria-hidden='true' />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
                         <span style={{ fontWeight: 600 }}>
                             {isTranslatingAll
@@ -659,7 +661,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 />
             ) : (
                 <div style={{ display: 'grid', gap: 8, maxWidth: 900 }}>
-                    {/* Barre d'outils de l'éditeur */}
+                    {/* Barre d'outils de l'éditeur. Seul endroit de la fiche resté en Font Awesome :
+                        les codicons n'ont pas d'icônes de mise en forme (souligné, alignements,
+                        retrait de lien), et mélanger les deux jeux dans une même barre serait pire. */}
                     <div style={toolbarStyle}>
                         <button type='button' title='Gras' aria-label='Gras' style={toolbarBtnStyle} onClick={() => execFormat('bold')}>
                             <i className='fa fa-bold' aria-hidden='true' />
