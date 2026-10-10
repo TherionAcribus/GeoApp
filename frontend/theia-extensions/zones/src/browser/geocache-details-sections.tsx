@@ -312,8 +312,12 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
              * en haut. Les marges négatives compensent le padding horizontal (16px)
              * du conteneur pour que le fond opaque masque le contenu qui défile
              * dessous, et le padding droit dégage la scrollbar overlay.
+             *
+             * En panneau étroit, les libellés s'effacent au profit des icônes
+             * (requêtes de conteneur sur .geoapp-gcd-toolbar-sticky) pour que la
+             * barre tienne sur une ligne au lieu de manger la hauteur utile.
              */}
-            <div style={{
+            <div className='geoapp-gcd-toolbar-sticky' style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 5,
@@ -335,7 +339,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         aria-expanded={isAnalyzeMenuOpen}
                     >
                         <span className='codicon codicon-beaker' aria-hidden='true' />
-                        <span>Analyser</span>
+                        <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--primary'>Analyser</span>
                         <span className='codicon codicon-chevron-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
                     </button>
                     {isAnalyzeMenuOpen && (
@@ -410,9 +414,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             title={`Chat IA dédié à cette géocache — profil : ${effectiveChatProfile}, workflow : ${chatWorkflowPreview}`}
                         >
                             <span className='codicon codicon-comment-discussion' aria-hidden='true' />
-                            <span>Chat IA</span>
+                            <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--primary'>Chat IA</span>
                             {/* Badge de profil actif */}
-                            <span style={{
+                            <span className='geoapp-gcd-toolbar__badge' style={{
                                 fontSize: 10,
                                 fontWeight: 600,
                                 background: 'rgba(0,0,0,0.18)',
@@ -507,7 +511,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     title="Chat libre lié à cette géocache (message modifiable avant envoi, possibilité d'ajouter des images)"
                 >
                     <span className='codicon codicon-comment' aria-hidden='true' />
-                    <span>Chat libre</span>
+                    <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--secondary'>Chat libre</span>
                 </button>
 
                 <div style={vSep} />
@@ -521,7 +525,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         title='Voir les logs de cette géocache'
                     >
                         <span className='codicon codicon-list-unordered' aria-hidden='true' />
-                        <span>Logs</span>
+                        <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--secondary'>Logs</span>
                     </button>
                     <button
                         className='theia-button secondary'
@@ -530,7 +534,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         title='Rédiger un log pour cette géocache'
                     >
                         <span className='codicon codicon-edit' aria-hidden='true' />
-                        <span>Loguer</span>
+                        <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--secondary'>Loguer</span>
                     </button>
                     <button
                         className='theia-button secondary'
@@ -539,7 +543,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         title='Notes personnelles sur cette géocache'
                     >
                         <span className='codicon codicon-note' aria-hidden='true' />
-                        <span>Notes</span>
+                        <span className='geoapp-gcd-toolbar__label geoapp-gcd-toolbar__label--secondary'>Notes</span>
                         {typeof notesCount === 'number' && notesCount > 0 && (
                             <span style={{
                                 background: 'var(--theia-badge-background, #0078d4)',

@@ -268,6 +268,7 @@ Le widget est un `ReactWidget` : chaque `update()` re-rend tout l'arbre. Plusieu
 ## UX & accessibilité
 
 - **Indicateur de rechargement discret** : pas de flash ni de perte de scroll lors des rechargements déclenchés par une action.
+- **Barre d'outils en panneau étroit** : la barre collante est un conteneur CSS (`.geoapp-gcd-toolbar-sticky`). Sous 780 px de large, Chat libre / Logs / Loguer / Notes passent en icône seule ; sous 560 px, Analyser et Chat IA aussi (badge de profil masqué). Les libellés restent lus par les lecteurs d'écran et chaque bouton garde son infobulle.
 - **Menus cohérents** : « Analyser », « profil de chat », « statut de résolution » et « ⋯ » se ferment au clic extérieur **et** à la touche **Échap**, via le hook commun `useMenuDismiss` (`geocache-details-sections.tsx`).
 - **Accessibilité des menus** : déclencheurs avec `aria-haspopup='menu'` + `aria-expanded` ; conteneurs `role='menu'` ; items `role='menuitem'` / `role='menuitemradio'` (`aria-checked`) focusables (`tabIndex`), activables au clavier (Enter/Espace), `aria-disabled` si désactivés.
 - **Boutons icône-seule** (`⋯`, chevrons, actions des waypoints) : `aria-label` explicite ; icônes décoratives marquées `aria-hidden='true'`.

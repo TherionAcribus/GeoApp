@@ -62,6 +62,61 @@
     font-size: 14px;
 }
 
+/* ── Barre d'outils en panneau étroit ──
+   Les libellés s'effacent par paliers au profit des icônes, pour que la barre
+   collante reste sur une ligne. Ils restent lus par les lecteurs d'écran
+   (masquage visuel, pas display:none) et chaque bouton garde son infobulle. */
+.geoapp-gcd-toolbar-sticky {
+    container-type: inline-size;
+    container-name: gcd-toolbar;
+}
+
+/* Palier 1 : Chat libre, Logs, Loguer, Notes passent en icône seule. */
+@container gcd-toolbar (max-width: 780px) {
+    .geoapp-gcd-toolbar__label--secondary {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    /* !important : la taille de ces boutons est posée en style inline. */
+    .geoapp-gcd-toolbar .theia-button {
+        min-width: 0;
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }
+}
+
+/* Palier 2 : Analyser et Chat IA aussi, sans le badge de profil. */
+@container gcd-toolbar (max-width: 560px) {
+    .geoapp-gcd-toolbar__label--primary {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .geoapp-gcd-toolbar__badge {
+        display: none;
+    }
+
+    .geoapp-gcd-toolbar .geoapp-gcd-split-btn {
+        padding-left: 8px !important;
+        padding-right: 8px !important;
+    }
+}
+
 /* ── Split button « Chat IA » ──
    Les deux moitiés partagent le fond du bouton ; le hover/focus est en CSS. */
 .geoapp-gcd-split-btn {
