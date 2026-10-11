@@ -311,12 +311,14 @@ Détecte les sorties encore encodées (plugin qui n'a pas su décoder).
 
 | Pattern | Couverture | Facteur |
 |---|---|---|
-| Base64 (bloc unique ≥ 20 chars) | — | 0.10 |
+| Base64 (bloc unique ≥ 20 chars, hors lettres d'une seule casse) | — | 0.10 |
 | Paires hex `XX ` × ≥ 4 | > 60 % | 0.05 |
 | Paires hex | 30–60 % | 0.20 |
 | Codes numériques courts `\d{1,3} ` × ≥ 5 | > 60 % | 0.15 |
 | Codes numériques | 30–60 % | 0.35 |
 | Sinon | — | 1.0 |
+
+Un bloc de lettres d'une seule casse (`LACACHESETROUVEAUPIED`, majuscule initiale admise) n'est pas du base64 mais du texte clair sans espaces, sortie courante des chiffrements : `_is_single_case_letters` l'exclut de la pénalité. Un vrai bloc base64 mélange casses, chiffres ou `+/=`.
 
 Appliqué comme **facteur multiplicatif** sur le score final.
 Si `encoded_penalty < 0.2` → `early_exit = "encoded_pattern"`.
@@ -362,6 +364,7 @@ Un mot reconnu (`lexical > 0`) empêche le plancher : il garde son score lexical
 | Fragments de coordonnées écrits | 0.79 – 0.95 |
 | Texte en clair valide (fr/en/de/…) | 0.64 – 0.70 |
 | Réponse courte valide (1 à 3 mots) | 0.39 – 0.60 |
+| Texte clair sans espaces (mots collés) | 0.20 – 0.34 |
 | Énumération de nombres pure | 0.75 – 0.78 |
 | Near-miss (César +1 sur texte valide) | 0.15 – 0.20 |
 | Charabia / encodé résiduel | 0.00 – 0.05 |
@@ -495,6 +498,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestHalfDecryptMiddle` | half_decrypt entre charabia et texte clair | ✅ |
 | `TestValidCasesSurviveRanking` | Aucun cas valide filtré par les seuils de prod | ✅ |
 | `TestShortAnswers` | Réponse courte non vetoée, 1ʳᵉ d'un bruteforce César (écart ≥ 0.15) | ✅ |
+| `TestGluedWords` | Mots collés non pénalisés « encodé », 1ᵉʳˢ d'un bruteforce César ; vrai base64 toujours < 0.15 | ✅ |
 | `TestCorrectVsNearMiss.test_gap_full` | Écart correct/near-miss ≥ 0.30 | ✅ (~0.45) |
 | `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ⚠️ xfail (~0.24) |
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
@@ -515,6 +519,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 - **Tables quadgrams wordfreq** : es/it/nl/pt/pl ont ~15–22 k entrées vs ~120 k pour en/fr/de (bigrammes). Un texte roman peut obtenir son meilleur score via la table `fr`. Le signal reste > 0.3 pour les 8 langues sur texte valide.
 - **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Restent sous la cible : la paire décimale (0.80 < 0.85) et le format `N48 51.234 E002 21.456` (0.34) — problèmes de scoring résiduels, non de détection.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
+- **Mots collés** : sans espaces, aucun mot n'est reconnu (`lexical = 0`), donc le score repose sur les seuls n-grammes et plafonne vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 
 ---

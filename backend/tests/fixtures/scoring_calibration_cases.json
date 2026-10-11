@@ -25,6 +25,28 @@
     ]
   },
 
+  "glued_words": {
+    "_desc": "Texte clair sans espaces (20 lettres ou plus, une seule casse), sortie courante des chiffrements qui suppriment les espaces. Ne doit PAS etre pris pour du base64, et doit sortir en tete d'un bruteforce Cesar.",
+    "cases": [
+      "LACACHESETROUVEAUPIEDDUGRANDARBREPRESDELARIVIERE",
+      "THETREASUREISHIDDENNEARTHEOLDOAKTREE",
+      "DERSCHATZISTUNTERDEMGROSSENBAUM",
+      "BRAVOLESCOORDONNEESSONTNORDQUARANTEHUIT",
+      "lacachesetrouvesouslepontdebois",
+      "Felicitationsvousaveztrouve"
+    ]
+  },
+
+  "base64_blocks": {
+    "_desc": "Vrais blocs base64 (avec ou sans padding, avec ou sans chiffre). Doivent rester penalises comme encodes.",
+    "cases": [
+      "TGEgY2FjaGUgZXN0IHNvdXMgbGUgcG9udA==",
+      "TGEgY2FjaGUgZXN0IHNvdXMgbGUgcG9udA",
+      "TiA0OCA1MS4yMzQgRSAwMDIgMjEuNDU2",
+      "aGVsbG93b3JsZGhlbGxvd29ybGQ"
+    ]
+  },
+
   "half_decrypt": {
     "_desc": "Moitie claire, moitie encore chiffree. Doivent scorer entre gibberish et correct_decrypt.",
     "cases": [

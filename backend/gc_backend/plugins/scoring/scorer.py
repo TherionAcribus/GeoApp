@@ -399,6 +399,18 @@ _CW_TRUE_UNITS = _CW_UNITS - _NR_SEPARATORS
 
 
 # ── Encoded-pattern penalty ──────────────────────────────────────────────
+def _is_single_case_letters(block: str) -> bool:
+    """True for a letters-only block in one case (a leading capital is allowed).
+
+    Such a block is glued plaintext ("LACACHESETROUVEAUPIED"), which many
+    ciphers output without spaces — not base64, whose alphabet mixes cases,
+    digits and ``+/=`` (a 20-char base64 block has no digit only ~3% of the time).
+    """
+    if not block.isalpha():
+        return False
+    return block.isupper() or block.islower() or block[1:].islower()
+
+
 def _encoded_pattern_penalty(text: str) -> float:
     """Detect still-encoded output (hex pairs, numeric codes, base64).
 
@@ -416,7 +428,7 @@ def _encoded_pattern_penalty(text: str) -> float:
     total_len = len(stripped)
 
     # Base64-like: single long block of base64 chars
-    if _RE_BASE64_LIKE.match(stripped):
+    if _RE_BASE64_LIKE.match(stripped) and not _is_single_case_letters(stripped):
         return 0.1
 
     # Hex pairs: "6E 67 74 20 64 65"

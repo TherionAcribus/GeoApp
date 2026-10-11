@@ -27,6 +27,7 @@ import pytest
 from gc_backend.plugins.scoring.langid import DEFAULT_LANGS_EUROPE, detect_language
 from gc_backend.plugins.scoring.resources_loader import available_quadgram_langs
 from gc_backend.plugins.scoring.scorer import (
+    _encoded_pattern_penalty,
     _numeric_signal_feature,
     score_and_rank_results,
     score_text,
@@ -245,6 +246,38 @@ class TestShortAnswers:
     def test_short_gibberish_stays_low(self):
         for text in ("XQZJW", "QPOU", "KLMNP VBGHT", "QJFE EV HSBOE"):
             assert _full(text) < 0.15, text
+
+
+# ── Mots colles : pas de fausse penalite base64 ─────────────────────
+
+
+class TestGluedWords:
+    """Un texte clair sans espaces n'est pas du base64 : pas de penalite
+    'encode', et il ressort premier parmi ses 25 decalages Cesar."""
+
+    @pytest.mark.parametrize("text", CASES["glued_words"])
+    def test_glued_text_is_not_flagged_as_encoded(self, text):
+        assert _encoded_pattern_penalty(text) == 1.0
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring.get("early_exit") != "encoded_pattern"
+
+    @pytest.mark.parametrize("text", CASES["glued_words"])
+    def test_glued_text_wins_caesar_bruteforce(self, text):
+        results = [{"text_output": _caesar(text, k)} for k in range(26)]
+        ranked = score_and_rank_results(
+            results,
+            top_k=25,
+            min_score=TestValidCasesSurviveRanking.PROD_MIN_SCORE,
+            fast_reject_threshold=TestValidCasesSurviveRanking.PROD_FAST_REJECT,
+        )
+        assert ranked, "Tous les candidats ont ete filtres"
+        assert ranked[0]["text_output"] == text
+
+    @pytest.mark.parametrize("text", CASES["base64_blocks"])
+    def test_real_base64_stays_penalised(self, text):
+        assert _encoded_pattern_penalty(text) <= 0.1
+        assert _full(text) < 0.15
+        assert _fast(text) < 0.15
 
 
 # ── Assertion 1 : ecart correct vs near-miss (XFAIL — cible T6) ─────
