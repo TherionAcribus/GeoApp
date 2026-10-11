@@ -44,6 +44,14 @@ _NR_SEPARATORS = frozenset({
 })
 
 
+# Short-text thresholds. Geocaching answers are often a word or two ("PONT",
+# "SOUS LE BANC"): the IC is statistically meaningless on so few letters, so
+# the IC veto only applies from _IC_VETO_MIN_LETTERS (same bound as the fast
+# scorer), while quadgrams are usable as soon as one window exists.
+_IC_VETO_MIN_LETTERS = 20
+_QUADGRAM_MIN_LETTERS = 4
+
+
 def _normalize_basic(text: str) -> str:
     text = unicodedata.normalize('NFKC', text or '')
     text = text.replace('\u00a0', ' ')
@@ -276,7 +284,7 @@ def _quadgram_fitness(text: str, lang: str) -> float:
     the three original languages.
     """
     letters = _normalize_for_stats(text)
-    if len(letters) < 12:
+    if len(letters) < _QUADGRAM_MIN_LETTERS:
         return 0.0
     # Detected language first, then every language that ships a quadgram table.
     langs_to_try = [lang] if lang and lang != 'unknown' else []
@@ -556,7 +564,14 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     ngram_fitness = float(min(1.0, trigram_fitness * 0.5 + quadgram_fitness * 0.7))
     ngram_fitness *= repetition_quality
 
-    if ic < 0.038 and gps_conf < 0.7 and numeric_signal < 0.3:
+    n_letters = len(_normalize_for_stats(text))
+
+    if (
+        n_letters >= _IC_VETO_MIN_LETTERS
+        and ic < 0.038
+        and gps_conf < 0.7
+        and numeric_signal < 0.3
+    ):
         return ScoreResult(
             score=0.0,
             metadata={
@@ -618,8 +633,9 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
         if encoded_penalty < 0.2:
             early_exit = 'encoded_pattern'
 
-    # No signal at all (no coordinate, no n-gram, no numbers): force a floor.
-    if coord_score <= 0.0 and ngram_fitness < 0.1 and numeric_signal < 0.2:
+    # No signal at all (no coordinate, no n-gram, no numbers, no recognised
+    # word): force a floor. A recognised word keeps its lexical score.
+    if coord_score <= 0.0 and ngram_fitness < 0.1 and numeric_signal < 0.2 and lexical <= 0.0:
         score = 0.05
         early_exit = 'ngram_low'
 

@@ -162,9 +162,11 @@ Feature : `ic_quality = clamp((IC − 0.045) / 0.03, 0..1)`
 
 **Early-exit IC veto** :
 ```
-si IC < 0.038 ET gps_conf < 0.7 ET numeric_signal < 0.3 → score = 0.0
+si nb_lettres ≥ 20 ET IC < 0.038 ET gps_conf < 0.7 ET numeric_signal < 0.3 → score = 0.0
 early_exit = "ic_veto"
 ```
+
+Le veto ne s'applique qu'à partir de 20 lettres (`_IC_VETO_MIN_LETTERS`, même borne que le scorer rapide) : sur une réponse courte (`PONT`, `SOUS LE BANC`), l'IC n'a pas de sens statistique — un mot aux lettres toutes différentes a un IC de 0.
 
 #### A2 — Entropie de Shannon
 
@@ -225,6 +227,8 @@ hit_ratio = hits / windows
 fitness   = clamp((mean_logp + 6.0) / 4.0, 0..1)
 quadgram_fitness = min(1.0, fitness*0.7 + hit_ratio*0.3)
 ```
+
+Calculé dès 4 lettres (`_QUADGRAM_MIN_LETTERS`, une fenêtre suffit), pour que les réponses courtes gardent un signal n-grammes.
 
 **Best-of multilingue** : le scorer essaie la langue détectée en premier, puis toutes les tables disponibles (`available_quadgram_langs()`). Le meilleur score est retenu. Textes espagnols ou italiens peuvent scorer via la table `fr` (quadgrammes romans partagés) — c'est linguistiquement normal.
 
@@ -344,9 +348,11 @@ Le facteur `0.90` sur le canal langue garantit que les coordonnées pures (`coor
 
 **Early-exit ngram_low** (aucun signal du tout) :
 ```
-si coord_score ≤ 0 ET ngram_fitness < 0.1 ET numeric_signal < 0.2 → score = 0.05
+si coord_score ≤ 0 ET ngram_fitness < 0.1 ET numeric_signal < 0.2 ET lexical = 0 → score = 0.05
 early_exit = "ngram_low"
 ```
+
+Un mot reconnu (`lexical > 0`) empêche le plancher : il garde son score lexical.
 
 **Plages observées** après recalibrage :
 
@@ -355,6 +361,7 @@ early_exit = "ngram_low"
 | Coordonnées GPS pures (DDM standard) | 0.90 – 0.95 |
 | Fragments de coordonnées écrits | 0.79 – 0.95 |
 | Texte en clair valide (fr/en/de/…) | 0.64 – 0.70 |
+| Réponse courte valide (1 à 3 mots) | 0.39 – 0.60 |
 | Énumération de nombres pure | 0.75 – 0.78 |
 | Near-miss (César +1 sur texte valide) | 0.15 – 0.20 |
 | Charabia / encodé résiduel | 0.00 – 0.05 |
@@ -487,6 +494,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestGarbageScoresLow` | encoded + gibberish < 0.15 | ✅ |
 | `TestHalfDecryptMiddle` | half_decrypt entre charabia et texte clair | ✅ |
 | `TestValidCasesSurviveRanking` | Aucun cas valide filtré par les seuils de prod | ✅ |
+| `TestShortAnswers` | Réponse courte non vetoée, 1ʳᵉ d'un bruteforce César (écart ≥ 0.15) | ✅ |
 | `TestCorrectVsNearMiss.test_gap_full` | Écart correct/near-miss ≥ 0.30 | ✅ (~0.45) |
 | `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ⚠️ xfail (~0.24) |
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
@@ -506,6 +514,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
 - **Tables quadgrams wordfreq** : es/it/nl/pt/pl ont ~15–22 k entrées vs ~120 k pour en/fr/de (bigrammes). Un texte roman peut obtenir son meilleur score via la table `fr`. Le signal reste > 0.3 pour les 8 langues sur texte valide.
 - **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Restent sous la cible : la paire décimale (0.80 < 0.85) et le format `N48 51.234 E002 21.456` (0.34) — problèmes de scoring résiduels, non de détection.
+- **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 
 ---

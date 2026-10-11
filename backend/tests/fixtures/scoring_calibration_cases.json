@@ -10,6 +10,21 @@
     ]
   },
 
+  "short_answers": {
+    "_desc": "Reponses courtes (un a trois mots, moins de 20 lettres), tres frequentes en geocaching. L'IC n'a pas de sens sur si peu de lettres: elles ne doivent ni etre vetoees ni plafonnees, et doivent sortir en tete d'un bruteforce Cesar.",
+    "cases": [
+      "PONT",
+      "BLANC",
+      "BRAVO",
+      "EGLISE",
+      "SOUS LE BANC",
+      "LA CACHE",
+      "LE CODE EST 472",
+      "HINTER DEM BAUM",
+      "UNDER THE BRIDGE"
+    ]
+  },
+
   "half_decrypt": {
     "_desc": "Moitie claire, moitie encore chiffree. Doivent scorer entre gibberish et correct_decrypt.",
     "cases": [

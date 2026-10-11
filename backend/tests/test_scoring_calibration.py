@@ -214,6 +214,39 @@ class TestValidCasesSurviveRanking:
         assert not missing, f"Cas valides perdus dans le fast-filter: {missing}"
 
 
+# ── Reponses courtes : pas de veto IC, en tete d'un bruteforce Cesar ─
+
+
+class TestShortAnswers:
+    """Une reponse d'un a trois mots doit garder un vrai score et ressortir
+    premiere parmi ses 25 decalages Cesar, avec les seuils de production."""
+
+    @pytest.mark.parametrize("text", CASES["short_answers"])
+    def test_short_answer_is_not_vetoed(self, text):
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring.get("early_exit") is None, scoring.get("early_exit")
+        assert scoring["score"] >= 0.3
+
+    @pytest.mark.parametrize("text", CASES["short_answers"])
+    def test_short_answer_wins_caesar_bruteforce(self, text):
+        results = [{"text_output": _caesar(text, k)} for k in range(26)]
+        ranked = score_and_rank_results(
+            results,
+            top_k=25,
+            min_score=TestValidCasesSurviveRanking.PROD_MIN_SCORE,
+            fast_reject_threshold=TestValidCasesSurviveRanking.PROD_FAST_REJECT,
+        )
+        assert ranked, "Tous les candidats ont ete filtres"
+        assert ranked[0]["text_output"] == text
+        if len(ranked) > 1:
+            gap = ranked[0]["confidence"] - ranked[1]["confidence"]
+            assert gap >= 0.15, f"Ecart trop faible avec le 2e candidat: {gap:.3f}"
+
+    def test_short_gibberish_stays_low(self):
+        for text in ("XQZJW", "QPOU", "KLMNP VBGHT", "QJFE EV HSBOE"):
+            assert _full(text) < 0.15, text
+
+
 # ── Assertion 1 : ecart correct vs near-miss (XFAIL — cible T6) ─────
 
 
