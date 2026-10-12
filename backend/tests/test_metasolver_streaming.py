@@ -101,43 +101,41 @@ def test_streaming_init_lists_all_candidates():
     assert set(init["data"]["plugins"]) == set(names)
 
 
-def test_direct_fallback_caps_timeout(tmp_path, monkeypatch):
-    """Le fallback _execute_plugin_direct plafonne le timeout comme le PluginManager."""
-    # Préparer un plugin sur disque avec un timeout déclaré très élevé
-    plugin_dir = tmp_path / "official" / "slowplug"
+def test_unavailable_error_propagates_without_disk_fallback(tmp_path, monkeypatch):
+    """Un plugin indisponible propage l'erreur du manager, SANS chargement disque.
+
+    L'ancien repli ``_execute_plugin_direct`` rechargeait le plugin depuis
+    ``official/<name>/`` quand le manager signalait ``plugin_unavailable`` —
+    contournant les verrous de chargement, le cache et le flag ``enabled``
+    (un plugin désactivé s'exécutait quand même). Il a été supprimé : le
+    metasolver doit désormais propager l'erreur du manager telle quelle,
+    même si un plugin exécutable existe sur disque.
+    """
+    # Préparer un plugin exécutable sur disque : il NE doit PAS être chargé.
+    plugin_dir = tmp_path / "official" / "disabled_plug"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
-        '{"name": "slowplug", "plugin_type": "python", "entry_point": "main.py", "timeout_seconds": 300}',
+        '{"name": "disabled_plug", "plugin_type": "python", "entry_point": "main.py"}',
         encoding="utf-8",
     )
     (plugin_dir / "main.py").write_text(
-        "class SlowplugPlugin:\n"
+        "class DisabledPlugPlugin:\n"
         "    def execute(self, inputs):\n"
         "        return {'status': 'ok', 'results': []}\n",
         encoding="utf-8",
     )
 
-    captured = {}
-
-    def fake_wrappers():
-        from gc_backend.plugins.wrappers import PluginMetadata
-
-        def fake_create(plugin_type, metadata, plugin_manager=None):
-            captured["timeout"] = metadata.timeout_seconds
-
-            class _W:
-                def initialize(self):
-                    return True
-
-                def execute(self, inputs):
-                    return {"status": "ok", "results": []}
-
-            return _W()
-
-        return PluginMetadata, fake_create
-
-    import plugins.official.metasolver.main as meta_mod
-    monkeypatch.setattr(meta_mod, "_lazy_import_wrappers", fake_wrappers)
+    unavailable = {
+        "status": "error",
+        "summary": "Plugin disabled_plug non disponible",
+        "results": [],
+        "plugin_info": {"name": "disabled_plug", "version": "unknown", "execution_time_ms": 0},
+        "error": {
+            "type": "PluginUnavailable",
+            "code": "plugin_unavailable",
+            "message": "Plugin disabled_plug non disponible",
+        },
+    }
 
     plugin = MetaSolverPlugin()
 
@@ -146,17 +144,26 @@ def test_direct_fallback_caps_timeout(tmp_path, monkeypatch):
         default_timeout = 60
         allow_long_running = False
 
+        def execute_plugin(self, name, inputs):
+            return unavailable
+
     plugin.set_plugin_manager(_Mgr())
 
-    result = plugin._execute_plugin_direct("slowplug", {"text": "X"})
+    # Garde-fou : tout import dynamique de plugin (le chargement disque de
+    # l'ancien repli) doit faire échouer le test.
+    import importlib.util
+    monkeypatch.setattr(
+        importlib.util,
+        "spec_from_file_location",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("chargement disque interdit")),
+    )
 
-    # Le resultat est normalise vers le contrat (plugin_info, summary, ...)
-    assert result["status"] == "ok"
-    assert result["results"] == []
-    assert result["plugin_info"]["name"] == "slowplug"
-    assert result["plugin_info"]["version"] == "1.0.0"
-    # 300 déclaré -> plafonné à default_timeout (60) car allow_long_running=False
-    assert captured["timeout"] == 60
+    result = plugin._execute_plugin("disabled_plug", {"text": "X"}, {"name": "disabled_plug"})
+
+    # L'erreur structurée du manager est propagée telle quelle.
+    assert result is unavailable
+    assert result["status"] == "error"
+    assert result["error"]["code"] == "plugin_unavailable"
 
 
 def test_streaming_timeout_marks_hanging_plugin_and_returns_partial_result(monkeypatch):

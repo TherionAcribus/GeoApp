@@ -171,9 +171,9 @@ class TestPlugin:
     
     def test_find_plugin_class_by_convention(self, temp_plugin_dir, basic_metadata):
         """Test recherche de classe par convention de nommage."""
-        # Créer plugin avec nom conventionnel
+        # Créer plugin avec nom conventionnel ({PluginName}Plugin, en CamelCase)
         plugin_code = '''
-class TestpluginPlugin:
+class TestPluginPlugin:
     def execute(self, inputs):
         return {"status": "ok"}
 '''
@@ -187,8 +187,36 @@ class TestpluginPlugin:
         result = wrapper.initialize()
         
         assert result is True
-        assert wrapper._instance.__class__.__name__ == "TestpluginPlugin"
+        assert wrapper._instance.__class__.__name__ == "TestPluginPlugin"
     
+    def test_find_plugin_class_convention_multiword(self, temp_plugin_dir, basic_metadata):
+        """La convention {PluginName}Plugin fonctionne pour les noms multi-mots
+        et prime sur une autre classe *Plugin présente dans le module."""
+        # vigenere_cipher → VigenereCipherPlugin (CamelCase par segment).
+        # L'ancien code produisait 'VigenerecipherPlugin' : la convention
+        # n'était jamais trouvée pour les noms composés.
+        plugin_code = '''
+class AaaaHelperPlugin:
+    def execute(self, inputs):
+        return {"status": "error", "summary": "mauvaise classe"}
+
+class VigenereCipherPlugin:
+    def execute(self, inputs):
+        return {"status": "ok"}
+'''
+
+        plugin_file = temp_plugin_dir / 'main.py'
+        plugin_file.write_text(plugin_code, encoding='utf-8')
+
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.name = "vigenere_cipher"
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        result = wrapper.initialize()
+
+        assert result is True
+        assert wrapper._instance.__class__.__name__ == "VigenereCipherPlugin"
+
     def test_find_plugin_class_any_suffix(self, temp_plugin_dir, basic_metadata):
         """Test recherche de classe avec suffixe Plugin."""
         # Créer plugin avec nom quelconque finissant par Plugin
@@ -531,7 +559,7 @@ class TestMetadataCache:
 
 
 class TestSourceWatch:
-    """Tests du hot-reload des plugins custom sur édition de la source."""
+    """Tests du hot-reload des plugins chargés sur édition de la source."""
 
     def _make_record(self, path, entry_point, source):
         class _Rec:
@@ -563,16 +591,26 @@ class TestSourceWatch:
 
         assert mgr._is_source_stale('p') is True
 
-    def test_official_plugin_not_watched(self, temp_plugin_dir):
+    def test_official_plugin_also_watched(self, temp_plugin_dir):
+        """Les plugins officiels sont suivis aussi : éditer leur main.py
+        déclenche un hot-reload au prochain get_plugin."""
+        import os
         from gc_backend.plugins.plugin_manager import PluginManager
 
-        (temp_plugin_dir / 'main.py').write_text('x = 1\n')
+        entry = temp_plugin_dir / 'main.py'
+        entry.write_text('x = 1\n')
         mgr = PluginManager('dummy_path')
         rec = self._make_record(temp_plugin_dir, 'main.py', 'official')
         mgr._track_source('p', rec)
 
-        assert 'p' not in mgr._watched_sources
+        assert 'p' in mgr._watched_sources
         assert mgr._is_source_stale('p') is False
+
+        # Éditer le fichier avec un mtime strictement postérieur
+        new_mtime = os.path.getmtime(entry) + 10
+        os.utime(entry, (new_mtime, new_mtime))
+
+        assert mgr._is_source_stale('p') is True
 
 
 class TestBinaryPluginWrapper:
@@ -701,20 +739,20 @@ class TestPluginWrapperFactory:
         
         assert wrapper is None
     
-    def test_create_future_type_fallback(self):
-        """Test fallback vers binaire pour types futurs (rust, wasm)."""
+    def test_create_unknown_type_returns_none(self):
+        """Un type inconnu (ex. 'rust' fantôme) ne doit PAS tomber sur un
+        wrapper binaire : il exécuterait un fichier arbitraire en subprocess."""
         metadata = PluginMetadata(
             name="test",
             version="1.0.0",
-            plugin_type=PluginType.RUST,
+            plugin_type=PluginType.PYTHON,
             entry_point="plugin.so",
             path="/fake/path"
         )
-        
-        wrapper = create_plugin_wrapper("rust", metadata)
-        
-        # Devrait retourner BinaryWrapper en attendant implémentation
-        assert isinstance(wrapper, BinaryPluginWrapper)
+
+        for ghost_type in ("rust", "wasm", "node"):
+            wrapper = create_plugin_wrapper(ghost_type, metadata)
+            assert wrapper is None, f"{ghost_type} ne doit plus produire de wrapper"
 
 
 # Import nécessaire pour test binaire

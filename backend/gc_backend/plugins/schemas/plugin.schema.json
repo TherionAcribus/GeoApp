@@ -41,7 +41,7 @@
     },
     "plugin_type": {
       "type": "string",
-      "enum": ["python", "rust", "binary", "wasm", "node"],
+      "enum": ["python", "binary"],
       "description": "Type de plugin déterminant le wrapper d'exécution"
     },
     "entry_point": {
@@ -106,7 +106,7 @@
       "minimum": 1,
       "maximum": 300,
       "default": 30,
-      "description": "Timeout d'exécution en secondes"
+      "description": "Timeout d'exécution en secondes (les plugins dont 'kinds' contient 'meta' s'exécutent sans watchdog, leur valeur est ignorée)"
     },
     "capabilities": {
       "type": "object",

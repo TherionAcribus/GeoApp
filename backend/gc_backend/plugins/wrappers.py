@@ -40,10 +40,7 @@ _SYS_PATH_LOCK = threading.Lock()
 class PluginType(Enum):
     """Types de plugins supportés."""
     PYTHON = "python"
-    RUST = "rust"
     BINARY = "binary"
-    WASM = "wasm"
-    NODE = "node"
 
 
 @dataclass
@@ -271,8 +268,10 @@ class PythonPluginWrapper(PluginInterface):
             return None
         
         # Convention de nommage : {PluginName}Plugin
-        # Ex: caesar → CaesarPlugin
-        expected_class_name = f"{self.metadata.name.replace('_', '').title()}Plugin"
+        # Ex: caesar → CaesarPlugin, vigenere_cipher → VigenereCipherPlugin
+        expected_class_name = (
+            f"{''.join(part.capitalize() for part in self.metadata.name.split('_'))}Plugin"
+        )
 
         # Chercher d'abord par nom conventionnel (fonctionne même si la classe est
         # ré-exportée depuis un module frère).
@@ -689,14 +688,7 @@ def create_plugin_wrapper(
         
         elif plugin_type_enum == PluginType.BINARY:
             return BinaryPluginWrapper(metadata)
-        
-        elif plugin_type_enum in [PluginType.RUST, PluginType.WASM, PluginType.NODE]:
-            logger.warning(
-                f"Type de plugin {plugin_type} pas encore implémenté. "
-                "Utilisation du wrapper binaire par défaut."
-            )
-            return BinaryPluginWrapper(metadata)
-        
+
         else:
             logger.error(f"Type de plugin non supporté: {plugin_type}")
             return None

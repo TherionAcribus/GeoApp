@@ -456,3 +456,69 @@ class TestPluginManagerUtilities:
         manager.clear_errors()
         
         assert len(manager.get_discovery_errors()) == 0
+
+
+class TestPluginManagerHotReload:
+    """Tests du hot-reload : tout plugin chargé (officiel comme custom) dont
+    le point d'entrée est édité est rechargé au prochain get_plugin."""
+
+    def test_official_plugin_reloads_on_source_edit(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin official chargé puis édité est rechargé automatiquement."""
+        import os
+
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', valid_plugin_json
+        )
+        entry = plugin_dir / 'main.py'
+        entry.write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        wrapper1 = manager.get_plugin('test_plugin')
+        assert wrapper1 is not None
+        assert 'test_plugin' in manager._watched_sources
+
+        # Éditer la source avec un mtime strictement postérieur
+        new_mtime = os.path.getmtime(entry) + 10
+        os.utime(entry, (new_mtime, new_mtime))
+
+        wrapper2 = manager.get_plugin('test_plugin')
+        assert wrapper2 is not None
+        # Le plugin a été rechargé : pas la même instance de wrapper
+        assert wrapper2 is not wrapper1
+
+
+class TestPluginManagerEntryPointCheck:
+    """Tests de la vérification d'existence du point d'entrée à la découverte."""
+
+    def test_missing_entry_point_reported_in_discovery_errors(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin.json valide mais sans main.py doit remonter une erreur
+        de découverte (au lieu d'échouer silencieusement au premier get_plugin)."""
+        plugin_dir = temp_plugins_dir / 'official' / 'no_entry_plugin'
+        plugin_dir.mkdir(parents=True)
+
+        # plugin.json valide pointant vers un entry_point inexistant
+        with open(plugin_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(valid_plugin_json, f)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        discovered = manager.discover_plugins()
+
+        # Le plugin n'est pas découvert
+        assert len(discovered) == 0
+
+        # Mais l'erreur est remontée via get_discovery_errors()
+        errors = manager.get_discovery_errors()
+        assert str(plugin_dir) in errors
+        assert 'Point d' in errors[str(plugin_dir)]
+        assert 'main.py' in errors[str(plugin_dir)]

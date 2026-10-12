@@ -27,7 +27,7 @@ class Plugin(db.Model):
         plugin_api_version (str): Version de l'API du plugin (ex: "2.0")
         description (str): Description courte du plugin
         author (str): Auteur du plugin
-        plugin_type (str): Type de plugin ("python", "rust", "binary", "wasm")
+        plugin_type (str): Type de plugin ("python", "binary")
         source (str): Source du plugin ("official", "custom")
         path (str): Chemin absolu vers le dossier du plugin
         entry_point (str): Point d'entrée (ex: "main.py", "plugin.wasm")
@@ -57,7 +57,7 @@ class Plugin(db.Model):
     author = Column(String(128))
     
     # Type et source
-    plugin_type = Column(String(32), nullable=False)  # python, rust, binary, wasm
+    plugin_type = Column(String(32), nullable=False)  # python, binary
     source = Column(String(16), nullable=False, index=True)  # official, custom
     
     # Localisation

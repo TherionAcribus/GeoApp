@@ -75,14 +75,6 @@ except Exception:  # pragma: no cover
     _BATCH_SCORING_AVAILABLE = False
 
 
-def _lazy_import_wrappers():
-    """Importe les wrappers de plugin seulement si nécessaire."""
-
-    from gc_backend.plugins.wrappers import PluginMetadata, create_plugin_wrapper  # type: ignore
-
-    return PluginMetadata, create_plugin_wrapper
-
-
 class MetaSolverPlugin:
     """Plugin orchestrateur pour les autres plugins MysterAI."""
 
@@ -343,7 +335,7 @@ class MetaSolverPlugin:
             ))
             t0 = time.time()
             try:
-                result = self._execute_with_fallback(pname, plugin_inputs, candidate)
+                result = self._execute_plugin(pname, plugin_inputs, candidate)
                 elapsed = round((time.time() - t0) * 1000, 2)
                 event_queue.put(("done", {"name": pname, "index": idx, "result": result, "elapsed_ms": elapsed, "error": None}))
             except Exception as exc:
@@ -663,13 +655,20 @@ class MetaSolverPlugin:
 
         return candidates
 
-    def _execute_with_fallback(
+    def _execute_plugin(
         self,
         plugin_name: str,
         inputs: Dict[str, Any],
         candidate: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Tente d'exécuter via le PluginManager puis bascule sur un chargement direct."""
+        """Exécute un sous-plugin via le PluginManager (point d'entrée unique).
+
+        Plus de repli disque : les erreurs du manager (plugin indisponible,
+        désactivé, timeout...) sont propagées telles quelles. Charger le plugin
+        directement depuis ``official/`` contournerait les verrous de chargement,
+        le cache des plugins chargés, le hot-reload et le flag ``enabled``
+        (un plugin désactivé s'exécuterait malgré tout).
+        """
 
         # ── Protection : execute_plugin peut lever une exception ─────────
         # (ex. plugin qui crash, erreur d'import, timeout interne). Sans ce
@@ -679,121 +678,16 @@ class MetaSolverPlugin:
             manager_result = self._plugin_manager.execute_plugin(plugin_name, inputs)
         except Exception as exc:
             logger.warning("metasolver: exception execute_plugin(%s): %s", plugin_name, exc, exc_info=True)
-            # Tenter le fallback direct avant d'abandonner
-            direct_result = self._execute_plugin_direct(plugin_name, inputs)
-            if direct_result:
-                return direct_result
             return self._error_response(f"Plugin {plugin_name} a levé une exception: {exc}", time.time())
 
         # ── Type-guard : le résultat doit être un dict ou None ───────────
-        # Si execute_plugin retourne une string/list/int, les .get() ci-dessous
-        # lèveraient un AttributeError. On normalise en dict vide.
+        # Si execute_plugin retourne une string/list/int, les traitements
+        # d'agrégation en aval (.get()) lèveraient un AttributeError.
         if manager_result is not None and not isinstance(manager_result, dict):
             logger.warning("metasolver: execute_plugin(%s) a retourné %s, pas un dict", plugin_name, type(manager_result).__name__)
             manager_result = None
 
-        # Détection d'indisponibilité : privilégier le code d'erreur structuré
-        # renvoyé par le PluginManager ; le repli sur sous-chaînes ne sert que pour
-        # d'anciennes réponses sans champ `error.code`.
-        error_block = (manager_result or {}).get("error") or {}
-        error_code = error_block.get("code")
-        summary_text = self._extract_summary_text((manager_result or {}).get("summary"))
-        legacy_summary_match = (
-            manager_result is not None
-            and manager_result.get("status") == "error"
-            and (
-                "non disponible" in summary_text.lower()
-                or "introuvable" in summary_text.lower()
-                or "non trouvé" in summary_text.lower()
-            )
-        )
-        is_unavailable = (
-            not manager_result
-            or error_code == "plugin_unavailable"
-            or legacy_summary_match
-        )
-
-        if not is_unavailable:
-            return manager_result or self._error_response("Aucun résultat retourné", time.time())
-
-        # Tentative de chargement direct depuis le répertoire officiel
-        direct_result = self._execute_plugin_direct(plugin_name, inputs)
-
-        if direct_result:
-            return direct_result
-
         return manager_result or self._error_response("Plugin indisponible", time.time())
-
-    def _execute_plugin_direct(self, plugin_name: str, inputs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Charge et exécute directement un plugin depuis son répertoire officiel."""
-
-        plugins_root = getattr(self._plugin_manager, "plugins_dir", None)
-        if not plugins_root:
-            return None
-
-        plugin_dir = Path(plugins_root) / "official" / plugin_name
-        plugin_json = plugin_dir / "plugin.json"
-
-        if not plugin_json.exists():
-            return None
-
-        try:
-            with plugin_json.open("r", encoding="utf-8") as handle:
-                metadata = json.load(handle)
-        except Exception as exc:
-            logger.warning("metasolver: échec lecture plugin.json pour %s: %s", plugin_name, exc)
-            return None
-
-        try:
-            PluginMetadata, create_plugin_wrapper = _lazy_import_wrappers()
-
-            # Plafonner le timeout comme le fait le PluginManager : ce chemin de
-            # secours ne doit pas échapper à la politique d'exécution (un plugin
-            # sur disque ne peut pas tourner plus longtemps que via le manager).
-            declared_timeout = int(metadata.get("timeout_seconds", 30))
-            default_timeout = int(getattr(self._plugin_manager, "default_timeout", 60) or 60)
-            allow_long_running = bool(getattr(self._plugin_manager, "allow_long_running", False))
-            effective_timeout = declared_timeout if allow_long_running else min(declared_timeout, default_timeout)
-
-            wrapper_metadata = PluginMetadata(
-                name=metadata["name"],
-                version=metadata.get("version", "1.0.0"),
-                plugin_type=metadata.get("plugin_type"),
-                entry_point=metadata.get("entry_point", "main.py"),
-                path=str(plugin_dir),
-                timeout_seconds=effective_timeout,
-            )
-
-            wrapper = create_plugin_wrapper(
-                metadata.get("plugin_type"),
-                wrapper_metadata,
-                plugin_manager=self._plugin_manager,
-            )
-
-            if not wrapper:
-                return None
-
-            if not wrapper.initialize():
-                return None
-
-            raw_result = wrapper.execute(inputs)
-
-            # Normaliser vers le contrat de resultat (status ok/error,
-            # plugin_info...) comme le fait PluginManager.execute_plugin.
-            try:
-                from gc_backend.plugins.executor import normalize_plugin_result  # type: ignore
-
-                return normalize_plugin_result(
-                    raw_result,
-                    name=metadata.get("name", plugin_name),
-                    version=metadata.get("version", "1.0.0"),
-                )
-            except Exception:
-                return raw_result
-
-        except Exception as exc:
-            logger.warning("metasolver: échec exécution directe de %s: %s", plugin_name, exc, exc_info=True)
-            return None
 
     def _build_additional_inputs(
         self,

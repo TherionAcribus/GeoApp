@@ -117,7 +117,7 @@ Le `PluginManager` est instancié une fois au démarrage de l'app (dans `gc_back
 | `_loading_errors` | `{chemin: message}` des erreurs de découverte/chargement |
 | `_load_lock_guard` / `_plugin_load_locks` | Verrous de chargement **par plugin** (thread-safety, cf. 3.3) |
 | `_metadata_cache` / `_metadata_cache_lock` | Cache mémoire des métadonnées sérialisées de `get_plugin_info` (cf. 3.6) |
-| `_watched_sources` | Suivi `mtime` de la source des plugins **custom** pour le hot-reload (cf. 3.3) |
+| `_watched_sources` | Suivi `mtime` de la source des plugins **chargés** (official et custom) pour le hot-reload (cf. 3.3) |
 | `lazy_mode` | Si `True`, chargement à la demande (défaut) |
 | `default_timeout` | Timeout d'exécution par défaut (60 s) |
 | `allow_long_running` | Si `False`, plafonne les timeouts à `default_timeout` |
@@ -130,7 +130,7 @@ La découverte est déléguée à `_discover_plugins_batched()` (version optimis
 
 1. (Re)chargement du JSON Schema.
 2. Scan récursif de `plugins/official/` et `plugins/custom/` à la recherche de `plugin.json` (`rglob('plugin.json')`).
-3. Pour chaque fichier : lecture JSON → **validation contre le schéma** (`jsonschema.validate`) → calcul d'un **hash MD5** du fichier.
+3. Pour chaque fichier : lecture JSON → **validation contre le schéma** (`jsonschema.validate`) → **vérification que le `entry_point` existe** (sinon erreur « Point d'entrée introuvable ») → calcul d'un **hash MD5** du fichier.
 4. **Upsert** en base : création si nouveau, mise à jour seulement si le hash a changé (`_upsert_plugin_record`).
 5. **Nettoyage** : suppression en base des plugins dont le dossier n'existe plus (`_cleanup_deleted_plugins_batched`).
 6. Les erreurs sont collectées dans `_loading_errors` (récupérables via `get_discovery_errors()`).
@@ -143,13 +143,13 @@ Le hash est stocké dans `metadata_json` pour éviter les écritures inutiles à
 def get_plugin(self, plugin_name, force_reload=False) -> Optional[PluginInterface]
 ```
 
-1. **Hot-reload dev** : si le plugin est `custom` et que son fichier d'entrée a été édité (`mtime` postérieur au chargement, cf. `_is_source_stale`), le rechargement est forcé automatiquement. Les plugins `official` (lecture seule) ne sont pas suivis → aucun coût.
+1. **Hot-reload** : si le fichier d'entrée du plugin a été édité depuis son chargement (`mtime` postérieur, cf. `_is_source_stale`), le rechargement est forcé automatiquement — pour les plugins `official` comme `custom` (un `getmtime` par `get_plugin`, coût négligeable).
 2. Si déjà en cache et pas de `force_reload` → renvoyé immédiatement.
 3. Sinon, sous un **verrou par plugin** (`_plugin_load_locks`, avec double-check après acquisition pour éviter la double-initialisation quand plusieurs threads — metasolver, batch, watchdog — demandent le même plugin) : lecture du `Plugin` en DB (doit exister et être `enabled`).
 4. Construction d'un `PluginMetadata` (avec timeout calculé via `_get_timeout_from_metadata`).
 5. Création du wrapper adapté (`create_plugin_wrapper`) selon `plugin_type`.
 6. `wrapper.initialize()` (import dynamique du module Python / vérification du binaire).
-7. Mise en cache dans `loaded_plugins` et suivi de la source si `custom` (`_track_source`).
+7. Mise en cache dans `loaded_plugins` et suivi de la source (`_track_source`, toutes sources).
 
 > **Thread-safety** : les verrous sont **par nom de plugin**, donc deux plugins différents s'initialisent toujours en parallèle. L'import dynamique lui-même est sérialisé par un verrou global (`_SYS_PATH_LOCK`, cf. 5.1), car `sys.path`/`sys.modules` sont partagés par tout le process.
 
@@ -204,7 +204,7 @@ Fichier : `backend/gc_backend/plugins/models.py` — table `plugins`.
 | `version` | str | Version sémantique |
 | `plugin_api_version` | str | Version de l'API plugin (défaut `2.0`) |
 | `description`, `author` | str | Métadonnées descriptives |
-| `plugin_type` | str | `python` / `rust` / `binary` / `wasm` / `node` |
+| `plugin_type` | str | `python` / `binary` |
 | `source` | str (indexé) | `official` ou `custom` |
 | `path`, `entry_point` | str | Localisation et fichier d'entrée |
 | `categories` | JSON | Liste de catégories |
@@ -234,7 +234,7 @@ class PluginInterface(ABC):
     def cleanup(self) -> bool: ...      # libération des ressources
 ```
 
-La factory `create_plugin_wrapper(plugin_type, metadata, plugin_manager)` choisit l'implémentation selon `PluginType` (`python`, `rust`, `binary`, `wasm`, `node`).
+La factory `create_plugin_wrapper(plugin_type, metadata, plugin_manager)` choisit l'implémentation selon `PluginType` (`python`, `binary`) ; tout autre type renvoie `None`.
 
 ### 5.1 `PythonPluginWrapper`
 
@@ -266,7 +266,7 @@ Le schéma de référence est `backend/gc_backend/plugins/schemas/plugin.schema.
 
 - `name` : `^[a-z0-9_]+$` (2–64 caractères).
 - `version` : semver `^\d+\.\d+\.\d+(-…)?$`.
-- `plugin_type` : `python` | `rust` | `binary` | `wasm` | `node`.
+- `plugin_type` : `python` | `binary`.
 
 ### 6.2 Champs courants
 
@@ -496,7 +496,7 @@ Codes d'erreur : `400` (JSON/champ manquant), `404` (plugin/tâche/géocache int
 
 `/metasolver/recommend` calcule une **signature** du texte (longueur, comptes lettres/chiffres, `looks_like_morse`, `looks_like_binary`, `dominant_input_kind`, `suggested_preset`) puis renvoie une liste de recommandations triées (`priority`, `score`, `confidence`, `tags`, `reasons`).
 
-Événements SSE de `/metasolver/execute-stream` : `init`, `plugin_start`, `plugin_done`, `plugin_error`, `progress`, `result`. L'exécution utilise une **file d'événements** (`queue.Queue`) : les workers émettent `plugin_start` à leur **démarrage réel** (quand un slot du pool les prend, 6 à la fois) et non tous d'un coup à l'avance, tandis que l'agrégation reste mono-thread dans le générateur. Le repli `_execute_plugin_direct` (chargement direct depuis `official/` quand le manager signale `plugin_unavailable`) **plafonne le timeout** selon la même politique que le manager.
+Événements SSE de `/metasolver/execute-stream` : `init`, `plugin_start`, `plugin_done`, `plugin_error`, `progress`, `result`. L'exécution utilise une **file d'événements** (`queue.Queue`) : les workers émettent `plugin_start` à leur **démarrage réel** (quand un slot du pool les prend, 6 à la fois) et non tous d'un coup à l'avance, tandis que l'agrégation reste mono-thread dans le générateur. Chaque sous-plugin passe uniquement par `PluginManager.execute_plugin` : les erreurs (`plugin_unavailable`, plugin désactivé, timeout…) sont propagées telles quelles — il n'existe plus de repli chargeant le plugin directement depuis `official/` (cela contournait les verrous de chargement, le cache et le flag `enabled`).
 
 **Déduplication** : avant le tri final, le metasolver fusionne les résultats au `text_output` identique (fréquent : ROT13 produit par `caesar` en bruteforce *et* par `rot_cipher`). Clé = texte nettoyé (espaces normalisés, casse conservée) ; le candidat de meilleure confiance est conservé et enrichi de la provenance agrégée `source_plugins` (liste des plugins) + `duplicate_count`. Les compteurs `raw_results` / `duplicates_merged` sont exposés dans `summary_details`.
 
@@ -571,7 +571,7 @@ Comportements UX notables :
 5. Relancer la découverte : `POST /api/plugins/discover` (ou redémarrage du backend).
 6. Vérifier dans `GET /api/plugins/status` que le plugin est `enabled` et sans erreur.
 
-> **Développement** : une fois le plugin découvert, éditer son `main.py` est pris en compte **automatiquement** au prochain appel (hot-reload sur `mtime`, plugins `custom` uniquement). Une modification du `plugin.json` (métadonnées) nécessite en revanche de relancer la découverte.
+> **Développement** : une fois le plugin découvert, éditer son `main.py` est pris en compte **automatiquement** au prochain appel (hot-reload sur `mtime`, pour les plugins `custom` comme `official`). Une modification du `plugin.json` (métadonnées) nécessite en revanche de relancer la découverte.
 
 ---
 
@@ -579,7 +579,7 @@ Comportements UX notables :
 
 - **Validation stricte** de chaque `plugin.json` contre le JSON Schema avant enregistrement.
 - **Déclarations de besoins** dans `plugin.json` : `heavy_cpu` (CPU intensif), `needs_network`, `needs_filesystem` — utilisées pour appliquer les bonnes politiques d'exécution.
-- **Timeouts** : `timeout_seconds` (1–300) plafonné à `default_timeout` sauf si `allow_long_running` est activé. Le plafonnement s'applique aussi au repli `_execute_plugin_direct` du metasolver. Les plugins **Python** appliquent désormais un **timeout dur** via thread watchdog (`_run_with_hard_timeout`, cf. 5.1) — plus seulement les binaires ; les plugins `meta` en sont exemptés.
+- **Timeouts** : `timeout_seconds` (1–300) plafonné à `default_timeout` sauf si `allow_long_running` est activé. Les plugins **Python** appliquent désormais un **timeout dur** via thread watchdog (`_run_with_hard_timeout`, cf. 5.1) — plus seulement les binaires ; les plugins `meta` en sont exemptés.
 - **Plugins binaires** : isolés via `subprocess`, communication JSON stdin/stdout, vérification d'exécutabilité, timeout appliqué par `communicate(timeout=…)`.
 - Les plugins `official/` sont en **lecture seule** ; les contributions utilisateur vont dans `custom/`.
 
