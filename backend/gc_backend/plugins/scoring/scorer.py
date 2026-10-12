@@ -13,6 +13,7 @@ from loguru import logger
 from .langid import DEFAULT_LANGS_EUROPE, detect_language
 from .resources_loader import (
     available_quadgram_langs,
+    load_common_word_ranks,
     load_common_words,
     load_geo_terms,
     load_quadgrams,
@@ -196,14 +197,22 @@ def _ic_feature(ic: float) -> float:
     return max(0.0, min(1.0, (ic - 0.045) / 0.03))
 
 
+# Lowercase counterpart of _STATS_TRANSLITERATION, for dictionary lookups.
+# Must stay in sync with _TRANSLITERATION in scripts/generate_common_words.py.
+_LEX_TRANSLITERATION = str.maketrans({
+    'ß': 'ss', 'ẞ': 'ss', 'œ': 'oe', 'Œ': 'oe', 'æ': 'ae', 'Æ': 'ae',
+    'ł': 'l', 'Ł': 'l', 'ø': 'o', 'Ø': 'o', 'đ': 'd', 'Đ': 'd',
+})
+
+
 def _norm_lex_token(t: str) -> str:
-    """NFKD accent-strip + lowercase.
+    """Transliterate + NFKD accent-strip + lowercase.
 
     Matches the normalisation used by scripts/generate_common_words.py so that
     ASCII-only decoded text (very common in geocaching, e.g. "TROUVE") still
-    matches accented dictionary forms ("trouvé").
+    matches accented dictionary forms ("trouvé"), and "strasse" matches "Straße".
     """
-    s = unicodedata.normalize('NFKD', t)
+    s = unicodedata.normalize('NFKD', t.translate(_LEX_TRANSLITERATION))
     s = ''.join(ch for ch in s if not unicodedata.combining(ch))
     return s.lower()
 
@@ -247,51 +256,65 @@ def _all_geo_words() -> frozenset:
 _SEGMENT_MIN_LETTERS = 8
 _SEGMENT_MAX_LETTERS = 400
 _SEGMENT_MIN_COVERAGE = 0.7
-_SEGMENT_SHORT_RUN = 12            # below this many letters...
+_SEGMENT_SHORT_RUN = 16            # below this many letters...
 _SEGMENT_MIN_COVERAGE_SHORT = 0.85  # ...a stricter coverage is required
 _RE_ALPHA_RUN = re.compile(r"[^\W\d_]{%d,}" % _SEGMENT_MIN_LETTERS)
 
 
+# Segmentation costs. A word costs the log of its frequency rank (a common word
+# is cheap, Zipf-style); words that have no rank — stopwords, geo terms, number
+# words — get a mid-frequency default. A letter no word explains costs more
+# than the rarest word, so it is always better to explain letters than not.
+_SEGMENT_DEFAULT_RANK = 500
+_SEGMENT_SKIP_COST = 12.0
+
+
 @lru_cache(maxsize=16)
-def _lang_vocabulary(lang: str) -> Tuple[frozenset, int]:
-    """One language's accent-normalised words (2+ letters) and the longest length.
+def _lang_vocabulary(lang: str) -> Tuple[Dict[str, float], int]:
+    """One language's accent-normalised words (2+ letters) -> cost, and the longest length.
 
     Kept per language on purpose: pooled across 8 languages, the short words
     alone would be enough to carve up almost any letter soup.
     """
-    words = set(load_common_words(lang))
-    for w in load_stopwords(lang):
-        words.add(_norm_lex_token(w))
-    for w in load_geo_terms(lang):
-        words.add(_norm_lex_token(w))
-    words |= _CW_NUMBER_WORDS
-    words = frozenset(w for w in words if len(w) >= 2 and w.isalpha())
-    return words, max((len(w) for w in words), default=0)
+    ranks: Dict[str, int] = dict(load_common_word_ranks(lang))
+    extra = {_norm_lex_token(w) for w in load_stopwords(lang)}
+    extra |= {_norm_lex_token(w) for w in load_geo_terms(lang)}
+    extra |= _CW_NUMBER_WORDS
+    for w in extra:
+        ranks[w] = min(ranks.get(w, _SEGMENT_DEFAULT_RANK), _SEGMENT_DEFAULT_RANK)
+    costs = {
+        w: math.log(rank + 10.0)
+        for w, rank in ranks.items()
+        if len(w) >= 2 and w.isalpha()
+    }
+    return costs, max((len(w) for w in costs), default=0)
 
 
-def _segment_with_vocabulary(s: str, vocab: frozenset, max_len: int) -> Tuple[float, List[str]]:
-    """Best split of ``s`` into vocabulary words; returns (coverage, pieces).
+def _segment_with_vocabulary(s: str, vocab: Dict[str, float], max_len: int) -> Tuple[float, List[str]]:
+    """Cheapest split of ``s`` into vocabulary words; returns (coverage, pieces).
 
-    Dynamic programming maximising the sum of squared word lengths, so long
-    words win over runs of short ones; letters no word accounts for are left
-    in unknown pieces. ``coverage`` is the share of letters inside real words,
-    with 2- and 3-letter words discounted (1/3 and 2/3): they turn up by
-    chance in any letter soup.
+    Dynamic programming over word costs (log frequency rank): frequent words
+    are preferred, so "TROUVE AU" beats "TROU VEAU", and since an unexplained
+    letter costs more than any word, "CACHE SE TROUVE" beats "CACHES E TROUVE".
+    Letters no word accounts for are left in unknown pieces.
+
+    ``coverage`` is the share of letters inside real words, with 2- and
+    3-letter words discounted (1/3 and 2/3): they turn up by chance in any
+    letter soup.
     """
     n = len(s)
-    best = [0] * (n + 1)
+    cost = [i * _SEGMENT_SKIP_COST for i in range(n + 1)]
     back: List[Optional[int]] = [None] * (n + 1)  # start of the word ending here
     for i in range(n):
-        if best[i] > best[i + 1]:
-            best[i + 1] = best[i]
+        base = cost[i]
+        if base + _SEGMENT_SKIP_COST < cost[i + 1]:
+            cost[i + 1] = base + _SEGMENT_SKIP_COST
             back[i + 1] = None
-        base = best[i]
         for j in range(i + 2, min(n, i + max_len) + 1):
-            if s[i:j] in vocab:
-                gain = base + (j - i) * (j - i)
-                if gain > best[j]:
-                    best[j] = gain
-                    back[j] = i
+            word_cost = vocab.get(s[i:j])
+            if word_cost is not None and base + word_cost < cost[j]:
+                cost[j] = base + word_cost
+                back[j] = i
 
     pieces: List[str] = []
     covered = 0.0

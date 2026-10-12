@@ -27,7 +27,9 @@ import pytest
 from gc_backend.plugins.scoring.langid import DEFAULT_LANGS_EUROPE, detect_language
 from gc_backend.plugins.scoring.resources_loader import available_quadgram_langs, load_quadgrams
 from gc_backend.plugins.scoring.scorer import (
+    _all_known_words,
     _encoded_pattern_penalty,
+    _norm_lex_token,
     _normalize_for_stats,
     _numeric_signal_feature,
     _quadgram_fitness_for_lang,
@@ -317,6 +319,21 @@ class TestGluedWordSegmentation:
         assert scoring["segmentation_language"] == "de"
         assert scoring["segmented_text"] == "DER SCHATZ IST UNTER DEM GROSSEN BAUM"
 
+    @pytest.mark.parametrize("text, expected", [
+        # Un mot frequent l'emporte sur un mot rare : "trouve au", pas "trou veau".
+        ("LACACHESETROUVEAUPIEDDUGRANDARBREPRESDELARIVIERE",
+         "LA CACHE SE TROUVE AU PIED DU GRAND ARBRE PRES DE LA RIVIERE"),
+        # Aucune lettre laissee de cote : "cache se", pas "caches e".
+        ("lacachesetrouvesouslepontdebois", "la cache se trouve sous le pont de bois"),
+        ("THETREASUREISHIDDENNEARTHEOLDOAKTREE", "THE TREASURE IS HIDDEN NEAR THE OLD OAK TREE"),
+        ("ELTESOROESTAESCONDIDOCERCADELGRANARBOL", "EL TESORO ESTA ESCONDIDO CERCA DEL GRAN ARBOL"),
+        ("Felicitationsvousaveztrouve", "Felicitations vous avez trouve"),
+        ("DERRIERELEPANNEAUVERT", "DERRIERE LE PANNEAU VERT"),
+        ("SOUSLEBANC", "SOUS LE BANC"),
+    ])
+    def test_split_is_the_natural_reading(self, text, expected):
+        assert score_text(text)["metadata"]["scoring"]["segmented_text"] == expected
+
     def test_split_keeps_case_and_accents(self):
         scoring = score_text("lacachesetrouveprèsdelarivière")["metadata"]["scoring"]
         assert scoring["segmented_text"].replace(" ", "") == "lacachesetrouveprèsdelarivière"
@@ -346,6 +363,49 @@ class TestGluedWordSegmentation:
             for _ in range(300)
         )
         assert accepted <= 15, f"{accepted}/1500 soupes de lettres decoupees"
+
+
+# ── Vocabulaire ─────────────────────────────────────────────────────
+
+
+class TestVocabulary:
+    """Le dictionnaire couvre le vocabulaire courant d'une geocache sans
+    s'ouvrir aux mots courts de hasard."""
+
+    @pytest.mark.parametrize("word", [
+        "felicitations", "lampadaire", "souche", "panneau", "banc", "poteau",
+        "grillage", "fontaine", "cimetiere", "barriere", "ruisseau", "sentier",
+        "rocher", "aimant", "chapelle", "magnetique",
+        "treasure", "fence", "stump", "bridge", "bench",
+        "versteckt", "friedhof", "brunnen", "kirche",
+        "escondido", "puente", "iglesia", "skarb",
+    ])
+    def test_everyday_geocaching_word_is_known(self, word):
+        assert word in _all_known_words()
+
+    def test_untransliterable_letters_match_their_ascii_spelling(self):
+        """ß, ł, œ ne sont pas decomposes par NFKD : translitteres a la main."""
+        known = _all_known_words()
+        for written, ascii_form in (("Straße", "strasse"), ("głęboki", "gleboki"), ("cœur", "coeur")):
+            assert _norm_lex_token(written) == ascii_form
+            assert ascii_form in known, ascii_form
+
+    def test_short_words_stay_scarce(self):
+        """Les mots de 2 et 3 lettres sont ce qu'un charabia reconnait par
+        hasard : leur nombre ne doit pas enfler avec le vocabulaire."""
+        known = _all_known_words()
+        by_length = {n: sum(1 for w in known if len(w) == n) for n in (2, 3)}
+        assert by_length[2] <= 300, by_length
+        assert by_length[3] <= 1200, by_length
+
+    def test_wrong_caesar_shifts_gain_no_lexical_credit(self):
+        prose = CASES["correct_decrypt"] + CASES["multilingual_valid"]
+        values = [
+            score_text(_caesar(t, k))["metadata"]["scoring"]["features"]["lexical_coverage"]
+            for t in prose for k in range(1, 26)
+        ]
+        # ~0.08 : les mots de 2-3 lettres que le hasard produit ("la", "de", "is").
+        assert sum(values) / len(values) <= 0.12
 
 
 # ── Assertion 1 : ecart correct vs near-miss (XFAIL — cible T6) ─────

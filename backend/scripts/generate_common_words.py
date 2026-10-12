@@ -8,9 +8,9 @@ These lists feed ``_lexical_features`` in
 Build-time tool only: it depends on the ``wordfreq`` package, which is NOT a
 runtime dependency of the backend.  Install it just to regenerate the lists:
 
-    pip install wordfreq
-    python backend/scripts/generate_common_words.py            # ~4000 words/lang
-    python backend/scripts/generate_common_words.py --top-n 5000
+    pip install wordfreq                                       # in a separate venv
+    python backend/scripts/generate_common_words.py            # ~20-25k words/lang
+    python backend/scripts/generate_common_words.py --top-n 20000
 
 Output: JSON arrays in
 ``gc_backend/plugins/scoring/resources/common_words/common_words.<lang>.json``.
@@ -43,9 +43,25 @@ RESOURCES_DIR = (
 )
 
 
+# Letters that NFKD does not decompose. Must stay in sync with
+# _LEX_TRANSLITERATION in gc_backend/plugins/scoring/scorer.py.
+_TRANSLITERATION = str.maketrans({
+    "ß": "ss", "ẞ": "ss", "œ": "oe", "Œ": "oe", "æ": "ae", "Æ": "ae",
+    "ł": "l", "Ł": "l", "ø": "o", "Ø": "o", "đ": "d", "Đ": "d",
+})
+
+# Frequency rank up to which a word is kept, by word length. Short words are
+# what a letter soup matches by chance — and past the first few thousand ranks
+# the short entries of a frequency list are mostly abbreviations, initials and
+# foreign scraps ("ii", "th", "dvd"). Long words carry almost no such risk, so
+# they are taken much deeper.
+RANK_LIMITS = {2: 4000, 3: 4000, 4: 12000}
+DEFAULT_TOP_N = 30000
+
+
 def normalize(word: str) -> str:
-    """NFKD accent-strip + lowercase — matches _norm_lex_token in the scorer."""
-    s = unicodedata.normalize("NFKD", word)
+    """Transliterate + NFKD accent-strip + lowercase — matches _norm_lex_token in the scorer."""
+    s = unicodedata.normalize("NFKD", word.translate(_TRANSLITERATION))
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
     return s.lower()
 
@@ -56,12 +72,14 @@ def build_list(lang: str, top_n: int) -> List[str]:
     raw = wordfreq.top_n_list(lang, top_n)
     seen = set()
     out: List[str] = []
-    for w in raw:
+    for rank, w in enumerate(raw, start=1):
         n = normalize(w)
         if len(n) < 2:
             continue
         # Keep only alphabetic tokens (allow internal apostrophe like "l'" -> "l")
         if not all(ch.isalpha() or ch == "'" for ch in n):
+            continue
+        if rank > RANK_LIMITS.get(len(n), top_n):
             continue
         if n in seen:
             continue
@@ -75,8 +93,9 @@ def main() -> int:
     parser.add_argument(
         "--top-n",
         type=int,
-        default=4000,
-        help="Number of top-frequency words to request per language (default 4000).",
+        default=DEFAULT_TOP_N,
+        help="Frequency rank down to which words of 5+ letters are kept "
+        f"(default {DEFAULT_TOP_N}). Shorter words stop earlier, see RANK_LIMITS.",
     )
     args = parser.parse_args()
 

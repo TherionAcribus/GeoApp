@@ -34,7 +34,7 @@ backend/gc_backend/plugins/scoring/
     ├── stopwords/          # stopwords.<lang>.json (8 langues)
     ├── geo_terms/          # geo_terms.<lang>.json (8 langues)
     ├── langid_trigrams/    # <lang>.json — ~28 trigrammes fréquents par langue
-    ├── common_words/       # common_words.<lang>.json — top-4000 mots (wordfreq)
+    ├── common_words/       # common_words.<lang>.json — ~26 000 mots classés par fréquence (wordfreq)
     └── quadgrams/          # <lang>.json — log10-prob de quadgrammes (8 langues)
 
 backend/scripts/
@@ -67,7 +67,8 @@ Toutes les ressources existent pour ces 8 langues.
 |---|---|---|
 | `load_stopwords(lang)` | LRU 256 | Lexical features |
 | `load_geo_terms(lang)` | LRU 256 | Lexical features + bonus geo |
-| `load_common_words(lang)` | LRU 256 | Lexical features (top-4000 mots) |
+| `load_common_words(lang)` | LRU 256 | Lexical features (~26 000 mots) |
+| `load_common_word_ranks(lang)` | LRU 256 | Segmentation (mot → rang de fréquence) |
 | `load_lang_trigrams(lang)` | LRU 256 | LangID |
 | `load_quadgrams(lang)` | LRU 64 | Quadgram fitness |
 | `available_quadgram_langs()` | LRU 1 | Liste des tables disponibles |
@@ -261,19 +262,19 @@ Pénalise les sorties artificiellement répétitives (ex : `AAAAAAAA BBBBBBBB`).
 Beaucoup de chiffrements rendent un texte sans espaces (`LACACHESETROUVEAUPIED`). Découpé comme un seul mot inconnu, il n'aurait aucun crédit lexical. Avant le calcul des features de mots, `_segment_glued_words` réinsère donc les espaces :
 
 1. Chaque suite d'au moins 8 lettres qui n'est pas elle-même un mot connu est candidate (400 lettres au plus).
-2. Elle est découpée contre le vocabulaire d'**une langue à la fois** (`_lang_vocabulary`, mots de 2 lettres et plus). Par programmation dynamique, on maximise la somme des carrés des longueurs de mots, ce qui favorise les mots longs ; les lettres qu'aucun mot n'explique restent en morceaux inconnus.
+2. Elle est découpée contre le vocabulaire d'**une langue à la fois** (`_lang_vocabulary`, mots de 2 lettres et plus). Par programmation dynamique, on cherche le découpage de coût minimal : un mot coûte le logarithme de son rang de fréquence (un mot courant est bon marché), une lettre qu'aucun mot n'explique coûte plus cher que le mot le plus rare. On obtient ainsi « TROUVE AU » plutôt que « TROU VEAU », et « CACHE SE TROUVE » plutôt que « CACHES E TROUVE ». Les lettres inexpliquées restent en morceaux inconnus.
 3. La **couverture** est la part de lettres dans de vrais mots, les mots de 2 et 3 lettres comptant pour 1/3 et 2/3 (ils apparaissent par hasard dans n'importe quelle soupe de lettres).
-4. Le découpage de la meilleure langue n'est retenu que si la couverture atteint 0.70 (0.85 sous 12 lettres). Sinon le texte reste tel quel.
+4. Le découpage de la meilleure langue n'est retenu que si la couverture atteint 0.70 (0.85 sous 16 lettres). Sinon le texte reste tel quel.
 
 Le vocabulaire est pris langue par langue, et non mis en commun comme pour C1 : avec les mots courts de 8 langues réunis, presque n'importe quelle suite de lettres se laisserait découper.
 
 Le texte découpé alimente `lexical_coverage`, `coherence` et `numeric_signal` — des coordonnées collées en toutes lettres (`NORDQUARANTEHUITDEGRES…`) atteignent ainsi le canal coordonnées. Les features de lettres (IC, n-grammes, GPS, pénalité « encodé ») lisent toujours le texte d'origine. Le résultat est exposé dans `metadata.scoring.segmented_text` et `segmentation_language` (casse et accents d'origine conservés).
 
-Mesuré : un mauvais décalage César n'est jamais découpé (0 sur 375), une soupe de lettres aux fréquences naturelles l'est dans 0,1 à 0,3 % des cas. Coût : environ 0.6 ms pour un texte collé, contre 0.14 ms pour un texte espacé (résultats mis en cache par suite de lettres).
+Mesuré : un mauvais décalage César n'est jamais découpé (0 sur 450), une soupe de lettres aux fréquences naturelles l'est dans 0,1 à 0,3 % des cas. Coût : environ 0.7 ms pour un texte collé, contre 0.14 ms pour un texte espacé (résultats mis en cache par suite de lettres).
 
 #### C1 — Lexical coverage (v3.2 — vocabulaire réel)
 
-**Vocabulaire** : union de stopwords + common_words (top-4000) + geo_terms + _CW_NUMBER_WORDS pour les 8 langues, normalisé NFKD. Construit une seule fois (`@lru_cache(maxsize=1)`), **indépendant de la langue détectée** (LangID est peu fiable sur texte ASCII majuscules court).
+**Vocabulaire** : union de stopwords + common_words + geo_terms + _CW_NUMBER_WORDS pour les 8 langues (~170 000 formes), normalisé (accents retirés, `ß` → `ss`, `ł` → `l`…). Les `common_words` vont jusqu'au rang de fréquence 30 000 pour les mots de 5 lettres et plus, 12 000 pour 4 lettres et 4 000 pour 2 ou 3 lettres : les mots courts sont ceux qu'un charabia reconnaît par hasard (voir `resources/common_words/README.md`). Construit une seule fois (`@lru_cache(maxsize=1)`), **indépendant de la langue détectée** (LangID est peu fiable sur texte ASCII majuscules court).
 
 ```
 ratio  = tokens_reconnus / tokens_total
@@ -546,11 +547,12 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
 - **Tables quadgrams** : les 8 tables viennent de wordfreq et chacune reconnaît sa langue mieux que les autres. Un texte réel obtient 0.53–0.67 sur sa table, les mêmes lettres mélangées 0.20–0.33, un texte inversé 0.27–0.41 : la formule de fitness (`(mean_logp + 6) / 4` plus 30 % de taux de quadgrammes connus) laisse encore un crédit notable à un texte qui a seulement les bonnes fréquences de lettres. Un recalage de cette formule est une piste, non faite.
-- **Translittération** : `ß`, `ł`, `œ`, `æ`, `ø`, `đ` sont translittérés pour l'IC et les quadgrammes (`_STATS_TRANSLITERATION`). Le dictionnaire (`_norm_lex_token`, `generate_common_words.py`) ne le fait pas encore : un mot polonais écrit avec `ł` n'y est pas reconnu.
+- **Translittération** : `ß`, `ł`, `œ`, `æ`, `ø`, `đ` sont translittérés partout — IC et quadgrammes (`_STATS_TRANSLITERATION`), dictionnaire (`_LEX_TRANSLITERATION`) — et dans les deux scripts de génération. Les quatre tables doivent rester identiques.
+- **Vocabulaire** : quelques mots de terrain restent absents (`lierre`, `nichoir`, `gouttière`, `boulon`, `lavoir`), trop rares dans les corpus généraux. Une liste complémentaire propre au géocaching serait la suite naturelle (`geo_terms` ne compte qu'une quinzaine de mots par langue).
 - **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Reste sous la cible : la paire décimale (0.80 < 0.85). Le format `N48 51.234 E002 21.456` atteint 0.96 depuis que le gatekeeper le laisse passer. Les minuscules (`n48 51.234 e002 21.456`) et le `O` de « Ouest » (`N48 51.234 O002 21.456`) sont reconnus depuis la normalisation des lettres cardinales du détecteur (voir [coordonnees-technique.md](coordonnees-technique.md)) et atteignent eux aussi 0.96.
 - **Pré-filtre rapide et coordonnées** : le scorer rapide ne fait pas de détection GPS ; il se contente du plancher `_FAST_GPS_HINT_FLOOR` (0.3) pour les textes en forme de coordonnées. Des coordonnées écrites sans aucun chiffre structuré (lettres cardinales isolées, mots) n'en bénéficient pas.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
-- **Mots collés** : la segmentation (§ C0) dépend du vocabulaire, limité aux 4000 mots les plus fréquents par langue. Un seul mot absent peut faire échouer le découpage (`FELICITATIONSVOUSAVEZTROUVE`, `SOUSLEBANC`) ou le rendre bancal (`THE TRE A SURE IS HIDDEN`) ; le texte retombe alors vers 0.20–0.34. Un mot réel long et inconnu peut aussi être découpé en morceaux d'une autre langue (`felicitations` → `felicita ti on s`), sans conséquence sur le classement. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
+- **Mots collés** : la segmentation (§ C0) dépend du vocabulaire. Un mot absent peut faire échouer le découpage ou laisser un morceau inconnu (`STAREGO DE BU` pour « dębu ») ; si la couverture passe sous le seuil, le texte retombe vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
 - **Tokens d'un seul caractère** : `_tokenize_words` les écarte, donc les lettres cardinales isolées (`N`, `E`) et les chiffres isolés ne contribuent pas au signal numérique. `N QUARANTE HUIT E DEUX` n'obtient que 0.17 de signal ; le `y` espagnol (`cuarenta y ocho`) est simplement ignoré.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 

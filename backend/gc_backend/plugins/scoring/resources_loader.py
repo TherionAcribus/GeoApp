@@ -39,6 +39,26 @@ def load_common_words(lang: str) -> FrozenSet[str]:
 
 
 @lru_cache(maxsize=256)
+def load_common_word_ranks(lang: str) -> Dict[str, int]:
+    """Common words mapped to their frequency rank (1 = most frequent).
+
+    The JSON list is written in frequency order by the generator, which
+    ``load_common_words`` discards by returning a set. The rank is what lets the
+    glued-word segmenter prefer "trouve au" over "trou veau".
+    """
+    path = _RESOURCES_DIR / 'common_words' / f'common_words.{lang}.json'
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding='utf-8'))
+    ranks: Dict[str, int] = {}
+    for x in data:
+        word = str(x).strip().lower()
+        if word and word not in ranks:
+            ranks[word] = len(ranks) + 1
+    return ranks
+
+
+@lru_cache(maxsize=256)
 def load_lang_trigrams(lang: str) -> FrozenSet[str]:
     path = _RESOURCES_DIR / 'langid_trigrams' / f'{lang}.json'
     data = json.loads(path.read_text(encoding='utf-8'))
