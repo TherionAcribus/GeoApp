@@ -7,26 +7,26 @@ import time
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.scoring import score_text, score_text_fast
+    from gc_backend.plugins.scoring import score_text
 
     _SCORING_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency
     score_text = None
-    score_text_fast = None
     _SCORING_AVAILABLE = False
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class UbchiCipherPlugin:
+class UbchiCipherPlugin(CipherPluginBase):
     """Ubchi cipher (double columnar transposition with null letters)."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "ubchi_cipher"
         self.version = "1.0.0"
 
@@ -118,13 +118,6 @@ class UbchiCipherPlugin:
         except Exception:
             return None
 
-    def _get_score_fast(self, text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.3
-        try:
-            return score_text_fast(self._clean_text(text))
-        except Exception:
-            return 0.3
 
     # ------------------------------------------------------------------
     # Execute
@@ -192,7 +185,7 @@ class UbchiCipherPlugin:
             elif do_bruteforce:
                 solutions = self.bruteforce(text, max_key_length=5, null_letters=null_letters)
                 for idx, sol in enumerate(solutions, 1):
-                    confidence = self._get_score_fast(sol["decoded_text"]) if enable_scoring else 0.3
+                    confidence = self._score_fast(self._clean_text(sol["decoded_text"]), default=0.3) if enable_scoring else 0.3
                     res = {
                         "id": f"result_{idx}",
                         "text_output": sol["decoded_text"],

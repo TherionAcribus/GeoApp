@@ -6,18 +6,21 @@ from typing import Any, Dict, List, Optional
 
 try:
     from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
+    from gc_backend.plugins.base import CipherPluginBase
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
     from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
+    from gc_backend.plugins.base import CipherPluginBase
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
 
 
-class KennyCodePlugin:
+class KennyCodePlugin(CipherPluginBase):
     def __init__(self) -> None:
+        super().__init__()
         self.name = "kenny_code"
         self.version = "1.3.0"
 
@@ -262,21 +265,7 @@ class KennyCodePlugin:
         result.append(text[last_pos:])
         return "".join(result)
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

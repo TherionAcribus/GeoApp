@@ -14,10 +14,19 @@ import time
 from typing import Any, Dict, List
 
 
-class AlphaDecoderPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class AlphaDecoderPlugin(CipherPluginBase):
     """Chiffreur/Déchiffreur alphabétique avec gestion du décalage."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "alpha_decoder"
         self.version = "1.4.0"
         self._alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -111,18 +120,4 @@ class AlphaDecoderPlugin:
     def _count_numbers(self, text: str) -> int:
         return len(re.findall(r"\d+", text))
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }

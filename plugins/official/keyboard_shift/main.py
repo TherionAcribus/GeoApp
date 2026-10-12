@@ -27,13 +27,6 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Tuple
 
-try:
-    from gc_backend.plugins.scoring import score_text_fast
-
-    _SCORING_AVAILABLE = True
-except Exception:  # pragma: no cover - dépendance optionnelle
-    score_text_fast = None
-    _SCORING_AVAILABLE = False
 
 
 QWERTY_ROWS = {
@@ -63,7 +56,15 @@ VALID_SCOPES = ("letters", "letters_numbers", "full")
 VALID_DIRECTIONS = ("right", "left")
 
 
-class KeyboardShiftPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class KeyboardShiftPlugin(CipherPluginBase):
     """Plugin de décalage de caractères le long d'une séquence clavier.
 
     Args:
@@ -82,6 +83,7 @@ class KeyboardShiftPlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "keyboard_shift"
         self.version = "1.0.0"
 
@@ -230,7 +232,7 @@ class KeyboardShiftPlugin:
                 candidates.append(
                     {
                         "text_output": text_output,
-                        "confidence": self._get_score_fast(text_output),
+                        "confidence": self._score_fast(text_output, default=0.5),
                         "parameters": {"layout": layout, "amount": amount},
                         "metadata": {
                             "sequence_length": n,
@@ -301,27 +303,5 @@ class KeyboardShiftPlugin:
 
         return True, ""
 
-    @staticmethod
-    def _get_score_fast(text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.5
-        try:
-            return score_text_fast(text)
-        except Exception:
-            return 0.5
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }

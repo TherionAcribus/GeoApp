@@ -5,19 +5,20 @@ import time
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class TextReversalPlugin:
+class TextReversalPlugin(CipherPluginBase):
     """Reverse a whole text or each word independently."""
 
     WORD_PATTERN = re.compile(r"([^\W\d_]+(?:['’-][^\W\d_]+)*)", re.UNICODE)
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "text_reversal"
         self.version = "1.0.0"
 
@@ -175,12 +176,7 @@ class TextReversalPlugin:
             "plugin_info": self._get_plugin_info(start_time),
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {"name": self.name, "version": self.version, "execution_time_ms": round(execution_time, 2)}
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {"status": "error", "summary": message, "results": [], "plugin_info": self._get_plugin_info(start_time)}
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

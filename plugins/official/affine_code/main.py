@@ -13,8 +13,15 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
 
-class AffineCodePlugin:
+
+class AffineCodePlugin(CipherPluginBase):
     """Plugin de chiffrement/déchiffrement Affine.
 
     Args:
@@ -30,6 +37,7 @@ class AffineCodePlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "affine_code"
         self.version = "1.1.0"
         self._alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -178,18 +186,3 @@ class AffineCodePlugin:
     def _count_alpha_chars(self, text: str) -> int:
         return sum(1 for c in text.upper() if c in self._alphabet)
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
-
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }

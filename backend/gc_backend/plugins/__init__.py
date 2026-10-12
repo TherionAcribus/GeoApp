@@ -30,6 +30,7 @@ Utilisation basique :
     })
 """
 
+from .base import CipherPluginBase
 from .models import Plugin
 from .plugin_manager import PluginManager
 from .wrappers import (
@@ -42,6 +43,9 @@ from .wrappers import (
 )
 
 __all__ = [
+    # Base facultative pour les plugins de codage/decodage
+    'CipherPluginBase',
+
     # Modèle
     'Plugin',
     

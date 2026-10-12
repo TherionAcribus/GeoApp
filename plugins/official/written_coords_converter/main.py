@@ -4,11 +4,20 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 
-class WrittenCoordsConverterPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class WrittenCoordsConverterPlugin(CipherPluginBase):
     def __init__(self):
+        super().__init__()
         self.name = "written_coords_converter"
         self.description = "Reconnaissance de coordonnées GPS écrites en toutes lettres (orchestrateur)"
-        self._plugin_manager = None
+        self.plugin_manager = None
 
         self._auto_fr_markers = {
             "nord",
@@ -29,12 +38,10 @@ class WrittenCoordsConverterPlugin:
             "comma",
         }
 
-    def set_plugin_manager(self, plugin_manager):
-        self._plugin_manager = plugin_manager
 
     def _get_plugin_manager(self):
-        if self._plugin_manager is not None:
-            return self._plugin_manager
+        if self.plugin_manager is not None:
+            return self.plugin_manager
         try:
             from gc_backend.blueprints.plugins import get_plugin_manager
 

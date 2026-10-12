@@ -25,7 +25,15 @@ except Exception:
     _SCORING_AVAILABLE = False
 
 
-class PokemonCodePlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class PokemonCodePlugin(CipherPluginBase):
     """
     Plugin de chiffrement/déchiffrement du code Pokémon.
     
@@ -127,6 +135,7 @@ class PokemonCodePlugin:
                          'se', 'da', 'luff', 'as', 'mo', 'ge', 'tron', 'zu'}
     
     def __init__(self):
+        super().__init__()
         self.name = "pokemon_code"
         self.version = "1.0.0"
     
@@ -373,41 +382,4 @@ class PokemonCodePlugin:
         
         return valid_ratio * 0.8
     
-    def _error_response(self, message: str) -> Dict:
-        """
-        Construit une réponse d'erreur standardisée.
-        
-        Args:
-            message (str): Message d'erreur
-            
-        Returns:
-            dict: Réponse d'erreur au format standardisé
-        """
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": 0
-            }
-        }
     
-    def _get_plugin_info(self, start_time: float) -> Dict:
-        """
-        Construit les informations du plugin.
-        
-        Args:
-            start_time (float): Timestamp de début d'exécution
-            
-        Returns:
-            dict: Informations du plugin
-        """
-        execution_time = (time.time() - start_time) * 1000
-        
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2)
-        }

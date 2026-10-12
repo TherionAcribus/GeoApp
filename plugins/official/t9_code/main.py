@@ -6,26 +6,26 @@ from itertools import product
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.scoring import score_text, score_text_fast
+    from gc_backend.plugins.scoring import score_text
 
     _SCORING_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency
     score_text = None
-    score_text_fast = None
     _SCORING_AVAILABLE = False
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class T9CodePlugin:
+class T9CodePlugin(CipherPluginBase):
     """T9 encode/decode with safe bruteforce and optional scoring."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "t9_code"
         self.version = "1.0.1"
 
@@ -246,14 +246,6 @@ class T9CodePlugin:
         except Exception:
             return None
 
-    @staticmethod
-    def _get_score_fast(text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.3
-        try:
-            return score_text_fast(text)
-        except Exception:
-            return 0.3
 
     # ------------------------------------------------------------------
     # Execute
@@ -317,7 +309,7 @@ class T9CodePlugin:
                 for i, result in enumerate(decoded_results):
                     confidence = min(result.get("score", 0.0), 1.0)
                     if enable_scoring:
-                        fast_score = self._get_score_fast(result["word"])
+                        fast_score = self._score_fast(result["word"], default=0.3)
                         if fast_score > 0:
                             confidence = fast_score
                     entry = {

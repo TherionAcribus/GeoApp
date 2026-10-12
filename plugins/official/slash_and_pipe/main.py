@@ -34,7 +34,15 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
-class SlashAndPipePlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+
+
+class SlashAndPipePlugin(CipherPluginBase):
     """Plugin d'encodage/décodage du code Slash and Pipe.
 
     Args:
@@ -89,6 +97,7 @@ class SlashAndPipePlugin:
     MAX_CODE_LEN = 4
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "slash_and_pipe"
         self.version = "1.0.0"
         self._alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -138,7 +147,7 @@ class SlashAndPipePlugin:
         inputs: Dict[str, Any],
         start_time: float,
     ) -> Dict[str, Any]:
-        strip_unknown = self._parse_bool(inputs.get("strip_unknown"), default=False)
+        strip_unknown = parse_bool(inputs.get("strip_unknown"), default=False)
         output, encoded, skipped = self._encode(text, symbols, strip_unknown)
 
         if encoded == 0:
@@ -208,7 +217,7 @@ class SlashAndPipePlugin:
         inputs: Dict[str, Any],
         start_time: float,
     ) -> Dict[str, Any]:
-        auto_detect = self._parse_bool(inputs.get("auto_detect"), default=True)
+        auto_detect = parse_bool(inputs.get("auto_detect"), default=True)
         candidates = self._detect_symbols(text)
 
         # L'auto-détection ne s'applique que si l'utilisateur n'a pas imposé ses
@@ -367,31 +376,8 @@ class SlashAndPipePlugin:
             return None
         return symbols
 
-    @staticmethod
-    def _parse_bool(value: Any, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        return str(value).strip().lower() in {"1", "true", "yes", "on", "oui"}
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

@@ -6,15 +6,18 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
+    from gc_backend.plugins.base import CipherPluginBase
     from gc_backend.plugins.code_solving import parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
     from gc_backend.plugins.code_solving import parse_bool
 
 
-class MorseCodePlugin:
+class MorseCodePlugin(CipherPluginBase):
     def __init__(self) -> None:
+        super().__init__()
         self.name = "morse_code"
         self.version = "1.2.0"
 
@@ -365,23 +368,6 @@ class MorseCodePlugin:
             return 0.3
         ratio = min(1.0, total_len / max(1, len(text)))
         return 0.4 + 0.6 * ratio
-
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
-
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
-
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:
     return MorseCodePlugin().execute(inputs)

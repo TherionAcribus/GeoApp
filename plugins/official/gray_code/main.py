@@ -22,7 +22,15 @@ import re
 from typing import Dict, Any, List, Tuple, Optional
 
 
-class GrayCodePlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class GrayCodePlugin(CipherPluginBase):
     """
     Plugin de conversion Gray Code.
     
@@ -32,6 +40,7 @@ class GrayCodePlugin:
     """
     
     def __init__(self):
+        super().__init__()
         self.name = "gray_code"
         self.version = "1.0.0"
     
@@ -356,28 +365,4 @@ class GrayCodePlugin:
         
         return False, 0.1, {"detected_format": "unknown"}
     
-    def _error_response(self, message: str) -> Dict:
-        """
-        Construit une réponse d'erreur standardisée.
-        """
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": 0
-            }
-        }
     
-    def _get_plugin_info(self, start_time: float) -> Dict:
-        """
-        Construit les informations du plugin.
-        """
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2)
-        }

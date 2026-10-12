@@ -34,10 +34,19 @@ JOKER_B = 54
 DECK_SIZE = 54
 
 
-class SolitaireCipherPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+
+
+class SolitaireCipherPlugin(CipherPluginBase):
     """Chiffrement / dechiffrement Solitaire (Pontifex)."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "solitaire_cipher"
         self.version = "1.0.0"
 
@@ -50,7 +59,7 @@ class SolitaireCipherPlugin:
         text = str(inputs.get("text", ""))
         mode = str(inputs.get("mode", "decode")).lower()
         key = str(inputs.get("key", ""))
-        group = self._parse_bool(inputs.get("group", False))
+        group = parse_bool(inputs.get("group", False))
 
         letters = [c for c in text.upper() if c in string.ascii_uppercase]
         if not letters:
@@ -208,26 +217,8 @@ class SolitaireCipherPlugin:
     def _group5(text: str) -> str:
         return " ".join(text[i:i + 5] for i in range(0, len(text), 5))
 
-    @staticmethod
-    def _parse_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in {"1", "true", "yes", "oui", "on"}
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

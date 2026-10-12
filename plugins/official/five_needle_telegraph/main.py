@@ -31,15 +31,19 @@ from itertools import permutations
 from typing import Any, Dict, List, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:  # exécution hors backend (tests directs)
     import sys as _sys
     import pathlib as _pathlib
 
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
     try:
-        from gc_backend.plugins.code_solving import parse_bool
+        from gc_backend.plugins.base import CipherPluginBase, parse_bool
     except Exception:  # pragma: no cover - repli minimal
+
+        class CipherPluginBase:  # type: ignore
+            def __init__(self) -> None:
+                self.plugin_manager = None
 
         def parse_bool(value: Any, default: bool = False) -> bool:  # type: ignore
             if isinstance(value, bool):
@@ -56,10 +60,11 @@ _RIGHT = "/"
 _CANON = (_LEFT, _REST, _RIGHT)
 
 
-class FiveNeedleTelegraphPlugin:
+class FiveNeedleTelegraphPlugin(CipherPluginBase):
     """Encode/décode le télégraphe à cinq aiguilles de Cooke & Wheatstone."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "five_needle_telegraph"
         self.version = "1.0.0"
 
@@ -269,20 +274,7 @@ class FiveNeedleTelegraphPlugin:
         return self._error_response(f"Mode non supporté : {mode}", start_time)
 
     # ------------------------------------------------------------------ helpers
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

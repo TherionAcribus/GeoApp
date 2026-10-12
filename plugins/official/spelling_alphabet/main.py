@@ -241,7 +241,15 @@ _OPTIONAL_SEPARATORS = re.compile(r"[\s\-().]")
 _EXTRA_SPACES = re.compile(r" {2,}")
 
 
-class SpellingAlphabetPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class SpellingAlphabetPlugin(CipherPluginBase):
     """Plugin d'encodage/décodage des alphabets d'épellation.
 
     Args:
@@ -274,6 +282,7 @@ class SpellingAlphabetPlugin:
     AUTO_MIN_RATIO = 0.5
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "spelling_alphabet"
         self.version = "1.0.0"
         self._reverse_cache: Dict[str, Tuple[Dict[str, str], int]] = {}
@@ -582,21 +591,7 @@ class SpellingAlphabetPlugin:
             "metadata": metadata,
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

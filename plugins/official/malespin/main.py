@@ -5,14 +5,14 @@ import time
 from typing import Any, Dict, List, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 
 
-class MalespinPlugin:
+class MalespinPlugin(CipherPluginBase):
     """Argot Malespin.
 
     The transform is reciprocal: A<->E, B<->T, F<->G, I<->O, M<->P.
@@ -20,6 +20,7 @@ class MalespinPlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "malespin"
         self.version = "1.0.0"
         pairs = (("A", "E"), ("B", "T"), ("F", "G"), ("I", "O"), ("M", "P"))
@@ -141,21 +142,7 @@ class MalespinPlugin:
             "warning": "Detection heuristique: Malespin est reversible et ressemble a du texte naturel.",
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

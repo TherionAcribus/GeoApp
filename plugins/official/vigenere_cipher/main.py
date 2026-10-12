@@ -6,26 +6,26 @@ import time
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.scoring import score_text, score_text_fast
+    from gc_backend.plugins.scoring import score_text
 
     _SCORING_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency
     score_text = None
-    score_text_fast = None
     _SCORING_AVAILABLE = False
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class VigenereCipherPlugin:
+class VigenereCipherPlugin(CipherPluginBase):
     """Encode/decode using Vigenère cipher."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "vigenere_cipher"
         self.version = "1.0.0"
 
@@ -92,14 +92,6 @@ class VigenereCipherPlugin:
         except Exception:
             return None
 
-    @staticmethod
-    def _get_score_fast(text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.3
-        try:
-            return score_text_fast(text)
-        except Exception:
-            return 0.3
 
     # ------------------------------------------------------------------
     # Execute
@@ -182,7 +174,7 @@ class VigenereCipherPlugin:
 
                 for idx, candidate_key in enumerate(keys[:max_results], 1):
                     decoded = self.decode(text, candidate_key)
-                    confidence = self._get_score_fast(decoded) if enable_scoring else 0.3
+                    confidence = self._score_fast(decoded, default=0.3) if enable_scoring else 0.3
                     result = {
                         "id": f"result_{idx}",
                         "text_output": decoded,

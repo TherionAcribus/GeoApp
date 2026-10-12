@@ -43,7 +43,15 @@ _TOKEN_TO_CHAR: Dict[str, str] = {
 _TOKEN_RE = re.compile(r"AM|PM|\d+", re.IGNORECASE)
 
 
-class ClockCodePlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class ClockCodePlugin(CipherPluginBase):
     """Plugin d'encodage/décodage du Clock Code.
 
     Args:
@@ -58,6 +66,7 @@ class ClockCodePlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "clock_code"
         self.version = "1.0.0"
 
@@ -155,21 +164,7 @@ class ClockCodePlugin:
                 unknown += 1
         return "".join(chars), tokens, unknown
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

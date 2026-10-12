@@ -54,7 +54,15 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 
-class TapirPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+
+
+class TapirPlugin(CipherPluginBase):
     """Plugin d'encodage/décodage de la substitution TAPIR.
 
     Args:
@@ -108,6 +116,7 @@ class TapirPlugin:
     _NOT_DIGIT = re.compile(r"\D")
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "tapir"
         self.version = "1.0.0"
         self._letter_of = {code: char for char, code in self.LETTERS.items()}
@@ -140,7 +149,7 @@ class TapirPlugin:
                     "(entier entre 0 et 20)",
                     start_time,
                 )
-            pad = self._parse_bool(inputs.get("pad"), default=True)
+            pad = parse_bool(inputs.get("pad"), default=True)
             return self._run_encode(text, key, pad, group_size, start_time)
 
         if mode == "decode":
@@ -430,31 +439,8 @@ class TapirPlugin:
             return None
         return size if 0 <= size <= 20 else None
 
-    @staticmethod
-    def _parse_bool(value: Any, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        return str(value).strip().lower() in {"1", "true", "yes", "on", "oui"}
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

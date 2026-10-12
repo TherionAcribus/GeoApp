@@ -5,27 +5,26 @@ import time
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class RailFenceCipherPlugin:
+class RailFenceCipherPlugin(CipherPluginBase):
     def __init__(self) -> None:
+        super().__init__()
         self.name = "rail_fence_cipher"
         self.version = "1.0.0"
 
         try:
-            from gc_backend.plugins.scoring import score_text, score_text_fast
+            from gc_backend.plugins.scoring import score_text
 
             self._score_text = score_text
-            self._score_text_fast = score_text_fast
             self._scoring_available = True
         except Exception:
             self._score_text = None
-            self._score_text_fast = None
             self._scoring_available = False
 
     @staticmethod
@@ -87,13 +86,6 @@ class RailFenceCipherPlugin:
         except Exception:
             return None
 
-    def _get_text_score_fast(self, text: str) -> float:
-        if not self._scoring_available or not self._score_text_fast:
-            return 0.3
-        try:
-            return self._score_text_fast(self._clean_text_for_scoring(text))
-        except Exception:
-            return 0.3
 
     def _confidence_for_key(self, key: int) -> float:
         if key <= 3:
@@ -216,7 +208,7 @@ class RailFenceCipherPlugin:
                 for idx, sol in enumerate(solutions, start=1):
                     confidence = self._confidence_for_key(sol["key"])
                     if enable_scoring:
-                        fast_score = self._get_text_score_fast(sol["decoded_text"])
+                        fast_score = self._score_fast(self._clean_text_for_scoring(sol["decoded_text"]), default=0.3)
                         if fast_score > 0:
                             confidence = fast_score
 

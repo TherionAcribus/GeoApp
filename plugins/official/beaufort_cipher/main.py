@@ -6,23 +6,22 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 
 try:
-    from gc_backend.plugins.scoring import score_text, score_text_fast
+    from gc_backend.plugins.scoring import score_text
 
     _SCORING_AVAILABLE = True
 except Exception:  # pragma: no cover - optional backend dependency
     score_text = None
-    score_text_fast = None
     _SCORING_AVAILABLE = False
 
 
-class BeaufortCipherPlugin:
+class BeaufortCipherPlugin(CipherPluginBase):
     """Beaufort and German Beaufort ciphers.
 
     Classic Beaufort uses C = K - P and is reciprocal: decode is the same
@@ -31,6 +30,7 @@ class BeaufortCipherPlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "beaufort_cipher"
         self.version = "1.1.0"
         self._alphabet = string.ascii_uppercase
@@ -241,7 +241,7 @@ class BeaufortCipherPlugin:
             except ValueError:
                 continue
 
-            confidence = self._get_score_fast(decoded) if enable_scoring else 0.3
+            confidence = self._score_fast(decoded, default=0.3) if enable_scoring else 0.3
             results.append(
                 {
                     "id": f"result_{index}",
@@ -303,29 +303,8 @@ class BeaufortCipherPlugin:
         except Exception:
             return None
 
-    def _get_score_fast(self, text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.3
-        try:
-            return float(score_text_fast(text))
-        except Exception:
-            return 0.3
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

@@ -5,8 +5,17 @@ import time
 from typing import Any, Dict, List, Tuple
 
 
-class PrimeNumbersPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class PrimeNumbersPlugin(CipherPluginBase):
     def __init__(self) -> None:
+        super().__init__()
         self.name = "prime_numbers"
         self.version = "1.0.0"
 
@@ -43,14 +52,12 @@ class PrimeNumbersPlugin:
         self._prime_values = sorted(self.decode_table.keys(), key=len, reverse=True)
 
         try:
-            from gc_backend.plugins.scoring import score_text, score_text_fast
+            from gc_backend.plugins.scoring import score_text
 
             self._score_text = score_text
-            self._score_text_fast = score_text_fast
             self._scoring_available = True
         except Exception:
             self._score_text = None
-            self._score_text_fast = None
             self._scoring_available = False
 
     def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
@@ -76,13 +83,6 @@ class PrimeNumbersPlugin:
         except Exception:
             return None
 
-    def _get_text_score_fast(self, text: str) -> float:
-        if not self._scoring_available or not self._score_text_fast:
-            return 0.0
-        try:
-            return self._score_text_fast(text)
-        except Exception:
-            return 0.0
 
     def _separator_to_string(self, separator: str, custom: str) -> str:
         if separator == "comma":
@@ -263,7 +263,7 @@ class PrimeNumbersPlugin:
                             decoded, hits = self._decode_tokens(segmentation)
                             confidence = hits / len(segmentation) if segmentation else 0.0
                             if enable_scoring:
-                                fast_score = self._get_text_score_fast(decoded)
+                                fast_score = self._score_fast(decoded, default=0.0)
                                 if fast_score > 0:
                                     confidence = fast_score
 

@@ -5,17 +5,18 @@ import time
 from typing import Any, Dict, List, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool, parse_mode_params, remove_diacritics
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params, remove_diacritics
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool, parse_mode_params, remove_diacritics
 
 
-class BeghilosPlugin:
+class BeghilosPlugin(CipherPluginBase):
     """Calculator upside-down writing, also known as BEGHILOS/BEGHILOSZ."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "beghilos"
         self.version = "1.0.0"
         self.encode_map_upper = {
@@ -285,21 +286,7 @@ class BeghilosPlugin:
             "plugin_info": self._get_plugin_info(start_time),
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

@@ -12,6 +12,7 @@ try:
         parse_bool,
         parse_mode_params,
     )
+    from gc_backend.plugins.base import CipherPluginBase
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
     import sys
@@ -23,11 +24,12 @@ except ImportError:  # execution standalone / tests hors backend
         parse_bool,
         parse_mode_params,
     )
+    from gc_backend.plugins.base import CipherPluginBase
 
 MORBIT_DIGITS = "123456789"
 
 
-class MorbitCipherPlugin:
+class MorbitCipherPlugin(CipherPluginBase):
     """Encode and decode the Morbit cipher.
 
     Morbit first converts plaintext to Morse, separates Morse letters with a
@@ -37,6 +39,7 @@ class MorbitCipherPlugin:
     PAIRS: Tuple[str, ...] = ("..", ".-", ".x", "-.", "--", "-x", "x.", "x-", "xx")
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "morbit_cipher"
         self.version = "1.0.0"
 
@@ -395,21 +398,7 @@ class MorbitCipherPlugin:
             "plugin_info": self._get_plugin_info(start_time),
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

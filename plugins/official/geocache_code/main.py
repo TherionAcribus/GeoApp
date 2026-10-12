@@ -5,14 +5,14 @@ import time
 from typing import Any, Dict, List, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class GeocacheCodePlugin:
+class GeocacheCodePlugin(CipherPluginBase):
     """Convert between geocaching.com numeric IDs and GC codes.
 
     Geocaching.com first used hexadecimal codes up to GCFFFF.
@@ -29,6 +29,7 @@ class GeocacheCodePlugin:
     GC_PATTERN = re.compile(r"\bGC[0-9A-HJKMNPQRTVWXYZ]+\b", re.IGNORECASE)
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "geocache_code"
         self.version = "1.1.0"
         self.value_by_char = {ch: index for index, ch in enumerate(self.ALPHABET)}
@@ -321,21 +322,7 @@ class GeocacheCodePlugin:
             "plugin_info": self._get_plugin_info(start_time),
         }
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

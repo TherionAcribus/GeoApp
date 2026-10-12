@@ -100,6 +100,52 @@ Tous les plugins doivent retourner un résultat au format suivant :
 }
 ```
 
+### Classe de base `CipherPluginBase`
+
+Les nouveaux plugins sont encouragés à hériter de
+`gc_backend.plugins.base.CipherPluginBase`, qui fournit les helpers
+standard historiquement recopiés dans chaque plugin (`_ok_response`,
+`_error_response`, `_get_plugin_info`, `_make_result`, `_mode_params`,
+`_text`, `_score_fast`, `set_plugin_manager`). L'héritage reste
+facultatif : le chargeur n'exige que `name`, `version` et `execute()`.
+
+```python
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:  # exécution hors backend (tests standalone)
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class MonPlugin(CipherPluginBase):
+    def __init__(self):
+        super().__init__()
+        self.name = "mon_plugin"
+        self.version = "1.0.0"
+
+    def execute(self, inputs: dict) -> dict:
+        start_time = time.time()
+        text = self._text(inputs)
+        if not text:
+            return self._error_response("Aucun texte fourni", start_time)
+
+        # Votre logique ici
+        output = text.upper()
+
+        result = self._make_result(
+            text_output=output,
+            confidence=1.0,
+            parameters={"mode": "encode"},
+        )
+        return self._ok_response([result], summary="Traitement réussi", start_time=start_time)
+```
+
+`gc_backend.plugins.base` ré-exporte aussi les utilitaires de
+`code_solving` (`parse_bool`, `parse_mode_params`, `ModeParams`,
+`remove_diacritics`, `is_alpha_strict`, `normalize_allowed_chars`,
+`DEFAULT_ALLOWED_CHARS`) pour centraliser les imports.
+
 ## Développement d'un plugin Python
 
 ### Structure minimale

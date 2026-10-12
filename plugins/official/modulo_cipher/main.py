@@ -6,24 +6,18 @@ import string
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from gc_backend.plugins.scoring import score_text_fast
-
-    _SCORING_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
-    score_text_fast = None
-    _SCORING_AVAILABLE = False
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
 
 
-class ModuloCipherPlugin:
+class ModuloCipherPlugin(CipherPluginBase):
     def __init__(self) -> None:
+        super().__init__()
         self.name = "modulo_cipher"
         self.version = "1.0.0"
         self._alphabet = string.ascii_uppercase
@@ -147,14 +141,6 @@ class ModuloCipherPlugin:
 
         return decoded_text, None
 
-    @staticmethod
-    def _get_score_fast(text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.0
-        try:
-            return score_text_fast(text)
-        except Exception:
-            return 0.0
 
     def _bruteforce_decode(self, text: str, alphabet_mapping: str) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []
@@ -166,7 +152,7 @@ class ModuloCipherPlugin:
                 continue
 
             confidence = self._calculate_confidence(modulo=modulo, decoded_text=decoded)
-            fast = self._get_score_fast(decoded)
+            fast = self._score_fast(decoded, default=0.0)
             if fast > 0:
                 confidence = max(confidence, fast)
             results.append(
@@ -307,21 +293,7 @@ class ModuloCipherPlugin:
                 return None
         return None
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

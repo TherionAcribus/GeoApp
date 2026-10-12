@@ -42,10 +42,19 @@ _MONTHS = {
 }
 
 
-class UnixTimestampPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+
+
+class UnixTimestampPlugin(CipherPluginBase):
     """Conversion date <-> timestamp Unix (UTC)."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "unix_timestamp"
         self.version = "1.0.0"
 
@@ -58,7 +67,7 @@ class UnixTimestampPlugin:
         text = str(inputs.get("text", "")).strip()
         mode = str(inputs.get("mode", "to_timestamp")).lower()
         unit = str(inputs.get("unit", "seconds")).lower()
-        day_first = self._parse_bool(inputs.get("day_first", True))
+        day_first = parse_bool(inputs.get("day_first", True))
 
         if not text:
             return self._error_response("Aucune date/timestamp fourni", start_time)
@@ -257,23 +266,5 @@ class UnixTimestampPlugin:
         nfkd = unicodedata.normalize("NFKD", text)
         return "".join(c for c in nfkd if not unicodedata.combining(c))
 
-    @staticmethod
-    def _parse_bool(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in {"1", "true", "yes", "oui", "on"}
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }

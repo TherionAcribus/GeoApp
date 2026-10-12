@@ -12,15 +12,14 @@ import time
 from typing import Dict, Any, List
 
 try:
-    from gc_backend.plugins.scoring import score_text_fast
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
 
-    _SCORING_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
-    score_text_fast = None
-    _SCORING_AVAILABLE = False
 
-
-class CaesarPlugin:
+class CaesarPlugin(CipherPluginBase):
     """
     Plugin de chiffrement/déchiffrement Caesar.
     
@@ -29,6 +28,7 @@ class CaesarPlugin:
     """
     
     def __init__(self):
+        super().__init__()
         self.name = "caesar"
         self.version = "1.0.0"
     
@@ -120,17 +120,11 @@ class CaesarPlugin:
             return self._error_response(f"Mode inconnu: {mode}")
         
         # Construire réponse
-        execution_time = (time.time() - start_time) * 1000
-        
         return {
             "status": "ok",
             "summary": f"{len(results)} résultat(s) généré(s)",
             "results": results,
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": round(execution_time, 2)
-            }
+            "plugin_info": self._get_plugin_info(start_time)
         }
     
     def _caesar_shift(self, text: str, shift: int) -> str:
@@ -161,15 +155,6 @@ class CaesarPlugin:
         
         return ''.join(result)
     
-    @staticmethod
-    def _get_score_fast(text: str) -> float:
-        if not _SCORING_AVAILABLE or not score_text_fast:
-            return 0.5
-        try:
-            return score_text_fast(text)
-        except Exception:
-            return 0.5
-
     def _bruteforce_decode(self, text: str) -> List[Dict]:
         """
         Teste tous les décalages possibles (1 à 25).
@@ -184,7 +169,7 @@ class CaesarPlugin:
         
         for shift in range(1, 26):
             decoded_text = self._caesar_shift(text, -shift)
-            confidence = self._get_score_fast(decoded_text)
+            confidence = self._score_fast(decoded_text)
             
             results.append({
                 "id": f"result_{shift}",
@@ -236,41 +221,4 @@ class CaesarPlugin:
         
         return is_match, confidence
     
-    def _error_response(self, message: str) -> Dict:
-        """
-        Construit une réponse d'erreur standardisée.
-        
-        Args:
-            message (str): Message d'erreur
-            
-        Returns:
-            dict: Réponse d'erreur au format standardisé
-        """
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": 0
-            }
-        }
-    
-    def _get_plugin_info(self, start_time: float) -> Dict:
-        """
-        Construit les informations du plugin.
-        
-        Args:
-            start_time (float): Timestamp de début d'exécution
-            
-        Returns:
-            dict: Informations du plugin
-        """
-        execution_time = (time.time() - start_time) * 1000
-        
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2)
-        }
+

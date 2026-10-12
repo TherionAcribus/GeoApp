@@ -48,7 +48,15 @@ PLANET_DECODING = {v: k for k, v in PLANET_ENCODING.items()}
 FORMAT_LABELS = {"planet11": "PLANET-11", "planet13": "PLANET-13"}
 
 
-class PlanetBarcodePlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class PlanetBarcodePlugin(CipherPluginBase):
     """Plugin d'encodage/décodage du code-barres PLANET.
 
     Args:
@@ -66,6 +74,7 @@ class PlanetBarcodePlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "planet_barcode"
         self.version = "1.0.0"
 
@@ -618,18 +627,4 @@ class PlanetBarcodePlugin:
         except Exception:
             return None
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }

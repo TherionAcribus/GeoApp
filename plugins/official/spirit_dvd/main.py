@@ -47,7 +47,15 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 
-class SpiritDvdPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase, parse_bool
+
+
+class SpiritDvdPlugin(CipherPluginBase):
     """Plugin d'encodage/décodage du code Spirit DVD.
 
     Args:
@@ -110,6 +118,7 @@ class SpiritDvdPlugin:
     _WHITESPACE = re.compile(r"\s+")
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "spirit_dvd"
         self.version = "1.0.0"
         self._char_to_code = {char: code for char, code in self.CODES}
@@ -133,7 +142,7 @@ class SpiritDvdPlugin:
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)
 
-        swap = self._parse_bool(inputs.get("swap"), default=False)
+        swap = parse_bool(inputs.get("swap"), default=False)
 
         if mode == "encode":
             line_char = self._resolve_line_char(inputs.get("line_char"))
@@ -230,8 +239,8 @@ class SpiritDvdPlugin:
         inputs: Dict[str, Any],
         start_time: float,
     ) -> Dict[str, Any]:
-        auto_detect = self._parse_bool(inputs.get("auto_detect"), default=True)
-        ignore_whitespace = self._parse_bool(
+        auto_detect = parse_bool(inputs.get("auto_detect"), default=True)
+        ignore_whitespace = parse_bool(
             inputs.get("ignore_whitespace"), default=True
         )
 
@@ -429,31 +438,8 @@ class SpiritDvdPlugin:
         value = str(raw).strip()
         return value if value in self.LINE_CHOICES else None
 
-    @staticmethod
-    def _parse_bool(value: Any, default: bool) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        return str(value).strip().lower() in {"1", "true", "yes", "on", "oui"}
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
 
 
 def execute(inputs: Dict[str, Any]) -> Dict[str, Any]:

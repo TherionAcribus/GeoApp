@@ -74,7 +74,15 @@ VALID_START_ROWS = tuple(ROW_SHIFT.keys())
 WORD_BREAK_TOKEN = "/"
 
 
-class KeyboardCoordinatesPlugin:
+try:
+    from gc_backend.plugins.base import CipherPluginBase
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.base import CipherPluginBase
+
+
+class KeyboardCoordinatesPlugin(CipherPluginBase):
     """Plugin d'encodage/décodage des coordonnées clavier (QWERTY/AZERTY).
 
     Args:
@@ -91,6 +99,7 @@ class KeyboardCoordinatesPlugin:
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self.name = "keyboard_coordinates"
         self.version = "1.0.0"
 
@@ -436,18 +445,4 @@ class KeyboardCoordinatesPlugin:
         except Exception:
             return None
 
-    def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
-        execution_time = (time.time() - start_time) * 1000
-        return {
-            "name": self.name,
-            "version": self.version,
-            "execution_time_ms": round(execution_time, 2),
-        }
 
-    def _error_response(self, message: str, start_time: float) -> Dict[str, Any]:
-        return {
-            "status": "error",
-            "summary": message,
-            "results": [],
-            "plugin_info": self._get_plugin_info(start_time),
-        }
