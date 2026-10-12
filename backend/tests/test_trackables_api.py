@@ -969,10 +969,32 @@ def test_cache_inventory_freshness_policy(app, fake_network):
     assert body['trackables'] == [] and body['refreshed'] is True
 
 
-def test_concurrent_stale_refreshes_coalesce(app, monkeypatch):
+@pytest.fixture
+def threaded_app(tmp_path, monkeypatch):
+    """App sur une base fichier, pour les tests qui lancent de vrais threads.
+
+    La base en mémoire de la fixture `app` n'a qu'une connexion SQLite (StaticPool),
+    partagée par tous les threads : deux requêtes simultanées s'y télescopent
+    (`sqlite3.InterfaceError: bad parameter or other API misuse`). Une base fichier
+    donne une connexion par thread, comme en production.
+    """
+    db_path = (tmp_path / 'threaded.db').as_posix()
+    monkeypatch.setenv('GEOAPP_TEST_DATABASE_URI', f'sqlite:///{db_path}')
+    app = create_app()
+
+    with app.app_context():
+        yield app
+        db.session.remove()
+        db.drop_all()
+        db.engine.dispose()
+
+
+def test_concurrent_stale_refreshes_coalesce(threaded_app, monkeypatch):
     """Deux appels concurrents périmés : un seul appel distant (single-flight)."""
     import threading
     import time
+
+    app = threaded_app
 
     class _SlowFake(_FakeTrackablesClient):
         def fetch_my_inventory(self):

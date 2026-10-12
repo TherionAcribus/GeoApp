@@ -32,7 +32,13 @@ def create_app() -> Flask:
     if is_testing:
         # Tests need an isolated database before init_db() binds SQLAlchemy.
         app.config['TESTING'] = True
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+        # In-memory by default. It has a single connection shared by every
+        # thread, so a test that exercises real concurrency must point
+        # GEOAPP_TEST_DATABASE_URI at a file: one connection per thread, as in
+        # production.
+        app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+            'GEOAPP_TEST_DATABASE_URI', 'sqlite:///:memory:'
+        )
 
     CORS(
         app,
