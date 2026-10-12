@@ -1751,6 +1751,58 @@ def _finalize_detection(result: Dict, source: str, confidence: float, text: str)
     return result
 
 
+# Lettre cardinale isolée placée devant un nombre ("n48", "O 002") ou derrière
+# une valeur ("51.234 n", "27\" o"). « Isolée » = ni précédée ni suivie d'une
+# lettre, pour ne pas toucher aux mots ("nord", "est", "ou 5").
+_CARDINAL_PREFIX_REGEX = re.compile(r"(?<![^\W\d_])([nsewoO])(?=\s*\d)")
+_CARDINAL_SUFFIX_REGEX = re.compile(r"(?<=[\d'′\"″°º])(\s*)([nsewoO])(?![^\W_])")
+
+
+def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str]]) -> tuple:
+    """Met en forme canonique les lettres cardinales, sans changer la longueur.
+
+    Les détecteurs attendent pour la plupart N/S/E/W en majuscules. Deux
+    écritures courantes leur échappaient :
+      - les minuscules : ``n48 51.234 e002 21.456`` ;
+      - le ``O`` de « Ouest » (français, espagnol, italien, portugais) :
+        ``N48 51.234 O002 21.456``.
+
+    ``O`` est ambigu : c'est l'Ouest en français mais l'Est (« Ost ») en
+    allemand. Si des coordonnées d'origine sont connues, ``O`` prend leur
+    hémisphère (un final est toujours du même côté que sa cache) ; sinon il vaut
+    Ouest, et la réponse le signale (``o_direction_assumed``).
+
+    Chaque remplacement se fait caractère pour caractère : les ``span`` renvoyés
+    par les détecteurs restent valables sur le texte d'origine.
+
+    Returns:
+        (texte normalisé, positions des ``O`` convertis, lettre retenue pour ``O``,
+        True si cette lettre est une hypothèse faute d'origine).
+    """
+    o_letter, assumed = 'W', True
+    if origin_coords:
+        origin_lon = re.search(r'[EW]', str(origin_coords.get('ddm_lon') or '').upper())
+        if origin_lon:
+            o_letter, assumed = origin_lon.group(0), False
+
+    chars = list(text)
+    o_positions: List[int] = []
+
+    def _canonical(pos: int) -> None:
+        if chars[pos] in 'oO':
+            chars[pos] = o_letter
+            o_positions.append(pos)
+        else:
+            chars[pos] = chars[pos].upper()
+
+    for match in _CARDINAL_PREFIX_REGEX.finditer(text):
+        _canonical(match.start(1))
+    for match in _CARDINAL_SUFFIX_REGEX.finditer(text):
+        _canonical(match.start(2))
+
+    return ''.join(chars), o_positions, o_letter, assumed
+
+
 def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin_coords: Optional[Dict[str, str]] = None, include_written: bool = False) -> Dict[str, Optional[str]]:
     """
     Recherche des coordonnées GPS dans un texte en testant plusieurs formats.
@@ -1827,11 +1879,20 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
 
     detectors.sort(key=lambda d: (-d[0], d[1]))
 
+    # Les détecteurs lisent un texte aux lettres cardinales normalisées (même
+    # longueur) ; matched_text reste extrait du texte d'origine.
+    normalized_text, o_positions, o_letter, o_assumed = _normalize_cardinal_letters(text, origin_coords)
+
     for confidence, _order, detect_func, source in detectors:
-        result = detect_func(text)
+        result = detect_func(normalized_text)
         if result and result.get("exist"):
             logger.debug("detect_gps_coordinates: retenu %s (%.2f)", source, confidence)
-            return _finalize_detection(result, source, confidence, text)
+            result = _finalize_detection(result, source, confidence, text)
+            span = result.get("span")
+            if o_assumed and span and any(span[0] <= pos < span[1] for pos in o_positions):
+                # « O » lu comme Ouest faute de coordonnées d'origine (Ost = Est en allemand).
+                result["o_direction_assumed"] = o_letter
+            return result
 
     # NB : la détection en toutes lettres (written) n'est plus faite ici. Elle est
     # entièrement pilotée par l'endpoint via WrittenCoordinatesService, qui respecte

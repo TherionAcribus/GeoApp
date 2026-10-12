@@ -201,3 +201,63 @@ class TestMatchedSpan:
         assert r["exist"] is False
         assert r["span"] is None
         assert r["matched_text"] is None
+
+
+class TestCardinalLetterVariants:
+    """Lettres cardinales en minuscules et « O » de Ouest (normalisation amont)."""
+
+    def test_lowercase_prefix(self):
+        _check("n48 51.234 e002 21.456",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 21.456'",
+               dec_lat=48.8539, dec_lon=2.3576)
+
+    def test_lowercase_with_degree_symbol(self):
+        _check("n 48° 51.234' w 002° 21.456'",
+               ddm_lat="N 48° 51.234'", ddm_lon="W 002° 21.456'",
+               dec_lon=-2.3576)
+
+    def test_o_means_west_without_origin(self):
+        r = _check("N48 51.234 O002 21.456",
+                   ddm_lat="N 48° 51.234'", ddm_lon="W 002° 21.456'",
+                   dec_lon=-2.3576)
+        assert r["o_direction_assumed"] == "W"
+
+    def test_lowercase_o(self):
+        _check("s 33 51.234 o 070 21.456",
+               ddm_lat="S 33° 51.234'", ddm_lon="W 070° 21.456'")
+
+    def test_suffix_direction_lowercase_and_o(self):
+        _check("48° 51.234' n 2° 17.567' o",
+               ddm_lat="N 48° 51.234'", ddm_lon="W 002° 17.567'")
+
+    def test_o_follows_origin_hemisphere(self):
+        """Avec une origine, « O » prend son hémisphère : Ost (Est) en Allemagne."""
+        east = d("N48 51.234 O009 21.456", origin_coords="N 48° 39.286 E 009° 11.685")
+        assert east["ddm_lon"] == "E 009° 21.456'"
+        assert "o_direction_assumed" not in east
+
+        west = d("N48 51.234 O002 21.456",
+                 origin_coords={"ddm_lat": "N 47° 00.000'", "ddm_lon": "W 002° 00.000'"})
+        assert west["ddm_lon"] == "W 002° 21.456'"
+        assert "o_direction_assumed" not in west
+
+    def test_matched_text_keeps_the_original_writing(self):
+        text = "Rendez-vous à n48 51.234 o002 21.456 pour le final"
+        r = d(text)
+        assert r["matched_text"] == "n48 51.234 o002 21.456"
+        assert text[r["span"][0]:r["span"][1]] == r["matched_text"]
+
+    def test_uppercase_writing_is_unchanged(self):
+        r = d("N48 51.234 E002 21.456")
+        assert r["ddm_lon"] == "E 002° 21.456'"
+        assert "o_direction_assumed" not in r
+
+    @pytest.mark.parametrize("text", [
+        "le numero 5 ou 6",
+        "il y a 3 e et 4 o",
+        "page n 12 chapitre e 3",
+        "Solo 5 gato 7",
+        "O 2 N 4",
+    ])
+    def test_stray_letters_are_not_coordinates(self, text):
+        assert d(text)["exist"] is False

@@ -354,9 +354,21 @@ Lancement : `cd backend && python -m pytest tests/test_coordinates_*.py -q`
   détecteurs `NORD/EST` (rare).
 - **`written_languages: ['auto']`** : transmis tel quel au service (pas de mapping
   vers une liste de langues par défaut).
-- **Formats faibles résiduels** : la paire décimale score ≈ 0.80 (< cible 0.85) et
-  `N48 51.234 E002 21.456` score bas — problèmes de **scoring**, pas de détection
+- **Formats faibles résiduels** : la paire décimale score ≈ 0.80 (< cible 0.85) —
+  problème de **scoring**, pas de détection
   (voir [scoring-technique.md](scoring-technique.md) §10).
+- **Lettres cardinales en minuscules et `O` de « Ouest »** : pris en charge par
+  `_normalize_cardinal_letters`, appelée une fois en tête de
+  `detect_gps_coordinates`. Elle met en majuscules les lettres cardinales isolées
+  placées devant un nombre (`n48`, `o 002`) ou derrière une valeur (`51.234' n`),
+  caractère pour caractère : les `span` restent valables et `matched_text` garde
+  l'écriture d'origine. Les 18 détecteurs lisent le texte normalisé, aucune de
+  leurs regex n'a changé.
+- **`O` est ambigu** : Ouest en français/espagnol/italien/portugais, Est (« Ost »)
+  en allemand. Avec `origin_coords`, `O` prend l'hémisphère de l'origine (un final
+  est du même côté que sa cache). Sans origine, il vaut Ouest et la réponse porte
+  `o_direction_assumed: "W"`. Le scorer n'envoie pas d'origine : un `O` allemand y
+  est donc lu comme Ouest. Le frontend n'affiche pas encore ce champ.
 - **Composant front partagé** : `coordinates-detector.tsx` (alphabets) et l'affichage
   du Plugin Executor restent séparés ; une unification avec actions
   Copier / Voir-carte / Créer-waypoint est différée.
