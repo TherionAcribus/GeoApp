@@ -102,6 +102,7 @@ texte brut
     │       A1 Indice de coïncidence (IC)
     │       A2 Entropie de Shannon
     │       A3 GPS gatekeeper + detect_gps_coordinates
+    │       A4 Contexte géographique  →  gps_conf pondéré par la distance à la cache
     │
     ├─ [Couche B] Qualité n-grammes
     │       B1 LangID trigrammes  →  language, confidence, fitness
@@ -195,6 +196,37 @@ Feature `entropy_quality` par paliers :
 Si le gatekeeper passe → appel à `detect_gps_coordinates()` (blueprint coordinates).
 
 `gps_conf` = `coords['confidence']` si `coords['exist']`, sinon `0.0`.
+
+---
+
+#### A4 — Contexte géographique (distance à la cache)
+
+Le final d'une mystery se trouve à moins de 2 miles (3,2 km) de ses coordonnées publiées, et les autres types s'en éloignent rarement beaucoup. Quand l'appelant fournit les coordonnées de la cache, `gps_conf` est pondéré par la distance entre la cache et les coordonnées détectées (`_apply_geo_context`) :
+
+| Distance | Statut | Effet sur `gps_conf` |
+|---|---|---|
+| ≤ 3,3 km | `near` | relevé : 60 % du doute restant est retiré (0.95 → 0.98, 0.80 → 0.92) |
+| ≤ 25 km | `plausible` | inchangé |
+| ≤ 80 km | `far` | × 0.85 |
+| ≤ 200 km | `very_far` | × 0.60 |
+| au-delà | `implausible` | × 0.35 |
+
+Un mauvais déchiffrement qui *ressemble* à des coordonnées tombe en général à des centaines de kilomètres : il passe ainsi sous un vrai texte clair au lieu de prendre la tête du classement. Il n'est pas éliminé (une bonus ou une challenge peut être loin) : avec le signal numérique, il reste vers 0.43.
+
+**Origine** — lue dans le `context` par `_origin_from_context`, qui accepte :
+- `origin_coords` : chaîne DDM (`"N 48° 51.234 E 002° 21.456"`) ou dict `{ddm_lat, ddm_lon}` ;
+- `origin_latitude` / `origin_longitude` : décimaux.
+
+Toute origine absente ou illisible est ignorée sans erreur (les plugins passent des contextes arbitraires). L'origine, arrondie à 5 décimales, entre dans la clé du cache LRU.
+
+**D'où vient-elle** :
+- `/api/plugins/<nom>/execute` : `inputs.origin_coords`, que le frontend injecte déjà en mode géocache ; à défaut, la géocache désignée par `inputs.geocache_id` (ses coordonnées d'origine si elles ont été corrigées).
+- `/api/plugins/score` : `context.origin_coords`, ou `geocache_id` / `origin_coords` à la racine du body.
+- Metasolver : `inputs.origin_coords`, transmis au rescoring final.
+
+L'origine est aussi transmise au détecteur, ce qui lève l'ambiguïté du `O` (Ouest ou « Ost », voir [coordonnees-technique.md](coordonnees-technique.md)).
+
+Le résultat est exposé dans `metadata.scoring.geo` : `{distance_km, status, gps_confidence_raw}`, ou `null` sans origine ou sans coordonnées détectées. Les coordonnées écrites en toutes lettres passent par le signal numérique et n'ont pas de position calculable ici : l'origine ne les affecte pas.
 
 ---
 
@@ -504,7 +536,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
 | Fonction | Cache | Clé |
 |---|---|---|
-| `_cached_score(text)` | LRU 1000 | texte brut |
+| `_cached_score(text, origin)` | LRU 1000 | texte brut + origine (lat, lon) ou `None` |
 | `_score_text_fast_cached(letters)` | LRU 4096 | lettres A-Z normalisées |
 | `_all_known_words()` | LRU 1 | — (singleton) |
 | `_all_geo_words()` | LRU 1 | — (singleton) |
@@ -534,6 +566,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
 | `TestNumberEnumBelowWordCoords` | score final : enum < word_coords | ✅ |
 | `TestNumericLookalikes` | Prose avec `un`/`et`/`est`/`très` : signal numérique ≤ 0.15 ; dizaines 70/80/90 : ≥ 0.6 | ✅ |
+| `TestGeoContext` | Avec l'origine : coordonnées proches relevées, score décroissant avec la distance, coordonnées à 390 km sous un texte clair ; sans origine : rien ne change | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue ; chaque table reconnaît sa langue mieux que les autres et décroche d'au moins 0.2 sur les mêmes lettres mélangées ; aucune entrée sous −6.0 | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |

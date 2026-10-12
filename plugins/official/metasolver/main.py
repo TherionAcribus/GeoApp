@@ -536,6 +536,9 @@ class MetaSolverPlugin:
             start_time=start_time,
             max_workers=max_workers,
             aborted_reason=aborted_reason,
+            # Coordonnées de la cache : le scoring pondère les coordonnées trouvées
+            # par leur distance à la cache.
+            scoring_context={"origin_coords": inputs.get("origin_coords")},
         )
 
         yield {"event": "result", "data": response}
@@ -1182,6 +1185,7 @@ class MetaSolverPlugin:
         start_time: float,
         max_workers: int,
         aborted_reason: Optional[str] = None,
+        scoring_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Construit la réponse finale (dédup + rescoring + tri déterministe).
 
@@ -1210,7 +1214,9 @@ class MetaSolverPlugin:
             ]
             if with_text:
                 # top_k = tout, min_score = 0 : aucun résultat n'est perdu, seulement re-noté et re-trié
-                ranked = _score_and_rank(with_text, top_k=len(with_text), min_score=0.0)
+                ranked = _score_and_rank(
+                    with_text, top_k=len(with_text), min_score=0.0, context=scoring_context
+                )
                 deduped = ranked + without_text
                 full_rescored = True
 

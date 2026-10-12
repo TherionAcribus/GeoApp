@@ -375,8 +375,9 @@ Lancement : `cd backend && python -m pytest tests/test_coordinates_*.py -q`
 - **`O` est ambigu** : Ouest en français/espagnol/italien/portugais, Est (« Ost »)
   en allemand. Avec `origin_coords`, `O` prend l'hémisphère de l'origine (un final
   est du même côté que sa cache). Sans origine, il vaut Ouest et la réponse porte
-  `o_direction_assumed: "W"`. Le scorer n'envoie pas d'origine : un `O` allemand y
-  est donc lu comme Ouest. Le frontend n'affiche pas encore ce champ.
+  `o_direction_assumed: "W"`. Le scorer transmet l'origine quand il la
+  reçoit dans son contexte (mode géocache), sinon un `O` allemand y est lu comme
+  Ouest. Le frontend n'affiche pas encore ce champ.
 - **Composant front partagé** : `coordinates-detector.tsx` (alphabets) et l'affichage
   du Plugin Executor restent séparés ; une unification avec actions
   Copier / Voir-carte / Créer-waypoint est différée.

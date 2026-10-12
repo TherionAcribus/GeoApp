@@ -165,14 +165,20 @@ def _gps_structured_hint(text: str) -> bool:
     )
 
 
-def _detect_gps_confidence(text: str, include_numeric_only: bool = False) -> Tuple[float, Dict[str, Any]]:
+def _detect_gps_confidence(
+    text: str,
+    include_numeric_only: bool = False,
+    origin_coords: Optional[Dict[str, str]] = None,
+) -> Tuple[float, Dict[str, Any]]:
     if not _gps_gatekeeper_fast(text):
         return 0.0, {"exist": False}
 
     try:
         from gc_backend.blueprints.coordinates import detect_gps_coordinates
 
-        coords = detect_gps_coordinates(text, include_numeric_only=include_numeric_only)
+        coords = detect_gps_coordinates(
+            text, include_numeric_only=include_numeric_only, origin_coords=origin_coords
+        )
         if coords.get('exist'):
             return float(coords.get('confidence') or 0.0), coords
         return 0.0, coords
@@ -808,14 +814,114 @@ class ScoreResult:
     metadata: Dict[str, Any]
 
 
-def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> ScoreResult:
-    # `context` is reserved for future use and is currently unused.
-    _ = context
+# ── Geographic context ───────────────────────────────────────────────────
+# The final of a mystery cache lies within 2 miles (3.2 km) of its posted
+# coordinates, and other cache types rarely stray far. When the caller gives
+# the cache's own coordinates, coordinates found in a candidate are weighed by
+# their distance to it: a wrong decoding that still *looks* like coordinates
+# usually lands hundreds of kilometres away.
+_GEO_NEAR_KM = 3.3            # the 2-mile rule, with a small margin
+_GEO_NEAR_BOOST = 0.6         # share of the remaining doubt removed when near
+_GEO_BANDS = (                # (max distance km, status, factor on gps_confidence)
+    (25.0, 'plausible', 1.0),
+    (80.0, 'far', 0.85),
+    (200.0, 'very_far', 0.6),
+)
+_GEO_BEYOND = ('implausible', 0.35)
 
+
+def _origin_from_context(context: Optional[Dict[str, Any]]) -> Optional[Tuple[float, float]]:
+    """Cache coordinates (decimal lat, lon) from a scoring context, or None.
+
+    Accepts ``origin_latitude``/``origin_longitude`` (numbers) or
+    ``origin_coords`` — a DDM string ("N 48° 51.234 E 002° 21.456") or a
+    ``{ddm_lat, ddm_lon}`` dict, the form the frontend already sends to plugins.
+    Anything missing or unreadable yields None: plugins pass arbitrary contexts.
+    """
+    if not isinstance(context, dict):
+        return None
+    try:
+        lat, lon = context.get('origin_latitude'), context.get('origin_longitude')
+        if lat is None or lon is None:
+            raw = context.get('origin_coords')
+            if not raw:
+                return None
+            from gc_backend.blueprints.coordinates import _normalize_origin_coords, convert_ddm_to_decimal
+
+            ddm = _normalize_origin_coords(raw)
+            if not ddm:
+                return None
+            decimal = convert_ddm_to_decimal(ddm['ddm_lat'], ddm['ddm_lon'])
+            lat, lon = decimal.get('latitude'), decimal.get('longitude')
+        lat, lon = float(lat), float(lon)
+    except Exception as e:
+        logger.debug(f"Scoring origin unreadable: {e}")
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon) and -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    # Rounded (~1 m) so the origin can key the score cache.
+    return round(lat, 5), round(lon, 5)
+
+
+def _origin_as_ddm(origin: Tuple[float, float]) -> Dict[str, str]:
+    """{ddm_lat, ddm_lon} for the detector, which reads the hemisphere from it."""
+    def _part(value: float, positive: str, negative: str, width: int) -> str:
+        degrees = int(abs(value))
+        minutes = (abs(value) - degrees) * 60.0
+        return f"{positive if value >= 0 else negative} {degrees:0{width}d}° {minutes:06.3f}'"
+
+    return {
+        'ddm_lat': _part(origin[0], 'N', 'S', 2),
+        'ddm_lon': _part(origin[1], 'E', 'W', 3),
+    }
+
+
+def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance (haversine) — ample precision for these bands."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 6371.0088 * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _apply_geo_context(
+    gps_conf: float, gps_details: Dict[str, Any], origin: Optional[Tuple[float, float]]
+) -> Tuple[float, Optional[Dict[str, Any]]]:
+    """Weigh a GPS detection by its distance to the cache; returns (confidence, geo)."""
+    if origin is None or gps_conf <= 0.0:
+        return gps_conf, None
+    lat, lon = gps_details.get('decimal_latitude'), gps_details.get('decimal_longitude')
+    if lat is None or lon is None:
+        return gps_conf, None
+
+    distance = _distance_km(origin[0], origin[1], float(lat), float(lon))
+    if distance <= _GEO_NEAR_KM:
+        status, factor = 'near', None
+        adjusted = gps_conf + (1.0 - gps_conf) * _GEO_NEAR_BOOST
+    else:
+        status, factor = _GEO_BEYOND
+        for max_km, band_status, band_factor in _GEO_BANDS:
+            if distance <= max_km:
+                status, factor = band_status, band_factor
+                break
+        adjusted = gps_conf * factor
+    return float(adjusted), {
+        'distance_km': round(distance, 2),
+        'status': status,
+        'gps_confidence_raw': float(gps_conf),
+    }
+
+
+def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> ScoreResult:
     ic = _compute_ic(text)
     entropy = _shannon_entropy(text)
 
-    gps_conf, gps_details = _detect_gps_confidence(text, include_numeric_only=False)
+    gps_conf, gps_details = _detect_gps_confidence(
+        text,
+        include_numeric_only=False,
+        origin_coords=_origin_as_ddm(origin) if origin else None,
+    )
+    gps_conf, geo = _apply_geo_context(gps_conf, gps_details, origin)
 
     langid = detect_language(text, DEFAULT_LANGS_EUROPE)
     # Word-level features read the text with glued words split apart; the
@@ -921,6 +1027,8 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     explanation = []
     if gps_conf > 0:
         explanation.append(f"GPS={gps_conf:.2f}")
+    if geo:
+        explanation.append(f"geo={geo['distance_km']:.1f}km ({geo['status']})")
     if langid.language != 'unknown':
         explanation.append(f"lang={langid.language} ({langid.confidence:.2f})")
     explanation.append(f"lex={lexical:.2f}")
@@ -944,6 +1052,9 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
                 'segmentation_language': segmentation_lang,
                 'gps_patterns': [gps_details.get('ddm')] if gps_details.get('exist') else [],
                 'gps_source': gps_details.get('source'),
+                # Distance to the cache when its coordinates were given:
+                # {distance_km, status, gps_confidence_raw}, else None.
+                'geo': geo,
                 'features': {
                     'ic': float(ic),
                     'entropy': float(entropy),
@@ -968,16 +1079,17 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
 
 
 @lru_cache(maxsize=1000)
-def _cached_score(text: str) -> ScoreResult:
-    return _compute_score(text)
+def _cached_score(text: str, origin: Optional[Tuple[float, float]] = None) -> ScoreResult:
+    return _compute_score(text, origin)
 
 
 def score_text(text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    # `context` is reserved for future use and is currently ignored by the
-    # scorer.  It is intentionally excluded from the cache key so that two
-    # calls with the same text share a cache entry regardless of context.
-    _ = context
-    result = _cached_score(text)
+    """Score a text. ``context`` may carry the cache's coordinates (see
+    _origin_from_context): coordinates found in the text are then weighed by
+    their distance to the cache. Every other context key is ignored, and only
+    the origin enters the cache key.
+    """
+    result = _cached_score(text, _origin_from_context(context))
     return {
         'score': result.score,
         'metadata': copy.deepcopy(result.metadata),

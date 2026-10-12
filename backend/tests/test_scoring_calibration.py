@@ -30,6 +30,7 @@ from gc_backend.plugins.scoring.scorer import (
     _all_known_words,
     _encoded_pattern_penalty,
     _norm_lex_token,
+    _origin_from_context,
     _normalize_for_stats,
     _numeric_signal_feature,
     _quadgram_fitness_for_lang,
@@ -635,3 +636,102 @@ class TestLangidFitnessDecoupling:
             "Aucun cas d'effondrement de confidence recupere par fitness ; "
             "le decouplage n'est pas demontre par ce jeu de textes."
         )
+
+
+# ── Contexte geographique : distance a la cache ─────────────────────
+
+
+class TestGeoContext:
+    """Des coordonnees trouvees dans un resultat sont ponderees par leur
+    distance a la cache, quand l'appelant fournit ses coordonnees."""
+
+    ORIGIN = {"origin_coords": "N 48° 51.000 E 002° 21.000"}
+    NEAR = "N 48° 51.234 E 002° 22.300"       # ~1,6 km
+    REGIONAL = "N 48° 58.000 E 002° 32.000"   # ~19 km
+    FAR = "N 49° 20.000 E 002° 40.000"        # ~58 km
+    VERY_FAR = "N 49° 55.000 E 003° 40.000"   # ~150 km
+    ELSEWHERE = "N 45° 45.000 E 004° 50.000"  # ~390 km
+
+    def _score(self, text, context=None):
+        return score_text(text, context)
+
+    def test_without_origin_nothing_changes(self):
+        for text in (self.NEAR, self.ELSEWHERE):
+            scoring = self._score(text)["metadata"]["scoring"]
+            assert scoring["geo"] is None
+            assert self._score(text, {})["score"] == self._score(text)["score"]
+
+    def test_near_coordinates_are_boosted(self):
+        plain = self._score(self.NEAR)["score"]
+        scored = self._score(self.NEAR, self.ORIGIN)
+        geo = scored["metadata"]["scoring"]["geo"]
+        assert geo["status"] == "near" and geo["distance_km"] < 3.3
+        assert scored["score"] > plain
+
+    def test_regional_coordinates_are_untouched(self):
+        scored = self._score(self.REGIONAL, self.ORIGIN)
+        assert scored["metadata"]["scoring"]["geo"]["status"] == "plausible"
+        assert scored["score"] == self._score(self.REGIONAL)["score"]
+
+    def test_score_decreases_with_distance(self):
+        scores = [
+            self._score(t, self.ORIGIN)["score"]
+            for t in (self.NEAR, self.REGIONAL, self.FAR, self.VERY_FAR, self.ELSEWHERE)
+        ]
+        assert scores == sorted(scores, reverse=True), scores
+        assert scores[0] - scores[-1] >= 0.4
+
+    def test_far_coordinates_fall_below_plain_text(self):
+        """Un mauvais dechiffrement qui ressemble a des coordonnees, a 390 km,
+        ne doit plus passer devant un vrai texte clair."""
+        prose = min(self._score(t, self.ORIGIN)["score"] for t in CASES["correct_decrypt"])
+        assert self._score(self.ELSEWHERE, self.ORIGIN)["score"] < prose
+        assert self._score(self.ELSEWHERE)["score"] > prose  # sans origine : comme avant
+
+    def test_raw_confidence_is_kept_for_audit(self):
+        scoring = self._score(self.ELSEWHERE, self.ORIGIN)["metadata"]["scoring"]
+        assert scoring["geo"]["gps_confidence_raw"] > scoring["features"]["gps_confidence"]
+
+    def test_text_without_coordinates_ignores_the_origin(self):
+        # Prose, et coordonnees ecrites en toutes lettres (aucune position calculable).
+        for text in CASES["correct_decrypt"] + CASES["word_coords"][:1]:
+            assert self._score(text, self.ORIGIN)["score"] == self._score(text)["score"]
+            assert self._score(text, self.ORIGIN)["metadata"]["scoring"]["geo"] is None
+
+    def test_same_text_is_cached_per_origin(self):
+        """L'origine entre dans la cle du cache : deux caches, deux scores."""
+        here = self._score(self.NEAR, self.ORIGIN)["score"]
+        there = self._score(self.NEAR, {"origin_coords": "N 45° 45.000 E 004° 50.000"})["score"]
+        assert here > there
+        assert self._score(self.NEAR, self.ORIGIN)["score"] == here
+
+    def test_origin_settles_the_o_ambiguity(self):
+        """« O » = Ost (Est) pres d'une cache allemande, Ouest sans origine."""
+        text = "N48 51.234 O009 21.456"
+        german = self._score(text, {"origin_coords": "N 48° 50.000 E 009° 20.000"})
+        assert german["metadata"]["scoring"]["gps_patterns"] == ["N 48° 51.234' E 009° 21.456'"]
+        assert self._score(text)["metadata"]["scoring"]["gps_patterns"] == ["N 48° 51.234' W 009° 21.456'"]
+
+    @pytest.mark.parametrize("context, expected", [
+        ({"origin_latitude": 48.85, "origin_longitude": 2.35}, (48.85, 2.35)),
+        ({"origin_coords": {"ddm_lat": "N 48° 51.000'", "ddm_lon": "E 002° 21.000'"}}, (48.85, 2.35)),
+        ({"origin_coords": "n'importe quoi"}, None),
+        ({"origin_latitude": "abc", "origin_longitude": 2}, None),
+        ({"origin_latitude": 480, "origin_longitude": 2}, None),
+        ({"origin_coords": ["x"]}, None),
+        ({"cle_de_plugin": [1, 2]}, None),
+        ({}, None),
+        (None, None),
+        ("pas un dict", None),
+    ])
+    def test_origin_parsing_is_tolerant(self, context, expected):
+        assert _origin_from_context(context) == expected
+
+    def test_ranking_uses_the_origin(self):
+        items = [
+            {"text_output": self.ELSEWHERE, "id": "loin"},
+            {"text_output": self.NEAR, "id": "pres"},
+            {"text_output": "LA CACHE EST SOUS LE PONT", "id": "texte"},
+        ]
+        ranked = score_and_rank_results(items, top_k=10, min_score=0.03, context=self.ORIGIN)
+        assert [r["id"] for r in ranked] == ["pres", "texte", "loin"]

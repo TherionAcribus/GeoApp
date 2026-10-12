@@ -364,3 +364,57 @@ class TestScoringIntegrationExecute:
 
         item = data['results'][0]
         assert item['confidence'] == 0.0
+
+
+# ── Contexte geographique ────────────────────────────────────────────
+
+NEAR_PARIS = "N 48° 51.234 E 002° 22.300"      # ~1,6 km de l'origine
+FAR_FROM_PARIS = "N 45° 45.000 E 004° 50.000"  # Lyon, ~390 km
+PARIS_ORIGIN = "N 48° 51.000 E 002° 21.000"
+
+
+def _geo(client, **body):
+    response = client.post('/api/plugins/score', data=json.dumps(body), content_type='application/json')
+    assert response.status_code == 200
+    return json.loads(response.data)
+
+
+class TestScoreEndpointGeoContext:
+    def test_no_origin_means_no_geo(self, client):
+        data = _geo(client, text=NEAR_PARIS)
+        assert data['metadata']['scoring']['geo'] is None
+
+    def test_origin_in_context_ranks_near_above_far(self, client):
+        context = {'origin_coords': PARIS_ORIGIN}
+        near = _geo(client, text=NEAR_PARIS, context=context)
+        far = _geo(client, text=FAR_FROM_PARIS, context=context)
+
+        assert near['metadata']['scoring']['geo']['status'] == 'near'
+        assert far['metadata']['scoring']['geo']['status'] == 'implausible'
+        assert near['score'] - far['score'] >= 0.4
+
+    def test_origin_resolved_from_geocache_id(self, client, app):
+        """Sans origine explicite, celle de la geocache — d'origine si corrigee."""
+        from gc_backend.geocaches.models import Geocache
+        from gc_backend.models import Zone
+
+        zone = Zone(name='Z')
+        db.session.add(zone)
+        db.session.flush()
+        geocache = Geocache(
+            gc_code='GCGEO1', name='Mystery', type='Mystery', zone_id=zone.id, logs_count=0,
+            # Coordonnees corrigees (final resolu, loin) ; origine a Paris.
+            latitude=45.75, longitude=4.8333, is_corrected=True,
+            original_latitude=48.85, original_longitude=2.35,
+        )
+        db.session.add(geocache)
+        db.session.commit()
+
+        data = _geo(client, text=NEAR_PARIS, geocache_id=geocache.id)
+
+        geo = data['metadata']['scoring']['geo']
+        assert geo['status'] == 'near' and geo['distance_km'] < 3.3
+
+    def test_unknown_geocache_id_is_ignored(self, client):
+        data = _geo(client, text=NEAR_PARIS, geocache_id=999999)
+        assert data['metadata']['scoring']['geo'] is None

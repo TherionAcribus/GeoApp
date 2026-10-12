@@ -5540,6 +5540,41 @@ def get_plugin_manager() -> PluginManager:
     return _plugin_manager
 
 
+def _scoring_context_from_inputs(inputs: Any) -> Dict[str, Any]:
+    """Contexte geographique du scoring : les coordonnees de la geocache.
+
+    Le scorer s'en sert pour ponderer des coordonnees trouvees dans un resultat
+    par leur distance a la cache (voir scorer._apply_geo_context). Source, par
+    ordre de preference : `origin_coords` deja fourni par l'appelant (le frontend
+    l'injecte en mode geocache), sinon la geocache designee par `geocache_id` —
+    ses coordonnees d'origine si elles ont ete corrigees, pour ne pas mesurer la
+    distance a un final deja resolu. Dictionnaire vide si rien n'est disponible.
+    """
+    if not isinstance(inputs, dict):
+        return {}
+
+    origin_coords = inputs.get('origin_coords')
+    if origin_coords:
+        return {'origin_coords': origin_coords}
+
+    geocache_id = inputs.get('geocache_id')
+    if not geocache_id:
+        return {}
+    try:
+        geocache = Geocache.query.get(int(geocache_id))
+    except Exception:
+        return {}
+    if geocache is None:
+        return {}
+
+    latitude, longitude = geocache.original_latitude, geocache.original_longitude
+    if latitude is None or longitude is None:
+        latitude, longitude = geocache.latitude, geocache.longitude
+    if latitude is None or longitude is None:
+        return {}
+    return {'origin_latitude': latitude, 'origin_longitude': longitude}
+
+
 @bp.route('/score', methods=['POST'])
 def score_text_endpoint():
     try:
@@ -5565,6 +5600,11 @@ def score_text_endpoint():
             }), 400
 
         from gc_backend.plugins.scoring import score_text
+
+        # Contexte geographique : `context.origin_coords` fourni tel quel, ou
+        # deduit de `geocache_id` / `origin_coords` places a la racine du body.
+        if not (context or {}).get('origin_coords') and (context or {}).get('origin_latitude') is None:
+            context = {**(context or {}), **_scoring_context_from_inputs(data)}
 
         if 'texts' in data:
             texts = data.get('texts')
@@ -6521,7 +6561,7 @@ def execute_plugin(plugin_name: str):
                         top_k=max(max_results, 25),
                         min_score=0.03,
                         fast_reject_threshold=0.01,
-                        context={},
+                        context=_scoring_context_from_inputs(inputs),
                     )
                     if ranked:
                         result['results'] = ranked
