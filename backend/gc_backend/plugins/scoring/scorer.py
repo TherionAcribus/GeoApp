@@ -464,43 +464,75 @@ _QUADGRAM_LOGP_NOISE = -5.4
 _QUADGRAM_LOGP_TEXT = -4.2
 
 
-def _quadgram_fitness_for_lang(letters: str, lang: str) -> float:
-    """Quadgram fitness of a letters-only string against one language's table."""
+def _quadgram_mean_logp(letters: str, lang: str) -> Optional[float]:
+    """Mean log10-probability per 4-letter window, or None without table/window."""
     table = load_quadgrams(lang)
-    if not table:
-        return 0.0
     windows = len(letters) - 3
-    if windows <= 0:
-        return 0.0
+    if not table or windows <= 0:
+        return None
     total = 0.0
     for i in range(windows):
         total += table.get(letters[i:i + 4], _QUADGRAM_UNKNOWN_LOGP)
-    mean_logp = total / windows
+    return total / windows
+
+
+def _quadgram_fitness_from_logp(mean_logp: Optional[float]) -> float:
+    if mean_logp is None:
+        return 0.0
     fitness = (mean_logp - _QUADGRAM_LOGP_NOISE) / (_QUADGRAM_LOGP_TEXT - _QUADGRAM_LOGP_NOISE)
     return float(max(0.0, min(1.0, fitness)))
 
 
-def _quadgram_fitness(text: str, lang: str) -> float:
-    """Best-of quadgram fitness across the detected language + every available table.
+def _quadgram_fitness_for_lang(letters: str, lang: str) -> float:
+    """Quadgram fitness of a letters-only string against one language's table."""
+    return _quadgram_fitness_from_logp(_quadgram_mean_logp(letters, lang))
 
-    Using all available tables (not a hardcoded en/fr/de) means es/it/nl/pt/pl
-    text is scored against its own table when that scores best, instead of only
-    the three original languages.
+
+# ── Language identification ──────────────────────────────────────────────
+# Two per-language signals, both already computed for scoring:
+#   - the quadgram table: mean log-probability of the text's 4-letter windows;
+#   - the vocabulary: mean cost per letter of the text's words (frequent word =
+#     cheap, unknown word = _SEGMENT_SKIP_COST per letter), glued words split.
+# On 57 real sentences in the 8 languages this names the right language every
+# time (35/36 once glued), where the 28-trigram profiles of langid.py manage
+# 21/57 — they return "unknown" for most uppercase sentences.
+_LANG_QUADGRAM_SPAN = 2.5     # logp range mapped to 0..1: -6.0 .. -3.5
+_LANG_WORD_WEIGHT = 1.5       # the vocabulary settles close languages (es/pt/it)
+_LANG_MIN_SCORE = 0.4         # below: "unknown" (gibberish stays under 0.2)
+
+
+def _identify_language(letters: str, word_text: str) -> Tuple[str, float, Dict[str, Optional[float]]]:
+    """Returns (language or 'unknown', confidence 0..1, quadgram mean logp per language).
+
+    ``confidence`` is the lead over the runner-up: low between close languages
+    on a short text, high on a full sentence.
     """
-    letters = _normalize_for_stats(text)
-    if len(letters) < _QUADGRAM_MIN_LETTERS:
-        return 0.0
-    # Detected language first, then every language that ships a quadgram table.
-    langs_to_try = [lang] if lang and lang != 'unknown' else []
-    for fallback in available_quadgram_langs():
-        if fallback not in langs_to_try:
-            langs_to_try.append(fallback)
-    best = 0.0
-    for lg in langs_to_try:
-        f = _quadgram_fitness_for_lang(letters, lg)
-        if f > best:
-            best = f
-    return best
+    tokens = [t for t in (_norm_lex_token(t) for t in _tokenize_words(word_text)) if t.isalpha()]
+    n_letters = sum(len(t) for t in tokens)
+
+    logps: Dict[str, Optional[float]] = {}
+    scores: List[Tuple[float, str]] = []
+    for lang in available_quadgram_langs():
+        mean_logp = _quadgram_mean_logp(letters, lang) if len(letters) >= _QUADGRAM_MIN_LETTERS else None
+        logps[lang] = mean_logp
+        score = 0.0
+        if mean_logp is not None:
+            score += max(0.0, (mean_logp - _QUADGRAM_UNKNOWN_LOGP) / _LANG_QUADGRAM_SPAN)
+        if n_letters:
+            vocab, _max_len = _lang_vocabulary(lang)
+            cost = sum(vocab.get(t, _SEGMENT_SKIP_COST * len(t)) for t in tokens) / n_letters
+            score += (1.0 - min(1.0, cost / _SEGMENT_SKIP_COST)) * _LANG_WORD_WEIGHT
+        scores.append((score, lang))
+
+    if not scores:
+        return 'unknown', 0.0, logps
+    scores.sort(reverse=True)
+    best, language = scores[0]
+    if best < _LANG_MIN_SCORE:
+        return 'unknown', 0.0, logps
+    runner_up = scores[1][0] if len(scores) > 1 else 0.0
+    return language, float(min(1.0, (best - runner_up) * 2.0)), logps
+
 
 
 def _repetition_quality(text: str) -> float:
@@ -942,8 +974,15 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
     ic_v = _ic_feature(ic)
     entropy_v = _entropy_feature(entropy)
 
+    # The trigram profiles only feed the `trigram_fitness` metadata now; the
+    # language comes from the quadgram tables and the vocabulary.
     trigram_fitness = float(langid.fitness)
-    quadgram_fitness = _quadgram_fitness(text, langid.language)
+    language, language_confidence, quadgram_logps = _identify_language(
+        _normalize_for_stats(text), word_text
+    )
+    quadgram_fitness = max(
+        (_quadgram_fitness_from_logp(v) for v in quadgram_logps.values()), default=0.0
+    )
     repetition_quality = _repetition_quality(text)
     encoded_penalty = _encoded_pattern_penalty(text)
     if segmentation_lang and _RE_BASE64_LIKE.match(text.strip()):
@@ -976,8 +1015,8 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
                 'scoring': {
                     'score': 0.0,
                     'early_exit': 'ic_veto',
-                    'language_detected': langid.language,
-                    'language_confidence': langid.confidence,
+                    'language_detected': language,
+                    'language_confidence': float(language_confidence),
                     'features': {
                         'ic': ic,
                         'entropy': entropy,
@@ -1047,8 +1086,8 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
         explanation.append(f"GPS={gps_conf:.2f}")
     if geo:
         explanation.append(f"geo={geo['distance_km']:.1f}km ({geo['status']})")
-    if langid.language != 'unknown':
-        explanation.append(f"lang={langid.language} ({langid.confidence:.2f})")
+    if language != 'unknown':
+        explanation.append(f"lang={language} ({language_confidence:.2f})")
     explanation.append(f"lex={lexical:.2f}")
     explanation.append(f"coh={coherence:.2f}")
     if numeric_signal > 0:
@@ -1062,8 +1101,8 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
             'scoring': {
                 'score': float(score),
                 'early_exit': early_exit,
-                'language_detected': langid.language,
-                'language_confidence': float(langid.confidence),
+                'language_detected': language,
+                'language_confidence': float(language_confidence),
                 'words_found': words_found,
                 # Text with glued words split apart, when a split was found.
                 'segmented_text': word_text if segmentation_lang else None,

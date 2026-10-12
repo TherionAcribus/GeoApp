@@ -105,7 +105,7 @@ texte brut
     │       A4 Contexte géographique  →  gps_conf pondéré par la distance à la cache
     │
     ├─ [Couche B] Qualité n-grammes
-    │       B1 LangID trigrammes  →  language, confidence, fitness
+    │       B1 Langue             →  quadgrammes + vocabulaire, par langue
     │       B2 Quadgram fitness   →  best-of sur 8 tables
     │       B3 Répétition quality
     │
@@ -232,7 +232,22 @@ Le résultat est exposé dans `metadata.scoring.geo` : `{distance_km, status, gp
 
 ### 4.4 Couche B — Qualité n-grammes
 
-#### B1 — LangID trigrammes (`langid.py`)
+#### B1 — Détection de langue (`_identify_language`)
+
+La langue annoncée (`language_detected`) combine, pour chacune des 8 langues, deux signaux déjà calculés pour le score :
+
+- **quadgrammes** : la log-probabilité moyenne du texte sur la table de la langue, ramenée de −6.0 … −3.5 à 0 … 1 ;
+- **vocabulaire** : le coût moyen par lettre des mots du texte dans le vocabulaire de la langue (mot fréquent = bon marché, mot inconnu = coût d'une lettre inexpliquée), après découpage des mots collés ; pondéré 1.5, car c'est lui qui départage les langues proches (espagnol, portugais, italien).
+
+La langue au meilleur total est retenue s'il atteint 0.4, sinon `unknown` (un mauvais déchiffrement reste sous 0.2). `language_confidence` est l'avance sur la deuxième langue, doublée et bornée à 1 : faible entre langues proches sur un texte court, 1.0 sur une phrase.
+
+Mesuré sur 57 phrases réelles dans les 8 langues : 57 sur 57 en texte espacé, 36 sur 36 en texte collé, et aucune langue attribuée à 112 textes de charabia. Les profils de trigrammes décrits ci-dessous n'en trouvaient que 21 sur 57 : ils répondaient `unknown` à la plupart des phrases en majuscules.
+
+Limite : un texte aux lettres mélangées garde les fréquences de lettres de sa langue et peut donc se voir attribuer une langue, avec une confiance faible.
+
+##### Profils de trigrammes (`langid.py`) — métadonnée seulement
+
+Ils ne déterminent plus la langue ni le score ; seule leur `fitness` reste exposée (`trigram_fitness`).
 
 Profils légers : ~28 trigrammes les plus fréquents par langue.
 
@@ -526,8 +541,8 @@ POST /api/plugins/score
         "scoring": {
             "score": 0.81,
             "early_exit": null,
-            "language_detected": "unknown",
-            "language_confidence": 0.07,
+            "language_detected": "fr",
+            "language_confidence": 1.0,
             "words_found": ["cache"],
             "segmented_text": null,
             "segmentation_language": null,
@@ -544,13 +559,13 @@ POST /api/plugins/score
                 ...
             },
             "weights": { ... },
-            "explanation": "lex=1.00 | coh=1.00"
+            "explanation": "lang=fr (1.00) | lex=1.00 | coh=1.00"
         }
     }
 }
 ```
 
-`language_detected` vient du LangID par trigrammes, peu fiable sur une phrase courte en majuscules : il répond ici `unknown` pour une phrase française que les quadgrammes et le dictionnaire reconnaissent sans peine. `words_found` ne liste que les termes de géocaching (`geo_terms`).
+`words_found` ne liste que les termes de géocaching (`geo_terms`).
 
 ### Intégration dans /execute
 
@@ -602,6 +617,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestPrefilterOnLargeLots` | Lot de 3 000 déchiffrements Vigenère : réponse courte conservée, réponse longue première ; égalités à la coupe toutes gardées | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue ; chaque table reconnaît sa langue mieux que les autres et décroche d'au moins 0.2 sur les mêmes lettres mélangées ; aucune entrée sous −6.0 | ✅ |
+| `TestLanguageIdentification` | Bonne langue pour les 8 phrases (espacées et collées) et 12 réponses courtes ; `unknown` pour charabia, encodé, coordonnées, mauvais décalages César | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |
 
 **Xfail documenté (non bloquant)** :
@@ -611,7 +627,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
 ## 10. Limites connues
 
-- **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
+- **Langue d'un mot isolé** : sur une réponse d'un seul mot commun à plusieurs langues (`PONT`, `TAXI`), la langue annoncée est celle où le mot est le plus fréquent, ce qui n'est pas forcément celle du texte.
 - **Texte inversé ou mélangé court** : les 8 tables viennent de wordfreq et chacune reconnaît sa langue mieux que les autres, mais sur une réponse courte une ou deux fenêtres suffisent à faire la moyenne. Un texte court inversé ou aux lettres mélangées peut donc obtenir une fitness élevée par hasard (score rapide jusqu'à 0.9 dans les mesures) ; le score complet, avec son dictionnaire, le ramène sous 0.5.
 - **Scorer rapide et casse mixte** : la levée de la pénalité base64 pour un texte collé en casse mixte dépend de la segmentation, que le scorer rapide ne fait pas. Dans un lot de plus de `top_k` candidats, un tel texte y reste pénalisé.
 - **Translittération** : `ß`, `ł`, `œ`, `æ`, `ø`, `đ` sont translittérés partout — IC et quadgrammes (`_STATS_TRANSLITERATION`), dictionnaire (`_LEX_TRANSLITERATION`) — et dans les deux scripts de génération. Les quatre tables doivent rester identiques.

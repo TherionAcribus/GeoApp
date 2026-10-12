@@ -842,3 +842,65 @@ class TestPrefilterOnLargeLots:
         tied = [{"text_output": f"LA CACHE EST SOUS LE PONT {i}", "n": i} for i in range(200)]
         ranked = score_and_rank_results(tied, top_k=200, min_score=0.0, fast_reject_threshold=0.0)
         assert len(ranked) == 200
+
+# ── Detection de langue ──────────────────────────────────────────────
+
+
+class TestLanguageIdentification:
+    """La langue vient des tables de quadgrammes et du vocabulaire, plus des
+    profils de 28 trigrammes (qui repondaient « unknown » a la plupart des
+    phrases en majuscules)."""
+
+    LANG_ORDER = ["en", "fr", "de", "es", "it", "nl", "pt", "pl"]
+
+    @staticmethod
+    def _language(text):
+        scoring = score_text(text)["metadata"]["scoring"]
+        return scoring["language_detected"], scoring["language_confidence"]
+
+    @pytest.mark.parametrize("index", range(8))
+    def test_sentence_language(self, index):
+        language, confidence = self._language(CASES["multilingual_valid"][index])
+        assert language == self.LANG_ORDER[index]
+        assert confidence >= 0.5
+
+    @pytest.mark.parametrize("index", range(8))
+    def test_glued_sentence_language(self, index):
+        glued = CASES["multilingual_valid"][index].replace(" ", "")
+        assert self._language(glued)[0] == self.LANG_ORDER[index]
+
+    @pytest.mark.parametrize("text, expected", [
+        ("PONT", "fr"),
+        ("SOUS LE BANC", "fr"),
+        ("DERRIERE LE PANNEAU", "fr"),
+        ("UNDER THE BRIDGE", "en"),
+        ("HINTER DEM SCHILD", "de"),
+        ("DEBAJO DEL PUENTE", "es"),
+        ("SOTTO IL PONTE", "it"),
+        ("ONDER DE BRUG", "nl"),
+        ("DEBAIXO DA PONTE", "pt"),
+        ("POD MOSTEM", "pl"),
+        ("la cache se trouve sous le pont", "fr"),
+        ("nord quarante huit degres cinquante et un", "fr"),
+    ])
+    def test_short_answer_language(self, text, expected):
+        assert self._language(text)[0] == expected
+
+    @pytest.mark.parametrize("text", CASES["gibberish"] + CASES["encoded"] + CASES["base64_blocks"] + [
+        "N 48° 51.234 E 002° 21.456",
+        "QJFE EV HSBOE BSCSF",
+        "12 34 56",
+        "",
+    ])
+    def test_no_language_for_non_text(self, text):
+        assert self._language(text) == ("unknown", 0.0)
+
+    def test_wrong_caesar_shifts_have_no_language(self):
+        for text in CASES["correct_decrypt"]:
+            for shift in (1, 5, 11, 17, 23):
+                assert self._language(_caesar(text, shift))[0] == "unknown", (text, shift)
+
+    def test_confidence_is_bounded(self):
+        for cat in CASES.values():
+            for text in cat:
+                assert 0.0 <= self._language(text)[1] <= 1.0
