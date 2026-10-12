@@ -1220,11 +1220,17 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
 # ont déjà été réduits à N/S/E/W par la normalisation amont). La lettre
 # doit être isolée — ni précédée ni suivie d'une lettre — pour ne pas la
 # lire dans un mot capitalisé (« Session 48 32 296 Errors 6 40 636 »).
+# Le séparateur non numérique entre la lettre et chaque groupe de chiffres
+# est BORNÉ (_NE_VAR_MAX_SEP) : un « [^\d]* » libre assemblait des chiffres
+# éparpillés à distance arbitraire (« N x x x …(200 chars)… 48 32 296 »
+# formait une fausse latitude). L'appariement latitude/longitude reste régi
+# par MAX_COORD_PAIR_GAP, inchangé.
+_NE_VAR_MAX_SEP = 10
 _DETECT_NE_VAR_NORD_REGEX = re.compile(
-    r'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})'
+    rf'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
 )
 _DETECT_NE_VAR_EST_REGEX = re.compile(
-    r'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})'
+    rf'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
 )
 
 
@@ -1706,9 +1712,6 @@ def _decimal_to_ddm(value: float) -> tuple:
     return deg, minutes
 
 
-# Lettre cardinale suivie d'un chiffre : en présence de celle-ci, les
-# détecteurs DDM/DMS prennent le relais (le détecteur décimal s'abstient).
-_CARDINAL_THEN_DIGIT_REGEX = re.compile(r'[NSEWnsew]\s*\d')
 # Paire de degrés décimaux : 3 à 8 décimales par valeur, séparateur
 # virgule/point-virgule/espace, signe optionnel.
 _DETECT_DECIMAL_PAIR_REGEX = re.compile(
@@ -1721,15 +1724,17 @@ def _iter_decimal_pair(text: str) -> Iterator[Dict[str, Optional[str]]]:
     Itère les paires de coordonnées en degrés décimaux, par exemple :
       - "48.8566, 2.3522"
       - "-33.8688 151.2093"
-    Exige 3 à 8 décimales par valeur (évite les faux positifs type "3.14, 2.71"),
-    et l'absence de lettres cardinales (sinon d'autres détecteurs s'en chargent).
+    Exige 3 à 8 décimales par valeur (évite les faux positifs type "3.14, 2.71").
     Le signe détermine l'hémisphère (S/W).
+
+    NB : pas de garde-fou « lettre cardinale + chiffre » sur le texte entier —
+    une lettre cardinale n'importe où (« note 5 : » → « e 5 ») bloquait une
+    paire décimale légitime. La regex exige X.Y Z.W contigus : une lettre entre
+    les deux nombres casse déjà le match ; la concurrence avec les détecteurs
+    cardinaux est gérée par la confiance (0.80 < 0.95) et la dédup par span de
+    detect_all_gps_coordinates.
     """
     logger.debug("_iter_decimal_pair: Analyse du texte")
-
-    if _CARDINAL_THEN_DIGIT_REGEX.search(text):
-        # Présence de lettres cardinales : laisser les détecteurs DDM/DMS gérer.
-        return
 
     for match in _DETECT_DECIMAL_PAIR_REGEX.finditer(text):
         try:
@@ -1954,11 +1959,14 @@ _CARDINAL_SUFFIX_REGEX = re.compile(r"(?<=[\d'′\"″°º])(\s*)([nsewoO])(?![^
 # formats collés historiques) : (?=\d|\b) / (?:(?<=\d)|\b) remplacent le \b.
 _CARDINAL_WORDS = r"nord|north|sud|süd|south|est|east|ost|ouest|oeste|ovest|west"
 _CARDINAL_WORD_PREFIX_REGEX = re.compile(
-    rf"\b({_CARDINAL_WORDS})(?=\d|\b)(?=[\s/:.,;°]*[\dIVXLCDM])",
+    rf"\b({_CARDINAL_WORDS})(?=\d|\b)(?=[\s/:.,;°-]*[\dIVXLCDM])",
     re.IGNORECASE,
 )
+# Le séparateur entre la valeur et le mot suffixe accepte aussi le tiret
+# (« 48° - sud »), symétrique au lookahead préfixe ; la structure des
+# lookbehind/lookahead est inchangée (classe élargie seulement).
 _CARDINAL_WORD_SUFFIX_REGEX = re.compile(
-    rf"(?<=[\d'′\"″°º])(\s*)(?:(?<=\d)|\b)({_CARDINAL_WORDS})(?=\d|\b)",
+    rf"(?<=[\d'′\"″°º])([\s-]*)(?:(?<=\d)|\b)({_CARDINAL_WORDS})(?=\d|\b)",
     re.IGNORECASE,
 )
 
@@ -2513,6 +2521,62 @@ def detect_coordinates_batch():
 
     except Exception as e:
         return _error_response("Erreur detect_coordinates_batch", e)
+
+
+# Plafond de taille du texte pour la détection multi (évite les payloads
+# abusifs ; reprend l'ordre de grandeur du batch divisé par son plafond
+# de textes).
+_DETECT_ALL_MAX_CHARS = 200_000
+
+
+@coordinates_bp.route('/api/detect_coordinates_all', methods=['POST'])
+def detect_coordinates_all():
+    """
+    Détecte TOUTES les coordonnées GPS d'un texte, en une seule requête.
+
+    Contrairement à /api/detect_coordinates (un seul résultat, le plus
+    confiant), expose ``detect_all_gps_coordinates`` : tous les candidats
+    valides dédupliqués par chevauchement de span, triés par confiance
+    décroissante. Pas de détection « en toutes lettres » ici.
+
+    Attend un JSON avec :
+    - 'text' (str)                  : texte à analyser (obligatoire)
+    - 'include_numeric_only' (bool) : format numérique pur
+    - 'origin_coords' (dict|str)    : coordonnées d'origine (directions cardinales)
+
+    Retourne : {"results": [...], "count": n}
+    """
+    try:
+        data = request.get_json()
+        if not isinstance(data, dict) or 'text' not in data:
+            return jsonify({"error": "Le champ 'text' est requis"}), 400
+
+        text = data.get('text')
+        if not isinstance(text, str):
+            return jsonify({"error": "'text' doit être une chaîne"}), 400
+        if len(text) > _DETECT_ALL_MAX_CHARS:
+            return jsonify({
+                "error": f"Texte trop volumineux (max {_DETECT_ALL_MAX_CHARS} caractères)"
+            }), 400
+
+        include_numeric_only = bool(data.get('include_numeric_only', False))
+        # Coordonnées d'origine : dict {ddm_lat, ddm_lon} ou chaîne DDM combinée
+        origin_coords = _normalize_origin_coords(data.get('origin_coords'))
+
+        logger.debug(
+            "detect_coordinates_all: text_len=%d, numeric_only=%s",
+            len(text), include_numeric_only,
+        )
+
+        results = detect_all_gps_coordinates(
+            text,
+            include_numeric_only=include_numeric_only,
+            origin_coords=origin_coords,
+        )
+        return jsonify({"results": results, "count": len(results)})
+
+    except Exception as e:
+        return _error_response("Erreur detect_coordinates_all", e)
 
 
 # DDM sans symbole ° : le séparateur degrés/minutes est un ou plusieurs

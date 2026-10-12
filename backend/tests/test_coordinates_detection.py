@@ -135,6 +135,34 @@ class TestNewFormats:
     def test_decimal_pair_rejects_out_of_bounds(self):
         assert d("191.5, 200.9")["exist"] is False
 
+    def test_decimal_pair_unrelated_cardinal_context(self):
+        # L'ancien garde-fou rejetait la paire si N'IMPORTE quelle lettre
+        # cardinale précédait un chiffre dans le texte (« e 5 » dans « note 5 : »).
+        _check("note 5 : 48.8566, 2.3522",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.7)
+
+    def test_decimal_pair_cardinal_letter_elsewhere(self):
+        # Deuxième cas où le garde-fou était le seul obstacle (« e 42 »).
+        _check("reponse e 42 finale : 51.5074, 0.1278",
+               ddm_lat="N 51° 30.444'", ddm_lon="E 000° 07.668'",
+               dec_lat=51.5074, dec_lon=0.1278, min_conf=0.7)
+
+    def test_decimal_pair_coexists_with_cardinal_coordinate(self):
+        # DDM + paire décimale disjointe : les deux sont des résultats légitimes
+        # (le garde-fou masquait la paire, la dédup par span les cohabite).
+        r = d_all("parking N 48° 33.787' E 006° 38.803' et aussi 48.8566, 2.3522")
+        assert len(r) == 2
+        assert r[0]["ddm"] == "N 48° 33.787' E 006° 38.803'"
+        assert r[0]["confidence"] == 0.95
+        assert r[1]["ddm_lat"] == "N 48° 51.396'"
+        assert r[1]["ddm_lon"] == "E 002° 21.132'"
+        assert r[1]["confidence"] == 0.80
+        text = "parking N 48° 33.787' E 006° 38.803' et aussi 48.8566, 2.3522"
+        for item in r:
+            s, e = item["span"]
+            assert text[s:e] == item["matched_text"]
+
     def test_dmm_suffix_direction(self):
         _check("48° 51.234' N 2° 17.567' E",
                ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
@@ -307,6 +335,23 @@ class TestPairDistanceBound:
         _check("E 6 deg 40 636 et N 48 deg 32 296",
                ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'")
 
+    def test_nord_est_variations_scattered_digits_rejected(self):
+        # Les « [^\d]* » non bornés de _iter_nord_est_variations assemblaient
+        # des chiffres éparpillés à distance arbitraire en UNE composante
+        # (ici ~200 caractères de spam entre « N » et « 48 32 296 »).
+        # Bornés à _NE_VAR_MAX_SEP=10, ce n'est plus une coordonnée.
+        text = "N " + "x " * 100 + "48 32 296 E 6 40 636"
+        assert d(text)["exist"] is False
+        assert d_all(text) == []
+
+    def test_nord_est_variations_short_separators_still_detected(self):
+        # Les vrais séparateurs (espaces, mots blankés, points) restent < 10 :
+        # la borne ne casse pas les formats légitimes.
+        _check("NORD 48 32 296 EST 6 40 636",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'")
+        _check("NORD48.32.296 EST6.40.636",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'")
+
 
 class TestCardinalDirections:
     """Directions cardinales généralisées : S/W littéraux et mots cardinaux
@@ -332,6 +377,18 @@ class TestCardinalDirections:
 
     def test_french_words(self):
         _check("SUD 48 32 296 OUEST 6 40 636",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
+               dec_lat=-48.53826667, dec_lon=-6.67726667)
+
+    def test_cardinal_words_dash_separator(self):
+        # Le tiret entre le mot cardinal et les chiffres (« nord - 48 … »)
+        # empêchait le blankage du mot ; accepté comme séparateur du lookahead.
+        _check("cap nord - 48 32 296 puis est - 6 40 636",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'",
+               dec_lat=48.53826667, dec_lon=6.67726667)
+
+    def test_cardinal_words_dash_separator_south_west(self):
+        _check("cap sud - 48 32 296 puis ouest - 6 40 636",
                ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
                dec_lat=-48.53826667, dec_lon=-6.67726667)
 
