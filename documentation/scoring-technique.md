@@ -483,7 +483,8 @@ Phase 1 (si lot > top_k) — Fast reject
     rejeter si fast_score < fast_reject_threshold (défaut 0.02)
 
 Phase 2 — Tri par fast score
-    garder les max(top_k × 3, 75) meilleurs candidats
+    garder les max(top_k × 3, 75, 10 % du lot) meilleurs candidats,
+    plus tous ceux à égalité avec le dernier gardé
 
 Phase 3 — Scoring complet
     score_text() sur les survivants
@@ -498,6 +499,16 @@ Seuils de production (défauts dans `plugins.py`) :
 - `min_score = 0.03`
 - `fast_reject_threshold = 0.01`
 - `top_k = 25`
+
+**Quand le pré-filtre s'applique** : seulement si le lot dépasse `top_k`. Le Metasolver appelle avec `top_k = taille du lot`, donc sans pré-filtre : tout y est noté par le scorer complet.
+
+**Pourquoi la coupe grandit avec le lot** (`_PREFILTER_KEEP_SHARE = 0.10`) : sur une réponse d'un seul mot, le score rapide repose sur une ou deux fenêtres de quadgrammes. Dans un lot de milliers de candidats, quelques pour cent des mauvais obtiennent par hasard un score rapide supérieur au bon. Mesuré sur des lots de 5 000 déchiffrements Vigenère : `BRAVO`, `ARBRE` et `LOOK UP` se classaient 113ᵉ, 147ᵉ et 131ᵉ au score rapide et étaient écartés par une coupe fixe à 75 ; ils sont maintenant conservés et finissent 5ᵉ, 4ᵉ et 23ᵉ. Les réponses de 10 lettres et plus restaient déjà dans les 10 premières au score rapide.
+
+Les candidats à égalité avec le dernier gardé sont conservés eux aussi : le score rapide sature (0.90 pour toute fitness maximale), et couper au milieu d'une égalité écarterait des candidats arbitrairement, selon leur position dans le lot.
+
+**Coût mesuré** (score complet sur les survivants) : 17 ms pour un lot de 312 candidats ; 55 à 300 ms pour un lot de 5 000, selon la longueur du texte. Sans pré-filtre, un lot de 312 coûterait 56 ms en texte espacé et 295 ms en texte collé : le pré-filtre reste utile sur les gros lots, il ne l'est guère en dessous de quelques centaines de candidats.
+
+**Limite** : une réponse courte n'est pas forcément première d'un très gros lot. Parmi 5 000 chaînes de 5 lettres, plusieurs sont de vrais mots dans l'une des 8 langues ; aucun scoring ne peut les départager sans contexte.
 
 ---
 
@@ -588,6 +599,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestNumericLookalikes` | Prose avec `un`/`et`/`est`/`très` : signal numérique ≤ 0.15 ; dizaines 70/80/90 : ≥ 0.6 | ✅ |
 | `TestGeoContext` | Avec l'origine : coordonnées proches relevées, score décroissant avec la distance, coordonnées à 390 km sous un texte clair ; sans origine : rien ne change | ✅ |
 | `TestScoreScale` | Phrase claire ≥ 0.8 (zone « bon » de l'interface), texte valide ≥ 0.5, prose ≤ 0.86 < coordonnées formelles, mauvais décalage César ≤ 0.40, fitness quadgrammes ≥ 0.7 / ≤ 0.1 | ✅ |
+| `TestPrefilterOnLargeLots` | Lot de 3 000 déchiffrements Vigenère : réponse courte conservée, réponse longue première ; égalités à la coupe toutes gardées | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue ; chaque table reconnaît sa langue mieux que les autres et décroche d'au moins 0.2 sur les mêmes lettres mélangées ; aucune entrée sous −6.0 | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |

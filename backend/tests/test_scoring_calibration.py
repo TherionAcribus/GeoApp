@@ -784,3 +784,61 @@ class TestScoreScale:
         for shift in (1, 7, 13):
             wrong = score_text(_caesar(text, shift))["metadata"]["scoring"]["features"]["quadgram_fitness"]
             assert wrong <= 0.1, (shift, wrong)
+
+# ── Pre-filtre rapide sur de gros lots ───────────────────────────────
+
+
+class TestPrefilterOnLargeLots:
+    """La coupe du pre-filtre grandit avec le lot : une reponse courte, dont le
+    score rapide repose sur une ou deux fenetres, ne doit pas etre ecartee avant
+    d'avoir ete evaluee par le scorer complet."""
+
+    LOT_SIZE = 3000
+
+    @staticmethod
+    def _vigenere(text, key):
+        out, j = [], 0
+        for ch in text:
+            if "A" <= ch <= "Z":
+                out.append(chr((ord(ch) - 65 + key[j % len(key)]) % 26 + 65))
+                j += 1
+            else:
+                out.append(ch)
+        return "".join(out)
+
+    def _lot(self, text, seed):
+        import random
+
+        rng = random.Random(seed)
+        keys = [[rng.randrange(26) for _ in range(rng.randint(2, 6))] for _ in range(self.LOT_SIZE - 1)]
+        # Une cle nulle redonne le texte lui-meme : ce n'est pas un mauvais candidat.
+        wrong = [c for c in (self._vigenere(text, key) for key in keys) if c != text]
+        # La bonne reponse est placee en dernier : a score rapide egal, elle
+        # n'est pas avantagee par sa position dans le lot.
+        return [{"text_output": c} for c in wrong] + [{"text_output": text, "truth": True}]
+
+    def _rank(self, text, seed=4):
+        ranked = score_and_rank_results(
+            self._lot(text, seed),
+            top_k=25,
+            min_score=TestValidCasesSurviveRanking.PROD_MIN_SCORE,
+            fast_reject_threshold=TestValidCasesSurviveRanking.PROD_FAST_REJECT,
+        )
+        return next((i + 1 for i, r in enumerate(ranked) if r.get("truth")), None)
+
+    @pytest.mark.parametrize("text", ["PONT", "BLANC", "BRAVO", "ARBRE", "EGLISE", "LOOK UP"])
+    def test_short_answer_survives_a_large_lot(self, text):
+        assert self._rank(text) is not None, f"{text} ecarte par le pre-filtre"
+
+    @pytest.mark.parametrize("text", [
+        "SOUS LE BANC", "UNDER THE BRIDGE", "DERRIERE LE PANNEAU",
+        "LACACHESETROUVEAUPIEDDUGRANDARBRE", "FELICITATIONS",
+    ])
+    def test_longer_answer_stays_first(self, text):
+        assert self._rank(text) == 1
+
+    def test_ties_at_the_cut_are_all_kept(self):
+        """Score rapide sature : 200 candidats a egalite, aucun coupe arbitrairement."""
+        tied = [{"text_output": f"LA CACHE EST SOUS LE PONT {i}", "n": i} for i in range(200)]
+        ranked = score_and_rank_results(tied, top_k=200, min_score=0.0, fast_reject_threshold=0.0)
+        assert len(ranked) == 200

@@ -59,6 +59,11 @@ _QUADGRAM_MIN_LETTERS = 4
 # Fast-scorer floor for coordinate-shaped text (see _gps_structured_hint).
 _FAST_GPS_HINT_FLOOR = 0.3
 
+# Share of a lot that survives the fast pre-filter into full scoring (never
+# fewer than max(3 x top_k, 75)). Measured on lots of 5000 Vigenere decodings:
+# a 4-6 letter answer ranks as low as the top 3% by fast score.
+_PREFILTER_KEEP_SHARE = 0.10
+
 
 def _normalize_basic(text: str) -> str:
     text = unicodedata.normalize('NFKC', text or '')
@@ -1245,7 +1250,8 @@ def score_and_rank_results(
 
     Pipeline:
       1. Tier 0 — fast reject via score_text_fast() (< 0.1ms each)
-      2. Sort survivors by fast score, keep top max(top_k*3, 75)
+      2. Sort survivors by fast score, keep top max(top_k*3, 75, 10% of the
+         lot) plus anything tied with the last one kept
       3. Tier 1 — full score_text() on survivors
       4. Filter by min_score, sort descending, return top_k
 
@@ -1280,9 +1286,18 @@ def score_and_rank_results(
                 continue
             scored_fast.append((fast_score, idx, item))
 
-        # Phase 2: keep the best candidates for full scoring
+        # Phase 2: keep the best candidates for full scoring. The cut grows
+        # with the lot: on a one-word answer the fast score rests on a window
+        # or two, so in a lot of thousands a few percent of the wrong
+        # candidates outscore the right one by chance. Candidates tied with
+        # the last one kept are kept too — the fast score saturates, and
+        # cutting through a tie would drop candidates arbitrarily.
         scored_fast.sort(key=lambda x: x[0], reverse=True)
-        tier2_limit = max(top_k * 3, 75)
+        tier2_limit = max(top_k * 3, 75, math.ceil(len(valid_items) * _PREFILTER_KEEP_SHARE))
+        if tier2_limit < len(scored_fast):
+            cutoff = scored_fast[tier2_limit - 1][0]
+            while tier2_limit < len(scored_fast) and scored_fast[tier2_limit][0] >= cutoff:
+                tier2_limit += 1
         candidates = [item for (_fs, _i, item) in scored_fast[:tier2_limit]]
     else:
         candidates = valid_items
