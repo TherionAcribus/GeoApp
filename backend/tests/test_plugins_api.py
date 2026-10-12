@@ -50,7 +50,7 @@ def _apply_realistic_scenario_mocks(app, monkeypatch, scenario):
     if remote_css_map:
         normalized_map = {str(url): str(content) for url, content in remote_css_map.items()}
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_fetch_remote_text',
             lambda url, timeout_sec=5, max_bytes=200_000: normalized_map.get(str(url), '')
         )
@@ -77,7 +77,7 @@ def _apply_realistic_scenario_mocks(app, monkeypatch, scenario):
             result.setdefault('candidate', kwargs.get('candidate'))
             return result
 
-        monkeypatch.setattr(plugins_blueprint, '_run_checker_with_target', fake_run_checker_with_target)
+        monkeypatch.setattr(plugins_blueprint.workflow, '_run_checker_with_target', fake_run_checker_with_target)
 
 
 
@@ -705,7 +705,7 @@ class TestListingClassificationAPI:
         from gc_backend.blueprints import plugins as plugins_blueprint
 
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_fetch_remote_text',
             lambda url, timeout_sec=5, max_bytes=200_000: '.cloak .secret-code{display:none}'
             if 'hidden.css' in str(url)
@@ -1594,7 +1594,7 @@ class TestWorkflowStepRunnerAPI:
         from gc_backend.blueprints import plugins as plugins_blueprint
 
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_fetch_remote_text',
             lambda url, timeout_sec=5, max_bytes=200_000: '.cloak .secret-code{display:none}'
             if 'hidden.css' in str(url)
@@ -1909,7 +1909,7 @@ class TestWorkflowStepRunnerAPI:
         vision_inputs_seen = []
 
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_extract_image_metadata_items',
             lambda image_urls: {
                 'items': [],
@@ -2241,7 +2241,7 @@ class TestWorkflowStepRunnerAPI:
         from gc_backend.blueprints import plugins as plugins_blueprint
 
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_extract_image_metadata_items',
             lambda image_urls: {
                 'items': [
@@ -2372,7 +2372,7 @@ class TestWorkflowStepRunnerAPI:
         ])
         monkeypatch.setattr(web_search_service, 'extract_answer', lambda results: '42')
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.workflow,
             '_resolve_workflow_orchestrator',
             lambda data, max_secret_fragments=6, max_plugins=8, auto_execute=False: {
                 'source': 'direct_input',
@@ -2606,7 +2606,7 @@ class TestWorkflowStepRunnerAPI:
                 }
             }
 
-        monkeypatch.setattr(plugins_blueprint, '_run_checker_with_target', fake_run_checker_with_target)
+        monkeypatch.setattr(plugins_blueprint.workflow, '_run_checker_with_target', fake_run_checker_with_target)
 
         response = client.post(
             '/api/plugins/workflow/run-next-step',
@@ -2641,7 +2641,7 @@ class TestWorkflowEndToEndScenarios:
         from gc_backend.blueprints import plugins as plugins_blueprint
 
         monkeypatch.setattr(
-            plugins_blueprint,
+            plugins_blueprint.listing,
             '_fetch_remote_text',
             lambda url, timeout_sec=5, max_bytes=200_000: '.cloak .secret-code{display:none}'
             if 'hidden.css' in str(url)
@@ -2801,7 +2801,7 @@ class TestWorkflowEndToEndScenarios:
                 }
             }
 
-        monkeypatch.setattr(plugins_blueprint, '_run_checker_with_target', fake_run_checker_with_target)
+        monkeypatch.setattr(plugins_blueprint.workflow, '_run_checker_with_target', fake_run_checker_with_target)
 
         payload = {
             'title': 'Museum formula',
