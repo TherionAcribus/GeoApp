@@ -444,31 +444,35 @@ def _lexical_features(tokens: List[str]) -> Tuple[float, float, List[str]]:
     return float(lexical), float(coherence), words_found
 
 
+# Quadgram fitness calibration: the mean log10-probability per window, mapped
+# linearly from _QUADGRAM_LOGP_NOISE (-> 0) to _QUADGRAM_LOGP_TEXT (-> 1).
+# Measured on 57 real sentences in the 8 languages and their corruptions
+# (best table each time, unknown quadgram = _QUADGRAM_UNKNOWN_LOGP):
+#   real text ............ -4.54 .. -3.71  (median -4.10)
+#   same letters shuffled  -5.64 .. -4.84  (median -5.33)
+#   reversed ............. -5.47 .. -4.46  (median -5.17)
+#   wrong Caesar shift ... -6.00 .. -5.53  (median -5.88)
+# The previous mapping, (mean + 6) / 4 plus a hit-ratio term, spread this
+# narrow band over a quarter of the scale: real text read 0.6, shuffled 0.3.
+_QUADGRAM_UNKNOWN_LOGP = -6.0
+_QUADGRAM_LOGP_NOISE = -5.4
+_QUADGRAM_LOGP_TEXT = -4.2
+
+
 def _quadgram_fitness_for_lang(letters: str, lang: str) -> float:
-    """Compute quadgram fitness for a specific language."""
+    """Quadgram fitness of a letters-only string against one language's table."""
     table = load_quadgrams(lang)
     if not table:
         return 0.0
-    n = len(letters)
-    total = 0.0
-    hits = 0
-    windows = 0
-    for i in range(n - 3):
-        q = letters[i:i + 4]
-        windows += 1
-        v = table.get(q)
-        if v is not None:
-            hits += 1
-            total += float(v)
-        else:
-            total += -6.0
+    windows = len(letters) - 3
     if windows <= 0:
         return 0.0
+    total = 0.0
+    for i in range(windows):
+        total += table.get(letters[i:i + 4], _QUADGRAM_UNKNOWN_LOGP)
     mean_logp = total / windows
-    hit_ratio = hits / windows
-    fitness = (mean_logp + 6.0) / 4.0
-    fitness = max(0.0, min(1.0, fitness))
-    return float(min(1.0, fitness * 0.7 + hit_ratio * 0.3))
+    fitness = (mean_logp - _QUADGRAM_LOGP_NOISE) / (_QUADGRAM_LOGP_TEXT - _QUADGRAM_LOGP_NOISE)
+    return float(max(0.0, min(1.0, fitness)))
 
 
 def _quadgram_fitness(text: str, lang: str) -> float:
@@ -937,6 +941,10 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
     quadgram_fitness = _quadgram_fitness(text, langid.language)
     repetition_quality = _repetition_quality(text)
     encoded_penalty = _encoded_pattern_penalty(text)
+    if segmentation_lang and _RE_BASE64_LIKE.match(text.strip()):
+        # A block that splits into real words is glued text in mixed case
+        # ("LaCacheSeTrouve"), not base64.
+        encoded_penalty = 1.0
     numeric_signal = _numeric_signal_feature(word_text)
 
     # Unified coordinate channel: a formal GPS detection or a strong written
@@ -944,8 +952,10 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
     # always preferred at equal strength. (Consumed as-is by the T6 recombine.)
     coord_score = max(gps_conf, numeric_signal * 0.85)
 
-    ngram_fitness = float(min(1.0, trigram_fitness * 0.5 + quadgram_fitness * 0.7))
-    ngram_fitness *= repetition_quality
+    # The calibrated quadgram fitness spans 0..1 on its own. The trigram
+    # fitness (at most ~0.3, and length-dependent) is no longer mixed in: it
+    # only feeds language detection and stays in the metadata.
+    ngram_fitness = float(quadgram_fitness * repetition_quality)
 
     n_letters = len(_normalize_for_stats(text))
 
@@ -995,7 +1005,10 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
         'coherence': 0.10,
         'ic_quality': 0.07,
         'entropy_quality': 0.03,
-        'coord_channel': 0.90,  # noisy-OR weight on the language channel
+        # Noisy-OR weight on the language channel: flawless prose tops out at
+        # 0.85, just under the weakest formal coordinate format kept in
+        # pure_coords (0.90) — a coordinate is the actual goal of a geocache.
+        'coord_channel': 0.85,
     }
 
     lang_score = (

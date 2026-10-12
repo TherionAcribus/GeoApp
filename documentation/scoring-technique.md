@@ -122,7 +122,7 @@ texte brut
     │       lang_score  = ngram*0.45 + lexical*0.35 + coherence*0.10
     │                   + ic_quality*0.07 + entropy_quality*0.03
     │       coord_score = max(gps_conf, numeric_signal * 0.85)
-    │       score       = 1 − (1 − coord_score)(1 − lang_score*0.90)
+    │       score       = 1 − (1 − coord_score)(1 − lang_score*0.85)
     │
     ├─ Multiplicateur encoded_penalty
     ├─ [Early-exit ngram_low]     →  score 0.05 si aucun signal
@@ -257,20 +257,30 @@ pour chaque fenêtre de 4 lettres :
     si quadgram connu → ajoute log10_prob
     sinon            → ajoute −6.0 (plancher)
 mean_logp = total / windows
-hit_ratio = hits / windows
-fitness   = clamp((mean_logp + 6.0) / 4.0, 0..1)
-quadgram_fitness = min(1.0, fitness*0.7 + hit_ratio*0.3)
+quadgram_fitness = clamp((mean_logp − (−5.4)) / ((−4.2) − (−5.4)), 0..1)
 ```
+
+Les deux bornes (`_QUADGRAM_LOGP_NOISE`, `_QUADGRAM_LOGP_TEXT`) viennent d'une mesure sur 57 phrases réelles dans les 8 langues et leurs corruptions, meilleure table à chaque fois :
+
+| Texte | `mean_logp` (5ᵉ – 95ᵉ centile) | Médiane |
+|---|---|---|
+| Texte réel | −4.54 … −3.71 | −4.10 |
+| Mêmes lettres mélangées | −5.64 … −4.84 | −5.33 |
+| Texte inversé | −5.47 … −4.46 | −5.17 |
+| Mauvais décalage César | −6.00 … −5.53 | −5.88 |
+
+Un texte réel obtient ainsi une fitness proche de 1, un mauvais déchiffrement proche de 0. L'ancienne formule, `(mean_logp + 6) / 4` plus 30 % de taux de quadgrammes connus, étalait cette bande étroite sur un quart de l'échelle : un texte réel lisait 0.6, des lettres mélangées 0.3.
 
 Calculé dès 4 lettres (`_QUADGRAM_MIN_LETTERS`, une fenêtre suffit), pour que les réponses courtes gardent un signal n-grammes.
 
 **Best-of multilingue** : le scorer essaie la langue détectée en premier, puis toutes les tables disponibles (`available_quadgram_langs()`). Le meilleur score est retenu. Textes espagnols ou italiens peuvent scorer via la table `fr` (quadgrammes romans partagés) — c'est linguistiquement normal.
 
-**N-gram fitness combinée** :
+**N-gram fitness** :
 ```
-ngram_fitness = min(1.0, trigram_fitness*0.5 + quadgram_fitness*0.7)
-ngram_fitness *= repetition_quality
+ngram_fitness = quadgram_fitness × repetition_quality
 ```
+
+La fitness des trigrammes (au plus ~0.3, et dépendante de la longueur) n'entre plus dans le calcul : elle ne sert qu'à la détection de langue et reste dans les métadonnées (`trigram_fitness`).
 
 #### B3 — Répétition quality
 
@@ -399,10 +409,10 @@ lang_score = (
 coord_score = max(gps_conf, numeric_signal * 0.85)
 
 # Noisy-OR : un signal fort dans un seul canal suffit
-score = 1.0 − (1.0 − coord_score) × (1.0 − lang_score × 0.90)
+score = 1.0 − (1.0 − coord_score) × (1.0 − lang_score × 0.85)
 ```
 
-Le facteur `0.90` sur le canal langue garantit que les coordonnées pures (`coord_score ≈ 0.95`) l'emportent légèrement sur un texte en clair sans coordonnées (`lang_score × 0.9 ≈ 0.68`).
+Le facteur `0.85` plafonne un texte clair parfait à 0.85, juste sous le plus faible format de coordonnées formelles (0.90) : des coordonnées sont le but d'une géocache et doivent passer devant. Il laisse le texte clair dans la zone « bon » de l'interface, qui commence à 0.8 (`getScoreColor`).
 
 **Early-exit ngram_low** (aucun signal du tout) :
 ```
@@ -416,15 +426,20 @@ Un mot reconnu (`lexical > 0`) empêche le plancher : il garde son score lexical
 
 | Catégorie | Score typique |
 |---|---|
-| Coordonnées GPS pures (DDM standard) | 0.90 – 0.95 |
-| Fragments de coordonnées écrits | 0.79 – 0.95 |
-| Texte en clair valide (fr/en/de/…) | 0.64 – 0.70 |
-| Réponse courte valide (1 à 3 mots) | 0.39 – 0.60 |
-| Texte clair sans espaces, découpé par la segmentation | 0.59 – 0.76 |
-| Texte clair sans espaces, non découpé (mot hors vocabulaire) | 0.20 – 0.34 |
-| Énumération de nombres pure | 0.75 – 0.78 |
-| Near-miss (César +1 sur texte valide) | 0.15 – 0.20 |
+| Coordonnées GPS pures (DDM standard) | 0.90 – 0.96 |
+| Fragments de coordonnées écrits | 0.93 – 0.97 |
+| Phrase en clair (20 lettres et plus) | 0.65 – 0.85, médiane 0.83 |
+| Réponse courte valide (1 à 3 mots) | 0.53 – 0.76, médiane 0.71 |
+| Texte clair sans espaces, découpé par la segmentation | 0.78 – 0.98 |
+| Texte clair sans espaces, non découpé (mot hors vocabulaire) | ≈ 0.42 |
+| Énumération de nombres pure | 0.77 – 0.87 |
+| Mi-déchiffré (moitié clair, moitié chiffré) | 0.29 – 0.37 |
+| Texte inversé | 0.05 – 0.48, médiane 0.25 |
+| Lettres mélangées | 0.05 – 0.44, médiane 0.14 |
+| Mauvais décalage César | 0.05 – 0.35, médiane 0.05 |
 | Charabia / encodé résiduel | 0.00 – 0.05 |
+
+Mesuré sur 57 phrases réelles dans les 8 langues : le bon texte est toujours premier de ses 26 décalages César, avec un écart d'au moins 0.32 (médiane 0.61) sur le meilleur faux.
 
 > **Avant v3.2** : combinaison additive avec poids ∑ = 2.85 plafonnés à 1.0. La majorité des catégories saturaient à 1.0, annulant toute discrimination.
 
@@ -495,19 +510,22 @@ POST /api/plugins/score
 {"text": "LA CACHE SE TROUVE AU PIED DU GRAND ARBRE"}
 
 → {
-    "score": 0.68,
+    "score": 0.81,
     "metadata": {
         "scoring": {
-            "score": 0.68,
+            "score": 0.81,
             "early_exit": null,
-            "language_detected": "fr",
-            "language_confidence": 0.31,
-            "words_found": ["cache", "trouve", "grand", "arbre"],
+            "language_detected": "unknown",
+            "language_confidence": 0.07,
+            "words_found": ["cache"],
+            "segmented_text": null,
+            "segmentation_language": null,
             "gps_patterns": [],
+            "geo": null,
             "features": {
-                "ic": 0.071,
-                "ngram_fitness": 0.62,
-                "lexical_coverage": 0.94,
+                "ic": 0.062,
+                "ngram_fitness": 0.96,
+                "lexical_coverage": 1.0,
                 "coherence": 1.0,
                 "numeric_signal": 0.0,
                 "coord_score": 0.0,
@@ -515,11 +533,13 @@ POST /api/plugins/score
                 ...
             },
             "weights": { ... },
-            "explanation": "lang=fr (0.31) | lex=0.94 | coh=1.00"
+            "explanation": "lex=1.00 | coh=1.00"
         }
     }
 }
 ```
+
+`language_detected` vient du LangID par trigrammes, peu fiable sur une phrase courte en majuscules : il répond ici `unknown` pour une phrase française que les quadgrammes et le dictionnaire reconnaissent sans peine. `words_found` ne liste que les termes de géocaching (`geo_terms`).
 
 ### Intégration dans /execute
 
@@ -567,6 +587,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestNumberEnumBelowWordCoords` | score final : enum < word_coords | ✅ |
 | `TestNumericLookalikes` | Prose avec `un`/`et`/`est`/`très` : signal numérique ≤ 0.15 ; dizaines 70/80/90 : ≥ 0.6 | ✅ |
 | `TestGeoContext` | Avec l'origine : coordonnées proches relevées, score décroissant avec la distance, coordonnées à 390 km sous un texte clair ; sans origine : rien ne change | ✅ |
+| `TestScoreScale` | Phrase claire ≥ 0.8 (zone « bon » de l'interface), texte valide ≥ 0.5, prose ≤ 0.86 < coordonnées formelles, mauvais décalage César ≤ 0.40, fitness quadgrammes ≥ 0.7 / ≤ 0.1 | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue ; chaque table reconnaît sa langue mieux que les autres et décroche d'au moins 0.2 sur les mêmes lettres mélangées ; aucune entrée sous −6.0 | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |
@@ -579,13 +600,14 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 ## 10. Limites connues
 
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
-- **Tables quadgrams** : les 8 tables viennent de wordfreq et chacune reconnaît sa langue mieux que les autres. Un texte réel obtient 0.53–0.67 sur sa table, les mêmes lettres mélangées 0.20–0.33, un texte inversé 0.27–0.41 : la formule de fitness (`(mean_logp + 6) / 4` plus 30 % de taux de quadgrammes connus) laisse encore un crédit notable à un texte qui a seulement les bonnes fréquences de lettres. Un recalage de cette formule est une piste, non faite.
+- **Texte inversé ou mélangé court** : les 8 tables viennent de wordfreq et chacune reconnaît sa langue mieux que les autres, mais sur une réponse courte une ou deux fenêtres suffisent à faire la moyenne. Un texte court inversé ou aux lettres mélangées peut donc obtenir une fitness élevée par hasard (score rapide jusqu'à 0.9 dans les mesures) ; le score complet, avec son dictionnaire, le ramène sous 0.5.
+- **Scorer rapide et casse mixte** : la levée de la pénalité base64 pour un texte collé en casse mixte dépend de la segmentation, que le scorer rapide ne fait pas. Dans un lot de plus de `top_k` candidats, un tel texte y reste pénalisé.
 - **Translittération** : `ß`, `ł`, `œ`, `æ`, `ø`, `đ` sont translittérés partout — IC et quadgrammes (`_STATS_TRANSLITERATION`), dictionnaire (`_LEX_TRANSLITERATION`) — et dans les deux scripts de génération. Les quatre tables doivent rester identiques.
 - **Vocabulaire** : quelques mots de terrain restent absents (`lierre`, `nichoir`, `gouttière`, `boulon`, `lavoir`), trop rares dans les corpus généraux. Une liste complémentaire propre au géocaching serait la suite naturelle (`geo_terms` ne compte qu'une quinzaine de mots par langue).
 - **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Reste sous la cible : la paire décimale (0.80 < 0.85). Le format `N48 51.234 E002 21.456` atteint 0.96 depuis que le gatekeeper le laisse passer. Les minuscules (`n48 51.234 e002 21.456`) et le `O` de « Ouest » (`N48 51.234 O002 21.456`) sont reconnus depuis la normalisation des lettres cardinales du détecteur (voir [coordonnees-technique.md](coordonnees-technique.md)) et atteignent eux aussi 0.96.
 - **Pré-filtre rapide et coordonnées** : le scorer rapide ne fait pas de détection GPS ; il se contente du plancher `_FAST_GPS_HINT_FLOOR` (0.3) pour les textes en forme de coordonnées. Des coordonnées écrites sans aucun chiffre structuré (lettres cardinales isolées, mots) n'en bénéficient pas.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
-- **Mots collés** : la segmentation (§ C0) dépend du vocabulaire. Un mot absent peut faire échouer le découpage ou laisser un morceau inconnu (`STAREGO DE BU` pour « dębu ») ; si la couverture passe sous le seuil, le texte retombe vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
+- **Mots collés** : la segmentation (§ C0) dépend du vocabulaire. Un mot absent peut faire échouer le découpage ou laisser un morceau inconnu (`STAREGO DE BU` pour « dębu ») ; si la couverture passe sous le seuil, le texte retombe vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) n'est plus pris pour du base64 dès lors qu'il se découpe en vrais mots.
 - **Tokens d'un seul caractère** : `_tokenize_words` les écarte, donc les lettres cardinales isolées (`N`, `E`) et les chiffres isolés ne contribuent pas au signal numérique. `N QUARANTE HUIT E DEUX` n'obtient que 0.17 de signal ; le `y` espagnol (`cuarenta y ocho`) est simplement ignoré.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 

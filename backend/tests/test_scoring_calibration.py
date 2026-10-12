@@ -335,6 +335,17 @@ class TestGluedWordSegmentation:
     def test_split_is_the_natural_reading(self, text, expected):
         assert score_text(text)["metadata"]["scoring"]["segmented_text"] == expected
 
+    def test_mixed_case_glued_text_is_not_taken_for_base64(self):
+        """Casse mixte : ressemble a du base64, mais se decoupe en vrais mots."""
+        text = "LaCacheSeTrouveSousLePontDeBois"
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring["segmented_text"] == "La Cache Se Trouve Sous Le Pont De Bois"
+        assert scoring["features"]["encoded_penalty"] == 1.0
+        assert scoring["score"] >= 0.55
+        # Un vrai bloc base64 ne se decoupe pas et reste penalise.
+        for block in CASES["base64_blocks"]:
+            assert score_text(block)["metadata"]["scoring"]["features"]["encoded_penalty"] <= 0.1
+
     def test_split_keeps_case_and_accents(self):
         scoring = score_text("lacachesetrouveprèsdelarivière")["metadata"]["scoring"]
         assert scoring["segmented_text"].replace(" ", "") == "lacachesetrouveprèsdelarivière"
@@ -735,3 +746,41 @@ class TestGeoContext:
         ]
         ranked = score_and_rank_results(items, top_k=10, min_score=0.03, context=self.ORIGIN)
         assert [r["id"] for r in ranked] == ["pres", "texte", "loin"]
+
+# ── Echelle des scores ──────────────────────────────────────────────
+
+
+class TestScoreScale:
+    """Un texte clair doit atteindre la zone « bon » de l'interface (>= 0.8),
+    un mauvais dechiffrement rester dans le bas de l'echelle."""
+
+    UI_GOOD = 0.8   # getScoreColor, plugin-result-display.tsx
+    UI_MEDIUM = 0.5
+
+    @pytest.mark.parametrize("text", CASES["correct_decrypt"])
+    def test_clear_sentence_reaches_the_good_zone(self, text):
+        assert _full(text) >= self.UI_GOOD
+
+    @pytest.mark.parametrize("text", CASES["short_answers"] + CASES["multilingual_valid"])
+    def test_valid_text_reaches_at_least_the_medium_zone(self, text):
+        assert _full(text) >= self.UI_MEDIUM
+
+    def test_plain_text_never_outranks_formal_coordinates(self):
+        """Le canal langue plafonne a 0.85 : sous le plus faible format de pure_coords."""
+        prose = CASES["correct_decrypt"] + CASES["multilingual_valid"] + CASES["short_answers"]
+        assert max(_full(t) for t in prose) <= 0.86
+        assert min(_full(t) for t in CASES["pure_coords"]) >= 0.90
+
+    @pytest.mark.parametrize("text", CASES["correct_decrypt"] + CASES["multilingual_valid"])
+    def test_wrong_caesar_shifts_stay_low(self, text):
+        assert max(_full(_caesar(text, k)) for k in range(1, 26)) <= 0.40
+
+    @pytest.mark.parametrize("index", range(8))
+    def test_quadgram_fitness_spans_the_scale(self, index):
+        """Fitness recalee : ~1 sur un vrai texte, ~0 sur un mauvais decalage."""
+        text = CASES["multilingual_valid"][index]
+        real = score_text(text)["metadata"]["scoring"]["features"]["quadgram_fitness"]
+        assert real >= 0.7, real
+        for shift in (1, 7, 13):
+            wrong = score_text(_caesar(text, shift))["metadata"]["scoring"]["features"]["quadgram_fitness"]
+            assert wrong <= 0.1, (shift, wrong)
