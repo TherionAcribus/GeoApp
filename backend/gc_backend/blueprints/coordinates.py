@@ -23,6 +23,11 @@ coordinates_bp = Blueprint('coordinates', __name__)
 DISTANCE_WARNING_MILES = 2.0
 DISTANCE_FAR_MILES = 2.5
 
+# Distance max (en caractères) tolérée entre les composantes latitude et
+# longitude d'une même paire. Au-delà, ce sont vraisemblablement deux
+# coordonnées indépendantes (waypoints, étapes...) qu'il ne faut pas apparier.
+MAX_COORD_PAIR_GAP = 40
+
 
 def _error_response(log_message: str, exception: Exception, status: int = 500):
     """
@@ -947,12 +952,21 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     """
     logger.debug("_detect_specific_tabpoint_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
-    # Essayons d'abord avec un pattern très spécifique
-    specific_regex = r'N\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3}).*?E\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
-    
+    # Essayons d'abord avec un pattern très spécifique.
+    # Le séparateur latitude/longitude est borné : au plus MAX_COORD_PAIR_GAP
+    # caractères non numériques. Les chiffres sont interdits dans le gap pour
+    # éviter de traverser une autre coordonnée ; sans cette borne, une latitude
+    # et une longitude très éloignées (waypoints distincts) étaient appariées.
+    specific_regex = (
+        r'N\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+        + r'[^\d]{0,' + str(MAX_COORD_PAIR_GAP) + r'}'
+        + r'E\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+    )
+
     logger.debug('_detect_specific_tabpoint_coordinates: Regex utilisée: %s', specific_regex)
-    
-    match = re.search(specific_regex, text, re.DOTALL)
+
+    # re.DOTALL inutile : le gap [^\d] matche déjà les retours à la ligne.
+    match = re.search(specific_regex, text)
     if match:
         logger.debug('_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
@@ -1053,6 +1067,16 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
     logger.debug('_detect_flexible_coordinates: Match longitude: %s', lon_match.groups() if lon_match else None)
     
     if lat_match and lon_match:
+        # Les deux composantes doivent être proches l'une de l'autre (dans
+        # n'importe quel ordre : le format "E ... N ..." est aussi accepté).
+        # Au-delà de MAX_COORD_PAIR_GAP caractères, ce sont vraisemblablement
+        # deux coordonnées indépendantes qu'il ne faut pas apparier.
+        gap = max(lon_match.start() - lat_match.end(),
+                  lat_match.start() - lon_match.end(), 0)
+        if gap > MAX_COORD_PAIR_GAP:
+            logger.debug("_detect_flexible_coordinates: Composantes trop éloignées (gap=%s > %s), rejet", gap, MAX_COORD_PAIR_GAP)
+            return None
+
         lat_deg, lat_min, lat_sec = lat_match.groups()
         lon_deg, lon_min, lon_sec = lon_match.groups()
 
@@ -1145,6 +1169,15 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
     logger.debug('_detect_nord_est_variations: Match EST: %s', est_match.groups() if est_match else None)
     
     if nord_match and est_match:
+        # Même règle que _detect_flexible_coordinates : les deux composantes
+        # doivent être proches (dans n'importe quel ordre), sinon ce sont
+        # vraisemblablement deux coordonnées indépendantes.
+        gap = max(est_match.start() - nord_match.end(),
+                  nord_match.start() - est_match.end(), 0)
+        if gap > MAX_COORD_PAIR_GAP:
+            logger.debug("_detect_nord_est_variations: Composantes trop éloignées (gap=%s > %s), rejet", gap, MAX_COORD_PAIR_GAP)
+            return None
+
         lat_deg, lat_min, lat_sec = nord_match.groups()
         lon_deg, lon_min, lon_sec = est_match.groups()
 

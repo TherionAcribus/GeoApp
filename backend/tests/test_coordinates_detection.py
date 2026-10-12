@@ -261,3 +261,45 @@ class TestCardinalLetterVariants:
     ])
     def test_stray_letters_are_not_coordinates(self, text):
         assert d(text)["exist"] is False
+
+
+class TestPairDistanceBound:
+    """Latitude et longitude doivent être proches pour être appariées.
+
+    Trois détecteurs appariaient auparavant une latitude et une longitude
+    situées à distance arbitraire dans le texte (regex ``.*?`` ou recherches
+    indépendantes sans contrôle de distance), fabriquant des coordonnées qui
+    n'existent pas (ex : deux waypoints distincts fusionnés). Le gap est borné
+    par MAX_COORD_PAIR_GAP = 40 caractères.
+    """
+
+    def test_tabpoint_far_apart_rejected(self):
+        # Format tabpoint (séparateur lettres dans le gap) avec ~170 caractères
+        # entre latitude et longitude : détecté avant le correctif (span géant).
+        text = "N 48° 32 . 296' " + ("bla " * 40) + "E 6° 40 . 636'"
+        assert d(text)["exist"] is False
+
+    def test_tabpoint_very_far_rejected(self):
+        # Régression : latitude au caractère 0 et longitude au caractère 6000
+        # étaient appariées (span=[0,6035]).
+        text = "N 48 ° 32 . 296" + ("bla " * 1500) + "E 6 ° 40 . 636"
+        assert d(text)["exist"] is False
+
+    def test_flexible_far_apart_rejected(self):
+        # Format « deg » qui ne matche que _detect_flexible_coordinates.
+        text = "N 48 deg 32 296" + ("bla " * 50) + "E 6 deg 40 636"
+        assert d(text)["exist"] is False
+
+    def test_nord_est_variations_far_apart_rejected(self):
+        text = "NORD 48 32 296" + ("bla " * 50) + "EST 6 40 636"
+        assert d(text)["exist"] is False
+
+    def test_short_gap_with_prose_still_detected(self):
+        # Un court texte intermédiaire (< 40 caractères) reste accepté.
+        _check("N 48° 32 . 296' et E 6° 40 . 636'",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'")
+
+    def test_lon_before_lat_short_gap_still_detected(self):
+        # L'ordre « E ... N ... » reste accepté quand les deux sont proches.
+        _check("E 6 deg 40 636 et N 48 deg 32 296",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'")
