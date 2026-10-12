@@ -303,3 +303,53 @@ class TestPairDistanceBound:
         # L'ordre « E ... N ... » reste accepté quand les deux sont proches.
         _check("E 6 deg 40 636 et N 48 deg 32 296",
                ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'")
+
+
+class TestCardinalDirections:
+    """Directions cardinales généralisées : S/W littéraux et mots cardinaux
+    (north, south, sud, ouest…) normalisés en lettres avant détection."""
+
+    def test_south_west_slash(self):
+        # Rejeté avant : le détecteur tabpoint codait N/E en dur.
+        _check("S 48°33.787' / W 006°38.803'",
+               ddm_lat="S 48° 33.787'", ddm_lon="W 006° 38.803'",
+               dec_lat=-48.56311667, dec_lon=-6.64671667)
+
+    def test_english_words(self):
+        # « North »/« East » deviennent N/E ; le gagnant (dmm_no_degree_symbol)
+        # zfill la longitude à 3 chiffres.
+        _check("North 48 33.787 East 6 38.803",
+               ddm_lat="N 48° 33.787'", ddm_lon="E 006° 38.803'",
+               dec_lat=48.56311667, dec_lon=6.64671667)
+
+    def test_english_words_uppercase(self):
+        _check("SOUTH 48 32 296 WEST 6 40 636",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               dec_lat=-48.53826667, dec_lon=-6.67726667)
+
+    def test_french_words(self):
+        _check("SUD 48 32 296 OUEST 6 40 636",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               dec_lat=-48.53826667, dec_lon=-6.67726667)
+
+    def test_roman_south_west(self):
+        _check("S XLVIII XXXII CCXCVI W VI XL DCXXXVI",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               dec_lat=-48.53826667, dec_lon=-6.67726667)
+
+    def test_flexible_deg_south_west(self):
+        # Détecté (nord_est_variations gagne sur flexible par la confiance).
+        _check("S 48 deg 32 296 W 6 deg 40 636",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               dec_lat=-48.53826667, dec_lon=-6.67726667)
+
+    @pytest.mark.parametrize("text", [
+        "Paris est une ville du nord",
+        "il est 5",
+        "le nord est magnifique",
+        "nous sommes est de la ville",
+    ])
+    def test_cardinal_words_in_prose_rejected(self, text):
+        # Les mots cardinaux hors contexte numérique (ou sans paire complète)
+        # ne doivent pas fabriquer de coordonnées.
+        assert d(text)["exist"] is False

@@ -661,22 +661,6 @@ def _evaluate_math_expression(expression):
     return result
 
 # ------------------------------------------------------------------------------
-# Configuration : listes/mappings pour les directions (Nord, Est, ...)
-# ------------------------------------------------------------------------------
-
-NORTH_VARIANTS = ["NORD", "Nord", "nord", "NORTH", "North", "north", "N"]
-EAST_VARIANTS  = ["EST", "Est", "est", "EAST", "East", "east", "E"]
-
-DIRECTION_MAP = {
-    "NORD": "N", "Nord": "N", "nord": "N",
-    "NORTH": "N", "North": "N", "north": "N",
-    "N": "N",
-    "EST": "E", "Est": "E", "est": "E",
-    "EAST": "E", "East": "E", "east": "E",
-    "E": "E"
-}
-
-# ------------------------------------------------------------------------------
 # Utilitaires de validation des composantes DDM
 # ------------------------------------------------------------------------------
 
@@ -874,19 +858,16 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
       - "NORD 4833787 EST 638803"
       - "NORD\n4833787\nEST\n638803"
       - "Nord / 4833787 / Est / 638803"
-    
-    On se base sur les listes NORTH_VARIANTS et EAST_VARIANTS.
-    Pour la latitude, on attend une chaîne de 7 chiffres, et pour la longitude une chaîne de 6 à 8 chiffres.
+
+    Le texte est déjà normalisé : les mots cardinaux sont réduits à une lettre
+    (N/S et E/W acceptés). Pour la latitude, on attend une chaîne de 7 chiffres,
+    et pour la longitude une chaîne de 6 à 8 chiffres.
     Si la longitude comporte moins de 8 chiffres, on la complète avec des zéros à gauche.
     """
     logger.debug("_detect_variant_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    
-    # Construction des patterns pour les directions
-    north_pattern = '|'.join(NORTH_VARIANTS)
-    east_pattern  = '|'.join(EAST_VARIANTS)
-    
+
     # Le pattern autorise espaces, retours à la ligne ou "/" comme séparateurs
-    pattern = rf"(?P<lat_dir>{north_pattern})\s*[/\n\s]*\s*(?P<lat>\d{{7}})\s*(?P<lon_dir>{east_pattern})\s*[/\n\s]*\s*(?P<lon>\d{{6,8}})"
+    pattern = r"(?P<lat_dir>[NS])\s*[/\n\s]*\s*(?P<lat>\d{7})\s*(?P<lon_dir>[EW])\s*[/\n\s]*\s*(?P<lon>\d{6,8})"
     
     logger.debug('_detect_variant_coordinates: Pattern utilisé: %s', pattern)
     
@@ -901,9 +882,9 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
         logger.debug('_detect_variant_coordinates: Directions brutes: lat=%s, lon=%s', lat_dir_raw, lon_dir_raw)
         logger.debug('_detect_variant_coordinates: Digits: lat=%s, lon=%s', lat_digits, lon_digits)
         
-        # Normalisation des directions pour obtenir "N" et "E"
-        lat_dir = DIRECTION_MAP.get(lat_dir_raw, lat_dir_raw[0].upper())
-        lon_dir = DIRECTION_MAP.get(lon_dir_raw, lon_dir_raw[0].upper())
+        # Les lettres normalisées sont déjà canoniques ; .upper() par sécurité
+        lat_dir = lat_dir_raw.upper()
+        lon_dir = lon_dir_raw.upper()
         
         logger.debug('_detect_variant_coordinates: Directions normalisées: lat=%s, lon=%s', lat_dir, lon_dir)
         
@@ -947,6 +928,7 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     """
     Détecte les coordonnées au format très spécifique avec tabulations et points, comme dans l'exemple :
       - "N\t48 ° 32 .  296\r\nE\t6  ° 40 .  636"
+    N/S et E/W acceptés.
     
     Cette fonction est optimisée pour ce format particulier.
     """
@@ -958,9 +940,9 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     # éviter de traverser une autre coordonnée ; sans cette borne, une latitude
     # et une longitude très éloignées (waypoints distincts) étaient appariées.
     specific_regex = (
-        r'N\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+        r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
         + r'[^\d]{0,' + str(MAX_COORD_PAIR_GAP) + r'}'
-        + r'E\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+        + r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
     )
 
     logger.debug('_detect_specific_tabpoint_coordinates: Regex utilisée: %s', specific_regex)
@@ -969,15 +951,15 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     match = re.search(specific_regex, text)
     if match:
         logger.debug('_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: %s', match.groups())
-        lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
+        lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
             logger.debug("_detect_specific_tabpoint_coordinates: Bornes invalides, rejet")
             return None
 
         # Formatage des coordonnées
-        ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
+        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
+        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
         
         logger.debug('_detect_specific_tabpoint_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
@@ -1008,14 +990,17 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
     logger.debug('_detect_simplified_coordinates: Lignes extraites: %s', lines)
     
     if len(lines) >= 2:
-        # Vérifier si la première ligne commence par N et la deuxième par E
+        # Vérifier si la première ligne commence par N/S et la deuxième par E/W
+        # (le texte normalisé porte déjà les lettres cardinales en majuscules).
         lat_line = lines[0].strip()
         lon_line = lines[1].strip()
-        
+
         logger.debug("_detect_simplified_coordinates: Ligne latitude: '%s'", lat_line)
         logger.debug("_detect_simplified_coordinates: Ligne longitude: '%s'", lon_line)
-        
-        if lat_line.startswith('N') and lon_line.startswith('E'):
+
+        if lat_line[:1] in ('N', 'S') and lon_line[:1] in ('E', 'W'):
+            lat_dir = lat_line[0]
+            lon_dir = lon_line[0]
             # Extraction des nombres de la latitude
             lat_parts = re.findall(r'\d+', lat_line)
             lon_parts = re.findall(r'\d+', lon_line)
@@ -1032,8 +1017,8 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
                     return None
 
                 # Formatage des coordonnées
-                ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-                ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
+                ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
+                ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
 
                 logger.debug('_detect_simplified_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
                 
@@ -1053,15 +1038,15 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
 
 def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
-    Détection ultra-flexible pour tout format contenant N/E et des degrés.
+    Détection ultra-flexible pour tout format contenant N/S et E/W + des degrés.
     Cette fonction est conçue pour être très tolérante aux variations de format.
     """
     logger.debug("_detect_flexible_coordinates: Analyse du texte: '%s'", text)
-    
-    # Recherche de N suivi de nombres et de degrés
-    lat_match = re.search(r'N\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
-    # Recherche de E suivi de nombres et de degrés
-    lon_match = re.search(r'E\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
+
+    # Recherche de N/S suivi de nombres et de degrés
+    lat_match = re.search(r'([NS])\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
+    # Recherche de E/W suivi de nombres et de degrés
+    lon_match = re.search(r'([EW])\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
     
     logger.debug('_detect_flexible_coordinates: Match latitude: %s', lat_match.groups() if lat_match else None)
     logger.debug('_detect_flexible_coordinates: Match longitude: %s', lon_match.groups() if lon_match else None)
@@ -1077,16 +1062,16 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
             logger.debug("_detect_flexible_coordinates: Composantes trop éloignées (gap=%s > %s), rejet", gap, MAX_COORD_PAIR_GAP)
             return None
 
-        lat_deg, lat_min, lat_sec = lat_match.groups()
-        lon_deg, lon_min, lon_sec = lon_match.groups()
+        lat_dir, lat_deg, lat_min, lat_sec = lat_match.groups()
+        lon_dir, lon_deg, lon_min, lon_sec = lon_match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
             logger.debug("_detect_flexible_coordinates: Bornes invalides, rejet")
             return None
 
-        # Formatage des coordonnées
-        ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
+        # Formatage des coordonnées (lettres canoniques en majuscules)
+        ddm_lat = f"{lat_dir.upper()} {lat_deg}° {lat_min}.{lat_sec}'"
+        ddm_lon = f"{lon_dir.upper()} {lon_deg}° {lon_min}.{lon_sec}'"
 
         logger.debug('_detect_flexible_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
@@ -1110,28 +1095,30 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     Détecte les coordonnées au format NORD/EST avec chiffres séparés par des espaces, par exemple :
       - "NORD 48 32 296 EST 6 40 636"
       - "Nord 48 32 296 Est 6 40 636"
-    
-    Ce format est spécifique aux coordonnées normalisées après décodage.
+
+    Ce format est spécifique aux coordonnées normalisées après décodage :
+    les mots cardinaux y sont déjà réduits à leur lettre (N/S et E/W acceptés).
     """
     logger.debug("_detect_nord_est_format: Analyse du texte: '%s'", text)
-    
-    # Pattern pour détecter NORD/EST suivi de chiffres séparés par des espaces
-    nord_est_regex = r'(?:NORD|Nord|nord)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)(?:EST|Est|est)\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
-    
+
+    # Pattern pour détecter la lettre cardinale suivie de chiffres séparés par
+    # des espaces (les mots « nord/est/sud/ouest… » ont été blankés en amont).
+    nord_est_regex = r'([NS])\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)([EW])\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
+
     logger.debug('_detect_nord_est_format: Regex utilisée: %s', nord_est_regex)
-    
-    match = re.search(nord_est_regex, text, re.IGNORECASE)
+
+    match = re.search(nord_est_regex, text)
     if match:
         logger.debug('_detect_nord_est_format: Match trouvé! Groupes: %s', match.groups())
-        lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
+        lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
             logger.debug("_detect_nord_est_format: Bornes invalides, rejet")
             return None
 
         # Formatage des coordonnées
-        ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
+        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
+        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
 
         logger.debug('_detect_nord_est_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
@@ -1156,14 +1143,18 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
       - "NORD 48 32 296 EST 6 40 636"
       - "NORD48 32 296EST6 40 636"
       - "NORD48.32.296 EST6.40.636"
-    
+
     Cette fonction est très flexible et tolérante aux variations de format.
+    Après normalisation, les mots cardinaux sont des lettres : N/S et E/W acceptés.
     """
     logger.debug("_detect_nord_est_variations: Analyse du texte: '%s'", text)
-    
-    # Extraction des nombres après NORD et EST
-    nord_match = re.search(r'(?:NORD|Nord|nord)[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text, re.IGNORECASE)
-    est_match = re.search(r'(?:EST|Est|est)[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text, re.IGNORECASE)
+
+    # Extraction des nombres après la lettre cardinale (les mots « nord/est… »
+    # ont déjà été réduits à N/S/E/W par la normalisation amont). La lettre
+    # doit être isolée — ni précédée ni suivie d'une lettre — pour ne pas la
+    # lire dans un mot capitalisé (« Session 48 32 296 Errors 6 40 636 »).
+    nord_match = re.search(r'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text)
+    est_match = re.search(r'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text)
     
     logger.debug('_detect_nord_est_variations: Match NORD: %s', nord_match.groups() if nord_match else None)
     logger.debug('_detect_nord_est_variations: Match EST: %s', est_match.groups() if est_match else None)
@@ -1178,16 +1169,16 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
             logger.debug("_detect_nord_est_variations: Composantes trop éloignées (gap=%s > %s), rejet", gap, MAX_COORD_PAIR_GAP)
             return None
 
-        lat_deg, lat_min, lat_sec = nord_match.groups()
-        lon_deg, lon_min, lon_sec = est_match.groups()
+        lat_dir, lat_deg, lat_min, lat_sec = nord_match.groups()
+        lon_dir, lon_deg, lon_min, lon_sec = est_match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
             logger.debug("_detect_nord_est_variations: Bornes invalides, rejet")
             return None
 
         # Formatage des coordonnées
-        ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
+        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
+        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
 
         logger.debug('_detect_nord_est_variations: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
@@ -1293,8 +1284,10 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 i += 1
         return result
     
-    # Rechercher les motifs de chiffres romains
-    roman_pattern = r'(NORD|Nord|nord|N)\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+(EST|Est|est|E)\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))'
+    # Rechercher les motifs de chiffres romains. Après normalisation, les mots
+    # cardinaux sont des lettres : N/S et E/W acceptés (re.IGNORECASE pour les
+    # chiffres romains en minuscules).
+    roman_pattern = r'([NS])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+([EW])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))'
     
     logger.debug('_detect_roman_numerals_coordinates: Pattern utilisé: %s', roman_pattern)
     
@@ -1324,10 +1317,10 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                     logger.debug("_detect_roman_numerals_coordinates: Bornes invalides, rejet")
                     return None
 
-                # Formatage des coordonnées
-                ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
-                ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
-                
+                # Formatage des coordonnées (lettres canoniques en majuscules)
+                ddm_lat = f"{lat_dir.upper()} {lat_deg}° {lat_min}.{lat_sec}'"
+                ddm_lon = f"{lon_dir.upper()} {lon_deg}° {lon_min}.{lon_sec}'"
+
                 logger.debug('_detect_roman_numerals_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
                 
                 return {
@@ -1790,6 +1783,36 @@ def _finalize_detection(result: Dict, source: str, confidence: float, text: str)
 _CARDINAL_PREFIX_REGEX = re.compile(r"(?<![^\W\d_])([nsewoO])(?=\s*\d)")
 _CARDINAL_SUFFIX_REGEX = re.compile(r"(?<=[\d'′\"″°º])(\s*)([nsewoO])(?![^\W_])")
 
+# Mots cardinaux entiers (fr/en/de/es/it), insensibles à la casse. On ne les
+# réécrit que dans un contexte numérique pour épargner le français courant
+# (« il est », « le nord de la France ») :
+#   - préfixe : le mot est suivi d'un début de nombre ou de chiffre romain
+#     (« north 48 », « NORD XLVIII », « est/6 ») ;
+#   - suffixe : le mot suit une fin de nombre ou un symbole
+#     (« 33.787 north », « 48° sud »).
+# NB : la classe [IVXLCDM] couvre le détecteur de chiffres romains.
+# NB2 : un chiffre collé compte comme bord de mot (« NORD48… », « 296EST6… » —
+# formats collés historiques) : (?=\d|\b) / (?:(?<=\d)|\b) remplacent le \b.
+_CARDINAL_WORDS = r"nord|north|sud|süd|south|est|east|ost|ouest|oeste|ovest|west"
+_CARDINAL_WORD_PREFIX_REGEX = re.compile(
+    rf"\b({_CARDINAL_WORDS})(?=\d|\b)(?=[\s/:.,;°]*[\dIVXLCDM])",
+    re.IGNORECASE,
+)
+_CARDINAL_WORD_SUFFIX_REGEX = re.compile(
+    rf"(?<=[\d'′\"″°º])(\s*)(?:(?<=\d)|\b)({_CARDINAL_WORDS})(?=\d|\b)",
+    re.IGNORECASE,
+)
+
+# Lettre canonique de chaque mot cardinal. Aucun n'est ambigu (« ost » = Est
+# allemand, « ouest/oeste/ovest » = Ouest) : ils ne passent PAS par la logique
+# « O » -> o_letter/o_direction_assumed réservée à la lettre O isolée.
+_CARDINAL_WORD_LETTERS = {
+    "nord": "N", "north": "N",
+    "sud": "S", "süd": "S", "south": "S",
+    "est": "E", "east": "E", "ost": "E",
+    "ouest": "W", "oeste": "W", "ovest": "W", "west": "W",
+}
+
 
 def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str]]) -> tuple:
     """Met en forme canonique les lettres cardinales, sans changer la longueur.
@@ -1804,6 +1827,12 @@ def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str
     allemand. Si des coordonnées d'origine sont connues, ``O`` prend leur
     hémisphère (un final est toujours du même côté que sa cache) ; sinon il vaut
     Ouest, et la réponse le signale (``o_direction_assumed``).
+
+    Une passe MOTS précède les passes lettres : les mots cardinaux entiers en
+    contexte numérique (« North 48 … », « SUD XLVIII … ») sont réduits à leur
+    première lettre canonique, le reste blanké en espaces. Pas de chevauchement
+    possible avec les passes lettres : la première lettre d'un mot est suivie
+    d'une lettre, jamais d'un chiffre.
 
     Chaque remplacement se fait caractère pour caractère : les ``span`` renvoyés
     par les détecteurs restent valables sur le texte d'origine.
@@ -1827,6 +1856,21 @@ def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str
             o_positions.append(pos)
         else:
             chars[pos] = chars[pos].upper()
+
+    def _blank_word(start: int, end: int) -> None:
+        # 1re lettre -> direction canonique, reste -> espaces (même longueur).
+        # Ces mots ne sont PAS ambigus : pas de passage par o_positions/o_letter.
+        chars[start] = _CARDINAL_WORD_LETTERS.get(
+            text[start:end].lower(), text[start].upper())
+        for i in range(start + 1, end):
+            chars[i] = ' '
+
+    # Passe MOTS d'abord : « north »/« SUD »… en contexte numérique deviennent
+    # « N    »/« S   »… que les détecteurs lisent comme des lettres cardinales.
+    for match in _CARDINAL_WORD_PREFIX_REGEX.finditer(text):
+        _blank_word(match.start(1), match.end(1))
+    for match in _CARDINAL_WORD_SUFFIX_REGEX.finditer(text):
+        _blank_word(match.start(2), match.end(2))
 
     for match in _CARDINAL_PREFIX_REGEX.finditer(text):
         _canonical(match.start(1))
