@@ -238,6 +238,134 @@ def _all_geo_words() -> frozenset:
     return frozenset(out)
 
 
+# ── Segmentation of glued words ──────────────────────────────────────────
+# Many ciphers output plaintext without spaces ("LACACHESETROUVEAUPIED").
+# Tokenised as one unknown word, it gets no lexical credit at all. A long
+# alphabetic run that is not itself a word is therefore split against one
+# language's vocabulary at a time, and the split is kept only if real words
+# cover most of the run.
+_SEGMENT_MIN_LETTERS = 8
+_SEGMENT_MAX_LETTERS = 400
+_SEGMENT_MIN_COVERAGE = 0.7
+_SEGMENT_SHORT_RUN = 12            # below this many letters...
+_SEGMENT_MIN_COVERAGE_SHORT = 0.85  # ...a stricter coverage is required
+_RE_ALPHA_RUN = re.compile(r"[^\W\d_]{%d,}" % _SEGMENT_MIN_LETTERS)
+
+
+@lru_cache(maxsize=16)
+def _lang_vocabulary(lang: str) -> Tuple[frozenset, int]:
+    """One language's accent-normalised words (2+ letters) and the longest length.
+
+    Kept per language on purpose: pooled across 8 languages, the short words
+    alone would be enough to carve up almost any letter soup.
+    """
+    words = set(load_common_words(lang))
+    for w in load_stopwords(lang):
+        words.add(_norm_lex_token(w))
+    for w in load_geo_terms(lang):
+        words.add(_norm_lex_token(w))
+    words |= _CW_NUMBER_WORDS
+    words = frozenset(w for w in words if len(w) >= 2 and w.isalpha())
+    return words, max((len(w) for w in words), default=0)
+
+
+def _segment_with_vocabulary(s: str, vocab: frozenset, max_len: int) -> Tuple[float, List[str]]:
+    """Best split of ``s`` into vocabulary words; returns (coverage, pieces).
+
+    Dynamic programming maximising the sum of squared word lengths, so long
+    words win over runs of short ones; letters no word accounts for are left
+    in unknown pieces. ``coverage`` is the share of letters inside real words,
+    with 2- and 3-letter words discounted (1/3 and 2/3): they turn up by
+    chance in any letter soup.
+    """
+    n = len(s)
+    best = [0] * (n + 1)
+    back: List[Optional[int]] = [None] * (n + 1)  # start of the word ending here
+    for i in range(n):
+        if best[i] > best[i + 1]:
+            best[i + 1] = best[i]
+            back[i + 1] = None
+        base = best[i]
+        for j in range(i + 2, min(n, i + max_len) + 1):
+            if s[i:j] in vocab:
+                gain = base + (j - i) * (j - i)
+                if gain > best[j]:
+                    best[j] = gain
+                    back[j] = i
+
+    pieces: List[str] = []
+    covered = 0.0
+    end = n
+    gap_end = n
+    while end > 0:
+        start = back[end]
+        if start is None:
+            end -= 1
+            continue
+        if gap_end > end:
+            pieces.append(s[end:gap_end])
+        pieces.append(s[start:end])
+        length = end - start
+        covered += length * min(1.0, (length - 1) / 3.0)
+        end = start
+        gap_end = start
+    if gap_end > 0:
+        pieces.append(s[0:gap_end])
+    pieces.reverse()
+    return covered / n, pieces
+
+
+@lru_cache(maxsize=4096)
+def _segment_glued_run(run: str) -> Optional[Tuple[str, Tuple[str, ...]]]:
+    """Split an accent-normalised lowercase run, or None if no language fits.
+
+    Returns (language, pieces) for the language whose words cover the run best,
+    provided that coverage reaches _SEGMENT_MIN_COVERAGE.
+    """
+    best_cov = 0.0
+    best: Optional[Tuple[str, Tuple[str, ...]]] = None
+    for lang in DEFAULT_LANGS_EUROPE:
+        vocab, max_len = _lang_vocabulary(lang)
+        coverage, pieces = _segment_with_vocabulary(run, vocab, max_len)
+        if coverage > best_cov:
+            best_cov = coverage
+            best = (lang, tuple(pieces))
+    # A short run is covered by chance more easily: ask more of it.
+    required = _SEGMENT_MIN_COVERAGE if len(run) >= _SEGMENT_SHORT_RUN else _SEGMENT_MIN_COVERAGE_SHORT
+    if best is None or best_cov < required:
+        return None
+    return best
+
+
+def _segment_glued_words(text: str) -> Tuple[str, Optional[str]]:
+    """Insert spaces into glued alphabetic runs; returns (text, language or None).
+
+    Runs that are already words, too short or too long are left alone, as is
+    any run no language covers well enough — so gibberish comes back unchanged.
+    """
+    known = _all_known_words()
+    language: Optional[str] = None
+
+    def _split(match: 're.Match') -> str:
+        nonlocal language
+        raw = match.group(0)
+        run = _norm_lex_token(raw)
+        if len(run) != len(raw) or len(run) > _SEGMENT_MAX_LETTERS or run in known:
+            return raw
+        found = _segment_glued_run(run)
+        if found is None:
+            return raw
+        language = language or found[0]
+        # Cut the original run at the same offsets, to keep its case and accents.
+        out, pos = [], 0
+        for piece in found[1]:
+            out.append(raw[pos:pos + len(piece)])
+            pos += len(piece)
+        return ' '.join(out)
+
+    return _RE_ALPHA_RUN.sub(_split, text), language
+
+
 def _lexical_features(tokens: List[str]) -> Tuple[float, float, List[str]]:
     """Measure how much of the text is *recognised* real language.
 
@@ -667,7 +795,10 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     gps_conf, gps_details = _detect_gps_confidence(text, include_numeric_only=False)
 
     langid = detect_language(text, DEFAULT_LANGS_EUROPE)
-    tokens = _tokenize_words(text)
+    # Word-level features read the text with glued words split apart; the
+    # letter-level ones (IC, n-grams, GPS) keep the original.
+    word_text, segmentation_lang = _segment_glued_words(text)
+    tokens = _tokenize_words(word_text)
 
     lexical, coherence, words_found = _lexical_features(tokens)
     ic_v = _ic_feature(ic)
@@ -677,7 +808,7 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     quadgram_fitness = _quadgram_fitness(text, langid.language)
     repetition_quality = _repetition_quality(text)
     encoded_penalty = _encoded_pattern_penalty(text)
-    numeric_signal = _numeric_signal_feature(text)
+    numeric_signal = _numeric_signal_feature(word_text)
 
     # Unified coordinate channel: a formal GPS detection or a strong written
     # numeric signal. numeric_signal is scaled by 0.85 so a formal GPS hit is
@@ -785,6 +916,9 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
                 'language_detected': langid.language,
                 'language_confidence': float(langid.confidence),
                 'words_found': words_found,
+                # Text with glued words split apart, when a split was found.
+                'segmented_text': word_text if segmentation_lang else None,
+                'segmentation_language': segmentation_lang,
                 'gps_patterns': [gps_details.get('ddm')] if gps_details.get('exist') else [],
                 'gps_source': gps_details.get('source'),
                 'features': {

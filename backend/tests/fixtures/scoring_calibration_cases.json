@@ -37,6 +37,19 @@
     ]
   },
 
+  "glued_words_segmentable": {
+    "_desc": "Texte clair sans espaces dont tous les mots sont dans le vocabulaire : la segmentation doit le decouper et lui rendre un score de texte clair. Les deux derniers sont des coordonnees en toutes lettres : le decoupage doit faire apparaitre le signal numerique.",
+    "cases": [
+      "LACACHESETROUVEAUPIEDDUGRANDARBREPRESDELARIVIERE",
+      "DERSCHATZISTUNTERDEMGROSSENBAUM",
+      "ILTESOROENASCOSTOVICINOALGRANDEALBERO",
+      "lacachesetrouvesouslepontdebois",
+      "CHERCHESOUSLAPIERRE",
+      "NORDQUARANTEHUITDEGRESCINQUANTEETUNPOINTDEUXCENTTRENTEQUATRE",
+      "NORTHFORTYEIGHTDEGREESFIFTYONEPOINTTWOTHREEFOUR"
+    ]
+  },
+
   "base64_blocks": {
     "_desc": "Vrais blocs base64 (avec ou sans padding, avec ou sans chiffre). Doivent rester penalises comme encodes.",
     "cases": [

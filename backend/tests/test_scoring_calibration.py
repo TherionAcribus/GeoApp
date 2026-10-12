@@ -282,6 +282,72 @@ class TestGluedWords:
         assert _fast(text) < 0.15
 
 
+# ── Segmentation des mots colles ────────────────────────────────────
+
+
+class TestGluedWordSegmentation:
+    """Un texte clair colle est decoupe en mots et retrouve un score de texte
+    clair ; un mauvais dechiffrement ne se laisse pas decouper."""
+
+    @pytest.mark.parametrize("text", CASES["glued_words_segmentable"])
+    def test_segmentable_text_scores_like_plain_text(self, text):
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring["segmented_text"], "aucun decoupage trouve"
+        assert scoring["segmented_text"].replace(" ", "") == text
+        assert scoring["features"]["lexical_coverage"] >= 0.75
+        assert scoring["score"] >= 0.55
+
+    @pytest.mark.parametrize("text", CASES["glued_words_segmentable"])
+    def test_wrong_caesar_shifts_are_not_segmented(self, text):
+        best_wrong = 0.0
+        for shift in range(1, 26):
+            scoring = score_text(_caesar(text, shift))["metadata"]["scoring"]
+            assert not scoring.get("segmented_text"), scoring.get("segmented_text")
+            best_wrong = max(best_wrong, scoring["score"])
+        assert _full(text) - best_wrong >= 0.30
+
+    def test_glued_written_coordinates_reach_the_coordinate_channel(self):
+        for text in CASES["glued_words_segmentable"][-2:]:
+            features = score_text(text)["metadata"]["scoring"]["features"]
+            assert features["numeric_signal"] >= 0.8, text
+            assert _full(text) >= 0.85, text
+
+    def test_language_of_the_split_is_reported(self):
+        scoring = score_text("DERSCHATZISTUNTERDEMGROSSENBAUM")["metadata"]["scoring"]
+        assert scoring["segmentation_language"] == "de"
+        assert scoring["segmented_text"] == "DER SCHATZ IST UNTER DEM GROSSEN BAUM"
+
+    def test_split_keeps_case_and_accents(self):
+        scoring = score_text("lacachesetrouveprèsdelarivière")["metadata"]["scoring"]
+        assert scoring["segmented_text"].replace(" ", "") == "lacachesetrouveprèsdelarivière"
+        assert "près" in scoring["segmented_text"].split()
+
+    @pytest.mark.parametrize("text", [
+        "LA CACHE SE TROUVE AU PIED DU GRAND ARBRE",   # deja espace
+        "LAMPADAIRE",                                    # mot reel hors vocabulaire
+        "XQZJWKLMNPVBGHTRDWSAQPLMZ",                     # charabia
+        "N 48° 51.234 E 002° 21.456",                    # coordonnees
+    ])
+    def test_other_texts_are_left_alone(self, text):
+        assert not score_text(text)["metadata"]["scoring"].get("segmented_text")
+
+    def test_letter_soup_is_rarely_segmented(self):
+        """Lettres aux frequences naturelles mais en desordre : le decoupage ne
+        doit presque jamais prendre (sinon le charabia gagnerait du lexical)."""
+        import random
+
+        from gc_backend.plugins.scoring.scorer import _segment_glued_run
+
+        rng = random.Random(5)
+        source = "lacachesetrouveaupieddugrandarbrepresdelarivierederrierelevieuxmoulin"
+        accepted = sum(
+            _segment_glued_run("".join(rng.choice(source) for _ in range(length))) is not None
+            for length in (8, 10, 12, 16, 24)
+            for _ in range(300)
+        )
+        assert accepted <= 15, f"{accepted}/1500 soupes de lettres decoupees"
+
+
 # ── Assertion 1 : ecart correct vs near-miss (XFAIL — cible T6) ─────
 
 
