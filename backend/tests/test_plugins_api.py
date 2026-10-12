@@ -59,10 +59,10 @@ def _apply_realistic_scenario_mocks(app, monkeypatch, scenario):
     if mock_plugin_results:
         original_execute_plugin = app.plugin_manager.execute_plugin
 
-        def fake_execute_plugin(plugin_name, inputs):
+        def fake_execute_plugin(plugin_name, inputs, **kwargs):
             if plugin_name in mock_plugin_results:
                 return _deep_copy_json_payload(mock_plugin_results[plugin_name])
-            return original_execute_plugin(plugin_name, inputs)
+            return original_execute_plugin(plugin_name, inputs, **kwargs)
 
         monkeypatch.setattr(app.plugin_manager, 'execute_plugin', fake_execute_plugin)
 
@@ -980,7 +980,8 @@ class TestWorkflowOrchestratorAPI:
         direct_result = secret_execution['direct_plugin_result']
         assert direct_result is not None
         assert direct_result['plugin_name'] == 'pi_digits'
-        assert direct_result['status'] == 'success'
+        # Le contrat normalise desormais le legacy 'success' en 'ok'
+        assert direct_result['status'] == 'ok'
         assert direct_result['coordinates'] is not None
         assert direct_result['coordinates']['ddm'] == "N 49° 33.654' E 006° 06.740'"
         assert direct_result['top_results'][0]['text_output'] == "N 49° 33.654' E 006° 06.740'"

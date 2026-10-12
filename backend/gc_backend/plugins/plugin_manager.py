@@ -24,6 +24,13 @@ import jsonschema
 
 from ..database import db
 from .models import Plugin
+from .executor import (
+    TextHandlingError,
+    apply_text_handling,
+    normalize_plugin_result,
+    score_plugin_results,
+    scoring_context_from_inputs,
+)
 from .wrappers import (
     create_plugin_wrapper,
     PluginMetadata,
@@ -687,24 +694,35 @@ class PluginManager:
     def execute_plugin(
         self,
         plugin_name: str,
-        inputs: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        inputs: Dict[str, Any],
+        *,
+        apply_scoring: bool = False
+    ) -> Dict[str, Any]:
         """
         Exécute un plugin avec les inputs fournis.
-        
+
+        Passe par la couche centrale d'exécution (plugins/executor.py) :
+        - normalisation des inputs selon le bloc ``text_handling`` du
+          plugin.json (``apply_text_handling``),
+        - normalisation du résultat vers le contrat documenté
+          (``normalize_plugin_result``, mapping legacy 'success' -> 'ok'),
+        - scoring post-exécution optionnel via ``apply_scoring`` (opt-in :
+          le metasolver conserve son propre scoring et ne l'active pas).
+
         Args:
             plugin_name (str): Nom du plugin à exécuter
             inputs (dict): Paramètres d'entrée pour le plugin
-            
+            apply_scoring (bool): Appliquer le scoring post-exécution
+
         Returns:
-            Optional[Dict]: Résultat de l'exécution au format standardisé ou None
+            Dict: Résultat de l'exécution au format standardisé
         """
         # Récupérer le plugin (lazy loading)
         plugin = self.get_plugin(plugin_name)
-        
+
         if not plugin:
             logger.error(f"Plugin {plugin_name} non disponible pour exécution")
-            return {
+            return normalize_plugin_result({
                 "status": "error",
                 "summary": f"Plugin {plugin_name} non disponible",
                 "results": [],
@@ -718,21 +736,101 @@ class PluginManager:
                     "code": "plugin_unavailable",
                     "message": f"Plugin {plugin_name} non disponible"
                 }
+            }, name=plugin_name, version='unknown')
+
+        # Métadonnées du plugin.json (text_handling, input_types, version).
+        # Si elles sont indisponibles (pas d'app Flask, erreur DB), on
+        # continue simplement sans normalisation des inputs.
+        info: Dict[str, Any] = {}
+        try:
+            fetched_info = self.get_plugin_info(plugin_name)
+            if isinstance(fetched_info, dict):
+                info = fetched_info
+        except Exception as e:
+            logger.warning(
+                f"Métadonnées indisponibles pour {plugin_name}, "
+                f"normalisation des inputs ignorée: {e}"
+            )
+
+        metadata = info.get('metadata')
+        metadata = metadata if isinstance(metadata, dict) else {}
+        text_handling = metadata.get('text_handling')
+        input_types = metadata.get('input_types') or info.get('input_types')
+        plugin_version = info.get('version') or 'unknown'
+
+        # Normalisation des inputs (portage de normalizeInputsForPlugin)
+        warnings: List[str] = []
+        try:
+            inputs, warnings = apply_text_handling(
+                inputs, text_handling, input_types
+            )
+        except TextHandlingError as e:
+            logger.warning(
+                f"Inputs refusés par text_handling pour {plugin_name}: {e}"
+            )
+            return {
+                "status": "error",
+                "summary": str(e),
+                "results": [],
+                "plugin_info": {
+                    "name": plugin_name,
+                    "version": plugin_version,
+                    "execution_time_ms": 0
+                },
+                "error": {
+                    "type": "TextHandlingError",
+                    "code": "text_normalization",
+                    "message": str(e)
+                }
             }
-        
+        except Exception as e:
+            logger.warning(
+                f"Échec normalisation inputs pour {plugin_name}, "
+                f"inputs d'origine conservés: {e}"
+            )
+            warnings = []
+
         try:
             logger.info(f"Exécution du plugin {plugin_name}")
-            
+
             # Exécuter le plugin
-            result = plugin.execute(inputs)
-            
+            raw_result = plugin.execute(inputs)
+
+            # Normaliser vers le contrat de résultat documenté
+            result = normalize_plugin_result(
+                raw_result,
+                name=plugin_name,
+                version=plugin_version,
+            )
+
+            # Avertissements de normalisation des inputs (diacritiques,
+            # caractères non supportés...) : fusion avec ceux du plugin.
+            if warnings:
+                existing_warnings = result.get('warnings')
+                if isinstance(existing_warnings, list):
+                    result['warnings'] = warnings + existing_warnings
+                else:
+                    result['warnings'] = warnings
+
             logger.info(
                 f"Plugin {plugin_name} exécuté avec succès "
                 f"(status: {result.get('status')})"
             )
-            
+
+            if apply_scoring:
+                try:
+                    result = score_plugin_results(
+                        result,
+                        inputs,
+                        context=scoring_context_from_inputs(inputs),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Scoring integration error for {plugin_name}: {e}"
+                    )
+
             return result
-            
+
         except Exception as e:
             logger.opt(exception=e).error(
                 "Erreur lors de l'exécution du plugin {}: {}",

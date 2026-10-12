@@ -27,6 +27,7 @@ from loguru import logger
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..plugins import PluginManager
+from ..plugins.executor import scoring_context_from_inputs
 from ..database import db
 from ..geocaches.models import Geocache
 from ..services.metasolver_analysis import (
@@ -5541,38 +5542,13 @@ def get_plugin_manager() -> PluginManager:
 
 
 def _scoring_context_from_inputs(inputs: Any) -> Dict[str, Any]:
-    """Contexte geographique du scoring : les coordonnees de la geocache.
+    """Alias vers ``gc_backend.plugins.executor.scoring_context_from_inputs``.
 
-    Le scorer s'en sert pour ponderer des coordonnees trouvees dans un resultat
-    par leur distance a la cache (voir scorer._apply_geo_context). Source, par
-    ordre de preference : `origin_coords` deja fourni par l'appelant (le frontend
-    l'injecte en mode geocache), sinon la geocache designee par `geocache_id` —
-    ses coordonnees d'origine si elles ont ete corrigees, pour ne pas mesurer la
-    distance a un final deja resolu. Dictionnaire vide si rien n'est disponible.
+    L'implementation canonique a ete deplacee dans la couche centrale
+    d'execution des plugins ; cet alias preserve les call sites existants
+    du blueprint (endpoint /score notamment).
     """
-    if not isinstance(inputs, dict):
-        return {}
-
-    origin_coords = inputs.get('origin_coords')
-    if origin_coords:
-        return {'origin_coords': origin_coords}
-
-    geocache_id = inputs.get('geocache_id')
-    if not geocache_id:
-        return {}
-    try:
-        geocache = Geocache.query.get(int(geocache_id))
-    except Exception:
-        return {}
-    if geocache is None:
-        return {}
-
-    latitude, longitude = geocache.original_latitude, geocache.original_longitude
-    if latitude is None or longitude is None:
-        latitude, longitude = geocache.latitude, geocache.longitude
-    if latitude is None or longitude is None:
-        return {}
-    return {'origin_latitude': latitude, 'origin_longitude': longitude}
+    return scoring_context_from_inputs(inputs)
 
 
 @bp.route('/score', methods=['POST'])
@@ -6508,86 +6484,39 @@ def execute_plugin(plugin_name: str):
             f"avec inputs: {list(inputs.keys())}"
         )
         
-        # Exécuter le plugin
-        result = manager.execute_plugin(plugin_name, inputs)
-        
+        # Résolution du flag de scoring : enable_scoring dans les inputs,
+        # sinon la valeur déclarée dans le plugin.json (metadata).
+        plugin_info = manager.get_plugin_info(plugin_name) or {}
+        metadata = plugin_info.get('metadata') if isinstance(plugin_info, dict) else {}
+        plugin_enable_scoring = False
+        if isinstance(metadata, dict) and 'enable_scoring' in metadata:
+            plugin_enable_scoring = bool(metadata.get('enable_scoring'))
+        enable_scoring = bool(inputs.get('enable_scoring', plugin_enable_scoring))
+
+        # Exécuter le plugin : la normalisation des inputs (text_handling),
+        # la normalisation du résultat et le scoring opt-in sont gérés par
+        # la couche centrale d'exécution (plugins/executor.py via le manager).
+        result = manager.execute_plugin(
+            plugin_name, inputs, apply_scoring=enable_scoring
+        )
+
         if not result:
             return jsonify({
                 "error": "Erreur d'exécution",
                 "message": f"Le plugin {plugin_name} n'a pas pu être exécuté"
             }), 500
-        
+
         logger.info(
             f"Plugin {plugin_name} exécuté avec succès "
             f"(status: {result.get('status')})"
         )
 
-        try:
-            plugin_info = manager.get_plugin_info(plugin_name) or {}
-            metadata = plugin_info.get('metadata') if isinstance(plugin_info, dict) else {}
-            plugin_enable_scoring = False
-            if isinstance(metadata, dict) and 'enable_scoring' in metadata:
-                plugin_enable_scoring = bool(metadata.get('enable_scoring'))
-            enable_scoring = bool(inputs.get('enable_scoring', plugin_enable_scoring))
-
-            mode = inputs.get('mode')
-            mode_str = str(mode).lower() if isinstance(mode, str) else None
-
-            if enable_scoring and isinstance(result, dict) and isinstance(result.get('results'), list):
-                items = [item for item in (result.get('results') or []) if isinstance(item, dict)]
-
-                # Preserve original plugin confidence before overwriting
-                for item in items:
-                    item_metadata = item.get('metadata')
-                    if not isinstance(item_metadata, dict):
-                        item_metadata = {}
-                        item['metadata'] = item_metadata
-                    plugin_confidence = item.get('confidence')
-                    if plugin_confidence is not None and 'plugin_confidence' not in item_metadata:
-                        item_metadata['plugin_confidence'] = plugin_confidence
-
-                if mode_str == 'detect':
-                    for item in items:
-                        item['confidence'] = 0.0
-                elif mode_str == 'encode':
-                    pass  # Encode results have deterministic confidence, skip scoring
-                else:
-                    # Use tiered scoring: fast pre-filter then full score on survivors
-                    from gc_backend.plugins.scoring import score_and_rank_results
-
-                    max_results = int(inputs.get('max_results', 25) or 25)
-                    ranked = score_and_rank_results(
-                        items,
-                        top_k=max(max_results, 25),
-                        min_score=0.03,
-                        fast_reject_threshold=0.01,
-                        context=_scoring_context_from_inputs(inputs),
-                    )
-                    if ranked:
-                        result['results'] = ranked
-                    else:
-                        # Do not erase deterministic plugin output just because
-                        # the global language scorer considers it implausible.
-                        # Some ciphers need a missing/unknown key and still
-                        # must display the raw decoded candidate to the user.
-                        for item in items:
-                            item_metadata = item.get('metadata')
-                            if not isinstance(item_metadata, dict):
-                                item_metadata = {}
-                                item['metadata'] = item_metadata
-                            item_metadata['scoring_filtered'] = True
-                            item_metadata['scoring_warning'] = (
-                                "Le scoring global a juge ce resultat peu plausible; "
-                                "le resultat brut du plugin est conserve."
-                            )
-                        result['results'] = items
-        except Exception as e:
-            logger.warning(f"Scoring integration error for {plugin_name}: {e}")
-
         # Tracking : si le plugin s'exécute avec succès sur une géocache, enregistrer dans l'archive
         try:
             geocache_id_raw = inputs.get('geocache_id')
-            has_results = bool(result.get('results')) or result.get('status') == 'success'
+            # status est normalise en 'ok'/'error' par l'executor : le tracking
+            # se base uniquement sur la presence de resultats.
+            has_results = bool(result.get('results'))
             if geocache_id_raw and has_results:
                 geocache_for_tracking = Geocache.query.get(int(geocache_id_raw))
                 if geocache_for_tracking:

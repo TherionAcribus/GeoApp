@@ -49,7 +49,7 @@ class TestWrittenCoordsFR:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('results')
         assert result['results'][0]['text_output'] == "N 46° 12.123' E 006° 32.856'"
 
@@ -71,7 +71,7 @@ class TestWrittenCoordsFR:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('results')
         assert result['results'][0]['text_output'] == "N 46° 12.123' E 006° 32.856'"
 
@@ -97,7 +97,7 @@ class TestWrittenCoordsEN:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('results')
         assert result['results'][0]['text_output'] == "N 46° 12.123' E 006° 32.856'"
 
@@ -119,7 +119,7 @@ class TestWrittenCoordsEN:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('results')
         assert result['results'][0]['text_output'] == "N 46° 12.123' E 006° 32.856'"
 
@@ -146,7 +146,7 @@ class TestWrittenCoordsConverter:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('results')
         assert result.get('primary_coordinates')
         assert result['primary_coordinates']['exist'] is True
@@ -170,6 +170,6 @@ class TestWrittenCoordsConverter:
         )
 
         assert result is not None
-        assert result['status'] == 'success'
+        assert result['status'] == 'ok'
         assert result.get('primary_coordinates')
         assert result['primary_coordinates']['exist'] is True

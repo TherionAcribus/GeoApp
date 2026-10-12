@@ -776,7 +776,20 @@ class MetaSolverPlugin:
             if not wrapper.initialize():
                 return None
 
-            return wrapper.execute(inputs)
+            raw_result = wrapper.execute(inputs)
+
+            # Normaliser vers le contrat de resultat (status ok/error,
+            # plugin_info...) comme le fait PluginManager.execute_plugin.
+            try:
+                from gc_backend.plugins.executor import normalize_plugin_result  # type: ignore
+
+                return normalize_plugin_result(
+                    raw_result,
+                    name=metadata.get("name", plugin_name),
+                    version=metadata.get("version", "1.0.0"),
+                )
+            except Exception:
+                return raw_result
 
         except Exception as exc:
             logger.warning("metasolver: échec exécution directe de %s: %s", plugin_name, exc, exc_info=True)

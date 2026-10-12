@@ -150,7 +150,11 @@ def test_direct_fallback_caps_timeout(tmp_path, monkeypatch):
 
     result = plugin._execute_plugin_direct("slowplug", {"text": "X"})
 
-    assert result == {"status": "ok", "results": []}
+    # Le resultat est normalise vers le contrat (plugin_info, summary, ...)
+    assert result["status"] == "ok"
+    assert result["results"] == []
+    assert result["plugin_info"]["name"] == "slowplug"
+    assert result["plugin_info"]["version"] == "1.0.0"
     # 300 déclaré -> plafonné à default_timeout (60) car allow_long_running=False
     assert captured["timeout"] == 60
 
