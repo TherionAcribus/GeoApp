@@ -87,12 +87,12 @@ class TestCharacterizationValidFormats:
 
     def test_nord_est_spaces(self):
         _check("NORD 48 32 296 EST 6 40 636",
-               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'",
                dec_lat=48.53826667, dec_lon=6.67726667)
 
     def test_tabspace(self):
         _check("N 48 ° 32 . 296 E 6 ° 40 . 636",
-               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'",
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'",
                dec_lat=48.53826667, dec_lon=6.67726667)
 
     def test_numeric_only(self):
@@ -297,12 +297,12 @@ class TestPairDistanceBound:
     def test_short_gap_with_prose_still_detected(self):
         # Un court texte intermédiaire (< 40 caractères) reste accepté.
         _check("N 48° 32 . 296' et E 6° 40 . 636'",
-               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'")
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'")
 
     def test_lon_before_lat_short_gap_still_detected(self):
         # L'ordre « E ... N ... » reste accepté quand les deux sont proches.
         _check("E 6 deg 40 636 et N 48 deg 32 296",
-               ddm_lat="N 48° 32.296'", ddm_lon="E 6° 40.636'")
+               ddm_lat="N 48° 32.296'", ddm_lon="E 006° 40.636'")
 
 
 class TestCardinalDirections:
@@ -324,23 +324,23 @@ class TestCardinalDirections:
 
     def test_english_words_uppercase(self):
         _check("SOUTH 48 32 296 WEST 6 40 636",
-               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
                dec_lat=-48.53826667, dec_lon=-6.67726667)
 
     def test_french_words(self):
         _check("SUD 48 32 296 OUEST 6 40 636",
-               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
                dec_lat=-48.53826667, dec_lon=-6.67726667)
 
     def test_roman_south_west(self):
         _check("S XLVIII XXXII CCXCVI W VI XL DCXXXVI",
-               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
                dec_lat=-48.53826667, dec_lon=-6.67726667)
 
     def test_flexible_deg_south_west(self):
         # Détecté (nord_est_variations gagne sur flexible par la confiance).
         _check("S 48 deg 32 296 W 6 deg 40 636",
-               ddm_lat="S 48° 32.296'", ddm_lon="W 6° 40.636'",
+               ddm_lat="S 48° 32.296'", ddm_lon="W 006° 40.636'",
                dec_lat=-48.53826667, dec_lon=-6.67726667)
 
     @pytest.mark.parametrize("text", [
@@ -353,3 +353,43 @@ class TestCardinalDirections:
         # Les mots cardinaux hors contexte numérique (ou sans paire complète)
         # ne doivent pas fabriquer de coordonnées.
         assert d(text)["exist"] is False
+
+
+class TestCanonicalOutput:
+    """Représentation canonique unique, indépendante du détecteur gagnant :
+    « X DD° MM.ddd' » (degrés zfillés 2/3 chiffres, minutes MM.ddd)."""
+
+    def test_same_coordinate_same_output_across_detectors(self):
+        expected = "N 48° 33.787' E 006° 38.803'"
+        for text in [
+            "N 48° 33.787' E 006° 38.803'",
+            "N48 33.787 E006 38.803",
+            "N48°33.7870' E006°38.8030'",
+        ]:
+            r = d(text)
+            assert r["exist"] is True, f"non détecté: {text!r}"
+            assert r["ddm"] == expected, f"{text!r} -> {r['ddm']!r}"
+            assert r["ddm_lat"] == "N 48° 33.787'"
+            assert r["ddm_lon"] == "E 006° 38.803'"
+
+    def test_degrees_and_minutes_padded(self):
+        # Degrés sur 1 chiffre et minutes à 1 décimale -> format canonique.
+        r = d("N 1° 2.3' E 4° 5.6'")
+        assert r["exist"] is True
+        assert r["ddm_lat"] == "N 01° 02.300'"
+        assert r["ddm_lon"] == "E 004° 05.600'"
+        assert r["ddm"] == "N 01° 02.300' E 004° 05.600'"
+        assert r["decimal_latitude"] == pytest.approx(1.03833333, abs=1e-6)
+        assert r["decimal_longitude"] == pytest.approx(4.09333333, abs=1e-6)
+
+    def test_short_minutes_decimals_padded(self):
+        # « N 48° 33.78' » -> 2 décimales complétées à 3 (pas d'arrondi).
+        r = d("N 48° 33.78' E 006° 38.80'")
+        assert r["exist"] is True
+        assert r["ddm"] == "N 48° 33.780' E 006° 38.800'"
+
+    def test_decimal_unchanged_by_normalization(self):
+        # La normalisation cosmétique ne change pas la valeur décimale.
+        r = d("N 48° 33.787' E 006° 38.803'")
+        assert r["decimal_latitude"] == pytest.approx(48.56311667, abs=1e-6)
+        assert r["decimal_longitude"] == pytest.approx(6.64671667, abs=1e-6)

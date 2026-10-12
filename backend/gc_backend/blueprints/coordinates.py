@@ -714,6 +714,27 @@ def _format_ddm_minutes(min_str: str) -> str:
         return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
     return f"{min_str.zfill(2)}.000"
 
+
+def _canonical_ddm_component(ddm_str: str, deg_digits: int) -> Optional[str]:
+    """Re-formate une composante DDM au format canonique ``X DD° MM.ddd'``.
+
+    Utilisé dans ``_finalize_detection`` pour garantir une représentation unique
+    quel que soit le détecteur gagnant : degrés complétés à ``deg_digits``
+    chiffres (2 pour une latitude, 3 pour une longitude), minutes normalisées
+    par ``_format_ddm_minutes``.
+
+    Retourne ``None`` si la chaîne n'est pas interprétable : l'appelant conserve
+    alors la chaîne d'origine (on ne casse jamais une détection valide).
+    """
+    if not ddm_str:
+        return None
+    match = DDM_COMPONENT_REGEX.search(str(ddm_str).strip())
+    if not match:
+        return None
+    direction, degrees, minutes = match.groups()
+    minutes = minutes.replace(',', '.')
+    return f"{direction.upper()} {degrees.zfill(deg_digits)}° {_format_ddm_minutes(minutes)}'"
+
 # ------------------------------------------------------------------------------
 # Fonction utilitaire pour formater une chaîne de chiffres en DDM
 # ------------------------------------------------------------------------------
@@ -1734,17 +1755,36 @@ def _finalize_detection(result: Dict, source: str, confidence: float, text: str)
     result["source"] = source
     result["confidence"] = confidence
 
-    # Conversion décimale centralisée (évite de la recalculer côté frontend)
+    # Composantes DDM : certains détecteurs ne renseignent que le ``ddm``
+    # combiné ; on extrait alors lat/lon depuis celui-ci.
+    ddm_lat = result.get("ddm_lat")
+    ddm_lon = result.get("ddm_lon")
+
+    if (not ddm_lat or not ddm_lon) and result.get("ddm"):
+        combined_match = re.match(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", result["ddm"].strip(), re.IGNORECASE)
+        if combined_match:
+            ddm_lat = ddm_lat or combined_match.group(1).strip()
+            ddm_lon = ddm_lon or combined_match.group(2).strip()
+
+    # Représentation canonique unique, indépendante du détecteur gagnant :
+    # « N 48° 33.787' » / « E 006° 38.803' » (degrés zfillés, minutes MM.ddd).
+    # En cas d'échec de re-formatage on conserve les chaînes d'origine.
+    if ddm_lat and ddm_lon:
+        try:
+            canon_lat = _canonical_ddm_component(ddm_lat, 2)
+            canon_lon = _canonical_ddm_component(ddm_lon, 3)
+        except Exception as e:
+            logger.debug("_finalize_detection: normalisation DDM impossible: %s", e)
+            canon_lat = canon_lon = None
+        if canon_lat and canon_lon:
+            ddm_lat, ddm_lon = canon_lat, canon_lon
+            result["ddm_lat"] = ddm_lat
+            result["ddm_lon"] = ddm_lon
+            result["ddm"] = f"{ddm_lat} {ddm_lon}"
+
+    # Conversion décimale centralisée (évite de la recalculer côté frontend),
+    # effectuée sur les chaînes normalisées.
     if result.get("decimal_latitude") is None or result.get("decimal_longitude") is None:
-        ddm_lat = result.get("ddm_lat")
-        ddm_lon = result.get("ddm_lon")
-
-        if (not ddm_lat or not ddm_lon) and result.get("ddm"):
-            combined_match = re.match(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", result["ddm"].strip(), re.IGNORECASE)
-            if combined_match:
-                ddm_lat = ddm_lat or combined_match.group(1).strip()
-                ddm_lon = ddm_lon or combined_match.group(2).strip()
-
         if ddm_lat and ddm_lon:
             try:
                 decimal_coords = convert_ddm_to_decimal(ddm_lat, ddm_lon)
