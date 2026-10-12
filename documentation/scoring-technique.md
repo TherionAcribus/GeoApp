@@ -576,6 +576,19 @@ Quand `enable_scoring = true` (dans `plugin.json` ou dans `inputs`) :
 
 En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
+### Affichage dans le panneau de résultats
+
+`plugin-result-display.tsx` montre, sous le texte brut de chaque résultat, ce que le scoring en a compris (`renderScoringHints`) :
+
+| Affichage | Source | Condition |
+|---|---|---|
+| ✂️ Lecture découpée (langue) : `LA CACHE SE TROUVE…` + bouton copier | `scoring.segmented_text`, `segmentation_language` | texte sans espaces découpé par la segmentation |
+| 📏 Coordonnées du texte à 1,6 km de la cache — dans le rayon des 2 miles | `scoring.geo` | mode géocache et coordonnées détectées dans le texte |
+| ⚠ même ligne, en couleur d'avertissement | `scoring.geo.status` | statut `far`, `very_far` ou `implausible` |
+| ⚠ « O » lu comme Ouest (W). En allemand, O signifie Est : vérifiez la longitude. | `scoring.gps_o_direction_assumed`, ou `o_direction_assumed` d'une détection manuelle | `O` rencontré sans coordonnées de cache ; affiché dans l'encadré des coordonnées |
+
+La distance porte sur les coordonnées que le **scoring** a trouvées dans le texte. L'encadré « Coordonnées détectées » peut en montrer d'autres (détection manuelle, IA, coordonnées fournies par le plugin) : les deux ne coïncident pas forcément.
+
 ---
 
 ## 8. Cache LRU

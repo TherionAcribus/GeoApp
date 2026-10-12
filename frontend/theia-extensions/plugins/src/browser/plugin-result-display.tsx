@@ -1,6 +1,6 @@
 import * as React from '@theia/core/shared/react';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { PluginResult } from '../common/plugin-protocol';
+import { PluginResult, PluginResultItem } from '../common/plugin-protocol';
 import { PluginsService } from '../common/plugin-protocol';
 import type { PluginExecutorMode, GeocacheContext } from './plugin-executor-widget';
 import { extractDecimalCoordinates, deriveCoordinatesFromItem } from './plugin-executor-coords-utils';
@@ -35,7 +35,7 @@ export const PluginResultDisplay: React.FC<{
     const [verifiedCoordinates, setVerifiedCoordinates] = React.useState<Record<string, { status?: string; message?: string }>>({});
     const [verifyingCoordinates, setVerifyingCoordinates] = React.useState<Record<string, boolean>>({});
     const [detectingCoordinates, setDetectingCoordinates] = React.useState<Record<string, boolean>>({});
-    const [manualDetectedCoordinates, setManualDetectedCoordinates] = React.useState<Record<string, { latitude?: string; longitude?: string; formatted?: string }>>({});
+    const [manualDetectedCoordinates, setManualDetectedCoordinates] = React.useState<Record<string, { latitude?: string; longitude?: string; formatted?: string; oDirectionAssumed?: string }>>({});
     const [analyzingWithAi, setAnalyzingWithAi] = React.useState<Record<string, boolean>>({});
     const [aiScoredItems, setAiScoredItems] = React.useState<Record<string, any>>({});
     const dispatchedCoordinatesRef = React.useRef<Set<string>>(new Set());
@@ -131,6 +131,77 @@ export const PluginResultDisplay: React.FC<{
             return JSON.stringify(value);
         }
         return value === undefined || value === null ? '' : String(value);
+    };
+
+    // Libellé et gravité d'un statut de distance (metadata.scoring.geo.status).
+    const GEO_STATUS: Record<string, { label: string; warn: boolean }> = {
+        near: { label: 'dans le rayon des 2 miles', warn: false },
+        plausible: { label: 'distance plausible', warn: false },
+        far: { label: 'éloigné', warn: true },
+        very_far: { label: 'très éloigné', warn: true },
+        implausible: { label: 'invraisemblable pour cette cache', warn: true },
+    };
+
+    const formatDistance = (km: number): string => km < 1
+        ? `${Math.round(km * 1000)} m`
+        : `${km.toLocaleString('fr-FR', { maximumFractionDigits: km < 10 ? 1 : 0 })} km`;
+
+    /**
+     * Ce que le scoring a compris du texte, sous le résultat brut :
+     * - la lecture découpée d'un texte sans espaces (metadata.scoring.segmented_text) ;
+     * - la distance entre les coordonnées trouvées dans le texte et la géocache
+     *   (metadata.scoring.geo, présent seulement en mode géocache).
+     */
+    const renderScoringHints = (item: PluginResultItem) => {
+        const scoring = (item.metadata as any)?.scoring;
+        if (!scoring || typeof scoring !== 'object') {
+            return null;
+        }
+
+        const segmented = typeof scoring.segmented_text === 'string' && scoring.segmented_text.trim()
+            && scoring.segmented_text !== item.text_output
+            ? scoring.segmented_text as string
+            : undefined;
+        const geo = scoring.geo && typeof scoring.geo === 'object' && Number.isFinite(Number(scoring.geo.distance_km))
+            ? scoring.geo
+            : undefined;
+        if (!segmented && !geo) {
+            return null;
+        }
+
+        const geoStatus = geo ? GEO_STATUS[String(geo.status)] : undefined;
+        return (
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                {segmented && (
+                    <div
+                        title='Le texte ne contient pas d’espaces : le scoring l’a découpé en mots pour le lire.'
+                        style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}
+                    >
+                        <span style={{ opacity: 0.75, whiteSpace: 'nowrap' }}>
+                            ✂️ Lecture découpée{scoring.segmentation_language ? ` (${String(scoring.segmentation_language)})` : ''} :
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '13px', wordBreak: 'break-word' }}>{segmented}</span>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => copyToClipboard(segmented)}
+                            title='Copier la lecture découpée'
+                            style={{ padding: '1px 6px', fontSize: '11px', minWidth: 0 }}
+                        >
+                            📋
+                        </button>
+                    </div>
+                )}
+                {geo && (
+                    <div
+                        title='Distance entre les coordonnées trouvées dans ce texte et celles de la géocache. Le final d’une mystery se trouve à moins de 2 miles (3,2 km) des coordonnées publiées.'
+                        style={geoStatus?.warn ? { color: 'var(--theia-editorWarning-foreground)' } : { opacity: 0.85 }}
+                    >
+                        {geoStatus?.warn ? '⚠' : '📏'} Coordonnées du texte à {formatDistance(Number(geo.distance_km))} de la cache
+                        {geoStatus ? ` — ${geoStatus.label}` : ''}
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const renderFormatSections = (sections: any) => {
@@ -558,6 +629,7 @@ export const PluginResultDisplay: React.FC<{
                                                                         latitude: coords.ddm_lat || '',
                                                                         longitude: coords.ddm_lon || '',
                                                                         formatted: coords.ddm || '',
+                                                                        oDirectionAssumed: (coords as any).o_direction_assumed || undefined,
                                                                     }
                                                                 }));
                                                                 messageService.info('Coordonnées détectées et ajoutées au résultat.');
@@ -639,6 +711,8 @@ export const PluginResultDisplay: React.FC<{
                                     ) : (
                                         <div style={{ color: 'orange' }}>No text_output for result {index}</div>
                                     )}
+
+                                    {renderScoringHints(item)}
 
                                     {renderFormatSections(item.sections)}
 
@@ -785,6 +859,24 @@ export const PluginResultDisplay: React.FC<{
                                                     return 'Coordonnées invalides';
                                                 })()}
                                             </div>
+                                            {(() => {
+                                                // « O » lu comme Ouest faute de coordonnées de cache : en
+                                                // allemand, O = Ost (Est). La longitude peut être du mauvais côté.
+                                                const assumed = (resolvedCoordinates as any).oDirectionAssumed
+                                                    || (item as any).coordinates?.o_direction_assumed
+                                                    || (manualCoords ? undefined : (item.metadata as any)?.scoring?.gps_o_direction_assumed);
+                                                if (!assumed) {
+                                                    return null;
+                                                }
+                                                return (
+                                                    <div
+                                                        title='Sans les coordonnées de la géocache, « O » ne peut pas être départagé entre Ouest (français, espagnol, italien, portugais) et Ost = Est (allemand).'
+                                                        style={{ marginTop: '6px', fontSize: '12px', color: 'var(--theia-editorWarning-foreground)' }}
+                                                    >
+                                                        ⚠ « O » lu comme Ouest ({String(assumed)}). En allemand, O signifie Est : vérifiez la longitude.
+                                                    </div>
+                                                );
+                                            })()}
                                             {(() => {
                                                 const key = getCoordsKey(resolvedCoordinates);
                                                 const record = key ? verifiedCoordinates[key] : undefined;

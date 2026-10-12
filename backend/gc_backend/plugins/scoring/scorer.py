@@ -1109,6 +1109,9 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
                 'segmentation_language': segmentation_lang,
                 'gps_patterns': [gps_details.get('ddm')] if gps_details.get('exist') else [],
                 'gps_source': gps_details.get('source'),
+                # 'W' when an "O" was read as Ouest for want of the cache's
+                # coordinates (it is Ost = East in German), else None.
+                'gps_o_direction_assumed': gps_details.get('o_direction_assumed'),
                 # Distance to the cache when its coordinates were given:
                 # {distance_km, status, gps_confidence_raw}, else None.
                 'geo': geo,

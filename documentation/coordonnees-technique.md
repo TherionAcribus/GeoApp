@@ -377,7 +377,9 @@ Lancement : `cd backend && python -m pytest tests/test_coordinates_*.py -q`
   est du même côté que sa cache). Sans origine, il vaut Ouest et la réponse porte
   `o_direction_assumed: "W"`. Le scorer transmet l'origine quand il la
   reçoit dans son contexte (mode géocache), sinon un `O` allemand y est lu comme
-  Ouest. Le frontend n'affiche pas encore ce champ.
+  Ouest. Le scorer reporte l'hypothèse dans `metadata.scoring.gps_o_direction_assumed`,
+  et le panneau de résultats des plugins affiche alors un avertissement sous les
+  coordonnées (« O » lu comme Ouest, vérifiez la longitude).
 - **Composant front partagé** : `coordinates-detector.tsx` (alphabets) et l'affichage
   du Plugin Executor restent séparés ; une unification avec actions
   Copier / Voir-carte / Créer-waypoint est différée.

@@ -738,6 +738,12 @@ class TestGeoContext:
     def test_origin_parsing_is_tolerant(self, context, expected):
         assert _origin_from_context(context) == expected
 
+    def test_o_hypothesis_is_exposed_only_without_origin(self):
+        """Le frontend avertit quand « O » a ete lu comme Ouest faute d'origine."""
+        text = "N48 51.234 O002 21.456"
+        assert self._score(text)["metadata"]["scoring"]["gps_o_direction_assumed"] == "W"
+        assert self._score(text, self.ORIGIN)["metadata"]["scoring"]["gps_o_direction_assumed"] is None
+        assert self._score(self.NEAR)["metadata"]["scoring"]["gps_o_direction_assumed"] is None
     def test_ranking_uses_the_origin(self):
         items = [
             {"text_output": self.ELSEWHERE, "id": "loin"},
