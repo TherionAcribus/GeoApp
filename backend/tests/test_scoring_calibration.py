@@ -357,6 +357,32 @@ class TestNumberEnumBelowWordCoords:
         )
 
 
+# ── Faux signal numerique : articles, conjonctions, homographes ─────
+
+
+class TestNumericLookalikes:
+    """Une phrase banale ne doit pas ouvrir le canal coordonnees parce qu'elle
+    contient 'un', 'et' ou 'est' ; de vraies coordonnees ecrites le doivent."""
+
+    @pytest.mark.parametrize("text", CASES["prose_with_number_lookalikes"])
+    def test_prose_has_no_numeric_signal(self, text):
+        assert _numeric_signal_feature(text) <= 0.15, text
+
+    @pytest.mark.parametrize("text", CASES["word_coords_tens"])
+    def test_written_tens_keep_numeric_signal(self, text):
+        assert _numeric_signal_feature(text) >= 0.6, text
+
+    def test_ambiguous_word_counts_next_to_a_number(self):
+        # "un" seul n'est pas un nombre, "vingt et un" en fait deux.
+        assert _numeric_signal_feature("un arbre et une pierre") == 0.0
+        assert _numeric_signal_feature("vingt et un") > 0.0
+
+    def test_word_coords_still_beat_lookalike_prose(self):
+        prose_max = max(_full(t) for t in CASES["prose_with_number_lookalikes"])
+        coords_min = min(_full(t) for t in CASES["word_coords"] + CASES["word_coords_tens"])
+        assert coords_min > prose_max, f"{coords_min:.3f} <= {prose_max:.3f}"
+
+
 # ── known_weak_coords : formats valides sous-notes (XFAIL — cible T4/T6) ──
 
 

@@ -84,6 +84,30 @@
     ]
   },
 
+  "prose_with_number_lookalikes": {
+    "_desc": "Phrases banales contenant des mots qui ressemblent a des nombres, separateurs ou directions (un/une/ein/one, et/and/und, tres, neuf, est, nord) mais sans aucune coordonnee. Le signal numerique doit rester quasi nul.",
+    "cases": [
+      "LA CACHE EST DANS UN ARBRE ET SOUS UNE PIERRE AU NORD DU PONT",
+      "CHERCHE UN ARBRE ET UNE PIERRE",
+      "ES IST EIN BAUM UND EINE BANK IM OSTEN",
+      "THERE IS ONE TREE AND ONE BENCH",
+      "C EST TRES BIEN ET TRES JOLI AU SUD DU PONT NEUF",
+      "HAY UNA CASA Y UN ARBOL AL NORTE",
+      "LA CACHE EST A DEUX METRES DU PONT ET A TROIS METRES DE L ARBRE",
+      "il y a deux chats et trois chiens au nord de la ville"
+    ]
+  },
+
+  "word_coords_tens": {
+    "_desc": "Coordonnees en toutes lettres utilisant les dizaines 70/80/90 et les mots-nombres ambigus (un, uno, dos, tres) en contexte numerique. Doivent garder un signal numerique fort.",
+    "cases": [
+      "north seventy one degrees eighty two point ninety",
+      "nord septante et un degres nonante deux",
+      "norte cuarenta y ocho grados setenta y uno punto dos tres",
+      "NORD ACHTUNDSIEBZIG GRAD EINUNDNEUNZIG KOMMA ZWEI DREI VIER"
+    ]
+  },
+
   "number_enum": {
     "_desc": "Simple enumeration de nombres SANS structure de coordonnees (pas de separateur, pas de direction, pas de groupes plausibles). Ne doit PAS battre word_coords. Actuellement sature a 1.0 (xfail).",
     "cases": [

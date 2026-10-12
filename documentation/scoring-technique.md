@@ -283,6 +283,9 @@ Remplace les deux features précédentes (`coord_words` et `number_richness`) pa
 - Mots-nombres multilingues (`_CW_NUMBER_WORDS`)
 - Composés allemands (`einundzwanzig` = `ein+und+zwanzig`)
 - Les tokens mixtes alphanum (`6E`, `XJ12`) sont rejetés.
+- Les séparateurs (`et`, `and`, `und`, `point`…) ne sont jamais comptés comme nombres.
+
+**Mots-nombres ambigus** (`_CW_AMBIGUOUS_NUMBER_WORDS`) : `un`, `une`, `ein`, `eine`, `one`, `uno`, `una`… sont aussi des articles, et `tres`, `neuf`, `dos`, `once`, `elf`… des homographes une fois les accents retirés (« très », « pont neuf », « le dos »). Ils ne comptent comme nombres qu'à côté d'un nombre, directement ou à travers un séparateur (`vingt et un`, `one hundred`). La règle se propage : dans `uno punto dos tres`, `dos` et `tres` sont retenus de proche en proche. Sans cela, « un arbre et une pierre » passait pour un fragment de coordonnées.
 
 **Formule** :
 ```
@@ -290,13 +293,17 @@ density = min(1.0, num_count / 8.0)
 base    = 0.45 × density          ← plafonné à 0.45 pour les énumérations pures
 
 bonus :
-  + 0.20  si séparateur (point/virgule/komma/...)
-  + 0.25  si direction (N/S/E/W/nord/north/...) ou lat/lon
-  + 0.10  si unité réelle (degré/minute/seconde/...)
+  + 0.20  si séparateur (point/virgule/komma/et/...) ENTRE deux nombres
+  + 0.25  si direction (nord/north/...) ou lat/lon à 2 tokens au plus d'un nombre
+  + 0.10  si unité réelle (degré/minute/seconde/...) adjacente à un nombre
   + 0.15  si groupes de chiffres plausibles DDM (_ddm_plausible)
 
 numeric_signal = min(1.0, base + bonus)
 ```
+
+Les bonus de structure exigent la proximité d'un nombre : un `et`, un `nord` ou un `minutes` ailleurs dans la phrase ne prouve rien. `est`, `sur` et `este` (`_CW_AMBIGUOUS_DIRECTIONS`) sont des mots courants (« la cache est à deux mètres ») et ne valent jamais direction à eux seuls ; de vraies coordonnées portent aussi `nord`/`sud`/`ouest` ou `lat`/`lon`.
+
+Les dizaines 70/80/90 sont reconnues dans les 8 langues (`seventy`, `siebzig`, `settanta`, `setenta`, `zeventig`…), y compris `septante`/`huitante`/`octante`/`nonante` et les composés allemands (`einundneunzig`).
 
 **`_ddm_plausible`** : au moins une valeur 0–90 (degrés) ET une valeur 0–59 ou un groupe de 3 digits (millièmes de DDM).
 
@@ -505,6 +512,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ⚠️ xfail (~0.24) |
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
 | `TestNumberEnumBelowWordCoords` | score final : enum < word_coords | ✅ |
+| `TestNumericLookalikes` | Prose avec `un`/`et`/`est`/`très` : signal numérique ≤ 0.15 ; dizaines 70/80/90 : ≥ 0.6 | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |
@@ -523,6 +531,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 - **Pré-filtre rapide et coordonnées** : le scorer rapide ne fait pas de détection GPS ; il se contente du plancher `_FAST_GPS_HINT_FLOOR` (0.3) pour les textes en forme de coordonnées. Des coordonnées écrites sans aucun chiffre structuré (lettres cardinales isolées, mots) n'en bénéficient pas.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
 - **Mots collés** : sans espaces, aucun mot n'est reconnu (`lexical = 0`), donc le score repose sur les seuls n-grammes et plafonne vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
+- **Tokens d'un seul caractère** : `_tokenize_words` les écarte, donc les lettres cardinales isolées (`N`, `E`) et les chiffres isolés ne contribuent pas au signal numérique. `N QUARANTE HUIT E DEUX` n'obtient que 0.17 de signal ; le `y` espagnol (`cuarenta y ocho`) est simplement ignoré.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 
 ---

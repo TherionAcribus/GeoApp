@@ -370,6 +370,11 @@ _CW_DIRECTIONS = frozenset({
     'sued', 'ost',
 })
 
+# Direction words that are also everyday words: "est" (French "is"), "sur"
+# (French "on"), "este" (Spanish "this"). They never earn the direction bonus
+# on their own; a real coordinate also carries nord/sud/ouest or lat/lon.
+_CW_AMBIGUOUS_DIRECTIONS = frozenset({'est', 'sur', 'este'})
+
 _CW_LATLON = frozenset({
     'lat', 'lon', 'latitude', 'longitude',
     'breite', 'laenge', 'lange',
@@ -417,9 +422,30 @@ _CW_NUMBER_WORDS: frozenset = frozenset({
     'zehn', 'zwolf', 'zwoelf', 'dreizehn', 'vierzehn', 'funfzehn', 'fuenfzehn', 'sechzehn', 'siebzehn',
     'achtzehn', 'neunzehn', 'zwanzig', 'dreissig', 'vierzig', 'funfzig', 'fuenfzig', 'sechzig',
     'hundert', 'tausend', 'und',
+    # Tens 70/80/90 (all languages) and a few missing basics
+    'seventy', 'eighty', 'ninety',
+    'septante', 'huitante', 'octante', 'nonante',
+    'siebzig', 'achtzig', 'neunzig',
+    'setenta', 'ochenta', 'noventa', 'oitenta', 'quarenta', 'quince',
+    'quatro', 'doze', 'treze', 'catorze',
+    'trenta', 'settanta', 'ottanta', 'novanta',
+    'zeventig', 'tachtig', 'negentig',
+    'siedemdziesiat', 'osiemdziesiat', 'dziewiecdziesiat',
 })
 
-_CW_DE_TENS = ('zwanzig', 'dreissig', 'vierzig', 'funfzig', 'fuenfzig', 'sechzig')
+_CW_DE_TENS = (
+    'zwanzig', 'dreissig', 'vierzig', 'funfzig', 'fuenfzig', 'sechzig',
+    'siebzig', 'achtzig', 'neunzig',
+)
+
+# Number words that are also everyday words (articles "un/une/ein/one", or
+# homographs once accent-stripped: "tres" = très, "neuf" = new, "dos" = back).
+# They only count as numbers next to an unambiguous number ("vingt et un"),
+# otherwise ordinary prose ("un arbre et une pierre") reads as coordinates.
+_CW_AMBIGUOUS_NUMBER_WORDS = frozenset({
+    'un', 'une', 'uno', 'una', 'um', 'uma', 'ein', 'eine', 'een', 'one',
+    'once', 'sei', 'nul', 'due', 'tien', 'dos', 'tres', 'neuf', 'elf', 'sto',
+})
 
 # Real coordinate units only (degrees/minutes/seconds), excluding the
 # separators (point/virgule/...) that _CW_UNITS also contains — those are
@@ -540,28 +566,75 @@ def _numeric_signal_feature(text: str) -> float:
         return 0.0
 
     tokens = [_norm_lex_token(t) for t in raw_tokens]
+    n = len(tokens)
 
-    num_count = 0
+    # Pass 1: unambiguous numbers. Separators ("und" is also a number word in
+    # German compounds) and ambiguous words are held back.
+    is_num = [False] * n
+    ambiguous: List[int] = []
     digit_groups: List[str] = []
-    for t in tokens:
-        is_num, is_digit = _is_number_token(t)
-        if is_num:
-            num_count += 1
+    for i, t in enumerate(tokens):
+        if t in _NR_SEPARATORS:
+            continue
+        if t in _CW_AMBIGUOUS_NUMBER_WORDS:
+            ambiguous.append(i)
+            continue
+        num, is_digit = _is_number_token(t)
+        if num:
+            is_num[i] = True
             if is_digit:
                 digit_groups.append(t)
 
+    # Pass 2: an ambiguous word counts only next to a number, directly or
+    # across one separator ("vingt et un", "one hundred"). Repeated until
+    # stable so a run of ambiguous words anchored on a real number is kept
+    # whole ("uno punto dos tres").
+    def _number_neighbour(i: int) -> bool:
+        for step in (-1, 1):
+            j = i + step
+            if 0 <= j < n and tokens[j] in _NR_SEPARATORS:
+                j += step
+            if 0 <= j < n and is_num[j]:
+                return True
+        return False
+
+    changed = True
+    while changed:
+        changed = False
+        for i in ambiguous:
+            if not is_num[i] and _number_neighbour(i):
+                is_num[i] = True
+                changed = True
+
+    num_count = sum(is_num)
     if num_count < 2:
         return 0.0
+
+    def _number_within(i: int, reach: int) -> bool:
+        return any(is_num[j] for j in range(max(0, i - reach), min(n, i + reach + 1)) if j != i)
 
     density = min(1.0, num_count / 8.0)
     base = 0.45 * density
 
+    # Structure bonuses are only credited when the marker sits next to a
+    # number — "et", "nord" or "minutes" elsewhere in a sentence prove nothing.
+    # A separator must join two numbers ("cinquante et un", "51 point 234").
+    # "est"/"sur"/"este" are everyday words ("la cache est a deux metres"):
+    # alone they are not a direction, they need a nord/sud/lat companion.
     bonus = 0.0
-    if any(t in _NR_SEPARATORS for t in tokens):
+    if any(
+        t in _NR_SEPARATORS and 0 < i < n - 1 and is_num[i - 1] and is_num[i + 1]
+        for i, t in enumerate(tokens)
+    ):
         bonus += 0.20
-    if any((t in _CW_DIRECTIONS) or (t in _CW_LATLON) for t in tokens):
+    if any(
+        ((t in _CW_DIRECTIONS) or (t in _CW_LATLON))
+        and t not in _CW_AMBIGUOUS_DIRECTIONS
+        and _number_within(i, 2)
+        for i, t in enumerate(tokens)
+    ):
         bonus += 0.25
-    if any(t in _CW_TRUE_UNITS for t in tokens):
+    if any(t in _CW_TRUE_UNITS and _number_within(i, 1) for i, t in enumerate(tokens)):
         bonus += 0.10
     if _ddm_plausible(digit_groups):
         bonus += 0.15
