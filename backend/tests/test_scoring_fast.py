@@ -182,6 +182,13 @@ class TestGpsGatekeeperFast:
     def test_cardinal_letters(self):
         assert _gps_gatekeeper_fast("N 48 E 002") is True
 
+    def test_cardinal_letters_glued_to_number(self):
+        # Pas de frontiere de mot entre une lettre et un chiffre : \b[NS]\b ne suffit pas.
+        assert _gps_gatekeeper_fast("N48 51.234 E002 21.456") is True
+        assert _gps_gatekeeper_fast("S33 51.234 W070 21.456") is True
+        assert _gps_gatekeeper_fast("N4851234 E00221456") is True
+        assert _gps_gatekeeper_fast("XS4 QE7 KN3 ZW9") is False  # lettre precedee d'une lettre
+
     def test_written_cardinal_words_fr(self):
         assert _gps_gatekeeper_fast("nord 48 est 002") is True
 

@@ -25,7 +25,11 @@ _RE_NON_ALPHA = re.compile(r'[^A-Z]')
 _RE_WORD_TOKENS = re.compile(r"[\w']+", re.UNICODE)
 _RE_GPS_CARDINAL = re.compile(r'\b[NS]\b', re.IGNORECASE)
 _RE_GPS_EW = re.compile(r'\b[EW]\b', re.IGNORECASE)
-_RE_GPS_WORDS_NS = re.compile(r'\b(nord|north|sud|south)\b', re.IGNORECASE)
+# Cardinal letter glued to (or followed by) its degrees: "N48 51.234 E002 21.456".
+# \b[NS]\b misses it — there is no word boundary between a letter and a digit.
+_RE_GPS_CARDINAL_NUM = re.compile(r'(?<![A-Za-z])[NS]\s*\d', re.IGNORECASE)
+_RE_GPS_EW_NUM = re.compile(r'(?<![A-Za-z])[EWO]\s*\d', re.IGNORECASE)
+_RE_GPS_WORDS_NS =re.compile(r'\b(nord|north|sud|south)\b', re.IGNORECASE)
 _RE_GPS_WORDS_EW = re.compile(r'\b(est|east|ouest|west)\b', re.IGNORECASE)
 _RE_GPS_DEGREE = re.compile(r'\d{1,3}\s*[°º]')
 _RE_GPS_DMS = re.compile(r'\d+\s*[°º]\s*\d+\s*[\'\u2032\u2019]\s*\d')
@@ -50,6 +54,9 @@ _NR_SEPARATORS = frozenset({
 # scorer), while quadgrams are usable as soon as one window exists.
 _IC_VETO_MIN_LETTERS = 20
 _QUADGRAM_MIN_LETTERS = 4
+
+# Fast-scorer floor for coordinate-shaped text (see _gps_structured_hint).
+_FAST_GPS_HINT_FLOOR = 0.3
 
 
 def _normalize_basic(text: str) -> str:
@@ -108,6 +115,9 @@ def _gps_gatekeeper_fast(text: str) -> bool:
     # Cardinal letters N/S + E/W
     if _RE_GPS_CARDINAL.search(text) and _RE_GPS_EW.search(text):
         return True
+    # Cardinal letters glued to their number: N48 ... E002 ...
+    if _RE_GPS_CARDINAL_NUM.search(text) and _RE_GPS_EW_NUM.search(text):
+        return True
     # Written cardinal words (FR + EN)
     if _RE_GPS_WORDS_NS.search(text) and _RE_GPS_WORDS_EW.search(text):
         return True
@@ -124,6 +134,25 @@ def _gps_gatekeeper_fast(text: str) -> bool:
     if _RE_GPS_COMPACT.search(text):
         return True
     return False
+
+
+def _gps_structured_hint(text: str) -> bool:
+    """Stricter subset of the gatekeeper: only patterns anchored on digits.
+
+    Used by the fast scorer, which skips GPS detection, to let coordinate-shaped
+    candidates through to the full scorer. The bare cardinal-letter and
+    cardinal-word patterns are left out: they match too much ordinary text to
+    justify a pass-through.
+    """
+    if not text:
+        return False
+    if _RE_GPS_CARDINAL_NUM.search(text) and _RE_GPS_EW_NUM.search(text):
+        return True
+    return bool(
+        _RE_GPS_DEGREE.search(text)
+        or _RE_GPS_DECIMAL.search(text)
+        or _RE_GPS_COMPACT.search(text)
+    )
 
 
 def _detect_gps_confidence(text: str, include_numeric_only: bool = False) -> Tuple[float, Dict[str, Any]]:
@@ -809,6 +838,10 @@ def score_text_fast(text: str) -> float:
     if enc_pen < 0.1:
         return 0.0
 
+    # Coordinate-shaped text gets a pass-through floor: this scorer runs no GPS
+    # detection, so the full scorer must be the one to decide.
+    gps_floor = _FAST_GPS_HINT_FLOOR * enc_pen if _gps_structured_hint(text) else 0.0
+
     letters = _normalize_for_stats(text)
     if len(letters) < 4:
         # Very few letters — likely a bare coordinate string. The quadgram
@@ -816,8 +849,8 @@ def score_text_fast(text: str) -> float:
         # words) can rescue genuine coordinate fragments.
         nr = _numeric_signal_feature(text)
         if nr > 0.3:
-            return float(min(0.5, nr * enc_pen))
-        return 0.0
+            return float(max(gps_floor, min(0.5, nr * enc_pen)))
+        return float(gps_floor)
 
     base_score = _score_text_fast_cached(letters)
 
@@ -833,7 +866,7 @@ def score_text_fast(text: str) -> float:
         if nr > 0.2:
             base_score = min(1.0, base_score + nr * 0.15)
 
-    return float(base_score)
+    return float(max(base_score, gps_floor))
 
 
 def score_and_rank_results(

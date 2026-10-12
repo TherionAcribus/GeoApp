@@ -184,6 +184,7 @@ Feature `entropy_quality` par paliers :
 
 **Gatekeeper rapide** (`_gps_gatekeeper_fast`) — regex légères :
 - Lettres cardinales `N/S` + `E/W`
+- Lettres cardinales collées à leur nombre : `N48 … E002 …` (`\b[NS]\b` ne les voit pas, faute de frontière de mot entre lettre et chiffre)
 - Mots directionnels écrits (`nord/north` + `est/east/ouest/west`)
 - Symbole degré : `\d{1,3}[°º]`
 - DMS avec apostrophes : `\d+°\d+'`
@@ -389,6 +390,7 @@ Pré-filtre léger pour les lots de bruteforce (coût ~0.05 ms vs ~1–5 ms pour
    - Sinon : `score = fitness*0.75 + ic_norm*0.10 + rep*0.15`
 5. Multiplicateur `encoded_penalty`.
 6. Boost numérique léger : si score > 0.05 et `numeric_signal > 0.2` → `score += numeric_signal*0.15`.
+7. Plancher coordonnées : si `_gps_structured_hint(text)` (lettre cardinale collée à un nombre, symbole degré, paire décimale ou paire compacte), le score ne descend pas sous `0.3 × encoded_penalty`. Le scorer rapide ne détecte pas les coordonnées ; ce plancher garantit que le scorer complet les verra (`N4851234 E00221456`, coordonnées entourées de bruit).
 
 **Limites** :
 - N'utilise pas le lexical (pas de dictionnaire).
@@ -503,13 +505,13 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ⚠️ xfail (~0.24) |
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
 | `TestNumberEnumBelowWordCoords` | score final : enum < word_coords | ✅ |
-| `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (3 formats) |
+| `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
 | `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |
 
 **Xfails documentés (non bloquants)** :
 - `test_gap_fast` : le fast scorer est un pré-filtre qui n'utilise pas le lexical. Cible aspirationnelle.
-- `TestKnownWeakCoords` : formats DMS avec `"`, compact collé (`N48 51.234`), décimal (`48.8566, 2.3522`). Problème de **détection** dans `coordinates.py`, pas de scoring.
+- `TestKnownWeakCoords` : paire décimale (`48.8566, 2.3522`), détectée mais notée 0.80, sous la cible de 0.85. Le format à lettre collée (`N48 51.234 E002 21.456`) est sorti de cette liste : il était bloqué par le gatekeeper, pas par le détecteur.
 
 ---
 
@@ -517,7 +519,8 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
 - **Tables quadgrams wordfreq** : es/it/nl/pt/pl ont ~15–22 k entrées vs ~120 k pour en/fr/de (bigrammes). Un texte roman peut obtenir son meilleur score via la table `fr`. Le signal reste > 0.3 pour les 8 langues sur texte valide.
-- **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Restent sous la cible : la paire décimale (0.80 < 0.85) et le format `N48 51.234 E002 21.456` (0.34) — problèmes de scoring résiduels, non de détection.
+- **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Reste sous la cible : la paire décimale (0.80 < 0.85). Le format `N48 51.234 E002 21.456` atteint 0.96 depuis que le gatekeeper le laisse passer. Deux variantes ne sont pas reconnues par le détecteur lui-même (`coordinates.py`) : les minuscules (`n48 51.234 e002 21.456`) et le `O` de « Ouest » (`N48 51.234 O002 21.456`), toutes deux à 0.34.
+- **Pré-filtre rapide et coordonnées** : le scorer rapide ne fait pas de détection GPS ; il se contente du plancher `_FAST_GPS_HINT_FLOOR` (0.3) pour les textes en forme de coordonnées. Des coordonnées écrites sans aucun chiffre structuré (lettres cardinales isolées, mots) n'en bénéficient pas.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).
 - **Mots collés** : sans espaces, aucun mot n'est reconnu (`lexical = 0`), donc le score repose sur les seuls n-grammes et plafonne vers 0.20–0.34. Un texte collé en casse mixte (`LaCacheSeTrouve…`) reste pris pour du base64.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
