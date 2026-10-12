@@ -834,6 +834,8 @@ export interface PluginsService {
      * Sans provider/model explicite, le service applique d'abord l'affectation
      * Theia de geoapp-ai-scorer, puis les preferences geoApp.aiScorer.*.
      * Retourne les items enrichis avec confidence, metadata.ai_scoring et coordinates.
+     * Un item que le LLM n'a pas pu analyser garde sa confidence d'origine et porte
+     * metadata.ai_scoring.failed ; status vaut alors 'partial' ou 'failed'.
      */
     aiScoreItems(request: {
         items: PluginResultItem[];
@@ -850,6 +852,8 @@ export interface PluginsService {
         count: number;
         provider: string;
         model: string;
+        failed_count?: number;
+        failure_message?: string | null;
     }>;
 
     /**

@@ -342,6 +342,8 @@ export class PluginsServiceImpl implements IPluginsService {
         count: number;
         provider: string;
         model: string;
+        failed_count?: number;
+        failure_message?: string | null;
     }> {
         // Resoudre provider/model depuis les preferences (le frontend a toujours les vraies valeurs)
         const payload: any = { ...request };

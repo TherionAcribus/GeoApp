@@ -1023,6 +1023,8 @@ export class PluginToolsManager implements FrontendApplicationContribution {
             return JSON.stringify({
                 status: result.status,
                 count: result.count,
+                failed_count: result.failed_count ?? 0,
+                failure_message: result.failure_message ?? undefined,
                 provider: result.provider,
                 model: result.model,
                 items: result.items.map((item: any) => ({

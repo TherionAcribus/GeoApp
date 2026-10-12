@@ -1153,13 +1153,14 @@ const PluginExecutorComponent: React.FC<{
         if (!result.results || result.results.length === 0) {
             return;
         }
-        // Filtrer, trier par confiance et limiter au top 30 pour éviter les timeouts
-        // (un modèle lent comme Gemma :free prend ~35s/batch de 20 items)
+        // Trier par confiance et limiter au top 30 pour éviter les timeouts
+        // (un modèle lent comme Gemma :free prend ~35s/batch de 20 items).
+        // Pas de seuil de confiance : les textes que l'algo note mal (mots collés,
+        // langue inconnue) sont justement ceux où l'IA est utile ; le backend a
+        // déjà écarté le charabia et le plafond borne le coût.
         const AI_SCORER_MAX_ITEMS = 30;
-        const AI_SCORER_MIN_CONFIDENCE = 0.05;
         const allCandidates = result.results.filter(
             item => typeof item.text_output === 'string' && item.text_output.trim()
-                && (item.confidence ?? 0) >= AI_SCORER_MIN_CONFIDENCE
         );
         // Trier par confidence décroissante et prendre les N meilleurs
         const items = [...allCandidates]
@@ -1226,20 +1227,36 @@ const PluginExecutorComponent: React.FC<{
             aiResult.items.forEach((scored: any, idx: number) => {
                 const target = items[idx];
                 if (!target) { return; }
-                if (typeof scored.confidence === 'number') {
-                    target.confidence = scored.confidence;
-                }
                 if (scored.metadata?.ai_scoring) {
                     if (!target.metadata) { target.metadata = {}; }
                     (target.metadata as any).ai_scoring = scored.metadata.ai_scoring;
+                }
+                // Échec du LLM pour cet item : score et coordonnées de l'algo conservés.
+                if (scored.metadata?.ai_scoring?.failed) { return; }
+                if (typeof scored.confidence === 'number') {
+                    target.confidence = scored.confidence;
                 }
                 if (scored.coordinates?.exist) {
                     target.coordinates = scored.coordinates;
                 }
             });
+
+            const failedCount = aiResult.failed_count ?? 0;
+            if (failedCount > 0) {
+                const scope = failedCount >= items.length
+                    ? 'aucun résultat analysé'
+                    : `${failedCount} résultat(s) sur ${items.length} non analysé(s)`;
+                messageService.warn(
+                    `Analyse IA incomplète : ${scope}, les scores algorithmiques sont conservés.`
+                    + (aiResult.failure_message ? ` (${aiResult.failure_message})` : '')
+                );
+            }
         } catch (error: any) {
             if (!(error?.name === 'AbortError' || error?.message?.includes('aborted'))) {
                 console.error('[AI Scorer] Erreur:', error);
+                messageService.warn(
+                    `Analyse IA indisponible, les scores algorithmiques sont conservés. (${error?.message || String(error)})`
+                );
             }
         } finally {
             aiScoringAbortControllerRef.current = null;

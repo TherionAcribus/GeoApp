@@ -256,13 +256,19 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 def _build_fallback_item(index: int, text: str, error: str) -> Dict[str, Any]:
-    """Résultat de secours si le parsing IA échoue pour un item."""
+    """Résultat de secours si l'IA n'a rien rendu d'exploitable pour un item.
+
+    `failed` signale à `ai_score_results` de ne PAS toucher à la confiance de
+    l'item : un échec du LLM (réseau, timeout, JSON tronqué) n'est pas un avis
+    négatif sur le texte.
+    """
     return {
         "index": index,
+        "failed": True,
         "confidence": 0.0,
         "language": "unknown",
         "readable": False,
-        "explanation": f"Erreur parsing IA: {error[:80]}",
+        "explanation": f"Analyse IA indisponible: {error[:160]}",
         "coordinates": {"exist": False},
     }
 
@@ -290,7 +296,12 @@ def _parse_ai_response(raw: str, count: int) -> List[Dict[str, Any]]:
         item = next((r for r in ai_results if isinstance(r, dict) and r.get("index") == i), None)
         if item is None:
             # Fallback : prendre dans l'ordre
-            item = ai_results[i] if i < len(ai_results) else {}
+            item = ai_results[i] if i < len(ai_results) else None
+
+        if not isinstance(item, dict) or item.get("confidence") is None:
+            # Item absent ou sans score (réponse tronquée) : échec, pas un zéro.
+            normalized.append(_build_fallback_item(i, "", "item absent de la réponse du modèle"))
+            continue
 
         coords_raw = item.get("coordinates") or {}
         coords: Dict[str, Any] = {"exist": False}
@@ -429,6 +440,26 @@ def ai_score_results(
                 break
 
             item = enriched[global_idx]
+
+            if ai_item.get("failed"):
+                # Échec du LLM : la confiance et les coordonnées de l'item
+                # restent celles de l'algo ; seul l'échec est consigné.
+                # Copie du dict metadata : `enriched` est une copie superficielle.
+                failed_metadata = dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}
+                failed_metadata["ai_scoring"] = {
+                    "failed": True,
+                    "explanation": ai_item.get("explanation", ""),
+                    "provider": provider,
+                    "model": model,
+                    "reported_model": llm_reported_model,
+                    "usage": llm_usage,
+                    "batch_index": batch_start,
+                    "elapsed_ms": elapsed_ms,
+                    "source": "ai_scorer",
+                }
+                item["metadata"] = failed_metadata
+                continue
+
             ai_confidence = ai_item["confidence"]
             ai_coords = ai_item.get("coordinates") or {"exist": False}
 
@@ -513,6 +544,14 @@ def ai_score_text(
     )
     if results:
         item = results[0]
+        if item.get("metadata", {}).get("ai_scoring", {}).get("failed"):
+            return {
+                "confidence": 0.0,
+                "failed": True,
+                "explanation": item["metadata"]["ai_scoring"].get("explanation", ""),
+                "coordinates": {"exist": False},
+                "metadata": item.get("metadata", {}),
+            }
         return {
             "confidence": item.get("confidence", 0.0),
             "language": item.get("metadata", {}).get("ai_scoring", {}).get("language_detected", "unknown"),

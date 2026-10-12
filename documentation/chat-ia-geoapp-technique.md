@@ -169,6 +169,10 @@ L'affectation Theia prend la priorité lorsqu'elle existe. Elle est traduite en 
 
 **Sortie :** identique au scoring algorithmique - `confidence` (0-1), `metadata.ai_scoring`, `coordinates` si détectées.
 
+**Échec du LLM :** un échec (réseau, timeout, JSON non parseable, item absent d'une réponse tronquée) n'est pas un avis négatif. L'item garde sa `confidence` et ses `coordinates` d'origine et porte `metadata.ai_scoring.failed = true` avec la cause dans `explanation`. La réponse de l'endpoint indique `failed_count`, `failure_message` et un `status` à `ok`, `partial` ou `failed`. Seul un `0.0` explicitement rendu par le modèle met la confiance à zéro. Le frontend affiche un avertissement et conserve les scores algorithmiques.
+
+**Sélection des candidats :** l'analyse automatique (`enable_ai_scoring`) envoie les 30 résultats les mieux notés par l'algo, sans seuil de confiance : les textes que l'algo note mal sont justement ceux où l'IA est utile, et le backend a déjà écarté le charabia (`min_score`).
+
 **Tool Chat :** `geoapp.plugins.ai.score` (nom: `ai_score_plugin_results`) - permet au Chat IA de déclencher l'analyse sur une liste de résultats.
 
 **Fichiers :**

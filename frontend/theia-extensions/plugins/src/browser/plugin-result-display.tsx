@@ -589,6 +589,10 @@ export const PluginResultDisplay: React.FC<{
                                                             });
                                                             if (aiResult && aiResult.items && aiResult.items.length > 0) {
                                                                 const scored = aiResult.items[0];
+                                                                if (scored.metadata?.ai_scoring?.failed) {
+                                                                    messageService.warn(`IA: ${scored.metadata.ai_scoring.explanation || 'analyse indisponible'}`);
+                                                                    return;
+                                                                }
                                                                 setAiScoredItems(prev => ({ ...prev, [itemKey]: scored }));
                                                                 // Mettre a jour les coords si l'IA en a trouve
                                                                 const aiCoords = scored.coordinates;

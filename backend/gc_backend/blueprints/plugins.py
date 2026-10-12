@@ -5707,11 +5707,17 @@ def ai_score_endpoint():
         )
         reported_models = set()
         usage_by_batch: dict = {}
+        failed_count = 0
+        first_failure = None
         for item in enriched:
             metadata = item.get('metadata') if isinstance(item, dict) else None
             scoring = metadata.get('ai_scoring') if isinstance(metadata, dict) else None
             if not isinstance(scoring, dict):
                 continue
+            if scoring.get('failed'):
+                failed_count += 1
+                if first_failure is None:
+                    first_failure = scoring.get('explanation') or None
             reported_model = scoring.get('reported_model')
             if isinstance(reported_model, str) and reported_model.strip():
                 reported_models.add(reported_model.strip())
@@ -5723,10 +5729,20 @@ def ai_score_endpoint():
         for key in ('input_tokens', 'output_tokens', 'total_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'):
             if usage_by_batch and all(isinstance(part.get(key), int) for part in usage_by_batch.values()):
                 usage[key] = sum(part[key] for part in usage_by_batch.values())
+        # Les items en echec gardent leur confiance d'origine (voir ai_score_results) ;
+        # le statut dit a l'appelant combien n'ont pas ete analyses.
+        if failed_count == 0:
+            status = 'ok'
+        elif failed_count < len(enriched):
+            status = 'partial'
+        else:
+            status = 'failed'
         return jsonify({
-            'status': 'ok',
+            'status': status,
             'items': enriched,
             'count': len(enriched),
+            'failed_count': failed_count,
+            'failure_message': first_failure,
             'provider': provider,
             'model': model,
             'reported_model': next(iter(reported_models)) if len(reported_models) == 1 else None,
