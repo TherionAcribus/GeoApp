@@ -12,29 +12,14 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 from typing import Any, Dict
 
-
-def _load_plugin_class(module_name: str, folder: str):
-    plugin_path = Path(__file__).resolve().parent.parent / folder / "main.py"
-    spec = importlib.util.spec_from_file_location(module_name, plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _load_planet_plugin_class():
-    module = _load_plugin_class("planet_barcode_main", "planet_barcode")
-    return getattr(module, "PlanetBarcodePlugin")
+from plugins.testing import load_plugin_class, load_plugin_module
 
 
 def test_planet_encode_11_digits_adds_checksum_and_frame_bars() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "12345678901", "mode": "encode"})
@@ -50,7 +35,7 @@ def test_planet_encode_11_digits_adds_checksum_and_frame_bars() -> None:
 
 
 def test_planet_encode_decode_roundtrip_11_and_13_digits() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     for digits in ("12345678901", "1234567890123"):
@@ -66,7 +51,7 @@ def test_planet_encode_decode_roundtrip_11_and_13_digits() -> None:
 
 
 def test_planet_decode_supports_visual_formats() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345678901", "mode": "encode"})
@@ -79,7 +64,7 @@ def test_planet_decode_supports_visual_formats() -> None:
 
 
 def test_planet_decode_flags_invalid_checksum() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345678901", "mode": "encode"})
@@ -93,7 +78,7 @@ def test_planet_decode_flags_invalid_checksum() -> None:
 
 
 def test_planet_bruteforce_decode_returns_sorted_results() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345678901", "mode": "encode"})
@@ -110,7 +95,7 @@ def test_planet_bruteforce_decode_returns_sorted_results() -> None:
 
 
 def test_planet_invalid_input_returns_error() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "", "mode": "decode"})
@@ -120,7 +105,7 @@ def test_planet_invalid_input_returns_error() -> None:
 
 
 def test_planet_standard_output_format() -> None:
-    PlanetBarcodePlugin = _load_planet_plugin_class()
+    PlanetBarcodePlugin = load_plugin_class(__file__)
     plugin = PlanetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "12345678901", "mode": "encode"})
@@ -133,8 +118,8 @@ def test_planet_standard_output_format() -> None:
 
 def test_planet_table_is_bitwise_complement_of_postnet() -> None:
     """La table PLANET est documentée comme le complément bit à bit de POSTNET."""
-    postnet_module = _load_plugin_class("postnet_barcode_main_ref", "postnet_barcode")
-    planet_module = _load_plugin_class("planet_barcode_main_ref", "planet_barcode")
+    postnet_module = load_plugin_module(Path(__file__).resolve().parent.parent / "postnet_barcode")
+    planet_module = load_plugin_module(__file__)
 
     postnet_encoding = postnet_module.POSTNET_ENCODING
     planet_encoding = planet_module.PLANET_ENCODING

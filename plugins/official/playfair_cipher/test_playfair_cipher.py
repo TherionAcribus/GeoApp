@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("playfair_cipher_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "PlayfairCipherPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_wikipedia_example_encode() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -49,7 +37,7 @@ def test_wikipedia_example_encode() -> None:
 
 
 def test_wikipedia_example_decode_without_cleanup() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -66,7 +54,7 @@ def test_wikipedia_example_decode_without_cleanup() -> None:
 
 
 def test_decode_with_cleanup_removes_inserted_x() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -83,7 +71,7 @@ def test_decode_with_cleanup_removes_inserted_x() -> None:
 
 
 def test_roundtrip_repeated_letters_and_odd_length() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -109,7 +97,7 @@ def test_roundtrip_repeated_letters_and_odd_length() -> None:
 
 
 def test_q_omitted_alphabet_mode() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     square = plugin.create_square(key="KEYWORD", alphabet_mode="Q_OMITTED")
@@ -119,7 +107,7 @@ def test_q_omitted_alphabet_mode() -> None:
 
 
 def test_strict_rejects_odd_ciphertext() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "decode", "strict": "strict"})
@@ -129,7 +117,7 @@ def test_strict_rejects_odd_ciphertext() -> None:
 
 
 def test_detect_playfair_like_text() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "BMODZB XDNA BEKU DMUI XMMO UVIF", "mode": "detect"})
@@ -139,7 +127,7 @@ def test_detect_playfair_like_text() -> None:
 
 
 def test_decode_without_key_keeps_visible_warning() -> None:
-    PlayfairCipherPlugin = _load_plugin_class()
+    PlayfairCipherPlugin = load_plugin_class(__file__)
     plugin = PlayfairCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "fNsfp Zkrippvg lyvzqcemsfioprv", "mode": "decode"})

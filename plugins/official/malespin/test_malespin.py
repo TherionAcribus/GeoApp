@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("malespin_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "MalespinPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dcode_name_example() -> None:
-    MalespinPlugin = _load_plugin_class()
+    MalespinPlugin = load_plugin_class(__file__)
     plugin = MalespinPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Malespín", "mode": "encode"})
@@ -27,7 +15,7 @@ def test_dcode_name_example() -> None:
 
 
 def test_transform_is_reciprocal() -> None:
-    MalespinPlugin = _load_plugin_class()
+    MalespinPlugin = load_plugin_class(__file__)
     plugin = MalespinPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "Buenos dias, amigo!", "mode": "encode"})
@@ -39,7 +27,7 @@ def test_transform_is_reciprocal() -> None:
 
 
 def test_preserves_case_and_punctuation() -> None:
-    MalespinPlugin = _load_plugin_class()
+    MalespinPlugin = load_plugin_class(__file__)
     plugin = MalespinPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Ataque: 12?", "mode": "encode"})
@@ -49,7 +37,7 @@ def test_preserves_case_and_punctuation() -> None:
 
 
 def test_strict_rejects_unallowed_digits() -> None:
-    MalespinPlugin = _load_plugin_class()
+    MalespinPlugin = load_plugin_class(__file__)
     plugin = MalespinPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Ataque 12", "mode": "decode", "strict": "strict"})
@@ -59,7 +47,7 @@ def test_strict_rejects_unallowed_digits() -> None:
 
 
 def test_detect_returns_weak_compatibility_signal() -> None:
-    MalespinPlugin = _load_plugin_class()
+    MalespinPlugin = load_plugin_class(__file__)
     plugin = MalespinPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Pelasmon", "mode": "detect"})

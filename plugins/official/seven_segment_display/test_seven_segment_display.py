@@ -13,29 +13,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("seven_segment_display_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "SevenSegmentDisplayPlugin")
-
-
-def _plugin():
-    return _load_plugin_class()()
+from plugins.testing import load_plugin_class
 
 
 def test_decode_cachesleuth_reference_example() -> None:
     """Exemple fourni par l'outil CacheSleuth : ABCEFG ADEF DEG -> A C c."""
-    result: Dict[str, Any] = _plugin().execute(
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute(
         {"text": "ABCEFG ADEF DEG", "mode": "decode", "enable_scoring": False}
     )
 
@@ -45,7 +29,7 @@ def test_decode_cachesleuth_reference_example() -> None:
 
 
 def test_encode_digits_uses_reference_segments() -> None:
-    result: Dict[str, Any] = _plugin().execute({"text": "0123", "mode": "encode"})
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute({"text": "0123", "mode": "encode"})
 
     assert result["status"] == "ok"
     assert result["results"][0]["text_output"] == "ABCDEF BC ABDEG ABCDG"
@@ -53,7 +37,7 @@ def test_encode_digits_uses_reference_segments() -> None:
 
 def test_dcode_binary_bit_order_is_gfedcba() -> None:
     """dCode : les segments cdeg valent 1011100 (a = bit de poids faible)."""
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute(
         {"text": "O", "mode": "encode", "notation": "binary"}
@@ -70,7 +54,7 @@ def test_dcode_binary_bit_order_is_gfedcba() -> None:
 
 
 def test_abcdefg_bit_order_puts_segment_a_first() -> None:
-    result: Dict[str, Any] = _plugin().execute(
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute(
         {"text": "O", "mode": "encode", "notation": "binary", "bit_order": "abcdefg"}
     )
 
@@ -79,7 +63,7 @@ def test_abcdefg_bit_order_puts_segment_a_first() -> None:
 
 
 def test_all_segments_lit_is_eight_and_decimal_127() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     decoded: Dict[str, Any] = plugin.execute(
         {"text": "1111111", "mode": "decode", "enable_scoring": False}
@@ -93,7 +77,7 @@ def test_all_segments_lit_is_eight_and_decimal_127() -> None:
 
 
 def test_hex_notation_roundtrip() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute(
         {"text": "42", "mode": "encode", "notation": "hex"}
@@ -107,7 +91,7 @@ def test_hex_notation_roundtrip() -> None:
 
 
 def test_anode_common_inverts_bits() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute(
         {"text": "O", "mode": "encode", "notation": "binary", "common": "anode"}
@@ -128,7 +112,7 @@ def test_anode_common_inverts_bits() -> None:
 
 def test_letter_bias_resolves_ambiguous_patterns() -> None:
     """ACDFG se lit 5 (référence) ou S (lecture alphabétique)."""
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     default: Dict[str, Any] = plugin.execute(
         {"text": "ACDFG", "mode": "decode", "enable_scoring": False}
@@ -149,14 +133,14 @@ def test_letter_bias_resolves_ambiguous_patterns() -> None:
 
 def test_encode_falls_back_to_other_case_for_missing_glyphs() -> None:
     """'S' est absent de la table de référence : il est encodé via sa lecture alternative."""
-    result: Dict[str, Any] = _plugin().execute({"text": "S", "mode": "encode"})
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute({"text": "S", "mode": "encode"})
 
     assert result["status"] == "ok"
     assert result["results"][0]["text_output"] == "ACDFG"
 
 
 def test_encode_decode_roundtrip_on_digits() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "N4712", "mode": "encode"})
     assert encoded["status"] == "ok"
@@ -169,7 +153,7 @@ def test_encode_decode_roundtrip_on_digits() -> None:
 
 
 def test_space_is_encoded_as_p_token_and_decoded_back() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "1 2", "mode": "encode"})
     assert encoded["results"][0]["text_output"] == "BC P ABDEG"
@@ -181,7 +165,7 @@ def test_space_is_encoded_as_p_token_and_decoded_back() -> None:
 
 
 def test_ascii_art_rendering_of_digit_one() -> None:
-    result: Dict[str, Any] = _plugin().execute(
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute(
         {"text": "1", "mode": "encode", "notation": "ascii_art"}
     )
 
@@ -191,7 +175,7 @@ def test_ascii_art_rendering_of_digit_one() -> None:
 
 
 def test_unsupported_characters_are_reported() -> None:
-    result: Dict[str, Any] = _plugin().execute({"text": "Aé", "mode": "encode"})
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute({"text": "Aé", "mode": "encode"})
 
     assert result["status"] == "ok"
     assert result["results"][0]["metadata"]["unsupported_characters"] == ["é"]
@@ -199,7 +183,7 @@ def test_unsupported_characters_are_reported() -> None:
 
 def test_plain_text_is_not_mistaken_for_segment_notation() -> None:
     """Sans garde-fou, tout texte produirait une lecture faite de ses lettres A-G."""
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     for text in ("HELLO WORLD", "Le texte du listing parle de segments"):
         result: Dict[str, Any] = plugin.execute(
@@ -214,7 +198,7 @@ def test_plain_text_is_not_mistaken_for_segment_notation() -> None:
 
 
 def test_label_prefix_is_ignored() -> None:
-    result: Dict[str, Any] = _plugin().execute(
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute(
         {"text": "Segments: ABCEFG ADEF DEG", "mode": "decode", "enable_scoring": False}
     )
 
@@ -223,14 +207,14 @@ def test_label_prefix_is_ignored() -> None:
 
 
 def test_empty_input_returns_error() -> None:
-    result: Dict[str, Any] = _plugin().execute({"text": "   ", "mode": "decode"})
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute({"text": "   ", "mode": "decode"})
 
     assert result["status"] == "error"
     assert result["results"] == []
 
 
 def test_bruteforce_returns_multiple_readings() -> None:
-    result: Dict[str, Any] = _plugin().execute(
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute(
         {"text": "ACDFG ABCDEF", "mode": "decode", "bruteforce": True, "enable_scoring": False}
     )
 
@@ -241,7 +225,7 @@ def test_bruteforce_returns_multiple_readings() -> None:
 
 
 def test_bruteforce_recovers_alternate_bit_order() -> None:
-    plugin = _plugin()
+    plugin = load_plugin_class(__file__)()
 
     encoded: Dict[str, Any] = plugin.execute(
         {"text": "GEO", "mode": "encode", "notation": "binary", "bit_order": "abcdefg"}
@@ -256,7 +240,7 @@ def test_bruteforce_recovers_alternate_bit_order() -> None:
 
 
 def test_output_format_matches_standard_contract() -> None:
-    result: Dict[str, Any] = _plugin().execute({"text": "8", "mode": "encode"})
+    result: Dict[str, Any] = load_plugin_class(__file__)().execute({"text": "8", "mode": "encode"})
 
     assert result["status"] == "ok"
     assert "summary" in result

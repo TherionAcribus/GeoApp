@@ -1,15 +1,11 @@
 """
 Script de test pour le plugin Pi Digits
 """
+from plugins.testing import load_plugin_class
 
-import sys
-import os
 
-# Ajouter le chemin du plugin au PYTHONPATH
-plugin_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, plugin_dir)
 
-from main import PiDigitsPlugin
+PiDigitsPlugin = load_plugin_class(__file__)
 
 
 def test_basic_decode():

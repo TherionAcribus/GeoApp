@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-from main import FiveNeedleTelegraphPlugin  # noqa: E402
+from plugins.testing import load_plugin_class
 
 
-def _plugin() -> FiveNeedleTelegraphPlugin:
-    return FiveNeedleTelegraphPlugin()
+FiveNeedleTelegraphPlugin = load_plugin_class(__file__)
 
 
 def test_table_integrity():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     # 20 lettres, aucune parmi les 6 omises.
     assert len(p.encode_table) == 20
     assert p.omitted_letters == ["C", "J", "Q", "V", "X", "Z"]
@@ -29,14 +25,14 @@ def test_table_integrity():
 
 
 def test_known_vectors():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     assert p.encode_table["A"] == "/|||\\"
     assert p.encode_table["M"] == "\\\\|||"
     assert p.encode_table["Y"] == "\\|||/"
 
 
 def test_encode_basic():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     out = p.execute({"mode": "encode", "text": "BADGER"})
     assert out["status"] == "ok"
     code = out["results"][0]["text_output"]
@@ -46,7 +42,7 @@ def test_encode_basic():
 
 
 def test_encode_reports_omitted():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     out = p.execute({"mode": "encode", "text": "JAZZ"})
     # J et Z omis, seul A encodé.
     meta = out["results"][0]["metadata"]
@@ -55,7 +51,7 @@ def test_encode_reports_omitted():
 
 
 def test_roundtrip_single_word():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     word = "BADGER"
     enc = p.execute({"mode": "encode", "text": word})["results"][0]["text_output"]
     dec = p.execute({"mode": "decode", "text": enc})["results"][0]["text_output"]
@@ -63,7 +59,7 @@ def test_roundtrip_single_word():
 
 
 def test_roundtrip_multi_word():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     phrase = "BIG RED"  # lettres toutes représentables
     enc = p.execute({"mode": "encode", "text": phrase})["results"][0]["text_output"]
     dec = p.execute({"mode": "decode", "text": enc})["results"][0]["text_output"]
@@ -71,7 +67,7 @@ def test_roundtrip_multi_word():
 
 
 def test_decode_continuous_stream():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     # HELLO sans séparateurs -> chunké par 5.
     stream = "".join(p.encode_table[c] for c in "HELLO")
     dec = p.execute({"mode": "decode", "text": stream})["results"][0]["text_output"]
@@ -79,14 +75,14 @@ def test_decode_continuous_stream():
 
 
 def test_decode_unknown_group_marked():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     bad = "|||||"  # 5 verticales : aucune lettre
     dec = p.execute({"mode": "decode", "text": bad})["results"][0]["text_output"]
     assert dec == "?"
 
 
 def test_auto_detect_permutations():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     # BADGER encodé puis symboles remplacés : \->a  |->b  /->c
     enc = p.execute({"mode": "encode", "text": "BADGER"})["results"][0]["text_output"]
     swapped = enc.replace("\\", "a").replace("|", "b").replace("/", "c")
@@ -97,14 +93,14 @@ def test_auto_detect_permutations():
 
 
 def test_auto_detect_wrong_char_count_note():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     out = p.execute({"mode": "decode", "text": "ab ab", "auto_detect": True})
     # 2 caractères distincts -> note d'impossibilité, pas de crash.
     assert out["status"] in {"ok", "error"}
 
 
 def test_empty_input():
-    p = _plugin()
+    p = load_plugin_class(__file__)()
     out = p.execute({"mode": "decode", "text": ""})
     assert out["status"] == "error"
 

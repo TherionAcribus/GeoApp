@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from plugins.testing import load_plugin_module
 
-from lua_analyzer import LuaAnalyzer, UrwigoDecoder
-from deobfuscation_utils import decode_lua_escapes, decode_lua_escapes_to_bytes
-from deobfuscators import UrwigoDeobfuscator
-from urwigo_hash import urwigo_hash
+# Le dossier du plugin est le parent du dossier tests/ ; ses modules
+# freres sont charges dans un namespace unique.
+_PLUGIN_DIR = Path(__file__).resolve().parent.parent
+
+_lua_analyzer = load_plugin_module(_PLUGIN_DIR, "lua_analyzer.py")
+LuaAnalyzer = _lua_analyzer.LuaAnalyzer
+UrwigoDecoder = _lua_analyzer.UrwigoDecoder
+
+_deobfuscation_utils = load_plugin_module(_PLUGIN_DIR, "deobfuscation_utils.py")
+decode_lua_escapes = _deobfuscation_utils.decode_lua_escapes
+decode_lua_escapes_to_bytes = _deobfuscation_utils.decode_lua_escapes_to_bytes
+
+UrwigoDeobfuscator = load_plugin_module(_PLUGIN_DIR, "deobfuscators.py").UrwigoDeobfuscator
+urwigo_hash = load_plugin_module(_PLUGIN_DIR, "urwigo_hash.py").urwigo_hash
 
 
 class TestLuaEscapeDecoding:

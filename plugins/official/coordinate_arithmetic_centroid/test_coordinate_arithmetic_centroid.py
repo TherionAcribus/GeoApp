@@ -1,13 +1,11 @@
 """Tests for coordinate_arithmetic_centroid plugin."""
 
-import sys
-import pathlib
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
 
 import pytest
+from plugins.testing import load_plugin_class
 
-from plugins.official.coordinate_arithmetic_centroid.main import CoordinateArithmeticCentroidPlugin
+CoordinateArithmeticCentroidPlugin = load_plugin_class(__file__)
 
 
 @pytest.fixture

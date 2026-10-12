@@ -12,24 +12,12 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("keyboard_shift_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "KeyboardShiftPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_shift_letter_a_right_one_qwerty_matches_cachesleuth() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -49,7 +37,7 @@ def test_shift_letter_a_right_one_qwerty_matches_cachesleuth() -> None:
 
 def test_shift_wraps_from_top_row_into_home_row() -> None:
     """P (dernière lettre de la rangée du haut) + 1 -> A (première lettre de la rangée suivante)."""
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -69,7 +57,7 @@ def test_shift_wraps_from_top_row_into_home_row() -> None:
 
 def test_azerty_letters_differ_from_qwerty() -> None:
     """Sur AZERTY, A est la 1ère lettre de la rangée du haut ; +1 donne Z (2e lettre)."""
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -88,7 +76,7 @@ def test_azerty_letters_differ_from_qwerty() -> None:
 
 
 def test_encode_decode_roundtrip_default_scope() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -106,7 +94,7 @@ def test_encode_decode_roundtrip_default_scope() -> None:
 
 
 def test_left_direction_is_inverse_of_right() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -121,7 +109,7 @@ def test_left_direction_is_inverse_of_right() -> None:
 
 
 def test_passthrough_characters_are_kept_unchanged() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -144,7 +132,7 @@ def test_passthrough_characters_are_kept_unchanged() -> None:
 
 def test_full_scope_wraps_from_numbers_row_into_letters_row() -> None:
     """En scope 'full', le dernier caractère de la ligne des chiffres (=) + 1 -> Q (1ère lettre)."""
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -163,7 +151,7 @@ def test_full_scope_wraps_from_numbers_row_into_letters_row() -> None:
 
 
 def test_bruteforce_decode_tries_both_layouts() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -184,7 +172,7 @@ def test_bruteforce_decode_tries_both_layouts() -> None:
 
 
 def test_no_matching_character_returns_error() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -196,7 +184,7 @@ def test_no_matching_character_returns_error() -> None:
 
 
 def test_output_format_matches_standard_contract() -> None:
-    KeyboardShiftPlugin = _load_plugin_class()
+    KeyboardShiftPlugin = load_plugin_class(__file__)
     plugin = KeyboardShiftPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GO", "mode": "encode"})

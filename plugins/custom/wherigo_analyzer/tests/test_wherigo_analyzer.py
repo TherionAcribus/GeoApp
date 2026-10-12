@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from plugins.testing import load_plugin_class
 
-from main import WherigoAnalyzerPlugin
+# Le dossier du plugin est le parent du dossier tests/.
+WherigoAnalyzerPlugin = load_plugin_class(Path(__file__).resolve().parent.parent)
 
 
 class TestWherigoAnalyzerPlugin:

@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("gold_bug_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "GoldBugPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_encode_decode_roundtrip() -> None:
-    GoldBugPlugin = _load_plugin_class()
+    GoldBugPlugin = load_plugin_class(__file__)
     plugin = GoldBugPlugin()
 
     plaintext = "GOLD BUG"
@@ -33,7 +21,7 @@ def test_encode_decode_roundtrip() -> None:
 
 
 def test_detect_symbols() -> None:
-    GoldBugPlugin = _load_plugin_class()
+    GoldBugPlugin = load_plugin_class(__file__)
     plugin = GoldBugPlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "detect", "text": "5 2 - "})

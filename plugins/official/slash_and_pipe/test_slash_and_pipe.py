@@ -10,20 +10,8 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("slash_and_pipe_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "SlashAndPipePlugin")
+from plugins.testing import load_plugin_class
 
 
 #: Table publiée par https://www.cachesleuth.com/tools/slashandpipe/
@@ -59,7 +47,7 @@ REFERENCE_TABLE = {
 
 def test_reference_table_encode() -> None:
     """Chaque lettre produit exactement le groupe publié."""
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     for letter, code in REFERENCE_TABLE.items():
         result: Dict[str, Any] = plugin.execute({"text": letter, "mode": "encode"})
@@ -69,7 +57,7 @@ def test_reference_table_encode() -> None:
 
 def test_reference_table_decode() -> None:
     """Chaque groupe publié se relit en la bonne lettre."""
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     for letter, code in REFERENCE_TABLE.items():
         result = plugin.execute(
@@ -81,7 +69,7 @@ def test_reference_table_decode() -> None:
 
 def test_encode_known_word() -> None:
     """Exemple concret de bout en bout."""
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "GEOCACHING", "mode": "encode"})
     assert result["status"] == "ok"
@@ -93,7 +81,7 @@ def test_encode_known_word() -> None:
 
 
 def test_encode_decode_roundtrip() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     encoded = plugin.execute({"text": "HELLO WORLD", "mode": "encode"})
     assert encoded["status"] == "ok"
@@ -108,7 +96,7 @@ def test_encode_decode_roundtrip() -> None:
 
 
 def test_encode_keeps_unknown_chars_by_default() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "A1B", "mode": "encode"})
     assert result["status"] == "ok"
@@ -117,7 +105,7 @@ def test_encode_keeps_unknown_chars_by_default() -> None:
 
 
 def test_encode_strip_unknown() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "A1B", "mode": "encode", "strip_unknown": True})
     assert result["status"] == "ok"
@@ -126,7 +114,7 @@ def test_encode_strip_unknown() -> None:
 
 def test_auto_detect_permutations() -> None:
     """Un texte à trois caractères exotiques donne les 6 lectures possibles."""
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     encoded = plugin.execute({"text": "GEOCACHING", "mode": "encode"})
     cipher = encoded["results"][0]["text_output"]
@@ -142,7 +130,7 @@ def test_auto_detect_permutations() -> None:
 
 def test_auto_detect_marks_canonical_reading() -> None:
     """Sur un texte déjà en / | \\, la lecture identité est marquée canonique."""
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "||| \\ ||/| || | || \\\\ / |/| |||", "mode": "decode"})
     assert result["status"] == "ok"
@@ -152,7 +140,7 @@ def test_auto_detect_marks_canonical_reading() -> None:
 
 
 def test_custom_symbols_roundtrip() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     encoded = plugin.execute({"text": "GEO", "mode": "encode", "symbols": "abc"})
     assert encoded["status"] == "ok"
@@ -166,27 +154,27 @@ def test_custom_symbols_roundtrip() -> None:
 
 
 def test_invalid_symbols() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "ABC", "mode": "encode", "symbols": "aa"})
     assert result["status"] == "error"
 
 
 def test_empty_text() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     assert plugin.execute({"text": "", "mode": "encode"})["status"] == "error"
     assert plugin.execute({"text": "   ", "mode": "decode"})["status"] == "error"
 
 
 def test_decode_without_valid_group() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     result = plugin.execute({"text": "1234", "mode": "decode", "auto_detect": False})
     assert result["status"] == "error"
 
 
 def test_unknown_mode() -> None:
-    plugin = _load_plugin_class()()
+    plugin = load_plugin_class(__file__)()
 
     assert plugin.execute({"text": "A", "mode": "rot13"})["status"] == "error"

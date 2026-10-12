@@ -9,25 +9,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("dvorak_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "DvorakCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dvorak_to_qwerty_reference() -> None:
     """Un texte tapé en Dvorak, relu en QWERTY (position des touches)."""
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     # "hello" tapé sur les touches physiques de QWERTY donne 'd.nnr' quand la
@@ -41,7 +29,7 @@ def test_dvorak_to_qwerty_reference() -> None:
 
 def test_home_row_mapping() -> None:
     """La rangée de repos QWERTY vue depuis chaque disposition."""
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     # Emplacements de 'asdfghjkl' (QWERTY) -> Dvorak 'aoeuidhtn'.
@@ -67,7 +55,7 @@ def test_roundtrip_all_pairs() -> None:
     comme la ponctuation propre à une seule disposition — comportements attendus
     d'un remapping par position de touches, non testés ici.
     """
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     sample = "the quick brown fox jumps 42"
@@ -88,7 +76,7 @@ def test_roundtrip_all_pairs() -> None:
 
 
 def test_case_preserved() -> None:
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     r = plugin.execute(
@@ -100,7 +88,7 @@ def test_case_preserved() -> None:
 
 def test_unmapped_chars_kept() -> None:
     """Chiffres, espaces et caractères hors grille sont conservés tels quels."""
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     # 'a' est au même emplacement dans les deux dispositions -> converti ;
@@ -123,7 +111,7 @@ def test_unmapped_chars_kept() -> None:
 
 def test_default_layouts() -> None:
     """Sans paramètre, la conversion par défaut est Dvorak -> QWERTY."""
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     r = plugin.execute({"text": "d.nnr"})
@@ -136,7 +124,7 @@ def test_default_layouts() -> None:
 
 
 def test_errors() -> None:
-    DvorakCodePlugin = _load_plugin_class()
+    DvorakCodePlugin = load_plugin_class(__file__)
     plugin = DvorakCodePlugin()
 
     assert plugin.execute({"text": ""})["status"] == "error"

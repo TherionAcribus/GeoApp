@@ -10,25 +10,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("keyboard_coordinates_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "KeyboardCoordinatesPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_reference_examples_qwerty_letter_a() -> None:
     """A = 22 (letters), 32 (numbers), 42 (functions) - exemples CacheSleuth/dCode."""
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     for start_row, expected in (("letters", "22"), ("numbers", "32"), ("functions", "42")):
@@ -40,7 +28,7 @@ def test_reference_examples_qwerty_letter_a() -> None:
 
 
 def test_encode_hello_qwerty_letters() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -53,7 +41,7 @@ def test_encode_hello_qwerty_letters() -> None:
 
 def test_encode_geocaching_qwerty_matches_cachesleuth() -> None:
     """Exemple vérifié sur l'outil CacheSleuth (A=22, QWERTY, départ 'letters')."""
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -66,7 +54,7 @@ def test_encode_geocaching_qwerty_matches_cachesleuth() -> None:
 
 def test_azerty_letter_a_is_on_top_row() -> None:
     """Sur AZERTY, A occupe la position de Q sur QWERTY (ligne 1, colonne 2)."""
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -78,7 +66,7 @@ def test_azerty_letter_a_is_on_top_row() -> None:
 
 
 def test_encode_decode_roundtrip_qwerty() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -101,7 +89,7 @@ def test_encode_decode_roundtrip_qwerty() -> None:
 
 
 def test_encode_decode_roundtrip_azerty_with_space() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -125,7 +113,7 @@ def test_encode_decode_roundtrip_azerty_with_space() -> None:
 
 
 def test_encode_with_numbers_row() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -138,7 +126,7 @@ def test_encode_with_numbers_row() -> None:
 
 
 def test_unsupported_characters_are_reported_and_skipped() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -152,7 +140,7 @@ def test_unsupported_characters_are_reported_and_skipped() -> None:
 
 
 def test_bruteforce_decode_tries_all_layout_and_start_row_combinations() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -167,7 +155,7 @@ def test_bruteforce_decode_tries_all_layout_and_start_row_combinations() -> None
 
 
 def test_decode_invalid_format_returns_error() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "not coordinates", "mode": "decode"})
@@ -177,7 +165,7 @@ def test_decode_invalid_format_returns_error() -> None:
 
 
 def test_output_format_matches_standard_contract() -> None:
-    KeyboardCoordinatesPlugin = _load_plugin_class()
+    KeyboardCoordinatesPlugin = load_plugin_class(__file__)
     plugin = KeyboardCoordinatesPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GO", "mode": "encode"})

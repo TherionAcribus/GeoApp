@@ -11,24 +11,12 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("postnet_barcode_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "PostnetBarcodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_postnet_encode_zip5_adds_checksum_and_frame_bars() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "12345", "mode": "encode"})
@@ -44,7 +32,7 @@ def test_postnet_encode_zip5_adds_checksum_and_frame_bars() -> None:
 
 
 def test_postnet_encode_decode_roundtrip() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345", "mode": "encode"})
@@ -59,7 +47,7 @@ def test_postnet_encode_decode_roundtrip() -> None:
 
 
 def test_postnet_decode_supports_visual_formats() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "554236090", "mode": "encode"})
@@ -73,7 +61,7 @@ def test_postnet_decode_supports_visual_formats() -> None:
 
 
 def test_postnet_decode_flags_invalid_checksum() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345", "mode": "encode"})
@@ -87,7 +75,7 @@ def test_postnet_decode_flags_invalid_checksum() -> None:
 
 
 def test_postnet_bruteforce_decode_returns_sorted_results() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "12345", "mode": "encode"})
@@ -104,7 +92,7 @@ def test_postnet_bruteforce_decode_returns_sorted_results() -> None:
 
 
 def test_postnet_invalid_input_returns_error() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "", "mode": "decode"})
@@ -114,7 +102,7 @@ def test_postnet_invalid_input_returns_error() -> None:
 
 
 def test_postnet_standard_output_format() -> None:
-    PostnetBarcodePlugin = _load_plugin_class()
+    PostnetBarcodePlugin = load_plugin_class(__file__)
     plugin = PostnetBarcodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "554236090", "mode": "encode"})

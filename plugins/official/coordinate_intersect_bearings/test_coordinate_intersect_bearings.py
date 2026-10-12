@@ -1,14 +1,11 @@
 """Tests for coordinate_intersect_bearings plugin."""
 
-import sys
-import pathlib
-import math
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
 
 import pytest
+from plugins.testing import load_plugin_class
 
-from plugins.official.coordinate_intersect_bearings.main import CoordinateIntersectBearingsPlugin
+CoordinateIntersectBearingsPlugin = load_plugin_class(__file__)
 
 
 @pytest.fixture

@@ -7,24 +7,12 @@ Ces tests valident:
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("affine_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "AffineCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_affine_code_encode_decode_roundtrip() -> None:
-    AffineCodePlugin = _load_plugin_class()
+    AffineCodePlugin = load_plugin_class(__file__)
     plugin = AffineCodePlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "encode", "a": 5, "b": 8})
@@ -39,7 +27,7 @@ def test_affine_code_encode_decode_roundtrip() -> None:
 
 
 def test_affine_code_bruteforce_returns_sorted_results() -> None:
-    AffineCodePlugin = _load_plugin_class()
+    AffineCodePlugin = load_plugin_class(__file__)
     plugin = AffineCodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "IFMMP", "mode": "decode", "brute_force": True})

@@ -1,19 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("vic_cipher_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "VicCipherPlugin")
+from plugins.testing import load_plugin_class
 
 
 def _wiki_inputs() -> Dict[str, Any]:
@@ -26,7 +14,7 @@ def _wiki_inputs() -> Dict[str, Any]:
 
 
 def test_wikipedia_key_generation_example() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     key_material = plugin.derive_key_material(**_wiki_inputs())
@@ -49,7 +37,7 @@ def test_wikipedia_key_generation_example() -> None:
 
 
 def test_simple_default_grid_matches_dcode_example() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
     checkerboard = plugin.build_simple_checkerboard(spare_positions="26")
 
@@ -60,7 +48,7 @@ def test_simple_default_grid_matches_dcode_example() -> None:
 
 
 def test_simple_numeric_key_matches_dcode_example() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -77,7 +65,7 @@ def test_simple_numeric_key_matches_dcode_example() -> None:
 
 
 def test_simple_decode_numeric_key_matches_dcode_example() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -93,7 +81,7 @@ def test_simple_decode_numeric_key_matches_dcode_example() -> None:
 
 
 def test_simple_letters_output_roundtrip() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -123,7 +111,7 @@ def test_simple_letters_output_roundtrip() -> None:
 
 
 def test_checkerboard_encodes_wikipedia_sample_prefix() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
     key_material = plugin.derive_key_material(**_wiki_inputs())
     checkerboard = plugin.build_checkerboard(key_material["line_s"])
@@ -135,7 +123,7 @@ def test_checkerboard_encodes_wikipedia_sample_prefix() -> None:
 
 
 def test_encode_decode_roundtrip_double_transposition() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     inputs = {
@@ -161,7 +149,7 @@ def test_encode_decode_roundtrip_double_transposition() -> None:
 
 
 def test_checkerboard_only_roundtrip() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -191,7 +179,7 @@ def test_checkerboard_only_roundtrip() -> None:
 
 
 def test_invalid_key_material_is_rejected() -> None:
-    VicCipherPlugin = _load_plugin_class()
+    VicCipherPlugin = load_plugin_class(__file__)
     plugin = VicCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(

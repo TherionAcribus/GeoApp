@@ -8,24 +8,12 @@ Ces tests valident:
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("alpha_decoder_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "AlphaDecoderPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_alpha_decoder_encode_basic() -> None:
-    AlphaDecoderPlugin = _load_plugin_class()
+    AlphaDecoderPlugin = load_plugin_class(__file__)
     plugin = AlphaDecoderPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "encode", "offset": 0})
@@ -34,7 +22,7 @@ def test_alpha_decoder_encode_basic() -> None:
 
 
 def test_alpha_decoder_decode_basic() -> None:
-    AlphaDecoderPlugin = _load_plugin_class()
+    AlphaDecoderPlugin = load_plugin_class(__file__)
     plugin = AlphaDecoderPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "1 2 3", "mode": "decode", "offset": 0})
@@ -43,7 +31,7 @@ def test_alpha_decoder_decode_basic() -> None:
 
 
 def test_alpha_decoder_offset() -> None:
-    AlphaDecoderPlugin = _load_plugin_class()
+    AlphaDecoderPlugin = load_plugin_class(__file__)
     plugin = AlphaDecoderPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "A", "mode": "encode", "offset": 1})

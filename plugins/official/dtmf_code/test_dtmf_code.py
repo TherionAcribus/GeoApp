@@ -9,25 +9,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("dtmf_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "DtmfCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dtmf_encode_reference() -> None:
     """Couples de fréquences issus de la disposition standard du clavier."""
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     cases = {
@@ -47,7 +35,7 @@ def test_dtmf_encode_reference() -> None:
 
 
 def test_dtmf_encode_decode_roundtrip() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     encoded = plugin.execute({"text": "1234567890", "mode": "encode"})
@@ -60,7 +48,7 @@ def test_dtmf_encode_decode_roundtrip() -> None:
 
 
 def test_dtmf_encode_lowercase_and_symbols() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     encoded = plugin.execute({"text": "a*#d", "mode": "encode"})
@@ -71,7 +59,7 @@ def test_dtmf_encode_lowercase_and_symbols() -> None:
 
 def test_dtmf_decode_order_independent() -> None:
     """La fréquence haute peut précéder la basse : même touche décodée."""
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     # Touche 5 = 770 (basse) + 1336 (haute), présentées dans l'ordre inverse.
@@ -81,7 +69,7 @@ def test_dtmf_decode_order_independent() -> None:
 
 
 def test_dtmf_decode_ignores_noise_and_separators() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     noisy = "697/1209 Hz ; 852,1477"
@@ -92,7 +80,7 @@ def test_dtmf_decode_ignores_noise_and_separators() -> None:
 
 def test_dtmf_decode_tolerance() -> None:
     """Des fréquences légèrement décalées restent reconnues (tolérance)."""
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     # 700~697, 1210~1209 -> touche 1, avec la tolérance par défaut (20 Hz).
@@ -106,7 +94,7 @@ def test_dtmf_decode_tolerance() -> None:
 
 
 def test_dtmf_decode_unpaired_frequency() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     # Trois nombres : un couple décodé + une fréquence orpheline ignorée.
@@ -116,7 +104,7 @@ def test_dtmf_decode_unpaired_frequency() -> None:
 
 
 def test_dtmf_encode_no_valid_key() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     result = plugin.execute({"text": "hello", "mode": "encode"})
@@ -124,7 +112,7 @@ def test_dtmf_encode_no_valid_key() -> None:
 
 
 def test_dtmf_decode_too_few_numbers() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     result = plugin.execute({"text": "697", "mode": "decode"})
@@ -132,14 +120,14 @@ def test_dtmf_decode_too_few_numbers() -> None:
 
 
 def test_dtmf_empty_text() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     assert plugin.execute({"text": "", "mode": "encode"})["status"] == "error"
 
 
 def test_dtmf_unknown_mode() -> None:
-    DtmfCodePlugin = _load_plugin_class()
+    DtmfCodePlugin = load_plugin_class(__file__)
     plugin = DtmfCodePlugin()
 
     assert plugin.execute({"text": "1", "mode": "xyz"})["status"] == "error"

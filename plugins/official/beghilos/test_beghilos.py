@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("beghilos_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "BeghilosPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dcode_google_example() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GOOGLE", "mode": "encode"})
@@ -27,7 +15,7 @@ def test_dcode_google_example() -> None:
 
 
 def test_dcode_soleil_example() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "SOLEIL", "mode": "encode"})
@@ -40,7 +28,7 @@ def test_dcode_soleil_example() -> None:
 
 
 def test_phrase_reverse_matches_dcode_sample() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "SOLEIL BEGHILOS", "mode": "encode"})
@@ -51,7 +39,7 @@ def test_phrase_reverse_matches_dcode_sample() -> None:
 
 
 def test_display_style_uses_lowercase_g_h_b() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "946", "mode": "decode", "letter_style": "display"})
@@ -61,7 +49,7 @@ def test_display_style_uses_lowercase_g_h_b() -> None:
 
 
 def test_case_sensitive_b_can_encode_digit_9() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Bob", "mode": "encode", "case_sensitive_b": True})
@@ -71,7 +59,7 @@ def test_case_sensitive_b_can_encode_digit_9() -> None:
 
 
 def test_strict_rejects_non_beghilos_letters() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "CACHE", "mode": "encode", "strict": "strict"})
@@ -81,7 +69,7 @@ def test_strict_rejects_non_beghilos_letters() -> None:
 
 
 def test_detect_digit_input() -> None:
-    BeghilosPlugin = _load_plugin_class()
+    BeghilosPlugin = load_plugin_class(__file__)
     plugin = BeghilosPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "5318008", "mode": "detect"})

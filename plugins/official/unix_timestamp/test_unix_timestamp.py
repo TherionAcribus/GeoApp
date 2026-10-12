@@ -1,11 +1,11 @@
 """Tests du plugin unix_timestamp."""
 
-import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+from plugins.testing import load_plugin_class
 
-from main import UnixTimestampPlugin  # noqa: E402
+
+UnixTimestampPlugin = load_plugin_class(__file__)
 
 
 def _run(**inputs):

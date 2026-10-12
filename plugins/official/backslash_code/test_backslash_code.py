@@ -9,25 +9,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("backslash_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "BackslashCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_backslash_reference_table() -> None:
     """Quelques lettres issues de la table publiée (cachesleuth / drabkikker)."""
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     cases = {
@@ -45,7 +33,7 @@ def test_backslash_reference_table() -> None:
 
 
 def test_backslash_encode_decode_roundtrip() -> None:
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     encoded = plugin.execute({"text": "HELLO WORLD", "mode": "encode"})
@@ -60,7 +48,7 @@ def test_backslash_encode_decode_roundtrip() -> None:
 
 
 def test_backslash_custom_symbols() -> None:
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     encoded = plugin.execute({"text": "GEO", "mode": "encode", "symbols": "abc"})
@@ -74,7 +62,7 @@ def test_backslash_custom_symbols() -> None:
 
 
 def test_backslash_invalid_symbols() -> None:
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     result = plugin.execute({"text": "ABC", "mode": "encode", "symbols": "aa"})
@@ -82,7 +70,7 @@ def test_backslash_invalid_symbols() -> None:
 
 
 def test_backslash_empty_text() -> None:
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     result = plugin.execute({"text": "", "mode": "encode"})
@@ -90,7 +78,7 @@ def test_backslash_empty_text() -> None:
 
 
 def test_backslash_decode_no_symbols() -> None:
-    BackslashCodePlugin = _load_plugin_class()
+    BackslashCodePlugin = load_plugin_class(__file__)
     plugin = BackslashCodePlugin()
 
     result = plugin.execute({"text": "hello", "mode": "decode"})

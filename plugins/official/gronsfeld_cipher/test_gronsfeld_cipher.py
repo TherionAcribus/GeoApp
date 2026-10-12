@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("gronsfeld_cipher_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "GronsfeldCipherPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_encode_decode_roundtrip() -> None:
-    GronsfeldCipherPlugin = _load_plugin_class()
+    GronsfeldCipherPlugin = load_plugin_class(__file__)
     plugin = GronsfeldCipherPlugin()
 
     plaintext = "BONJOUR LE MONDE"
@@ -33,7 +21,7 @@ def test_encode_decode_roundtrip() -> None:
 
 
 def test_key_is_cleaned_to_digits() -> None:
-    GronsfeldCipherPlugin = _load_plugin_class()
+    GronsfeldCipherPlugin = load_plugin_class(__file__)
     plugin = GronsfeldCipherPlugin()
 
     # La clé doit ignorer les caractères non numériques
@@ -42,7 +30,7 @@ def test_key_is_cleaned_to_digits() -> None:
 
 
 def test_missing_key_errors() -> None:
-    GronsfeldCipherPlugin = _load_plugin_class()
+    GronsfeldCipherPlugin = load_plugin_class(__file__)
     plugin = GronsfeldCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "encode", "text": "ABC", "key": ""})

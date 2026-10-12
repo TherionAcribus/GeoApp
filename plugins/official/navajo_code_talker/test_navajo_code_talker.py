@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("navajo_code_talker_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "NavajoCodeTalkerPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_encode_alphabet_historical() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "encode"})
@@ -27,7 +15,7 @@ def test_encode_alphabet_historical() -> None:
 
 
 def test_decode_historical_words() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Wol-la-chee Shush Moasi", "mode": "decode"})
@@ -37,7 +25,7 @@ def test_decode_historical_words() -> None:
 
 
 def test_decode_hyphenated_multi_part_codes() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Tkele-cho-gi Klizzie-yazzi Dibeh-yazzi", "mode": "decode"})
@@ -47,7 +35,7 @@ def test_decode_hyphenated_multi_part_codes() -> None:
 
 
 def test_modern_spelling_roundtrip() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "GO", "mode": "encode", "spelling": "modern"})
@@ -60,7 +48,7 @@ def test_modern_spelling_roundtrip() -> None:
 
 
 def test_word_separator_roundtrip() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "GO AT", "mode": "encode"})
@@ -71,7 +59,7 @@ def test_word_separator_roundtrip() -> None:
 
 
 def test_english_mnemonics_are_not_decoded() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Ant Bear Cat", "mode": "decode"})
@@ -80,7 +68,7 @@ def test_english_mnemonics_are_not_decoded() -> None:
 
 
 def test_strict_rejects_unknown_word() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Wol-la-chee unknown", "mode": "decode", "strict": "strict"})
@@ -90,7 +78,7 @@ def test_strict_rejects_unknown_word() -> None:
 
 
 def test_detect_navajo_code_words() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Wol-la-chee Shush Moasi", "mode": "detect"})
@@ -100,7 +88,7 @@ def test_detect_navajo_code_words() -> None:
 
 
 def test_decodes_extended_alphabet_variants_from_geocaching_sample() -> None:
-    NavajoCodeTalkerPlugin = _load_plugin_class()
+    NavajoCodeTalkerPlugin = load_plugin_class(__file__)
     plugin = NavajoCodeTalkerPlugin()
     text = (
         "CA-YEILTH SHI-DA BE-LA-SANA DAH-NES-TSA BE-LA-SANA TSAH THAN-ZIE DZEH "

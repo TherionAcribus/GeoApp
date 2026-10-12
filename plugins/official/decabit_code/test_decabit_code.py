@@ -10,25 +10,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("decabit_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "DecabitCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_decabit_reference_table() -> None:
     """Valeurs issues de la table publiée (ASCII -> trame Decabit)."""
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     # 'A' = 65, 'B' = 66, '0'..'3' via valeurs numériques 0-3.
@@ -46,7 +34,7 @@ def test_decabit_reference_table() -> None:
 
 
 def test_decabit_encode_decode_roundtrip() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     encoded = plugin.execute({"text": "N49 E002", "mode": "encode"})
@@ -61,7 +49,7 @@ def test_decabit_encode_decode_roundtrip() -> None:
 
 def test_decabit_decode_ignores_noise() -> None:
     """Le décodage ne lit que + et -, quel que soit l'habillage."""
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     # 'H' = 72 -> --+-+-+++- , 'I' = 73 -> +----++++-
@@ -72,7 +60,7 @@ def test_decabit_decode_ignores_noise() -> None:
 
 
 def test_decabit_numbers_output() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     encoded = plugin.execute({"text": "AB", "mode": "encode"})
@@ -83,7 +71,7 @@ def test_decabit_numbers_output() -> None:
 
 
 def test_decabit_custom_symbols_binary() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     encoded = plugin.execute({"text": "GEO", "mode": "encode", "symbols": "10"})
@@ -98,7 +86,7 @@ def test_decabit_custom_symbols_binary() -> None:
 
 def test_decabit_custom_symbols_swap() -> None:
     """Symboles « -+ » : + et - sont inversés (cas piège du remplacement)."""
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     encoded = plugin.execute({"text": "OK", "mode": "encode", "symbols": "-+"})
@@ -109,7 +97,7 @@ def test_decabit_custom_symbols_swap() -> None:
 
 
 def test_decabit_invalid_symbols() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     result = plugin.execute({"text": "ABC", "mode": "encode", "symbols": "++"})
@@ -117,7 +105,7 @@ def test_decabit_invalid_symbols() -> None:
 
 
 def test_decabit_empty_text() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     result = plugin.execute({"text": "", "mode": "encode"})
@@ -125,7 +113,7 @@ def test_decabit_empty_text() -> None:
 
 
 def test_decabit_decode_no_symbols() -> None:
-    DecabitCodePlugin = _load_plugin_class()
+    DecabitCodePlugin = load_plugin_class(__file__)
     plugin = DecabitCodePlugin()
 
     result = plugin.execute({"text": "hello world", "mode": "decode"})

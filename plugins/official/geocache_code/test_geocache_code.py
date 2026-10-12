@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("geocache_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "GeocacheCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_alphabet_is_the_modern_gc_base31_alphabet() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     assert plugin.ALPHABET == "0123456789ABCDEFGHJKMNPQRTVWXYZ"
@@ -26,7 +14,7 @@ def test_alphabet_is_the_modern_gc_base31_alphabet() -> None:
 
 
 def test_encode_auto_uses_legacy_hex_until_gcffff() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     assert plugin.execute({"text": "0", "mode": "encode"})["results"][0]["text_output"] == "GC0"
@@ -38,7 +26,7 @@ def test_encode_auto_uses_legacy_hex_until_gcffff() -> None:
 
 
 def test_decode_legacy_hex_example() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GCABC", "mode": "decode"})
@@ -49,7 +37,7 @@ def test_decode_legacy_hex_example() -> None:
 
 
 def test_decode_base31_transition() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GCG000", "mode": "decode"})
@@ -60,7 +48,7 @@ def test_decode_base31_transition() -> None:
 
 
 def test_roundtrip_known_gc_code() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     decoded: Dict[str, Any] = plugin.execute({"text": "GCA72DG", "mode": "decode"})
@@ -72,7 +60,7 @@ def test_roundtrip_known_gc_code() -> None:
 
 
 def test_decode_raw_base31_without_prefix() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -86,7 +74,7 @@ def test_decode_raw_base31_without_prefix() -> None:
 
 
 def test_raw_base31_keeps_pure_base31_behavior_when_requested() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     decoded: Dict[str, Any] = plugin.execute({"text": "GCABC", "mode": "decode", "scheme": "raw_base31"})
@@ -99,7 +87,7 @@ def test_raw_base31_keeps_pure_base31_behavior_when_requested() -> None:
 
 
 def test_decode_rejects_invalid_gc_alphabet_character() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "GCI", "mode": "decode"})
@@ -109,7 +97,7 @@ def test_decode_rejects_invalid_gc_alphabet_character() -> None:
 
 
 def test_embedded_decode_extracts_multiple_gc_codes() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -123,7 +111,7 @@ def test_embedded_decode_extracts_multiple_gc_codes() -> None:
 
 
 def test_detect_gc_code_like_text() -> None:
-    GeocacheCodePlugin = _load_plugin_class()
+    GeocacheCodePlugin = load_plugin_class(__file__)
     plugin = GeocacheCodePlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "Mystery: GCA72DG", "mode": "detect"})

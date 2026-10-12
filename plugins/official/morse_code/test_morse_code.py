@@ -1,21 +1,9 @@
 from __future__ import annotations
-
-import importlib.util
-import sys
-from pathlib import Path
+from plugins.testing import load_plugin_class
 
 
-def _load():
-    p = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("morse_code_main", p)
-    assert spec and spec.loader
-    m = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = m
-    spec.loader.exec_module(m)
-    return getattr(m, "MorseCodePlugin")
 
-
-MorseCodePlugin = _load()
+MorseCodePlugin = load_plugin_class(__file__)
 
 
 def plugin():

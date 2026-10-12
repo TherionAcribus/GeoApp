@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("alphabet_rank_added_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "AlphabetRankAddedPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dcode_abc_example_encodes() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "encode", "separator": "comma"})
@@ -27,7 +15,7 @@ def test_dcode_abc_example_encodes() -> None:
 
 
 def test_dcode_dcode_example_encodes() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "DCODE", "mode": "encode", "separator": "comma"})
@@ -37,7 +25,7 @@ def test_dcode_dcode_example_encodes() -> None:
 
 
 def test_dcode_dcode_example_decodes() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "4,7,22,26,31", "mode": "decode"})
@@ -48,7 +36,7 @@ def test_dcode_dcode_example_decodes() -> None:
 
 
 def test_rank_base_zero_variant_roundtrip() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "ABC", "mode": "encode", "rank_base": 0})
@@ -61,7 +49,7 @@ def test_rank_base_zero_variant_roundtrip() -> None:
 
 
 def test_modulo_can_wrap_large_differences() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     without_modulo: Dict[str, Any] = plugin.execute({"text": "4 35", "mode": "decode"})
@@ -74,7 +62,7 @@ def test_modulo_can_wrap_large_differences() -> None:
 
 
 def test_strict_rejects_invalid_difference_without_modulo() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "4 35", "mode": "decode", "strict": "strict"})
@@ -84,7 +72,7 @@ def test_strict_rejects_invalid_difference_without_modulo() -> None:
 
 
 def test_custom_alphabet_roundtrip() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     alphabet = "ABCDE"
@@ -98,7 +86,7 @@ def test_custom_alphabet_roundtrip() -> None:
 
 
 def test_detect_cumulative_numbers() -> None:
-    AlphabetRankAddedPlugin = _load_plugin_class()
+    AlphabetRankAddedPlugin = load_plugin_class(__file__)
     plugin = AlphabetRankAddedPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "4,7,22,26,31", "mode": "detect"})

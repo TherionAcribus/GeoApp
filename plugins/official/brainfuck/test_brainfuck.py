@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("brainfuck_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "BrainfuckPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_hello_world_program_decodes() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
     program = "++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.<<+++++++++++++++.>.+++.------.--------.>+.>."
 
@@ -28,7 +16,7 @@ def test_hello_world_program_decodes() -> None:
 
 
 def test_comments_are_ignored_in_smooth_mode() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "comment +++++ +++++ [> +++++ ++ <-] > ++ .", "mode": "decode"})
@@ -39,7 +27,7 @@ def test_comments_are_ignored_in_smooth_mode() -> None:
 
 
 def test_strict_mode_rejects_comments() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "++ comment", "mode": "decode", "strict": "strict"})
@@ -49,7 +37,7 @@ def test_strict_mode_rejects_comments() -> None:
 
 
 def test_input_stream_echo_until_eof_zero() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": ",[.,]", "mode": "decode", "input_stream": "Hi"})
@@ -60,7 +48,7 @@ def test_input_stream_echo_until_eof_zero() -> None:
 
 
 def test_encode_text_generates_reversible_program() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "GC", "mode": "encode"})
@@ -73,7 +61,7 @@ def test_encode_text_generates_reversible_program() -> None:
 
 
 def test_ascii_codes_output_format() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++.", "mode": "decode", "output_format": "ascii_codes"})
@@ -83,7 +71,7 @@ def test_ascii_codes_output_format() -> None:
 
 
 def test_unbalanced_brackets_are_rejected() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "++[>++", "mode": "decode"})
@@ -93,7 +81,7 @@ def test_unbalanced_brackets_are_rejected() -> None:
 
 
 def test_max_steps_stops_infinite_loop() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "+[]", "mode": "decode", "max_steps": 20})
@@ -103,7 +91,7 @@ def test_max_steps_stops_infinite_loop() -> None:
 
 
 def test_detect_brainfuck_like_input() -> None:
-    BrainfuckPlugin = _load_plugin_class()
+    BrainfuckPlugin = load_plugin_class(__file__)
     plugin = BrainfuckPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "+++++[>+++++<-]>.", "mode": "detect"})

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from plugins.testing import load_plugin_module
 
-from lua_analyzer import LuaAnalyzer
+# Le dossier du plugin est le parent du dossier tests/.
+LuaAnalyzer = load_plugin_module(
+    Path(__file__).resolve().parent.parent, "lua_analyzer.py"
+).LuaAnalyzer
 
 
 class TestLuaAnalyzer:

@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("letter_value_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "LetterValuePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_encode_simple() -> None:
-    LetterValuePlugin = _load_plugin_class()
+    LetterValuePlugin = load_plugin_class(__file__)
     plugin = LetterValuePlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "encode", "text": "ABC"})
@@ -26,7 +14,7 @@ def test_encode_simple() -> None:
 
 
 def test_decode_embedded_replaces_fragments() -> None:
-    LetterValuePlugin = _load_plugin_class()
+    LetterValuePlugin = load_plugin_class(__file__)
     plugin = LetterValuePlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "decode", "text": "N 48° 51.400", "embedded": True})
@@ -36,7 +24,7 @@ def test_decode_embedded_replaces_fragments() -> None:
 
 
 def test_detect_returns_ok() -> None:
-    LetterValuePlugin = _load_plugin_class()
+    LetterValuePlugin = load_plugin_class(__file__)
     plugin = LetterValuePlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "detect", "text": "HELLO"})
@@ -45,7 +33,7 @@ def test_detect_returns_ok() -> None:
 
 
 def test_decode_bruteforce_returns_two_results() -> None:
-    LetterValuePlugin = _load_plugin_class()
+    LetterValuePlugin = load_plugin_class(__file__)
     plugin = LetterValuePlugin()
 
     result: Dict[str, Any] = plugin.execute({"mode": "decode", "text": "ABC", "bruteforce": True})
@@ -54,7 +42,7 @@ def test_decode_bruteforce_returns_two_results() -> None:
 
 
 def test_decode_numeric_sequence_from_encode_output() -> None:
-    LetterValuePlugin = _load_plugin_class()
+    LetterValuePlugin = load_plugin_class(__file__)
     plugin = LetterValuePlugin()
 
     # 'CAT' -> 3 1 20 => '3 1 20' (avec séparateurs)

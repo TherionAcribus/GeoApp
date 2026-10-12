@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("atbash_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "AtbashPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_atbash_encode_decode_roundtrip() -> None:
-    AtbashPlugin = _load_plugin_class()
+    AtbashPlugin = load_plugin_class(__file__)
     plugin = AtbashPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "HELLO WORLD", "mode": "encode"})
@@ -33,7 +21,7 @@ def test_atbash_encode_decode_roundtrip() -> None:
 
 
 def test_atbash_strict_rejects_non_allowed_chars() -> None:
-    AtbashPlugin = _load_plugin_class()
+    AtbashPlugin = load_plugin_class(__file__)
     plugin = AtbashPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "SVOOL@DLIOW", "mode": "decode", "strict": "strict", "allowed_chars": " "})
@@ -41,7 +29,7 @@ def test_atbash_strict_rejects_non_allowed_chars() -> None:
 
 
 def test_atbash_detect_strict() -> None:
-    AtbashPlugin = _load_plugin_class()
+    AtbashPlugin = load_plugin_class(__file__)
     plugin = AtbashPlugin()
 
     ok: Dict[str, Any] = plugin.execute({"text": "SVOOL DLIOW", "mode": "detect", "strict": "strict", "allowed_chars": " "})

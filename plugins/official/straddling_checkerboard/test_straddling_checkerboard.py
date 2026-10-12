@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("straddling_checkerboard_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "StraddlingCheckerboardPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_wikipedia_attack_at_dawn_example_encodes() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ATTACK AT DAWN", "mode": "encode"})
@@ -27,7 +15,7 @@ def test_wikipedia_attack_at_dawn_example_encodes() -> None:
 
 
 def test_wikipedia_attack_at_dawn_example_decodes() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "3113212731223655", "mode": "decode"})
@@ -37,7 +25,7 @@ def test_wikipedia_attack_at_dawn_example_decodes() -> None:
 
 
 def test_wikipedia_modulo_numeric_key_example() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "ATTACK AT DAWN", "mode": "encode", "numeric_key": "0452"})
@@ -50,7 +38,7 @@ def test_wikipedia_modulo_numeric_key_example() -> None:
 
 
 def test_single_escape_digit_roundtrip() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "A5B", "mode": "encode"})
@@ -63,7 +51,7 @@ def test_single_escape_digit_roundtrip() -> None:
 
 
 def test_triple_escape_digit_roundtrip() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "A57B", "mode": "encode", "numeric_mode": "triple_escape"})
@@ -78,7 +66,7 @@ def test_triple_escape_digit_roundtrip() -> None:
 
 
 def test_custom_checkerboard_roundtrip() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     inputs = {
@@ -96,7 +84,7 @@ def test_custom_checkerboard_roundtrip() -> None:
 
 
 def test_output_as_letters_uses_same_checkerboard() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -108,7 +96,7 @@ def test_output_as_letters_uses_same_checkerboard() -> None:
 
 
 def test_detect_digit_ciphertext() -> None:
-    StraddlingCheckerboardPlugin = _load_plugin_class()
+    StraddlingCheckerboardPlugin = load_plugin_class(__file__)
     plugin = StraddlingCheckerboardPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "3113212731223655", "mode": "detect"})

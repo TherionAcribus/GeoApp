@@ -9,10 +9,12 @@ Les requêtes réseau sont mockées.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
+
+from plugins.testing import load_plugin_class, load_plugin_module
+
+MODULE = load_plugin_module(__file__)
+SolvedJigidiPlugin = load_plugin_class(__file__)
 
 
 class _FakeResponse:
@@ -27,14 +29,6 @@ class _FakeResponse:
 
 
 def test_solved_jigidi_returns_notes_and_coordinates(monkeypatch, tmp_path):
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("solved_jigidi_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    SolvedJigidiPlugin = getattr(module, "SolvedJigidiPlugin")
-
     csv_payload = (
         "Code,Description,Latitude,Longitude,Country,State,UserNotes,Date Added\r\n"
         "GC966C8,Example cache,N 48° 33.787,E 006° 38.803,France,Grand-Est,Useful note,Aug-11-2022\r\n"
@@ -52,6 +46,12 @@ def test_solved_jigidi_returns_notes_and_coordinates(monkeypatch, tmp_path):
     plugin._csv_cache_path = tmp_path / "sheet_cache.csv"
     plugin._csv_cache_meta_path = tmp_path / "sheet_cache_meta.json"
     plugin._site_cache_path = tmp_path / "site_cache.json"
+
+    # _CACHE est un etat partage au niveau module, pre-rempli a l'init depuis
+    # les vrais fichiers du depot : on le vide pour rendre le test hermetique.
+    MODULE._CACHE.index_by_code.clear()
+    MODULE._CACHE.loaded_at = None
+    MODULE._CACHE.source = "empty"
 
     def fake_get(url: str, timeout: int = 20):  # noqa: ARG001
         if "pubhtml" in url and "output=csv" not in url:
@@ -77,14 +77,6 @@ def test_solved_jigidi_returns_notes_and_coordinates(monkeypatch, tmp_path):
 
 
 def test_solved_jigidi_site_fallback_when_missing_from_sheet(monkeypatch, tmp_path):
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("solved_jigidi_main_site", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    SolvedJigidiPlugin = getattr(module, "SolvedJigidiPlugin")
-
     # Empty sheet (no rows)
     csv_payload = (
         "Code,Description,Latitude,Longitude,Country,State,UserNotes,Date Added\r\n"
@@ -113,6 +105,12 @@ def test_solved_jigidi_site_fallback_when_missing_from_sheet(monkeypatch, tmp_pa
     plugin._csv_cache_path = tmp_path / "sheet_cache.csv"
     plugin._csv_cache_meta_path = tmp_path / "sheet_cache_meta.json"
     plugin._site_cache_path = tmp_path / "site_cache.json"
+
+    # _CACHE est un etat partage au niveau module, pre-rempli a l'init depuis
+    # les vrais fichiers du depot : on le vide pour rendre le test hermetique.
+    MODULE._CACHE.index_by_code.clear()
+    MODULE._CACHE.loaded_at = None
+    MODULE._CACHE.source = "empty"
 
     def fake_get(url: str, timeout: int = 20):  # noqa: ARG001
         if "solvedjigidi.com/search.php" in url:

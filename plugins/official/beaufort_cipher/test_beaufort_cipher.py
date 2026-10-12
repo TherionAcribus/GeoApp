@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("beaufort_cipher_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "BeaufortCipherPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_dcode_classic_example() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "DCODE", "mode": "encode", "key": "CLE"})
@@ -27,7 +15,7 @@ def test_dcode_classic_example() -> None:
 
 
 def test_classic_beaufort_is_reciprocal() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "HELLO WORLD", "mode": "encode", "key": "FORT"})
@@ -39,7 +27,7 @@ def test_classic_beaufort_is_reciprocal() -> None:
 
 
 def test_german_variant_roundtrip() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "DCODE", "mode": "encode", "key": "CLE", "variant": "german"})
@@ -52,7 +40,7 @@ def test_german_variant_roundtrip() -> None:
 
 
 def test_preserves_case_and_punctuation() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "dCode Beaufort!", "mode": "encode", "key": "CLE"})
@@ -62,7 +50,7 @@ def test_preserves_case_and_punctuation() -> None:
 
 
 def test_beaufort_cipher_requires_key() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "HELLO", "mode": "encode", "key": ""})
@@ -71,7 +59,7 @@ def test_beaufort_cipher_requires_key() -> None:
 
 
 def test_bruteforce_candidate_keys() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute(
@@ -88,7 +76,7 @@ def test_bruteforce_candidate_keys() -> None:
 
 
 def test_strict_rejects_unallowed_digits() -> None:
-    BeaufortCipherPlugin = _load_plugin_class()
+    BeaufortCipherPlugin = load_plugin_class(__file__)
     plugin = BeaufortCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "HELLO 123", "mode": "decode", "key": "CLE", "strict": "strict"})

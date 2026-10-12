@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("text_reversal_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "TextReversalPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_reverse_single_word_example() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "tnennerp", "mode": "decode"})
@@ -27,7 +15,7 @@ def test_reverse_single_word_example() -> None:
 
 
 def test_reverse_each_word_keeps_word_order() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ruojnoB ednom", "mode": "decode", "reversal_scope": "words"})
@@ -37,7 +25,7 @@ def test_reverse_each_word_keeps_word_order() -> None:
 
 
 def test_full_reverse_reverses_everything() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "abc def", "mode": "decode", "reversal_scope": "full"})
@@ -47,7 +35,7 @@ def test_full_reverse_reverses_everything() -> None:
 
 
 def test_words_scope_preserves_punctuation_positions() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "ruojnoB, ednom!", "mode": "decode", "reversal_scope": "words"})
@@ -57,7 +45,7 @@ def test_words_scope_preserves_punctuation_positions() -> None:
 
 
 def test_words_with_punctuation_can_reverse_whole_tokens() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     kept: Dict[str, Any] = plugin.execute(
@@ -72,7 +60,7 @@ def test_words_with_punctuation_can_reverse_whole_tokens() -> None:
 
 
 def test_encode_is_symmetric() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     encoded: Dict[str, Any] = plugin.execute({"text": "prennent", "mode": "encode"})
@@ -83,7 +71,7 @@ def test_encode_is_symmetric() -> None:
 
 
 def test_detect_reversed_word_candidate() -> None:
-    TextReversalPlugin = _load_plugin_class()
+    TextReversalPlugin = load_plugin_class(__file__)
     plugin = TextReversalPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "tnennerp", "mode": "detect"})

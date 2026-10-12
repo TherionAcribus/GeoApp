@@ -9,25 +9,13 @@ Ces tests valident :
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("clock_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "ClockCodePlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_clock_reference_table() -> None:
     """Lettres issues de la table publiée (A=AM, B=1, ..., Y=24, Z=PM)."""
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     cases = {
@@ -46,7 +34,7 @@ def test_clock_reference_table() -> None:
 
 def test_clock_encode_words() -> None:
     """Les espaces deviennent des jetons '00' entre les mots."""
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     encoded = plugin.execute({"text": "AB CD", "mode": "encode"})
@@ -55,7 +43,7 @@ def test_clock_encode_words() -> None:
 
 
 def test_clock_encode_decode_roundtrip() -> None:
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     encoded = plugin.execute({"text": "HELLO WORLD", "mode": "encode"})
@@ -69,7 +57,7 @@ def test_clock_encode_decode_roundtrip() -> None:
 
 def test_clock_decode_tolerant_separators() -> None:
     """Le décodage reconnaît les valeurs quel que soit le séparateur."""
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     # Mêmes valeurs pour 'HI', séparées par des espaces plutôt que ':'.
@@ -84,7 +72,7 @@ def test_clock_decode_tolerant_separators() -> None:
 
 
 def test_clock_custom_separator() -> None:
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     encoded = plugin.execute({"text": "THE", "mode": "encode", "separator": "-"})
@@ -98,7 +86,7 @@ def test_clock_custom_separator() -> None:
 
 def test_clock_decode_unknown_token() -> None:
     """Un nombre hors 1-24 est marqué '?' mais compté comme inconnu."""
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     decoded = plugin.execute({"text": "7:99:8", "mode": "decode"})
@@ -108,7 +96,7 @@ def test_clock_decode_unknown_token() -> None:
 
 
 def test_clock_empty_text() -> None:
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     result = plugin.execute({"text": "", "mode": "encode"})
@@ -116,7 +104,7 @@ def test_clock_empty_text() -> None:
 
 
 def test_clock_encode_no_letters() -> None:
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     result = plugin.execute({"text": "1234", "mode": "encode"})
@@ -124,7 +112,7 @@ def test_clock_encode_no_letters() -> None:
 
 
 def test_clock_decode_no_tokens() -> None:
-    ClockCodePlugin = _load_plugin_class()
+    ClockCodePlugin = load_plugin_class(__file__)
     plugin = ClockCodePlugin()
 
     result = plugin.execute({"text": "-.-", "mode": "decode"})

@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("consonants_vowels_rank_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "ConsonantsVowelsRankPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_roundtrip_both_variant() -> None:
-    ConsonantsVowelsRankPlugin = _load_plugin_class()
+    ConsonantsVowelsRankPlugin = load_plugin_class(__file__)
     plugin = ConsonantsVowelsRankPlugin()
 
     plaintext = "HELLO"
@@ -33,7 +21,7 @@ def test_roundtrip_both_variant() -> None:
 
 
 def test_bruteforce_returns_three_results() -> None:
-    ConsonantsVowelsRankPlugin = _load_plugin_class()
+    ConsonantsVowelsRankPlugin = load_plugin_class(__file__)
     plugin = ConsonantsVowelsRankPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "C1V1", "mode": "bruteforce"})

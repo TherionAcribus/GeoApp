@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Any, Dict
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("morbit_cipher_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "MorbitCipherPlugin")
+from plugins.testing import load_plugin_class
 
 
 def test_boxentriq_secretkey_example() -> None:
-    MorbitCipherPlugin = _load_plugin_class()
+    MorbitCipherPlugin = load_plugin_class(__file__)
     plugin = MorbitCipherPlugin()
 
     encoded: Dict[str, Any] = plugin.execute(
@@ -34,7 +22,7 @@ def test_boxentriq_secretkey_example() -> None:
 
 
 def test_decode_boxentriq_secretkey_example() -> None:
-    MorbitCipherPlugin = _load_plugin_class()
+    MorbitCipherPlugin = load_plugin_class(__file__)
     plugin = MorbitCipherPlugin()
 
     decoded: Dict[str, Any] = plugin.execute(
@@ -51,7 +39,7 @@ def test_decode_boxentriq_secretkey_example() -> None:
 
 
 def test_digit_permutation_key_matches_keyword_key() -> None:
-    MorbitCipherPlugin = _load_plugin_class()
+    MorbitCipherPlugin = load_plugin_class(__file__)
     plugin = MorbitCipherPlugin()
 
     keyword: Dict[str, Any] = plugin.execute({"text": "HELLO 2026", "mode": "encode", "key": "SECRETKEY"})
@@ -63,7 +51,7 @@ def test_digit_permutation_key_matches_keyword_key() -> None:
 
 
 def test_invalid_key_is_rejected() -> None:
-    MorbitCipherPlugin = _load_plugin_class()
+    MorbitCipherPlugin = load_plugin_class(__file__)
     plugin = MorbitCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "12345", "mode": "decode", "key": "ABC"})
@@ -73,7 +61,7 @@ def test_invalid_key_is_rejected() -> None:
 
 
 def test_detect_digits() -> None:
-    MorbitCipherPlugin = _load_plugin_class()
+    MorbitCipherPlugin = load_plugin_class(__file__)
     plugin = MorbitCipherPlugin()
 
     result: Dict[str, Any] = plugin.execute({"text": "38642 11525", "mode": "detect", "strict": "strict"})

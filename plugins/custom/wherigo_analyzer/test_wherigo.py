@@ -1,8 +1,18 @@
 """Tests for Wherigo analyzer modules."""
 
 import unittest
-from urwigo_hash import urwigo_hash, brute_force_hash, brute_force_urwigo_common
-from deobfuscators import UrwigoDeobfuscator
+from pathlib import Path
+
+from plugins.testing import load_plugin_module
+
+# Modules freres du plugin, charges dans un namespace unique.
+_urwigo_hash = load_plugin_module(Path(__file__).resolve().parent, "urwigo_hash.py")
+urwigo_hash = _urwigo_hash.urwigo_hash
+brute_force_hash = _urwigo_hash.brute_force_hash
+brute_force_urwigo_common = _urwigo_hash.brute_force_urwigo_common
+UrwigoDeobfuscator = load_plugin_module(
+    Path(__file__).resolve().parent, "deobfuscators.py"
+).UrwigoDeobfuscator
 
 
 class TestUrwigoHash(unittest.TestCase):
@@ -61,8 +71,8 @@ class TestDeobfuscator(unittest.TestCase):
         self.assertEqual(deobf._decode_lua_escapes("\\x41"), "A")
         self.assertEqual(deobf._decode_lua_escapes("\\x7a"), "z")
 
-        # Test octal escape
-        self.assertEqual(deobf._decode_lua_escapes("\\101"), "A")  # octal 101 = 65 = 'A'
+        # Test decimal escape (Lua \ddd uses decimal digits, not octal)
+        self.assertEqual(deobf._decode_lua_escapes("\\101"), "e")  # decimal 101 = 'e'
 
         # Test multiple escapes
         result = deobf._decode_lua_escapes("hello\\nworld")
@@ -119,7 +129,7 @@ zone1.Name = _m9REO("abc")
         # Should detect the function
         self.assertEqual(report.function_name, "_m9REO")
         # Should have decoded at least one string
-        self.assertGreaterEqual(report.strings_decoded, 1)
+        self.assertGreaterEqual(report.strings_decoded_by_function, 1)
 
 
 class TestLuaStringConversion(unittest.TestCase):

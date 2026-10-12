@@ -8,20 +8,8 @@ Ces tests valident :
 """
 
 from __future__ import annotations
+from plugins.testing import load_plugin_class
 
-import importlib.util
-import sys
-from pathlib import Path
-
-
-def _load_plugin_class():
-    plugin_path = Path(__file__).resolve().parent / "main.py"
-    spec = importlib.util.spec_from_file_location("leet_code_main", plugin_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return getattr(module, "LeetCodePlugin")
 
 
 def _outputs(result):
@@ -29,7 +17,7 @@ def _outputs(result):
 
 
 def test_encode_basic() -> None:
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     r = plugin.execute({"text": "leet", "mode": "encode"})
@@ -42,7 +30,7 @@ def test_encode_basic() -> None:
 
 
 def test_encode_leaves_unknown_chars() -> None:
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     r = plugin.execute({"text": "XY 42", "mode": "encode"})
@@ -52,7 +40,7 @@ def test_encode_leaves_unknown_chars() -> None:
 
 def test_decode_ambiguous_variants() -> None:
     """'1337' doit produire LEET (parmi les variantes L/I du chiffre 1)."""
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     r = plugin.execute({"text": "1337", "mode": "decode"})
@@ -63,7 +51,7 @@ def test_decode_ambiguous_variants() -> None:
 
 
 def test_decode_symbols() -> None:
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     # @=A, $=S, +=T -> "CAST" via ( @ 5 7 ? Testons @$+ et #.
@@ -73,7 +61,7 @@ def test_decode_symbols() -> None:
 
 def test_decode_roundtrip() -> None:
     """encode puis decode redonne le mot d'origine parmi les variantes."""
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     for word in ("HELLO", "GEOCACHE", "MYSTERY"):
@@ -85,7 +73,7 @@ def test_decode_roundtrip() -> None:
 
 def test_decode_variant_cap() -> None:
     """Un texte très ambigu ne fait pas exploser le nombre de variantes."""
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     r = plugin.execute({"text": "1" * 20, "mode": "decode"})
@@ -98,7 +86,7 @@ def test_decode_variant_cap() -> None:
 
 
 def test_default_mode_is_decode() -> None:
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     r = plugin.execute({"text": "1337"})
@@ -107,7 +95,7 @@ def test_default_mode_is_decode() -> None:
 
 
 def test_errors() -> None:
-    LeetCodePlugin = _load_plugin_class()
+    LeetCodePlugin = load_plugin_class(__file__)
     plugin = LeetCodePlugin()
 
     assert plugin.execute({"text": ""})["status"] == "error"
