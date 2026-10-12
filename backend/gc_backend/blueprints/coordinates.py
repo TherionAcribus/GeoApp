@@ -103,6 +103,11 @@ def convert_ddm_to_decimal(lat_ddm: str, lon_ddm: str) -> Dict[str, Optional[flo
 # Découpe une chaîne DDM combinée "N 48° 39.286 E 006° 11.685" en (lat, lon).
 _ORIGIN_COMBINED_REGEX = re.compile(r"^([NS][^NSWE]+?)[\s,]+([EW].+)$", re.IGNORECASE)
 
+# Extraction de la direction cardinale d'une coordonnée d'origine (première
+# lettre N/S ou E/W du DDM). Compilées une fois : chemin chaud du scorer.
+_ORIGIN_LAT_DIR_REGEX = re.compile(r'([NS])')
+_ORIGIN_LON_DIR_REGEX = re.compile(r'([EW])')
+
 
 def _normalize_origin_coords(origin) -> Optional[Dict[str, str]]:
     """
@@ -152,6 +157,12 @@ def _normalize_written_languages(raw) -> List[str]:
     else:
         parts = []
     return parts or ['fr']
+
+
+# Extraction des parties latitude/longitude d'une formule (lettres variables
+# et chiffres acceptés). Compilées une fois : endpoint + helpers en appellent.
+_FORMULA_LAT_REGEX = re.compile(r'([NS])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)')
+_FORMULA_LON_REGEX = re.compile(r'([EW])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)')
 
 
 @coordinates_bp.route('/api/calculate_coordinates', methods=['POST'])
@@ -210,8 +221,8 @@ def calculate_coordinates():
         logger.debug('Variables fournies: %s', variables)
         
         # Extraire les parties de latitude et longitude (accepte lettres et chiffres)
-        lat_match = re.search(r'([NS])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)', formula)
-        lon_match = re.search(r'([EW])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)', formula)
+        lat_match = _FORMULA_LAT_REGEX.search(formula)
+        lon_match = _FORMULA_LON_REGEX.search(formula)
         
         if not lat_match or not lon_match:
             logger.error('Format de formule invalide: lat_match=%s, lon_match=%s', lat_match, lon_match)
@@ -780,14 +791,17 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
 # Détection du format DMM classique (par exemple "N 48° 33.787' E 006° 38.803'")
 # ------------------------------------------------------------------------------
 
+# Pattern DDM « classique » : N/S deg° min[.,]dec E/W deg° min[.,]dec.
+_DETECT_DMM_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
+    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
+)
+
+
 def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     logger.debug("_detect_dmm_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    dmm_regex = (
-        r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
-        r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
-    )
-    logger.debug('_detect_dmm_coordinates: Regex utilisée: %s', dmm_regex)
-    match = re.search(dmm_regex, text)
+    logger.debug('_detect_dmm_coordinates: Regex utilisée: %s', _DETECT_DMM_REGEX)
+    match = _DETECT_DMM_REGEX.search(text)
     if match:
         logger.debug('_detect_dmm_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
@@ -820,25 +834,26 @@ def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Détection du format avec tabulations et espaces (ex: "N 48 ° 32 . 296 E 6 ° 40 . 636")
 # ------------------------------------------------------------------------------
 
+# Pattern plus souple qui accepte des variations dans les espaces et la
+# ponctuation (DOTALL conservé du code d'origine).
+_DETECT_TABSPACE_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})\s*'
+    r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})',
+    re.DOTALL,
+)
+
+
 def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format avec tabulations et espaces, par exemple :
       - "N    48 ° 32 .  296\nE    6  ° 40 .  636"
       - "N\t48 ° 32 . 296\r\nE\t6 ° 40 . 636"
-    
+
     Ce format est plus souple et accepte des variations dans les espaces et la ponctuation.
     """
     logger.debug("_detect_tabspace_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    
-    # Pattern plus souple qui accepte des variations dans les espaces et la ponctuation
-    tabspace_regex = (
-        r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})\s*'
-        r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})'
-    )
-    
-    logger.debug('_detect_tabspace_coordinates: Regex utilisée: %s', tabspace_regex)
-    
-    match = re.search(tabspace_regex, text, re.DOTALL)
+    logger.debug('_detect_tabspace_coordinates: Regex utilisée: %s', _DETECT_TABSPACE_REGEX)
+    match = _DETECT_TABSPACE_REGEX.search(text)
     if match:
         logger.debug('_detect_tabspace_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
@@ -873,6 +888,12 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
 # Détection du format variant (ex : "NORD 4833787 EST 638803")
 # ------------------------------------------------------------------------------
 
+# Le pattern autorise espaces, retours à la ligne ou "/" comme séparateurs.
+_DETECT_VARIANT_REGEX = re.compile(
+    r"(?P<lat_dir>[NS])\s*[/\n\s]*\s*(?P<lat>\d{7})\s*(?P<lon_dir>[EW])\s*[/\n\s]*\s*(?P<lon>\d{6,8})"
+)
+
+
 def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format variant, par exemple :
@@ -886,13 +907,8 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
     Si la longitude comporte moins de 8 chiffres, on la complète avec des zéros à gauche.
     """
     logger.debug("_detect_variant_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-
-    # Le pattern autorise espaces, retours à la ligne ou "/" comme séparateurs
-    pattern = r"(?P<lat_dir>[NS])\s*[/\n\s]*\s*(?P<lat>\d{7})\s*(?P<lon_dir>[EW])\s*[/\n\s]*\s*(?P<lon>\d{6,8})"
-    
-    logger.debug('_detect_variant_coordinates: Pattern utilisé: %s', pattern)
-    
-    match = re.search(pattern, text)
+    logger.debug('_detect_variant_coordinates: Pattern utilisé: %s', _DETECT_VARIANT_REGEX)
+    match = _DETECT_VARIANT_REGEX.search(text)
     if match:
         logger.debug('_detect_variant_coordinates: Match trouvé! Groupes: %s', match.groupdict())
         lat_dir_raw = match.group("lat_dir")
@@ -945,31 +961,31 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
 # Détection du format spécifique avec tabulations et points (ex: "N\t48 ° 32 . 296\nE\t6 ° 40 . 636")
 # ------------------------------------------------------------------------------
 
+# Pattern très spécifique au format « tabpoint ».
+# Le séparateur latitude/longitude est borné : au plus MAX_COORD_PAIR_GAP
+# caractères non numériques. Les chiffres sont interdits dans le gap pour
+# éviter de traverser une autre coordonnée ; sans cette borne, une latitude
+# et une longitude très éloignées (waypoints distincts) étaient appariées.
+# La borne est interpolée à la compilation (une seule fois au chargement).
+# re.DOTALL inutile : le gap [^\d] matche déjà les retours à la ligne.
+_DETECT_SPECIFIC_TABPOINT_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+    rf'[^\d]{{0,{MAX_COORD_PAIR_GAP}}}'
+    r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+)
+
+
 def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format très spécifique avec tabulations et points, comme dans l'exemple :
       - "N\t48 ° 32 .  296\r\nE\t6  ° 40 .  636"
     N/S et E/W acceptés.
-    
+
     Cette fonction est optimisée pour ce format particulier.
     """
     logger.debug("_detect_specific_tabpoint_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    
-    # Essayons d'abord avec un pattern très spécifique.
-    # Le séparateur latitude/longitude est borné : au plus MAX_COORD_PAIR_GAP
-    # caractères non numériques. Les chiffres sont interdits dans le gap pour
-    # éviter de traverser une autre coordonnée ; sans cette borne, une latitude
-    # et une longitude très éloignées (waypoints distincts) étaient appariées.
-    specific_regex = (
-        r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
-        + r'[^\d]{0,' + str(MAX_COORD_PAIR_GAP) + r'}'
-        + r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
-    )
-
-    logger.debug('_detect_specific_tabpoint_coordinates: Regex utilisée: %s', specific_regex)
-
-    # re.DOTALL inutile : le gap [^\d] matche déjà les retours à la ligne.
-    match = re.search(specific_regex, text)
+    logger.debug('_detect_specific_tabpoint_coordinates: Regex utilisée: %s', _DETECT_SPECIFIC_TABPOINT_REGEX)
+    match = _DETECT_SPECIFIC_TABPOINT_REGEX.search(text)
     if match:
         logger.debug('_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
@@ -999,12 +1015,16 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
 # Détection simplifiée pour le format exact de l'exemple
 # ------------------------------------------------------------------------------
 
+# Séquences de chiffres consécutifs (extraction des composantes par ligne).
+_DIGITS_RUN_REGEX = re.compile(r'\d+')
+
+
 def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détection simplifiée pour le format exact de l'exemple.
     Cette fonction utilise une approche plus directe pour détecter les coordonnées.
     """
-    logger.debug("_detect_simplified_coordinates: Analyse du texte: '%s'", text)
+    logger.debug("_detect_simplified_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Extraction des lignes
     lines = text.strip().split('\n')
@@ -1023,8 +1043,8 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
             lat_dir = lat_line[0]
             lon_dir = lon_line[0]
             # Extraction des nombres de la latitude
-            lat_parts = re.findall(r'\d+', lat_line)
-            lon_parts = re.findall(r'\d+', lon_line)
+            lat_parts = _DIGITS_RUN_REGEX.findall(lat_line)
+            lon_parts = _DIGITS_RUN_REGEX.findall(lon_line)
             
             logger.debug('_detect_simplified_coordinates: Parties latitude: %s', lat_parts)
             logger.debug('_detect_simplified_coordinates: Parties longitude: %s', lon_parts)
@@ -1057,6 +1077,18 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
 # Détection ultra-flexible pour tout format avec N/E et degrés
 # ------------------------------------------------------------------------------
 
+# Composantes « flexibles » : lettre cardinale + degrés (°/deg/degrees) +
+# minutes + décimales, en deux recherches indépendantes (lat puis lon).
+_DETECT_FLEXIBLE_LAT_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
+    re.IGNORECASE,
+)
+_DETECT_FLEXIBLE_LON_REGEX = re.compile(
+    r'([EW])\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
+    re.IGNORECASE,
+)
+
+
 def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détection ultra-flexible pour tout format contenant N/S et E/W + des degrés.
@@ -1065,9 +1097,9 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
     logger.debug("_detect_flexible_coordinates: Analyse du texte: '%s'", text)
 
     # Recherche de N/S suivi de nombres et de degrés
-    lat_match = re.search(r'([NS])\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
+    lat_match = _DETECT_FLEXIBLE_LAT_REGEX.search(text)
     # Recherche de E/W suivi de nombres et de degrés
-    lon_match = re.search(r'([EW])\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
+    lon_match = _DETECT_FLEXIBLE_LON_REGEX.search(text)
     
     logger.debug('_detect_flexible_coordinates: Match latitude: %s', lat_match.groups() if lat_match else None)
     logger.debug('_detect_flexible_coordinates: Match longitude: %s', lon_match.groups() if lon_match else None)
@@ -1111,6 +1143,13 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
 # Détection du format NORD/EST avec chiffres séparés par des espaces
 # ------------------------------------------------------------------------------
 
+# Pattern pour détecter la lettre cardinale suivie de chiffres séparés par
+# des espaces (les mots « nord/est/sud/ouest… » ont été blankés en amont).
+_DETECT_NORD_EST_REGEX = re.compile(
+    r'([NS])\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)([EW])\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
+)
+
+
 def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format NORD/EST avec chiffres séparés par des espaces, par exemple :
@@ -1121,14 +1160,8 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     les mots cardinaux y sont déjà réduits à leur lettre (N/S et E/W acceptés).
     """
     logger.debug("_detect_nord_est_format: Analyse du texte: '%s'", text)
-
-    # Pattern pour détecter la lettre cardinale suivie de chiffres séparés par
-    # des espaces (les mots « nord/est/sud/ouest… » ont été blankés en amont).
-    nord_est_regex = r'([NS])\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)([EW])\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
-
-    logger.debug('_detect_nord_est_format: Regex utilisée: %s', nord_est_regex)
-
-    match = re.search(nord_est_regex, text)
+    logger.debug('_detect_nord_est_format: Regex utilisée: %s', _DETECT_NORD_EST_REGEX)
+    match = _DETECT_NORD_EST_REGEX.search(text)
     if match:
         logger.debug('_detect_nord_est_format: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
@@ -1158,6 +1191,18 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Détection du format NORD/EST avec variations
 # ------------------------------------------------------------------------------
 
+# Extraction des nombres après la lettre cardinale (les mots « nord/est… »
+# ont déjà été réduits à N/S/E/W par la normalisation amont). La lettre
+# doit être isolée — ni précédée ni suivie d'une lettre — pour ne pas la
+# lire dans un mot capitalisé (« Session 48 32 296 Errors 6 40 636 »).
+_DETECT_NE_VAR_NORD_REGEX = re.compile(
+    r'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})'
+)
+_DETECT_NE_VAR_EST_REGEX = re.compile(
+    r'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})'
+)
+
+
 def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format NORD/EST avec diverses variations possibles, par exemple :
@@ -1171,11 +1216,9 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
     logger.debug("_detect_nord_est_variations: Analyse du texte: '%s'", text)
 
     # Extraction des nombres après la lettre cardinale (les mots « nord/est… »
-    # ont déjà été réduits à N/S/E/W par la normalisation amont). La lettre
-    # doit être isolée — ni précédée ni suivie d'une lettre — pour ne pas la
-    # lire dans un mot capitalisé (« Session 48 32 296 Errors 6 40 636 »).
-    nord_match = re.search(r'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text)
-    est_match = re.search(r'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text)
+    # ont déjà été réduits à N/S/E/W par la normalisation amont).
+    nord_match = _DETECT_NE_VAR_NORD_REGEX.search(text)
+    est_match = _DETECT_NE_VAR_EST_REGEX.search(text)
     
     logger.debug('_detect_nord_est_variations: Match NORD: %s', nord_match.groups() if nord_match else None)
     logger.debug('_detect_nord_est_variations: Match EST: %s', est_match.groups() if est_match else None)
@@ -1218,24 +1261,23 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
 # Détection du format DMS (degrés, minutes, secondes)
 # ------------------------------------------------------------------------------
 
+# Pattern du format DMS (degrés, minutes, secondes).
+_DETECT_DMS_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*\s*'
+    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*'
+)
+
+
 def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format DMS (degrés, minutes, secondes), par exemple :
       - "N 48° 51' 24.12\" E 002° 17' 26.1\""
-    
+
     Ce format est couramment utilisé dans le géocaching.
     """
     logger.debug("_detect_dms_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    
-    # Pattern pour détecter le format DMS
-    dms_regex = (
-        r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*\s*'
-        r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*'
-    )
-    
-    logger.debug('_detect_dms_coordinates: Regex utilisée: %s', dms_regex)
-    
-    match = re.search(dms_regex, text)
+    logger.debug('_detect_dms_coordinates: Regex utilisée: %s', _DETECT_DMS_REGEX)
+    match = _DETECT_DMS_REGEX.search(text)
     if match:
         logger.debug('_detect_dms_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
@@ -1274,6 +1316,15 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Détection du format avec chiffres romains
 # ------------------------------------------------------------------------------
 
+# Motif des chiffres romains. Après normalisation, les mots cardinaux sont
+# des lettres : N/S et E/W acceptés (re.IGNORECASE pour les chiffres romains
+# en minuscules).
+_DETECT_ROMAN_REGEX = re.compile(
+    r'([NS])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+([EW])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))',
+    re.IGNORECASE,
+)
+
+
 def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées avec des chiffres romains, par exemple :
@@ -1305,14 +1356,10 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 i += 1
         return result
     
-    # Rechercher les motifs de chiffres romains. Après normalisation, les mots
-    # cardinaux sont des lettres : N/S et E/W acceptés (re.IGNORECASE pour les
-    # chiffres romains en minuscules).
-    roman_pattern = r'([NS])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+([EW])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))'
-    
-    logger.debug('_detect_roman_numerals_coordinates: Pattern utilisé: %s', roman_pattern)
-    
-    match = re.search(roman_pattern, text, re.IGNORECASE)
+    # Rechercher les motifs de chiffres romains (pattern compilé en module).
+    logger.debug('_detect_roman_numerals_coordinates: Pattern utilisé: %s', _DETECT_ROMAN_REGEX)
+
+    match = _DETECT_ROMAN_REGEX.search(text)
     if match:
         logger.debug('_detect_roman_numerals_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_romans, lon_dir, lon_romans = match.groups()
@@ -1361,6 +1408,11 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
 # Détection du format numérique pur (ex: "4912123 00612123")
 # ------------------------------------------------------------------------------
 
+# Deux groupes de chiffres séparés par un espace : 7 chiffres (latitude)
+# puis 6 à 8 chiffres (longitude).
+_DETECT_NUMERIC_ONLY_REGEX = re.compile(r'(\d{7})\s+(\d{6,8})')
+
+
 def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format numérique pur, sans lettres cardinales ni symboles.
@@ -1379,11 +1431,9 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
     # Pattern pour capturer deux groupes de chiffres séparés par un espace
     # Premier groupe: exactement 7 chiffres (latitude)
     # Deuxième groupe: 6 à 8 chiffres (longitude)
-    numeric_pattern = r'(\d{7})\s+(\d{6,8})'
-    
-    logger.debug('_detect_numeric_only_coordinates: Pattern utilisé: %s', numeric_pattern)
-    
-    match = re.search(numeric_pattern, text)
+    logger.debug('_detect_numeric_only_coordinates: Pattern utilisé: %s', _DETECT_NUMERIC_ONLY_REGEX)
+
+    match = _DETECT_NUMERIC_ONLY_REGEX.search(text)
     if match:
         logger.debug('_detect_numeric_only_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_digits = match.group(1)
@@ -1427,8 +1477,8 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
             if origin_coords and 'ddm_lat' in origin_coords and 'ddm_lon' in origin_coords:
                 try:
                     # Extraire les directions des coordonnées d'origine
-                    origin_lat_match = re.search(r'([NS])', origin_coords['ddm_lat'])
-                    origin_lon_match = re.search(r'([EW])', origin_coords['ddm_lon'])
+                    origin_lat_match = _ORIGIN_LAT_DIR_REGEX.search(origin_coords['ddm_lat'])
+                    origin_lon_match = _ORIGIN_LON_DIR_REGEX.search(origin_coords['ddm_lon'])
                     
                     if origin_lat_match:
                         lat_dir = origin_lat_match.group(1)
@@ -1473,6 +1523,11 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
 # Détection du format compact sans séparateurs (ex: "N4812123E00612123")
 # ------------------------------------------------------------------------------
 
+# Format compact : direction latitude, 7 chiffres, direction longitude,
+# 6-8 chiffres, espaces optionnels entre les composants.
+_DETECT_COMPACT_REGEX = re.compile(r'([NS])\s*(\d{7})\s*([EW])\s*(\d{6,8})', re.IGNORECASE)
+
+
 def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format compact sans séparateurs entre les composants, par exemple :
@@ -1488,11 +1543,9 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
     # Pattern pour détecter le format compact
     # Capture: direction latitude, 7 chiffres, direction longitude, 6-8 chiffres
     # Accepte des espaces optionnels entre les composants
-    compact_regex = r'([NS])\s*(\d{7})\s*([EW])\s*(\d{6,8})'
-    
-    logger.debug('_detect_compact_coordinates: Regex utilisée: %s', compact_regex)
-    
-    match = re.search(compact_regex, text, re.IGNORECASE)
+    logger.debug('_detect_compact_coordinates: Regex utilisée: %s', _DETECT_COMPACT_REGEX)
+
+    match = _DETECT_COMPACT_REGEX.search(text)
     if match:
         logger.debug('_detect_compact_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_digits, lon_dir, lon_digits = match.groups()
@@ -1553,6 +1606,15 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
 # Exemple : "N50.02.117 e004.52.677"
 # ------------------------------------------------------------------------------
 
+# DDM avec des points à la place du symbole ° et du séparateur décimal
+# (lettres cardinales en majuscule ou minuscule).
+_DETECT_DMM_DOT_REGEX = re.compile(
+    r'([ns])\s*(\d{1,2})\.(\d{2})\.(\d{3})\s*'  # Latitude : dir, deg, minutes, décimales
+    r'([ew])\s*(\d{1,3})\.(\d{2})\.(\d{3})',    # Longitude : dir, deg, minutes, décimales
+    re.IGNORECASE,
+)
+
+
 def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées DDM où les séparateurs de degrés et minutes sont des points :
@@ -1560,14 +1622,8 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
     Les lettres cardinales peuvent être en majuscule ou minuscule.
     """
     logger.debug("_detect_dmm_dot_separator: Analyse du texte: '%s...' (tronqué)", text[:100])
-
-    pattern = (
-        r'([ns])\s*(\d{1,2})\.(\d{2})\.(\d{3})\s*'  # Latitude : dir, deg, minutes, décimales
-        r'([ew])\s*(\d{1,3})\.(\d{2})\.(\d{3})'     # Longitude : dir, deg, minutes, décimales
-    )
-
-    logger.debug('_detect_dmm_dot_separator: Regex utilisée: %s', pattern)
-    match = re.search(pattern, text, re.IGNORECASE)
+    logger.debug('_detect_dmm_dot_separator: Regex utilisée: %s', _DETECT_DMM_DOT_REGEX)
+    match = _DETECT_DMM_DOT_REGEX.search(text)
     if match:
         logger.debug('_detect_dmm_dot_separator: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
@@ -1615,6 +1671,16 @@ def _decimal_to_ddm(value: float) -> tuple:
     return deg, minutes
 
 
+# Lettre cardinale suivie d'un chiffre : en présence de celle-ci, les
+# détecteurs DDM/DMS prennent le relais (le détecteur décimal s'abstient).
+_CARDINAL_THEN_DIGIT_REGEX = re.compile(r'[NSEWnsew]\s*\d')
+# Paire de degrés décimaux : 3 à 8 décimales par valeur, séparateur
+# virgule/point-virgule/espace, signe optionnel.
+_DETECT_DECIMAL_PAIR_REGEX = re.compile(
+    r'(?<![\d.])(-?\d{1,3}\.\d{3,8})\s*[,;]?\s+(-?\d{1,3}\.\d{3,8})(?![\d.])'
+)
+
+
 def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte une paire de coordonnées en degrés décimaux, par exemple :
@@ -1626,12 +1692,11 @@ def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     logger.debug("_detect_decimal_pair: Analyse du texte")
 
-    if re.search(r'[NSEWnsew]\s*\d', text):
+    if _CARDINAL_THEN_DIGIT_REGEX.search(text):
         # Présence de lettres cardinales : laisser les détecteurs DDM/DMS gérer.
         return None
 
-    pattern = r'(?<![\d.])(-?\d{1,3}\.\d{3,8})\s*[,;]?\s+(-?\d{1,3}\.\d{3,8})(?![\d.])'
-    match = re.search(pattern, text)
+    match = _DETECT_DECIMAL_PAIR_REGEX.search(text)
     if not match:
         return None
 
@@ -1669,6 +1734,14 @@ def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Détection avec direction en SUFFIXE (ex: "48° 51.234' N 2° 17.567' E")
 # ------------------------------------------------------------------------------
 
+# DDM avec direction cardinale en suffixe (listings internationaux).
+_DETECT_DMM_SUFFIX_REGEX = re.compile(
+    r'(\d{1,2})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([NS])'
+    r'[\s,]+'
+    r'(\d{1,3})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([EW])'
+)
+
+
 def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte un DDM où la direction cardinale suit la valeur, par exemple :
@@ -1677,12 +1750,7 @@ def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     Fréquent sur les listings internationaux.
     """
     logger.debug("_detect_dmm_suffix_direction: Analyse du texte")
-    pattern = (
-        r'(\d{1,2})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([NS])'
-        r'[\s,]+'
-        r'(\d{1,3})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([EW])'
-    )
-    match = re.search(pattern, text)
+    match = _DETECT_DMM_SUFFIX_REGEX.search(text)
     if not match:
         return None
 
@@ -1708,6 +1776,15 @@ def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     }
 
 
+# DMS avec direction cardinale en suffixe (converti en DDM comme
+# _detect_dms_coordinates).
+_DETECT_DMS_SUFFIX_REGEX = re.compile(
+    r'(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NS])'
+    r'[\s,]+'
+    r'(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([EW])'
+)
+
+
 def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte un DMS (degrés/minutes/secondes) avec direction en suffixe :
@@ -1715,12 +1792,7 @@ def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     Convertit les secondes en minutes décimales (comme _detect_dms_coordinates).
     """
     logger.debug("_detect_dms_suffix_direction: Analyse du texte")
-    pattern = (
-        r'(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NS])'
-        r'[\s,]+'
-        r'(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([EW])'
-    )
-    match = re.search(pattern, text)
+    match = _DETECT_DMS_SUFFIX_REGEX.search(text)
     if not match:
         return None
 
@@ -1748,6 +1820,12 @@ def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
 # Fonction principale de détection multi-format
 # ------------------------------------------------------------------------------
 
+# Découpe un ``ddm`` combiné « N 48° 33.787' E 006° 38.803' » en (lat, lon)
+# pour les détecteurs qui ne renseignent que la chaîne combinée. Proche de
+# _ORIGIN_COMBINED_REGEX mais greedy (le lat n'est pas lazy) : ne pas unifier.
+_DDM_SPLIT_REGEX = re.compile(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", re.IGNORECASE)
+
+
 def _finalize_detection(result: Dict, source: str, confidence: float, text: str) -> Dict:
     """Post-traitement commun d'un candidat retenu : provenance, confiance,
     conversion décimale (centralisée côté backend), et métadonnées de provenance.
@@ -1761,7 +1839,7 @@ def _finalize_detection(result: Dict, source: str, confidence: float, text: str)
     ddm_lon = result.get("ddm_lon")
 
     if (not ddm_lat or not ddm_lon) and result.get("ddm"):
-        combined_match = re.match(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", result["ddm"].strip(), re.IGNORECASE)
+        combined_match = _DDM_SPLIT_REGEX.match(result["ddm"].strip())
         if combined_match:
             ddm_lat = ddm_lat or combined_match.group(1).strip()
             ddm_lon = ddm_lon or combined_match.group(2).strip()
@@ -1853,6 +1931,30 @@ _CARDINAL_WORD_LETTERS = {
     "ouest": "W", "oeste": "W", "ovest": "W", "west": "W",
 }
 
+# Condition nécessaire à TOUS les détecteurs : un chiffre arabe quelque part,
+# ou un chiffre romain joignable à une lettre/mot cardinal. Un seul scan avant
+# de lancer les ~18 regex — court-circuite la prose pure et les chaînes
+# décodées sans chiffres (cas majoritaire du bruteforce).
+#
+# Le détecteur de chiffres romains est le SEUL chemin 100 % sans chiffre arabe ;
+# il est très laxiste (re.IGNORECASE, aucune borne de mot : « S » dans « NOS »
+# matche). Le gate est donc évalué en trois étapes paresseuses :
+#   1. \d                        — couvre tous les autres détecteurs ; scan
+#      ultra-rapide qui court-circuite tout texte chiffré ;
+#   2. [NSEWnsew]\s+[IVXLCDM]    — lettre cardinale (même incluse dans un mot,
+#      d'où l'absence de lookbehind : le détecteur romain n'a pas de borne) +
+#      espaces + début de romain. IGNORECASE couvre les romains minuscules
+#      (« n xlviii … », détectés aujourd'hui) ;
+#   3. _CARDINAL_WORD_PREFIX_REGEX — « NORD XLVIII » : la normalisation
+#      transforme le mot en lettre, puis le détecteur romain prend le relais.
+#      Pré-filtrée par _GATE_CARDINAL_TOKENS (substring C-rapide) car cette
+#      regex à lookaheads coûte ~200 µs/10k chars.
+# La détection écrite (toutes lettres) n'est PAS concernée : elle est gérée
+# au niveau endpoint via WrittenCoordinatesService, pas ici.
+_GATE_DIGIT_REGEX = re.compile(r"\d")
+_GATE_ROMAN_LETTER_REGEX = re.compile(r"[NSEWnsew]\s+[IVXLCDM]", re.IGNORECASE)
+_GATE_CARDINAL_TOKENS = tuple(dict.fromkeys(_CARDINAL_WORDS.split("|")))
+
 
 def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str]]) -> tuple:
     """Met en forme canonique les lettres cardinales, sans changer la longueur.
@@ -1883,7 +1985,7 @@ def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str
     """
     o_letter, assumed = 'W', True
     if origin_coords:
-        origin_lon = re.search(r'[EW]', str(origin_coords.get('ddm_lon') or '').upper())
+        origin_lon = _ORIGIN_LON_DIR_REGEX.search(str(origin_coords.get('ddm_lon') or '').upper())
         if origin_lon:
             o_letter, assumed = origin_lon.group(0), False
 
@@ -1920,10 +2022,25 @@ def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str
     return ''.join(chars), o_positions, o_letter, assumed
 
 
+def _no_detection_result() -> Dict[str, Optional[str]]:
+    """Schéma « aucune coordonnée trouvée » — dict frais à chaque appel."""
+    return {
+        "exist": False,
+        "ddm_lat": None,
+        "ddm_lon": None,
+        "ddm": None,
+        "source": None,
+        "confidence": 0.0,
+        "matched_text": None,
+        "span": None,
+        "extract": None
+    }
+
+
 def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin_coords: Optional[Dict[str, str]] = None, include_written: bool = False) -> Dict[str, Optional[str]]:
     """
     Recherche des coordonnées GPS dans un texte en testant plusieurs formats.
-    
+
     Args:
         text (str): Le texte dans lequel rechercher des coordonnées
         include_numeric_only (bool): Si True, inclut la détection de coordonnées au format numérique pur (sans lettres cardinales ni symboles)
@@ -1931,70 +2048,66 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         include_written (bool): DÉPRÉCIÉ / ignoré. La détection en toutes lettres est
             désormais gérée exclusivement par l'endpoint via WrittenCoordinatesService
             (langues respectées, pas de double exécution). Conservé pour compat de signature.
-    
+
     Le dictionnaire retourné contient :
       - 'exist': True si une coordonnée a été trouvée, sinon False.
       - 'ddm_lat': Latitude formatée en DDM.
       - 'ddm_lon': Longitude formatée en DDM.
       - 'ddm': Latitude et longitude combinées.
     """
-    logger.debug('detect_gps_coordinates: Début de la détection sur texte de %s caractères', len(text))
-    logger.debug("detect_gps_coordinates: Extrait du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('detect_gps_coordinates: include_numeric_only=%s, origin_coords=%s, include_written=%s', include_numeric_only, origin_coords, include_written)
+    logger.debug(
+        "detect_gps_coordinates: Début de la détection sur texte de %s caractères, "
+        "extrait: '%s...' (tronqué), include_numeric_only=%s, origin_coords=%s, include_written=%s",
+        len(text), text[:100], include_numeric_only, origin_coords, include_written,
+    )
+
+    # Gatekeeper : sans chiffre arabe ni motif romain possible, AUCUN détecteur
+    # ne peut matcher — on évite le passage des ~18 regex (cas majoritaire sur
+    # texte décodé sans coordonnée). Étapes paresseuses, du moins cher au plus
+    # cher (voir les commentaires des constantes).
+    gate_ok = (
+        _GATE_DIGIT_REGEX.search(text)
+        or _GATE_ROMAN_LETTER_REGEX.search(text)
+    )
+    if not gate_ok:
+        # Chemin « mots cardinaux + romain » : pré-filtre substring avant la
+        # regex à lookaheads (coûteuse sur un long texte sans mot cardinal).
+        lowered = text.lower()
+        gate_ok = (
+            any(w in lowered for w in _GATE_CARDINAL_TOKENS)
+            and _CARDINAL_WORD_PREFIX_REGEX.search(text)
+        )
+    if not gate_ok:
+        logger.debug("detect_gps_coordinates: Gatekeeper — aucun motif de coordonnée possible")
+        return _no_detection_result()
 
     # Accepte un dict {ddm_lat, ddm_lon} ou une chaîne DDM combinée (coordinatesRaw)
     origin_coords = _normalize_origin_coords(origin_coords)
-    
-    # ------------------------------------------------------------------
-    # Carte <fonction de détection> -> score de confiance (0-1)
-    # Plus la valeur est élevée, plus le format est considéré fiable.
-    # Ces valeurs peuvent être ajustées facilement pour faire évoluer la
-    # pondération sans toucher au reste du code.
-    # ------------------------------------------------------------------
-    confidence_map = {
-        _detect_geocaching_standard_format:  0.96,  # Nouvelle fonction avec haute priorité
-        _detect_dmm_dot_separator:           0.95,
-        _detect_compact_coordinates:         0.95,
-        _detect_dmm_coordinates:             0.95,
-        _detect_dmm_suffix_direction:        0.93,
-        _detect_dms_coordinates:             0.92,
-        _detect_dms_suffix_direction:        0.90,
-        _detect_roman_numerals_coordinates:  0.90,
-        _detect_tabspace_coordinates:        0.90,
-        _detect_dmm_no_degree_symbol:        0.90,
-        _detect_nord_est_variations:         0.88,
-        _detect_nord_est_format:             0.85,
-        _detect_dmm_no_symbol_no_dot:        0.85,
-        _detect_specific_tabpoint_coordinates:0.82,
-        _detect_decimal_pair:                0.80,
-        _detect_simplified_coordinates:      0.80,
-        _detect_flexible_coordinates:        0.75,
-        _detect_variant_coordinates:         0.70,
-    }
 
-    # Détecteurs ordonnés une fois par confiance décroissante (puis ordre de
-    # déclaration en cas d'égalité). On peut alors s'ARRÊTER au premier détecteur
-    # qui matche : c'est nécessairement le candidat de plus haute confiance — donc
-    # exactement le résultat de l'ancienne collecte-puis-max, mais sans exécuter les
-    # 18 regex à chaque appel (chemin chaud : le scorer appelle cette fonction pour
-    # chaque candidat bruteforce). Un format laxiste ne peut donc toujours pas
-    # masquer un format fiable présent dans le texte.
-    detectors = [
-        (conf, order, func, func.__name__)
-        for order, (func, conf) in enumerate(confidence_map.items())
-    ]
-
+    # Détecteurs ordonnés une fois (au chargement du module) par confiance
+    # décroissante, puis ordre de déclaration en cas d'égalité — voir
+    # _DETECTORS_SORTED en fin de fichier. On peut alors s'ARRÊTER au premier
+    # détecteur qui matche : c'est nécessairement le candidat de plus haute
+    # confiance — donc exactement le résultat de l'ancienne collecte-puis-max,
+    # mais sans exécuter les 18 regex à chaque appel (chemin chaud : le scorer
+    # appelle cette fonction pour chaque candidat bruteforce). Un format
+    # laxiste ne peut donc toujours pas masquer un format fiable présent dans
+    # le texte.
     if include_numeric_only:
         logger.debug("detect_gps_coordinates: Détection de coordonnées numériques pures activée")
         # Confiance 0.90 mais prioritaire (order -1) sur les détecteurs à lettres
-        # cardinales de même confiance.
-        detectors.append((
-            0.90, -1,
-            lambda t: _detect_numeric_only_coordinates(t, origin_coords),
-            _detect_numeric_only_coordinates.__name__,
-        ))
-
-    detectors.sort(key=lambda d: (-d[0], d[1]))
+        # cardinales de même confiance. Copie triée : la constante de module
+        # n'est jamais mutée.
+        detectors = sorted(
+            _DETECTORS_SORTED + [(
+                0.90, -1,
+                lambda t: _detect_numeric_only_coordinates(t, origin_coords),
+                _detect_numeric_only_coordinates.__name__,
+            )],
+            key=lambda d: (-d[0], d[1]),
+        )
+    else:
+        detectors = _DETECTORS_SORTED
 
     # Les détecteurs lisent un texte aux lettres cardinales normalisées (même
     # longueur) ; matched_text reste extrait du texte d'origine.
@@ -2016,17 +2129,7 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
     # les langues demandées (l'ancien chemin interne était figé sur 'fr' et pouvait
     # relancer le plugin une seconde fois).
     logger.debug("detect_gps_coordinates: Aucune coordonnée GPS détectée")
-    return {
-        "exist": False,
-        "ddm_lat": None,
-        "ddm_lon": None,
-        "ddm": None,
-        "source": None,
-        "confidence": 0.0,
-        "matched_text": None,
-        "span": None,
-        "extract": None
-    }
+    return _no_detection_result()
 
 # Nouvelle route API pour détecter les coordonnées dans un texte
 @coordinates_bp.route('/api/detect_coordinates', methods=['POST'])
@@ -2263,6 +2366,14 @@ def detect_coordinates_batch():
         return _error_response("Erreur detect_coordinates_batch", e)
 
 
+# DDM sans symbole ° : le séparateur degrés/minutes est un ou plusieurs
+# espaces ; minutes avec ou sans décimales.
+_DETECT_DMM_NO_DEGREE_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s+(\d{1,2}(?:[.,]\d+)?)\s*'  # Latitude
+    r'([EW])\s*(\d{1,3})\s+(\d{1,2}(?:[.,]\d+)?)'      # Longitude
+)
+
+
 def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées DDM où le symbole ° est absent, par exemple :
@@ -2275,13 +2386,8 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
     # Regex tolérante aux espaces optionnels après la direction et au formatage varié.
     # Latitude : N/S, 1-2 chiffres degrés, espace(s), minutes avec/sans décimales
     # Longitude : E/W, 1-3 chiffres degrés, espace(s), minutes avec/sans décimales
-    dmm_nodg_regex = (
-        r'([NS])\s*(\d{1,2})\s+(\d{1,2}(?:[.,]\d+)?)\s*'  # Latitude
-        r'([EW])\s*(\d{1,3})\s+(\d{1,2}(?:[.,]\d+)?)'       # Longitude
-    )
-
-    logger.debug('_detect_dmm_no_degree_symbol: Regex utilisée: %s', dmm_nodg_regex)
-    match = re.search(dmm_nodg_regex, text)
+    logger.debug('_detect_dmm_no_degree_symbol: Regex utilisée: %s', _DETECT_DMM_NO_DEGREE_REGEX)
+    match = _DETECT_DMM_NO_DEGREE_REGEX.search(text)
     if match:
         logger.debug('_detect_dmm_no_degree_symbol: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
@@ -2323,6 +2429,14 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
 # Détection du format DMM sans ° ni . (ex : "N 38 32 460 W 075 43 659")
 # ----------------------------------------------------------------------------
 
+# DDM sans symbole ° ni point décimal : N/S deg min dec, E/W deg min dec,
+# séparés par des espaces.
+_DETECT_DMM_NO_SYMBOL_REGEX = re.compile(
+    r'([NS])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})\s*'  # Latitude
+    r'([EW])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'      # Longitude
+)
+
+
 def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées DDM sans symbole ° ni point décimal :
@@ -2332,14 +2446,8 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
     avec espaces comme séparateurs.
     """
     logger.debug("_detect_dmm_no_symbol_no_dot: Analyse du texte: '%s...' (tronqué)", text[:100])
-
-    pattern = (
-        r'([NS])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})\s*'  # Latitude
-        r'([EW])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'      # Longitude
-    )
-
-    logger.debug('_detect_dmm_no_symbol_no_dot: Regex utilisée: %s', pattern)
-    match = re.search(pattern, text)
+    logger.debug('_detect_dmm_no_symbol_no_dot: Regex utilisée: %s', _DETECT_DMM_NO_SYMBOL_REGEX)
+    match = _DETECT_DMM_NO_SYMBOL_REGEX.search(text)
     if match:
         logger.debug('_detect_dmm_no_symbol_no_dot: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
@@ -2379,6 +2487,13 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
 # Détection du format géocaching standard (ex: "N29 02.879 W98 01.304")
 # ------------------------------------------------------------------------------
 
+# Format géocaching standard : Direction + degrés + espace + minutes.décimales
+# (sans symbole ° ni apostrophe).
+_DETECT_GEOCACHING_REGEX = re.compile(
+    r'([NS])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+([EW])(\d{1,3})\s+(\d{1,2}\.\d{1,3})'
+)
+
+
 def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
     Détecte les coordonnées au format géocaching standard, par exemple :
@@ -2390,10 +2505,8 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
     
     # Regex spécialement conçue pour le format géocaching standard
     # Accepte : N/S + 1-2 chiffres + espace + minutes.décimales + espace + E/W + 1-3 chiffres + espace + minutes.décimales
-    geocaching_regex = r'([NS])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+([EW])(\d{1,3})\s+(\d{1,2}\.\d{1,3})'
-    
-    logger.debug('_detect_geocaching_standard_format: Regex utilisée: %s', geocaching_regex)
-    match = re.search(geocaching_regex, text)
+    logger.debug('_detect_geocaching_standard_format: Regex utilisée: %s', _DETECT_GEOCACHING_REGEX)
+    match = _DETECT_GEOCACHING_REGEX.search(text)
     if match:
         logger.debug('_detect_geocaching_standard_format: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
@@ -2427,6 +2540,49 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
     
     logger.debug("_detect_geocaching_standard_format: Aucun match trouvé")
     return None
+
+
+# ------------------------------------------------------------------------------
+# Table des détecteurs — construite et triée UNE SEULE FOIS au chargement.
+#
+# _DETECTOR_CONFIDENCE associe <fonction de détection> -> score de confiance
+# (0-1) ; plus la valeur est élevée, plus le format est considéré fiable. Ces
+# valeurs peuvent être ajustées facilement pour faire évoluer la pondération
+# sans toucher au reste du code. L'ordre de déclaration du dict sert de
+# tie-break à confiance égale.
+#
+# _DETECTORS_SORTED = tuples (confiance, ordre, fonction, nom) triés par
+# (-confiance, ordre), consommés par detect_gps_coordinates. Défini ici, après
+# la dernière définition de détecteur, car il référence les fonctions par nom.
+# ------------------------------------------------------------------------------
+_DETECTOR_CONFIDENCE = {
+    _detect_geocaching_standard_format:  0.96,  # Nouvelle fonction avec haute priorité
+    _detect_dmm_dot_separator:           0.95,
+    _detect_compact_coordinates:         0.95,
+    _detect_dmm_coordinates:             0.95,
+    _detect_dmm_suffix_direction:        0.93,
+    _detect_dms_coordinates:             0.92,
+    _detect_dms_suffix_direction:        0.90,
+    _detect_roman_numerals_coordinates:  0.90,
+    _detect_tabspace_coordinates:        0.90,
+    _detect_dmm_no_degree_symbol:        0.90,
+    _detect_nord_est_variations:         0.88,
+    _detect_nord_est_format:             0.85,
+    _detect_dmm_no_symbol_no_dot:        0.85,
+    _detect_specific_tabpoint_coordinates: 0.82,
+    _detect_decimal_pair:                0.80,
+    _detect_simplified_coordinates:      0.80,
+    _detect_flexible_coordinates:        0.75,
+    _detect_variant_coordinates:         0.70,
+}
+
+_DETECTORS_SORTED = sorted(
+    (
+        (conf, order, func, func.__name__)
+        for order, (func, conf) in enumerate(_DETECTOR_CONFIDENCE.items())
+    ),
+    key=lambda d: (-d[0], d[1]),
+)
 
 
 @coordinates_bp.errorhandler(Exception)
