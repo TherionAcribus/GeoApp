@@ -357,6 +357,14 @@ Lancement : `cd backend && python -m pytest tests/test_coordinates_*.py -q`
 - **Formats faibles résiduels** : la paire décimale score ≈ 0.80 (< cible 0.85) —
   problème de **scoring**, pas de détection
   (voir [scoring-technique.md](scoring-technique.md) §10).
+- **Traces DEBUG du détecteur** : chaque détecteur trace le texte analysé, sa
+  regex et son résultat, soit jusqu'à ~80 lignes par appel. Comme le scorer
+  appelle `detect_gps_coordinates` pour chaque candidat d'un bruteforce, ces
+  traces triplaient le temps de détection (≈ 3,4 ms contre 0,04 ms sans elles).
+  Le logger de ce module reste donc à INFO même quand le niveau global est DEBUG
+  (`_quiet_hot_path_loggers` dans `logging_config.py`). Pour les réactiver le
+  temps d'un diagnostic : `GEOAPP_LOG_VERBOSE=coordinates` avant de lancer le
+  backend.
 - **Lettres cardinales en minuscules et `O` de « Ouest »** : pris en charge par
   `_normalize_cardinal_letters`, appelée une fois en tête de
   `detect_gps_coordinates`. Elle met en majuscules les lettres cardinales isolées

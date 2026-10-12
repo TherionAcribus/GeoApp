@@ -383,7 +383,9 @@ Un mot reconnu (`lexical > 0`) empêche le plancher : il garde son score lexical
 
 ## 5. Scorer rapide — score_text_fast
 
-Pré-filtre léger pour les lots de bruteforce (coût ~0.05 ms vs ~1–5 ms pour le score complet).
+Pré-filtre léger pour les lots de bruteforce (coût ~0.03 ms vs ~0.2 ms pour le score complet, détection GPS comprise).
+
+> Le « ~1–5 ms » historique du score complet venait des traces DEBUG du détecteur de coordonnées, désormais coupées par défaut (voir [coordonnees-technique.md](coordonnees-technique.md) §11, `GEOAPP_LOG_VERBOSE=coordinates` pour les réactiver).
 
 **Fonctionnement** :
 1. `encoded_penalty` — si < 0.1, retourne 0.0 immédiatement.
