@@ -39,7 +39,7 @@ backend/gc_backend/plugins/scoring/
 
 backend/scripts/
 ├── generate_common_words.py   # Outil de génération (wordfreq, build-time)
-└── generate_quadgrams.py      # Outil de génération (bigrammes ou wordfreq)
+└── generate_quadgrams.py      # Outil de génération (wordfreq ; bigrammes en repli)
 
 backend/tests/
 ├── test_scoring_calibration.py              # Suite de calibration (contraintes d'ordre)
@@ -80,12 +80,11 @@ Les ressources sont **versionnées dans le dépôt** et ne nécessitent pas `wor
 # Mots communs (8 langues)
 python backend/scripts/generate_common_words.py
 
-# Quadgrams en/fr/de (depuis matrices de bigrammes intégrées, ~120 k entrées)
-python backend/scripts/generate_quadgrams.py --langs en fr de
-
-# Quadgrams es/it/nl/pt/pl (depuis wordfreq, ~15–22 k entrées attestées)
-python backend/scripts/generate_quadgrams.py --from-wordfreq --langs es it nl pt pl
+# Quadgrams, 8 langues (depuis wordfreq, 32–54 k entrées par langue)
+python backend/scripts/generate_quadgrams.py --from-wordfreq --langs en fr de es it nl pt pl
 ```
+
+Les tables de quadgrammes sont comptées sur un texte synthétique : 3 millions de mots tirés selon leur fréquence, collés sans espaces. Elles contiennent donc aussi les quadgrammes à cheval sur deux ou trois mots, que le scorer rencontre partout puisqu'il retire les espaces. Détail et historique dans `resources/quadgrams/README.md`. `wordfreq` s'installe dans un environnement à part, pas dans celui du backend.
 
 ---
 
@@ -394,7 +393,7 @@ Pré-filtre léger pour les lots de bruteforce (coût ~0.03 ms vs ~0.2 ms pour l
 4. `_score_text_fast_cached(letters)` (LRU 4096) :
    - Répétition quality — retourne 0.0 si run ≥ 5.
    - IC — retourne 0.0 si IC < 0.035 et n ≥ 20.
-   - Quadgram fitness best-of `{en, fr, de}` uniquement (les 3 tables denses).
+   - Quadgram fitness best-of sur les 8 tables (`available_quadgram_langs()`).
    - Si fitness < 0.15 → score = fitness × 0.3.
    - Sinon : `score = fitness*0.75 + ic_norm*0.10 + rep*0.15`
 5. Multiplicateur `encoded_penalty`.
@@ -403,8 +402,9 @@ Pré-filtre léger pour les lots de bruteforce (coût ~0.03 ms vs ~0.2 ms pour l
 
 **Limites** :
 - N'utilise pas le lexical (pas de dictionnaire).
-- Quadgrams seulement en/fr/de (pas es/it/nl/pt/pl).
-- Écart correct/near-miss ≈ 0.24 (< 0.30 du scorer complet) — connu et documenté.
+- Sur une réponse d'un seul mot, la marge avec le meilleur mauvais candidat peut être mince (`BLANC` 0.65 contre 0.64) : c'est le scorer complet, avec son dictionnaire, qui tranche.
+
+Écart correct/near-miss ≈ 0.6 depuis les tables de quadgrammes issues de wordfreq (≈ 0.24 avec les anciennes tables en/fr/de synthétisées depuis des bigrammes).
 
 ---
 
@@ -511,16 +511,15 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 | `TestShortAnswers` | Réponse courte non vetoée, 1ʳᵉ d'un bruteforce César (écart ≥ 0.15) | ✅ |
 | `TestGluedWords` | Mots collés non pénalisés « encodé », 1ᵉʳˢ d'un bruteforce César ; vrai base64 toujours < 0.15 | ✅ |
 | `TestCorrectVsNearMiss.test_gap_full` | Écart correct/near-miss ≥ 0.30 | ✅ (~0.45) |
-| `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ⚠️ xfail (~0.24) |
+| `TestCorrectVsNearMiss.test_gap_fast` | Idem sur fast scorer | ✅ (~0.6) |
 | `TestNumberEnumBelowWordCoords` | feature : enum ≤ 0.45, word_coords > enum | ✅ |
 | `TestNumberEnumBelowWordCoords` | score final : enum < word_coords | ✅ |
 | `TestNumericLookalikes` | Prose avec `un`/`et`/`est`/`très` : signal numérique ≤ 0.15 ; dizaines 70/80/90 : ≥ 0.6 | ✅ |
 | `TestKnownWeakCoords` | Formats faibles ≥ 0.85 | ⚠️ xfail (1 format) |
-| `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue | ✅ |
+| `TestMultilingualNgram` | 8 tables présentes, ngram > 0.3 par langue ; chaque table reconnaît sa langue mieux que les autres et décroche d'au moins 0.2 sur les mêmes lettres mélangées ; aucune entrée sous −6.0 | ✅ |
 | `TestLangidFitnessDecoupling` | fitness ≥ confidence toujours | ✅ |
 
-**Xfails documentés (non bloquants)** :
-- `test_gap_fast` : le fast scorer est un pré-filtre qui n'utilise pas le lexical. Cible aspirationnelle.
+**Xfail documenté (non bloquant)** :
 - `TestKnownWeakCoords` : paire décimale (`48.8566, 2.3522`), détectée mais notée 0.80, sous la cible de 0.85. Le format à lettre collée (`N48 51.234 E002 21.456`) est sorti de cette liste : il était bloqué par le gatekeeper, pas par le détecteur.
 
 ---
@@ -528,7 +527,8 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 ## 10. Limites connues
 
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
-- **Tables quadgrams wordfreq** : es/it/nl/pt/pl ont ~15–22 k entrées vs ~120 k pour en/fr/de (bigrammes). Un texte roman peut obtenir son meilleur score via la table `fr`. Le signal reste > 0.3 pour les 8 langues sur texte valide.
+- **Tables quadgrams** : les 8 tables viennent de wordfreq et chacune reconnaît sa langue mieux que les autres. Un texte réel obtient 0.53–0.67 sur sa table, les mêmes lettres mélangées 0.20–0.33, un texte inversé 0.27–0.41 : la formule de fitness (`(mean_logp + 6) / 4` plus 30 % de taux de quadgrammes connus) laisse encore un crédit notable à un texte qui a seulement les bonnes fréquences de lettres. Un recalage de cette formule est une piste, non faite.
+- **Translittération** : `ß`, `ł`, `œ`, `æ`, `ø`, `đ` sont translittérés pour l'IC et les quadgrammes (`_STATS_TRANSLITERATION`). Le dictionnaire (`_norm_lex_token`, `generate_common_words.py`) ne le fait pas encore : un mot polonais écrit avec `ł` n'y est pas reconnu.
 - **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Reste sous la cible : la paire décimale (0.80 < 0.85). Le format `N48 51.234 E002 21.456` atteint 0.96 depuis que le gatekeeper le laisse passer. Les minuscules (`n48 51.234 e002 21.456`) et le `O` de « Ouest » (`N48 51.234 O002 21.456`) sont reconnus depuis la normalisation des lettres cardinales du détecteur (voir [coordonnees-technique.md](coordonnees-technique.md)) et atteignent eux aussi 0.96.
 - **Pré-filtre rapide et coordonnées** : le scorer rapide ne fait pas de détection GPS ; il se contente du plancher `_FAST_GPS_HINT_FLOOR` (0.3) pour les textes en forme de coordonnées. Des coordonnées écrites sans aucun chiffre structuré (lettres cardinales isolées, mots) n'en bénéficient pas.
 - **Textes de 1 à 3 lettres** (`OUI`, `NON`) : le scorer rapide renvoie 0, donc ils sont écartés dès que le lot dépasse `top_k`. Ils sont de toute façon ambigus (`OUI` décalé de 10 donne `YES`).

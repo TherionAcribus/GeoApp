@@ -65,8 +65,17 @@ def _normalize_basic(text: str) -> str:
     return text
 
 
+# Letters that NFKD does not decompose and that would otherwise be dropped
+# ("Straße" -> "STRAE", "głęboki" -> "GEBOKI"). Must stay in sync with
+# _TRANSLITERATION in scripts/generate_quadgrams.py.
+_STATS_TRANSLITERATION = str.maketrans({
+    'ß': 'ss', 'ẞ': 'SS', 'œ': 'oe', 'Œ': 'OE', 'æ': 'ae', 'Æ': 'AE',
+    'ł': 'l', 'Ł': 'L', 'ø': 'o', 'Ø': 'O', 'đ': 'd', 'Đ': 'D',
+})
+
+
 def _normalize_for_stats(text: str) -> str:
-    text = _normalize_basic(text)
+    text = _normalize_basic(text).translate(_STATS_TRANSLITERATION)
     text = unicodedata.normalize('NFKD', text)
     text = ''.join(ch for ch in text if not unicodedata.combining(ch))
     text = text.upper()
@@ -877,9 +886,9 @@ def _score_text_fast_cached(letters: str) -> float:
     if ic < 0.035 and n >= 20:
         return 0.0
 
-    # Tier 1: quadgram fitness (try EN, then FR, then DE)
+    # Tier 1: quadgram fitness, best of every shipped table
     best_fitness = 0.0
-    for lang in ('en', 'fr', 'de'):
+    for lang in available_quadgram_langs():
         fitness = _quadgram_fitness_for_lang(letters, lang)
         if fitness > best_fitness:
             best_fitness = fitness

@@ -2,12 +2,14 @@
 """Generate quadgram log-probability tables for the scoring system.
 
 Three modes:
-  1. --from-bigrams   (default)  Use embedded bigram transition matrices to
-     synthesize approximate quadgram frequencies via a Markov chain.  Fast,
-     no external data.  Used for en/fr/de.
-  2. --from-wordfreq             Build frequency-weighted tables from the
-     `wordfreq` package (build-time only).  Best quality; used for the
-     languages without embedded bigram matrices (es/it/nl/pt/pl).
+  1. --from-wordfreq             Count quadgrams in a synthetic text sampled
+     from the `wordfreq` package's word frequencies (build-time only).  Used
+     for all 8 shipped languages; includes the quadgrams that straddle word
+     boundaries, which the scorer meets on every text.
+  2. --from-bigrams   (default)  Use embedded bigram transition matrices to
+     synthesize approximate quadgram frequencies via a Markov chain.  No
+     external data, but a bigram model in disguise: it barely tells real
+     text from shuffled letters.  Kept as a fallback only (en/fr/de).
   3. --from-corpus <file>        Count quadgrams in a UTF-8 text file.
 
 Output: JSON files in gc_backend/plugins/scoring/resources/quadgrams/<lang>.json
@@ -221,31 +223,76 @@ def generate_from_bigrams(lang: str, min_log_prob: float = -7.0) -> Dict[str, fl
     return quadgrams
 
 
-def generate_from_wordfreq(lang: str, top_n: int = 30000, min_log_prob: float = -7.0) -> Dict[str, float]:
-    """Build a frequency-weighted quadgram log10-prob table from ``wordfreq``.
+# Letters that NFKD does not decompose. Must stay in sync with
+# _STATS_TRANSLITERATION in gc_backend/plugins/scoring/scorer.py.
+_TRANSLITERATION = str.maketrans({
+    "ß": "ss", "ẞ": "SS", "œ": "oe", "Œ": "OE", "æ": "ae", "Æ": "AE",
+    "ł": "l", "Ł": "L", "ø": "o", "Ø": "O", "đ": "d", "Đ": "D",
+})
 
-    For each of the top-N words we add the word's linear frequency to every
-    quadgram it contains, then take log10(weighted_count / total). This yields
-    tables on the same log10 scale as the corpus mode, but derived from real
-    frequency data (Wikipedia, subtitles, ...) — far better quality than the
-    synthetic bigram-Markov mode, and self-contained (wordfreq bundles its data).
+
+def _letters_only(word: str) -> str:
+    """Same normalisation as the scorer's _normalize_for_stats: A-Z only."""
+    norm = unicodedata.normalize("NFKD", word.translate(_TRANSLITERATION))
+    norm = "".join(ch for ch in norm if not unicodedata.combining(ch))
+    return re.sub(r"[^A-Z]", "", norm.upper())
+
+
+def generate_from_wordfreq(
+    lang: str,
+    top_n: int = 30000,
+    min_log_prob: float = -6.0,
+    tokens: int = 3_000_000,
+    seed: int = 20261012,
+) -> Dict[str, float]:
+    """Build a quadgram log10-prob table from ``wordfreq`` word frequencies.
+
+    The scorer strips spaces and slides a 4-letter window over the whole text,
+    so most windows straddle a word boundary — sometimes three words at once
+    ("DE LA RIVIERE" -> "ELAR"). Counting quadgrams inside each word only (the
+    previous method) left all of those unknown, penalising real text exactly
+    where its commonest words meet.
+
+    Instead we sample a synthetic text of ``tokens`` words drawn by frequency
+    from the top-N words (a unigram word model), glue it without spaces, and
+    count every window. In-word and cross-word quadgrams then come out with
+    their natural weights. The seed makes the output reproducible for a given
+    ``wordfreq`` version.
+
+    ``min_log_prob`` defaults to the scorer's floor for unknown quadgrams
+    (-6.0): keeping rarer entries would score them *below* an unknown one.
 
     Build-time only: ``wordfreq`` is not a runtime dependency of the backend.
     """
+    import random
+
     import wordfreq
 
-    words = wordfreq.top_n_list(lang, top_n)
-    counts: Dict[str, float] = {}
-    for w in words:
+    vocab = []
+    weights = []
+    for w in wordfreq.top_n_list(lang, top_n):
         freq = wordfreq.word_frequency(w, lang)
-        if freq <= 0:
-            continue
-        norm = unicodedata.normalize("NFKD", w)
-        norm = "".join(ch for ch in norm if not unicodedata.combining(ch))
-        norm = re.sub(r"[^A-Z]", "", norm.upper())
-        for i in range(len(norm) - 3):
-            qg = norm[i : i + 4]
-            counts[qg] = counts.get(qg, 0.0) + freq
+        norm = _letters_only(w)
+        if freq > 0 and norm:
+            vocab.append(norm)
+            weights.append(freq)
+    if not vocab:
+        return {}
+
+    rng = random.Random(seed)
+    counts: Dict[str, int] = {}
+    tail = ""
+    chunk = 200_000
+    remaining = tokens
+    while remaining > 0:
+        n = min(chunk, remaining)
+        remaining -= n
+        # Carry the last 3 letters over so windows spanning two chunks count.
+        text = tail + "".join(rng.choices(vocab, weights=weights, k=n))
+        for i in range(len(text) - 3):
+            qg = text[i : i + 4]
+            counts[qg] = counts.get(qg, 0) + 1
+        tail = text[-3:]
 
     total = sum(counts.values())
     if total == 0:
@@ -317,12 +364,21 @@ def main():
         help="Language code when using --from-corpus",
     )
     parser.add_argument(
+        "--tokens",
+        type=int,
+        default=3_000_000,
+        help="Words sampled for the synthetic text in --from-wordfreq mode (default 3000000).",
+    )
+    parser.add_argument(
         "--min-log-prob",
         type=float,
-        default=-7.0,
-        help="Minimum log10 probability to keep (default: -7.0)",
+        default=None,
+        help="Minimum log10 probability to keep (default: -6.0 with --from-wordfreq, "
+        "the scorer's floor for unknown quadgrams; -7.0 in bigram mode)",
     )
     args = parser.parse_args()
+    if args.min_log_prob is None:
+        args.min_log_prob = -6.0 if args.from_wordfreq else -7.0
 
     RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -338,7 +394,9 @@ def main():
             raise SystemExit(1)
         for lang in args.langs:
             print(f"Generating {lang} quadgrams from wordfreq (top {args.top_n})...")
-            quadgrams = generate_from_wordfreq(lang, top_n=args.top_n, min_log_prob=args.min_log_prob)
+            quadgrams = generate_from_wordfreq(
+                lang, top_n=args.top_n, min_log_prob=args.min_log_prob, tokens=args.tokens
+            )
             sorted_qg = dict(sorted(quadgrams.items(), key=lambda x: x[1], reverse=True))
             outpath = RESOURCES_DIR / f"{lang}.json"
             outpath.write_text(

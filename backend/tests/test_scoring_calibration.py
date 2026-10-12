@@ -25,10 +25,12 @@ from typing import Dict, List
 import pytest
 
 from gc_backend.plugins.scoring.langid import DEFAULT_LANGS_EUROPE, detect_language
-from gc_backend.plugins.scoring.resources_loader import available_quadgram_langs
+from gc_backend.plugins.scoring.resources_loader import available_quadgram_langs, load_quadgrams
 from gc_backend.plugins.scoring.scorer import (
     _encoded_pattern_penalty,
+    _normalize_for_stats,
     _numeric_signal_feature,
+    _quadgram_fitness_for_lang,
     score_and_rank_results,
     score_text,
     score_text_fast,
@@ -288,7 +290,7 @@ class TestCorrectVsNearMiss:
     (une lettre / un decalage d'ecart), sinon le bon resultat ne remonte pas
     en tete d'un bruteforce. Ecart cible: >= 0.30.
 
-    Etat actuel: ecart plein ~0.03, ecart fast ~0.24 -> xfail. A lever apres T6.
+    Etat actuel: ecart plein ~0.5, ecart fast ~0.6.
     """
 
     MIN_GAP = 0.30
@@ -304,12 +306,10 @@ class TestCorrectVsNearMiss:
             f"(correct min {correct_floor:.3f} - near max {near_ceiling:.3f})"
         )
 
-    @pytest.mark.xfail(
-        reason="Ecart correct/near-miss du fast scorer ~0.24 (< 0.30). "
-        "A ameliorer avec les features de T3/T5.",
-        strict=True,
-    )
     def test_gap_fast(self):
+        # Resolu par les tables de quadgrammes issues de wordfreq : les tables
+        # en/fr/de synthetisees depuis des bigrammes ne separaient presque pas
+        # un texte reel d'un near-miss (ecart ~0.24) ; il depasse desormais 0.6.
         correct_floor = min(_fast(t) for t in CASES["correct_decrypt"])
         near_ceiling = max(_fast(t) for t in _near_miss_cases())
         assert correct_floor - near_ceiling >= self.MIN_GAP, (
@@ -435,6 +435,40 @@ class TestMultilingualNgram:
         # c'est le quadgram multilingue qui porte le signal.
         ng = _ngram_fitness(text)
         assert ng > 0.3, f"ngram_fitness={ng:.3f} trop faible | {text}"
+
+    # Ordre des cas de multilingual_valid dans la fixture.
+    LANG_ORDER = ["en", "fr", "de", "es", "it", "nl", "pt", "pl"]
+
+    @pytest.mark.parametrize("index", range(8))
+    def test_own_table_scores_its_language_best(self, index):
+        """Chaque table reconnait sa langue mieux que les 7 autres : c'est ce qui
+        distingue de vraies tables de quadgrammes d'un modele de bigrammes."""
+        lang = self.LANG_ORDER[index]
+        letters = _normalize_for_stats(CASES["multilingual_valid"][index])
+        scores = {lg: _quadgram_fitness_for_lang(letters, lg) for lg in self.LANG_ORDER}
+        assert max(scores, key=scores.get) == lang, scores
+        assert scores[lang] >= 0.5, scores
+
+    @pytest.mark.parametrize("index", range(8))
+    def test_tables_tell_real_text_from_shuffled_letters(self, index):
+        """Memes lettres dans le desordre : la meilleure table doit decrocher
+        nettement (les tables synthetisees depuis des bigrammes ne le faisaient pas)."""
+        import random
+
+        letters = _normalize_for_stats(CASES["multilingual_valid"][index])
+        shuffled = list(letters)
+        random.Random(index).shuffle(shuffled)
+        shuffled = "".join(shuffled)
+
+        def best(text):
+            return max(_quadgram_fitness_for_lang(text, lg) for lg in self.LANG_ORDER)
+
+        assert best(letters) - best(shuffled) >= 0.2, (best(letters), best(shuffled))
+
+    def test_no_entry_below_the_unknown_floor(self):
+        """Une entree sous -6.0 noterait un quadgramme connu plus bas qu'un inconnu."""
+        for lang in self.LANG_ORDER:
+            assert min(load_quadgrams(lang).values()) >= -6.0, lang
 
     def test_multilingual_valid_survive_ranking(self):
         valid = CASES["multilingual_valid"]
