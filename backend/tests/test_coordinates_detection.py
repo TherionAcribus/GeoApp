@@ -21,7 +21,10 @@ if str(REPO_ROOT) not in sys.path:
 
 logging.disable(logging.CRITICAL)
 
-from gc_backend.blueprints.coordinates import detect_gps_coordinates as d  # noqa: E402
+from gc_backend.blueprints.coordinates import (  # noqa: E402
+    detect_gps_coordinates as d,
+    detect_all_gps_coordinates as d_all,
+)
 
 
 def _check(text, *, ddm_lat, ddm_lon, dec_lat=None, dec_lon=None, min_conf=0.7, **kw):
@@ -393,3 +396,59 @@ class TestCanonicalOutput:
         r = d("N 48° 33.787' E 006° 38.803'")
         assert r["decimal_latitude"] == pytest.approx(48.56311667, abs=1e-6)
         assert r["decimal_longitude"] == pytest.approx(6.64671667, abs=1e-6)
+
+
+class TestDetectAll:
+    """Nouvelle API ``detect_all_gps_coordinates`` : TOUTES les coordonnées
+    valides du texte (pas d'early-stop), même schéma de résultat que
+    ``detect_gps_coordinates``, dédupliquées par chevauchement de span."""
+
+    def test_two_coordinates_in_one_text(self):
+        r = d_all("parking N 48° 33.787' E 006° 38.803' ; "
+                  "final N 49° 00.000' E 007° 00.000'")
+        assert len(r) == 2
+        assert r[0]["ddm_lat"] == "N 48° 33.787'"
+        assert r[0]["ddm_lon"] == "E 006° 38.803'"
+        assert r[1]["ddm_lat"] == "N 49° 00.000'"
+        assert r[1]["ddm_lon"] == "E 007° 00.000'"
+        # Les spans pointent sur les fragments réels du texte
+        text = "parking N 48° 33.787' E 006° 38.803' ; final N 49° 00.000' E 007° 00.000'"
+        for item in r:
+            s, e = item["span"]
+            assert text[s:e] == item["matched_text"]
+
+    def test_invalid_first_match_no_longer_masks_valid_one(self):
+        # Régression corrigée par l'itérateur : AVANT, le premier match DMM
+        # (« N 99° 88.999' E 200° 99.999' », hors bornes) était rejeté et
+        # « search » n'en visitait pas d'autre -> exist=False au global.
+        # APRÈS : finditer itère jusqu'au premier match VALIDE.
+        r = d("N 99° 88.999' E 200° 99.999' puis N 48° 33.787' E 006° 38.803'")
+        assert r["exist"] is True
+        assert r["ddm_lat"] == "N 48° 33.787'"
+        assert r["ddm_lon"] == "E 006° 38.803'"
+
+        r_all = d_all("N 99° 88.999' E 200° 99.999' puis N 48° 33.787' E 006° 38.803'")
+        assert len(r_all) == 1
+        assert r_all[0]["ddm"] == "N 48° 33.787' E 006° 38.803'"
+
+    def test_overlapping_spans_deduplicated(self):
+        # « N48°33.787' E006°38.803' » est matché par plusieurs détecteurs
+        # (dmm 0.95, tabspace 0.90, tabpoint 0.82) sur le même fragment :
+        # un seul résultat, celui de plus haute confiance.
+        r = d_all("N48°33.787' E006°38.803'")
+        assert len(r) == 1
+        assert r[0]["ddm"] == "N 48° 33.787' E 006° 38.803'"
+        assert r[0]["confidence"] == 0.95
+        assert r[0]["source"] == "_detect_dmm_coordinates"
+
+    def test_no_coordinate_returns_empty_list(self):
+        assert d_all("bonjour le monde ceci est un test") == []
+
+    def test_single_api_keeps_highest_confidence_first(self):
+        # detect_gps_coordinates reste inchangé : un seul résultat, le plus
+        # confiant (et le premier dans l'ordre de confiance décroissante).
+        text = "parking N 48° 33.787' E 006° 38.803' ; final N 49° 00.000' E 007° 00.000'"
+        single = d(text)
+        assert single["exist"] is True
+        assert single["ddm"] == "N 48° 33.787' E 006° 38.803'"
+        assert single["confidence"] == 0.95
