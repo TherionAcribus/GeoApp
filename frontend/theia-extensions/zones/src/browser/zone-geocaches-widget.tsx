@@ -2,7 +2,7 @@ import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell, StatefulWidget, StorageService, WidgetManager, ConfirmDialog, Dialog } from '@theia/core/lib/browser';
-import { MessageService } from '@theia/core';
+import { MessageService, Progress } from '@theia/core';
 import { QuickInputService, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
 import { ProgressService } from '@theia/core/lib/common/progress-service';
 import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
@@ -140,6 +140,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected pendingDeleteTimer?: number;
     /** Lot courant : un toast d'un lot déjà exécuté ne doit rien annuler. */
     private pendingDeleteBatch = 0;
+    /** Toast d'undo du lot courant, et le décompte qui anime sa barre. */
+    private pendingDeleteProgress?: Progress;
+    private pendingDeleteCountdown?: number;
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
@@ -2251,23 +2254,41 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         void this.announcePendingDelete(ids, batch);
     }
 
+    /**
+     * Toast d'undo. Une notification de progression plutôt qu'un `info` : Theia
+     * ne ferme jamais tout seul un message qui porte une action, « Annuler »
+     * serait resté cliquable après l'échéance, sans plus rien annuler. Celle-ci
+     * se ferme par programme (`closePendingDeleteToast`) dès que le lot part, et
+     * sa barre montre le temps qu'il reste pour changer d'avis.
+     */
     private async announcePendingDelete(ids: number[], batch: number): Promise<void> {
-        const action = await this.messages.info(
-            ids.length === 1
+        const progress = await this.messages.showProgress({
+            text: ids.length === 1
                 ? 'Géocache supprimée — Annuler pour la conserver'
                 : `${ids.length} géocache(s) supprimée(s) — Annuler pour les conserver`,
-            'Annuler'
-        );
-        if (action !== 'Annuler') {
-            // Toast fermé sans action : le timer continue, la suppression
-            // partira à l'échéance prévue.
-            return;
-        }
-        // Le lot peut avoir déjà été exécuté — par un second « Supprimer » qui a
-        // forcé le commit, ou par le changement de zone : ce toast est périmé.
+            actions: ['Annuler'],
+            options: { cancelable: false, location: 'notification' }
+        });
+        // Le lot a pu partir pendant l'ouverture du toast (second « Supprimer »,
+        // changement de zone) : il n'y a déjà plus rien à annuler.
         if (batch !== this.pendingDeleteBatch) {
+            progress.cancel();
             return;
         }
+        this.pendingDeleteProgress = progress;
+        const startedAt = Date.now();
+        const total = ZoneGeocachesWidget.DELETE_UNDO_MS;
+        this.pendingDeleteCountdown = window.setInterval(() => {
+            progress.report({ work: { done: Math.min(total, Date.now() - startedAt), total } });
+        }, 250);
+
+        // Une fermeture par programme résout avec « Cancel », jamais « Annuler » :
+        // seul un vrai clic sur le bouton passe ce test.
+        const action = await progress.result;
+        if (action !== 'Annuler' || batch !== this.pendingDeleteBatch) {
+            return;
+        }
+        this.closePendingDeleteToast();
         if (this.pendingDeleteTimer !== undefined) {
             window.clearTimeout(this.pendingDeleteTimer);
             this.pendingDeleteTimer = undefined;
@@ -2276,6 +2297,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             this.pendingDeleteIds.delete(id);
         }
         this.update();
+    }
+
+    /** Ferme le toast d'undo et arrête son décompte (sans effet s'il n'y en a pas). */
+    private closePendingDeleteToast(): void {
+        if (this.pendingDeleteCountdown !== undefined) {
+            window.clearInterval(this.pendingDeleteCountdown);
+            this.pendingDeleteCountdown = undefined;
+        }
+        this.pendingDeleteProgress?.cancel();
+        this.pendingDeleteProgress = undefined;
     }
 
     /**
@@ -2293,6 +2324,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Invalide le lot : un « Annuler » cliqué après l'échéance ne doit pas
         // faire croire à un undo sur des caches déjà supprimées.
         this.pendingDeleteBatch++;
+        this.closePendingDeleteToast();
         if (ids.length === 0) {
             return;
         }
