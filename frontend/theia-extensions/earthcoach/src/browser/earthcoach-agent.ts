@@ -11,7 +11,12 @@ import {
     SystemMessageDescription,
 } from '@theia/ai-chat/lib/common/chat-agents';
 import { EarthCoachAgentId, EarthCoachMode, EarthCoachVerbosity } from './earthcoach-types';
-import { buildEarthCoachSystemPrompt } from './earthcoach-prompts';
+import {
+    buildEarthCoachModeAndStyle,
+    EARTHCOACH_SYSTEM_PROMPT_FRAGMENT,
+    EARTHCOACH_SYSTEM_PROMPT_ID,
+    SHARED_RULES,
+} from './earthcoach-prompts';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachLoggingTaskTools } from './earthcoach-logging-task-tools';
@@ -35,12 +40,32 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     readonly description = 'Assistant EarthCache pour comprendre, preparer le terrain et exploiter les observations sans les inventer.';
 
     languageModelRequirements: LanguageModelRequirement[] = EarthCoachLanguageModelRequirements;
-    readonly prompts = [];
+    // Les regles partagees sont une variante de prompt: l'utilisateur peut les
+    // personnaliser dans la configuration IA; le bloc mode/style reste ajoute
+    // par le code dans getSystemMessageDescription.
+    readonly prompts = [{
+        id: EARTHCOACH_SYSTEM_PROMPT_ID,
+        defaultVariant: EARTHCOACH_SYSTEM_PROMPT_FRAGMENT,
+        variants: [EARTHCOACH_SYSTEM_PROMPT_FRAGMENT],
+    }];
     readonly variables = [];
     readonly agentSpecificVariables = [];
-    readonly functions = [];
+    // Declaratif uniquement (vue de configuration IA): les tools sont
+    // effectivement pousses via additionalToolRequests dans init().
+    readonly functions = [
+        EarthCoachReferenceTools.SEARCH_REFERENCE_TOOL_ID,
+        EarthCoachNoteTools.SAVE_NOTE_TOOL_ID,
+        EarthCoachLoggingTaskTools.EXTRACT_TOOL_ID,
+        EarthCoachGeoCalculatorTools.CALCULATE_TOOL_ID,
+        EarthCoachGeologyTools.GEOLOGY_TOOL_ID,
+        EarthCoachGeologyTools.FRENCH_GEOLOGY_TOOL_ID,
+        EarthCoachElevationTools.ELEVATION_TOOL_ID,
+        EarthCoachModeTools.SET_MODE_TOOL_ID,
+        EarthCoachResultTools.TOOL_ID,
+    ];
     readonly tags = ['GeoApp', 'EarthCache', 'Geology'];
 
+    protected override systemPromptId = EARTHCOACH_SYSTEM_PROMPT_ID;
     protected defaultLanguageModelPurpose = 'chat';
 
     @inject(EarthCoachReferenceTools)
@@ -87,12 +112,20 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     }
 
     protected override async getSystemMessageDescription(context: AIVariableContext): Promise<SystemMessageDescription | undefined> {
+        // La classe de base resout la variante (eventuellement personnalisee)
+        // via le prompt service; sans fragment resolu, on retombe sur les
+        // regles partagees codees en dur pour ne jamais perdre le contrat.
+        const base = await super.getSystemMessageDescription(context);
         return {
-            text: buildEarthCoachSystemPrompt(
-                this.readMode(context),
-                this.readVerbosity(context),
-                this.readResponseLanguage(context)
-            ),
+            ...(base ?? {}),
+            text: [
+                base?.text ?? SHARED_RULES,
+                buildEarthCoachModeAndStyle(
+                    this.readMode(context),
+                    this.readVerbosity(context),
+                    this.readResponseLanguage(context)
+                ),
+            ].join('\n\n'),
         };
     }
 

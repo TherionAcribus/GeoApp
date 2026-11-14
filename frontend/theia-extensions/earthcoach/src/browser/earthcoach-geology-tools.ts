@@ -7,24 +7,9 @@ import {
 } from '@theia/ai-core';
 import { EarthCoachGeologyService } from './earthcoach-geology-service';
 import { formatFrenchGeologySummary, formatGeologySummary } from './earthcoach-geology';
+import { err, ok, parseArgs } from './earthcoach-tool-utils';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
-
-function ok(data: unknown): string {
-    return JSON.stringify({ success: true, data });
-}
-
-function err(message: string): string {
-    return JSON.stringify({ success: false, error: message });
-}
-
-function parseArgs(argString: string): Record<string, unknown> {
-    try {
-        return JSON.parse(argString || '{}') as Record<string, unknown>;
-    } catch {
-        return {};
-    }
-}
 
 function toCoord(value: unknown): number | undefined {
     const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;

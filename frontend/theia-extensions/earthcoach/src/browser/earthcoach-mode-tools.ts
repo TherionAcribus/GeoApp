@@ -13,24 +13,9 @@ import {
     EARTHCOACH_MODE_LABELS,
     normalizeEarthCoachMode,
 } from './earthcoach-mode';
+import { err, ok, parseArgs } from './earthcoach-tool-utils';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
-
-function ok(data: unknown): string {
-    return JSON.stringify({ success: true, data });
-}
-
-function err(message: string): string {
-    return JSON.stringify({ success: false, error: message });
-}
-
-function parseArgs(argString: string): Record<string, unknown> {
-    try {
-        return JSON.parse(argString || '{}') as Record<string, unknown>;
-    } catch {
-        return {};
-    }
-}
 
 interface SessionModelWithSettings {
     settings?: { [key: string]: unknown };

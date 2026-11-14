@@ -4,7 +4,7 @@ import {
     GeoAppChatResponseEvent,
     GeoAppChatResponseObserver,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
-import { EarthCoachResultCaptureService, extractEarthCoachResultBlock, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
+import { EarthCoachResultCaptureService, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
 
 @injectable()
 export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
@@ -30,37 +30,26 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
             }
             return;
         }
-        const title = event.sessionTitle || '';
-        if (!title.startsWith('EARTHCOACH ANALYSE') && !title.startsWith('EARTHCOACH RÉSOLUTION')) {
+        // Correlation stricte par requestId : tout envoi de dossier enregistre
+        // sa requete avant le dispatch, ce qui rend le filtrage par titre de
+        // session (EARTHCOACH ANALYSE / RESOLUTION) inutile et fragile.
+        if (!this.capture.hasRequest(event.requestId)) {
             return;
         }
-        const payload = extractEarthCoachResultBlock(event.text || '');
         const visibleMarkdown = stripEarthCoachResultBlocks(event.text || '');
-        if (!payload) {
-            try {
-                if (event.requestId) {
-                    // Lu avant attachMarkdown: l'attachement appelle lui-meme
-                    // capture() et marquerait la requete comme deja capturee.
-                    const captured = this.capture.wasCaptured(event.requestId);
-                    await this.capture.attachMarkdown(event.requestId, visibleMarkdown, event.sessionId);
-                    if (!captured) {
-                        // Le modele n'a jamais appele l'outil de capture: le
-                        // dossier a le texte mais aucune proposition structuree.
-                        this.messages.warn('Le dossier EarthCoach a reçu le texte Markdown, mais aucune proposition structurée : vous pouvez demander à l agent de relancer la capture.');
-                    }
-                } else {
-                    await this.capture.attachLatestMarkdown(visibleMarkdown, event.sessionId);
-                }
-            } catch (error) {
-                console.warn('[EarthCoach] Unable to attach the response to its prepared request', error);
-            }
-            return;
-        }
         try {
-            await this.capture.capture(payload, { markdown: visibleMarkdown, sessionId: event.sessionId });
+            // hasRequest() a deja garanti un requestId defini. wasCaptured est
+            // lu avant attachMarkdown: l'attachement appelle lui-meme
+            // capture() et marquerait la requete comme deja capturee.
+            const captured = this.capture.wasCaptured(event.requestId);
+            await this.capture.attachMarkdown(event.requestId as string, visibleMarkdown, event.sessionId);
+            if (!captured) {
+                // Le modele n'a jamais appele l'outil de capture: le
+                // dossier a le texte mais aucune proposition structuree.
+                this.messages.warn('Le dossier EarthCoach a reçu le texte Markdown, mais aucune proposition structurée : vous pouvez demander à l agent de relancer la capture.');
+            }
         } catch (error) {
-            console.warn('[EarthCoach] Unable to capture structured result block', error);
-            this.messages.warn('La réponse EarthCoach reste dans le chat, mais sa capture structurée a échoué.');
+            console.warn('[EarthCoach] Unable to attach the response to its prepared request', error);
         }
     }
 }

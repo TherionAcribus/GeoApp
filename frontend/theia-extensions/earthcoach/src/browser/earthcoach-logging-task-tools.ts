@@ -3,8 +3,8 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     ToolInvocationRegistry,
     ToolRequest,
-    ToolRequestParameters,
 } from '@theia/ai-core';
+import { buildParams, err, ok, parseArgs, toPositiveInteger } from './earthcoach-tool-utils';
 import {
     dispatchEarthCoachDataUpdated,
     EARTHCOACH_LOGGING_TASKS_REPLACED_EVENT,
@@ -14,37 +14,6 @@ import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service'
 import { diffLoggingTaskReplacement, normalizeExtractionTasks } from './earthcoach-logging-tasks';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
-
-function ok(data: unknown): string {
-    return JSON.stringify({ success: true, data });
-}
-
-function err(message: string): string {
-    return JSON.stringify({ success: false, error: message });
-}
-
-function buildParams(
-    props: Record<string, { type: string; description: string; required?: boolean; items?: unknown }>
-): ToolRequestParameters {
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    for (const [key, value] of Object.entries(props)) {
-        const { required: isRequired, ...rest } = value;
-        properties[key] = rest;
-        if (isRequired) {
-            required.push(key);
-        }
-    }
-    return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
-}
-
-function parseArgs(argString: string): Record<string, unknown> {
-    try {
-        return JSON.parse(argString || '{}') as Record<string, unknown>;
-    } catch {
-        return {};
-    }
-}
 
 @injectable()
 export class EarthCoachLoggingTaskTools implements FrontendApplicationContribution {
@@ -122,7 +91,7 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {
-                    const geocacheId = this.toPositiveInteger(args.geocache_id);
+                    const geocacheId = toPositiveInteger(args.geocache_id);
                     if (!geocacheId) {
                         return err('geocache_id is required');
                     }
@@ -182,13 +151,5 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
 
     protected notifyUpdated(geocacheId: number): void {
         dispatchEarthCoachDataUpdated(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, geocacheId);
-    }
-
-    protected toPositiveInteger(value: unknown): number | undefined {
-        const parsed = typeof value === 'number' ? value : Number(value);
-        if (!Number.isInteger(parsed) || parsed <= 0) {
-            return undefined;
-        }
-        return parsed;
     }
 }

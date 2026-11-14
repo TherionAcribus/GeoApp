@@ -31,7 +31,8 @@ Fichiers principaux :
 | `earthcoach-context-data.ts` | Helpers purs du contexte : mapping des DTO backend, assemblage avec replis, micro-cache TTL `EarthCoachContextCache`. |
 | `earthcoach-events.ts` | Evenements de fraicheur des widgets (noms, emission, abonnement) et report des rafraichissements des onglets caches. |
 | `earthcoach-prompt-builder.ts` | Construit le prompt utilisateur envoye au chat a l'ouverture d'une action. |
-| `earthcoach-prompts.ts` | Prompt systeme des modes `coach` et `resolver`. |
+| `earthcoach-prompts.ts` | Prompt systeme : regles partagees en variante `earthcoach-system` personnalisable, plus regles de mode et de style ajoutees par le code. |
+| `earthcoach-tool-utils.ts` | Helpers partages des tools : `ok`/`err` (JSON `{success, data|error}`), `parseArgs`, `buildParams`, `toPositiveInteger`. |
 | `earthcoach-types.ts` | Types EarthCoach : modes, actions, images, observations. |
 | `earthcoach-field-checklist.ts` | Builder pur du mode terrain compact. |
 | `earthcoach-field-checklist-widget.tsx` | Widget Theia de checklist imprimable/mobile. |
@@ -122,6 +123,12 @@ override init(): void {
 }
 ```
 
+### Prompt systeme personnalisable
+
+Les regles partagees du prompt systeme sont exposees a Theia comme une variante de prompt (`systemPromptId = 'earthcoach-system'`, `PromptVariantSet` dans `prompts`) : l'utilisateur peut en creer une version personnalisee dans la configuration IA. `getSystemMessageDescription` resout la variante via `super.getSystemMessageDescription` (repli sur les regles codees en dur si le prompt service est indisponible), puis **ajoute par le code** le bloc de mode et la regle de style (`buildEarthCoachModeAndStyle`) : badge localise, objectifs du mode et consigne de langue/verbosite ne sont donc jamais perdus par une personnalisation.
+
+Les neuf ids de tools sont aussi declares dans `functions` (simple affichage dans la vue de configuration IA ; la resolution effective reste `additionalToolRequests`).
+
 ## Modes
 
 EarthCoach supporte deux modes :
@@ -153,7 +160,7 @@ L'agent le relit dans `readMode()`.
 Le mode courant est rendu visible de deux facons :
 
 - le **titre de session** encode deja le mode (`EARTHCOACH - <gc>` vs `EARTHCOACH RESOLUTION - <gc>`) ;
-- le prompt systeme impose a l'agent de **commencer chaque reponse par une ligne de badge** (`**Mode EarthCoach : coach**` ou `**Mode EarthCoach : resolution**`) qui rappelle aussi comment changer.
+- le prompt systeme impose a l'agent de **commencer chaque reponse par une ligne de badge** (`**Mode EarthCoach : coach**` ou `**Mode EarthCoach : resolution**`) qui rappelle aussi comment changer. La ligne est reprise telle quelle dans la conversation : elle suit donc la langue de reponse choisie dans le dossier (francais, anglais en repli) alors que le reste des regles de mode reste en francais.
 
 Pour **basculer sans repasser par le QuickPick**, l'utilisateur formule sa demande en langage naturel ("passe en resolution", "reviens en coach"). L'agent appelle alors le tool `earthcoach_set_mode` (`earthcoach-mode-tools.ts`), qui met a jour `commonSettings.geoapp.earthcoachMode` de la **session a l'origine de la requete** via le `ChatToolContext` recu par son handler (`ctx.request.session.setSettings(...)`, helper pur `applyEarthCoachModeToSettings`) ; hors contexte chat, il retombe sur `ChatService.getActiveSession()`. Le nouveau mode est lu par `readMode()` (via `readEarthCoachModeFromSettings`) et s'applique **au message suivant**.
 
@@ -464,6 +471,7 @@ Avec un dossier prepare (`preparedRequest`) :
 - Report unitaire ou groupe (`applicableProposalIndexes`, meme regle que le backend), suivi de l'evenement `earthcoach-logging-tasks-updated` pour rafraichir le widget Questions et la couverture.
 - **Revenir a la version IA** : `revertProposalPatch` remplace tous les champs, y compris ceux ajoutes par l'utilisateur.
 - Corrections sauvegardees automatiquement (1 s) ; la reponse finale est generee dans la langue choisie en tete du dossier et rattachee au resultat par `requestId`.
+- `EarthCoachResultObserver` ne rattache une fin de reponse que si son `requestId` correspond a un dossier enregistre (`hasRequest`) ou a une generation de reponse finale (`isFinalRequest`) : la correlation par titre de session (`EARTHCOACH ANALYSE` / `EARTHCOACH RESOLUTION`) a ete supprimee, de meme que le repli `attachLatestMarkdown` et le parsing d'un bloc ```earthcoach-result perdu dans le texte (un tel bloc est simplement masque par `stripEarthCoachResultBlocks`).
 
 ## Collecte du contexte (route agregee et micro-cache)
 

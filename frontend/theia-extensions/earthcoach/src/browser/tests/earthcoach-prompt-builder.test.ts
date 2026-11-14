@@ -61,9 +61,15 @@ import { EarthCoachModeTools } from '../earthcoach-mode-tools';
 import { selectEarthCoachDescription } from '../earthcoach-description-selector';
 import {
     EarthCoachResultCaptureService,
-    extractEarthCoachResultBlock,
     stripEarthCoachResultBlocks,
 } from '../earthcoach-result-capture';
+import {
+    buildParams,
+    err,
+    ok,
+    parseArgs,
+    toPositiveInteger,
+} from '../earthcoach-tool-utils';
 import {
     applicableProposalIndexes,
     buildEarthCoachCoverage,
@@ -202,6 +208,46 @@ function testSystemPromptResponseLanguage(): void {
 
     const unknownPrompt = buildEarthCoachSystemPrompt('coach', 'compact', 'xx');
     assert.match(unknownPrompt, /Reponds en francais/);
+}
+
+function testModeBadgeFollowsResponseLanguage(): void {
+    // La ligne de badge est reprise telle quelle dans la conversation: elle
+    // suit la langue choisie dans le dossier, avec l'anglais en repli.
+    const frenchCoach = buildEarthCoachSystemPrompt('coach', 'compact', 'fr');
+    assert.match(frenchCoach, /\*\*Mode EarthCoach : coach\*\* — guide, pas de reponse finale/);
+
+    const englishCoach = buildEarthCoachSystemPrompt('coach', 'compact', 'en');
+    assert.match(englishCoach, /\*\*Mode EarthCoach : coach\*\* — guide, no final answer/);
+    assert.match(englishCoach, /switch to resolver/);
+    assert.doesNotMatch(englishCoach, /pas de reponse finale/);
+    // Le reste des regles de mode reste en francais (instructions modele).
+    assert.match(englishCoach, /Mode courant: coach/);
+
+    const englishResolver = buildEarthCoachSystemPrompt('resolver', 'compact', 'en');
+    assert.match(englishResolver, /synthesis grounded in your data/);
+    assert.match(englishResolver, /back to coach/);
+    assert.doesNotMatch(englishResolver, /synthese fondee sur tes donnees/);
+}
+
+function testSharedToolUtils(): void {
+    assert.deepEqual(parseArgs('{"a": 1}'), { a: 1 });
+    assert.deepEqual(parseArgs('pas du json'), {});
+    const params = buildParams({
+        question: { type: 'string', description: 'Q', required: true },
+        tags: { type: 'array', description: 'T', items: { type: 'string' } },
+        mode: { type: 'string', description: 'M', enum: ['a', 'b'] },
+    }) as unknown as {
+        properties: Record<string, { enum?: string[]; items?: unknown; required?: boolean }>;
+        required: string[];
+    };
+    assert.deepEqual(params.required, ['question']);
+    assert.deepEqual(params.properties.mode.enum, ['a', 'b']);
+    assert.deepEqual(params.properties.tags.items, { type: 'string' });
+    assert.equal(ok({ x: 1 }), '{"success":true,"data":{"x":1}}');
+    assert.equal(err('boom'), '{"success":false,"error":"boom"}');
+    assert.equal(toPositiveInteger('4'), 4);
+    assert.equal(toPositiveInteger(0), undefined);
+    assert.equal(toPositiveInteger('abc'), undefined);
 }
 
 function testReferenceToolShape(): void {
@@ -377,7 +423,10 @@ function testPromptIncludesImageOriginsAndObservations(): void {
     assert.match(prompt, /\[user_observation\] obs-1/);
     assert.match(prompt, /\[educational_reference\] ref-1/);
     assert.match(prompt, /note #7/);
-    assert.match(prompt, /Mode: coach/);
+    assert.match(prompt, /--- ACTION DEMANDEE ---/);
+    // Le mode n'est plus fige dans le prompt utilisateur: earthcoach_set_mode
+    // peut le changer ensuite pour les messages suivants.
+    assert.doesNotMatch(prompt, /Mode: (coach|resolver)/);
 }
 
 function testPromptHonorsCompactVerbosity(): void {
@@ -676,7 +725,7 @@ function testResolverInstructionDoesNotPretendTerrain(): void {
         images: [],
     });
 
-    assert.match(prompt, /Mode: resolver/);
+    assert.doesNotMatch(prompt, /Mode: (coach|resolver)/);
     assert.match(prompt, /sans inventer le terrain/);
     assert.match(prompt, /Aucune observation personnelle/);
 }
@@ -1529,12 +1578,10 @@ function testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity(): void {
     assert.doesNotMatch(prompt, /supplementaire\(s\) non inclus/);
 }
 
-function testEarthCoachResultFallbackBlock(): void {
+function testStripEarthCoachResultBlocks(): void {
+    // Aucun prompt n'emet plus de bloc ```earthcoach-result; un bloc perdu
+    // dans une reponse est simplement masque, jamais reinterprete.
     const response = 'Texte utile\n```earthcoach-result\n{"request_id":"req-1","geocache_id":7,"action":"resolve","proposals":[]}\n```';
-    const parsed = extractEarthCoachResultBlock(response);
-    assert.equal(parsed?.request_id, 'req-1');
-    assert.equal(parsed?.geocache_id, 7);
-    assert.equal(parsed?.action, 'resolve');
     assert.equal(stripEarthCoachResultBlocks(response), 'Texte utile');
 }
 
@@ -1809,6 +1856,16 @@ async function testResultCaptureAttachesMarkdownToItsOwnRequest(): Promise<void>
     assert.equal(captured[0].geocacheId, 1);
 
     await assert.rejects(() => service.attachMarkdown('req-inconnue', 'x'));
+}
+
+function testCaptureHasRequest(): void {
+    // L'observateur ne rattache que les reponses dont le requestId a ete
+    // enregistre par un dossier avant l'envoi: plus de filtrage par titre.
+    const service = new EarthCoachResultCaptureService();
+    service.register({ ...preparedRequestFixture('resolve'), requestId: 'req-77' });
+    assert.equal(service.hasRequest('req-77'), true);
+    assert.equal(service.hasRequest('req-autre'), false);
+    assert.equal(service.hasRequest(undefined), false);
 }
 
 async function testCaptureMarksCapturedRequestIds(): Promise<void> {
@@ -2204,6 +2261,8 @@ async function testContextCacheDropsRequestsStartedBeforeAMutation(): Promise<vo
 async function run(): Promise<void> {
     testSystemPromptModes();
     testSystemPromptResponseLanguage();
+    testModeBadgeFollowsResponseLanguage();
+    testSharedToolUtils();
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
@@ -2218,12 +2277,13 @@ async function run(): Promise<void> {
     testExtractActionReadsFullListingInCompact();
     testPromptMarksTasksRequiringPhoto();
     testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
-    testEarthCoachResultFallbackBlock();
+    testStripEarthCoachResultBlocks();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();
     testWorkspaceSelectionValidation();
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
     await testResultCaptureAttachesMarkdownToItsOwnRequest();
+    testCaptureHasRequest();
     await testCaptureMarksCapturedRequestIds();
     await testPreparedImagesDetectUndecodableBlob();
     await testCaptureSnapshotCorrectedOnTransmissionFailure();

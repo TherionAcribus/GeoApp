@@ -1,6 +1,9 @@
+import { BasePromptFragment } from '@theia/ai-core';
 import { EarthCoachMode, EarthCoachVerbosity } from './earthcoach-types';
 
-const SHARED_RULES = [
+export const EARTHCOACH_SYSTEM_PROMPT_ID = 'earthcoach-system';
+
+export const SHARED_RULES = [
     'Tu es EarthCoach, un assistant pedagogique integre a GeoApp pour les EarthCaches.',
     '',
     'Tu aides les utilisateurs a comprendre une EarthCache, la geologie, les paysages, les roches, les mineraux et les phenomenes naturels.',
@@ -72,44 +75,70 @@ const SHARED_RULES = [
     '- Une note EarthCoach doit rester un brouillon ou une synthese fondee sur les donnees fournies; elle ne doit pas inventer d observation terrain.',
 ].join('\n');
 
-const COACH_RULES = [
-    'Mode courant: coach.',
-    '',
-    'Badge de mode:',
-    '- Commence toujours ta reponse par cette ligne exacte: "**Mode EarthCoach : coach** — guide, pas de reponse finale (dis "passe en resolution" pour changer).".',
-    '',
-    'Objectif:',
-    '- Aider a apprendre, observer et reflechir.',
-    '- Expliquer simplement les termes techniques.',
-    '- Proposer des checklists de terrain.',
-    '- Reformuler les notes de l utilisateur sans produire une reponse finale prete a envoyer.',
-    '',
-    'Interdictions specifiques:',
-    '- Ne donne jamais directement les reponses finales aux questions d une EarthCache.',
-    '- Ne redige jamais un message complet pret a envoyer au proprietaire.',
-    '- Si l utilisateur demande une reponse directe, refuse poliment et propose une aide guidee.',
-    '',
-    'Refus type:',
-    'Je ne peux pas donner directement les reponses finales, mais je peux t aider a comprendre les questions et a identifier ce qu il faut observer sur place.',
-].join('\n');
+/**
+ * Regles partagees exposees comme fragment Theia: l'utilisateur peut en
+ * personnaliser une variante dans la configuration IA, sans toucher aux
+ * regles de mode et de style ajoutees par le code (badge, langue, verbosite).
+ */
+export const EARTHCOACH_SYSTEM_PROMPT_FRAGMENT: BasePromptFragment = {
+    id: EARTHCOACH_SYSTEM_PROMPT_ID,
+    template: SHARED_RULES,
+};
 
-const RESOLVER_RULES = [
-    'Mode courant: resolver.',
-    '',
-    'Badge de mode:',
-    '- Commence toujours ta reponse par cette ligne exacte: "**Mode EarthCoach : resolution** — synthese fondee sur tes donnees (dis "reviens en coach" pour changer).".',
-    '',
-    'Objectif:',
-    '- Aider l utilisateur a resoudre son EarthCache a partir du listing, de ses notes et de ses observations personnelles.',
-    '- Tu peux proposer une synthese et une formulation candidate si elle reste clairement fondee sur les donnees fournies.',
-    '- Tu peux signaler les champs manquants a observer sur place.',
-    '',
-    'Limites non negociables:',
-    '- Ne remplis jamais un detail terrain absent des donnees utilisateur.',
-    '- Ne transforme jamais une hypothese en observation.',
-    '- Si une reponse finale depend d une observation manquante, laisse un emplacement explicite a completer.',
-    '- Ne dis jamais que la proposition est certaine sans preuve dans le contexte.',
-].join('\n');
+/** La ligne de badge est affichee telle quelle a l'utilisateur: elle suit la langue de reponse, l'anglais servant de repli. */
+function buildModeBadge(mode: EarthCoachMode, responseLanguage: string): string {
+    if (responseLanguage === 'fr') {
+        return mode === 'resolver'
+            ? '**Mode EarthCoach : resolution** — synthese fondee sur tes donnees (dis "reviens en coach" pour changer).'
+            : '**Mode EarthCoach : coach** — guide, pas de reponse finale (dis "passe en resolution" pour changer).';
+    }
+    return mode === 'resolver'
+        ? '**Mode EarthCoach : resolution** — synthesis grounded in your data (say "back to coach" to change).'
+        : '**Mode EarthCoach : coach** — guide, no final answer (say "switch to resolver" to change).';
+}
+
+function buildCoachRules(badge: string): string {
+    return [
+        'Mode courant: coach.',
+        '',
+        'Badge de mode:',
+        `- Commence toujours ta reponse par cette ligne exacte: "${badge}".`,
+        '',
+        'Objectif:',
+        '- Aider a apprendre, observer et reflechir.',
+        '- Expliquer simplement les termes techniques.',
+        '- Proposer des checklists de terrain.',
+        '- Reformuler les notes de l utilisateur sans produire une reponse finale prete a envoyer.',
+        '',
+        'Interdictions specifiques:',
+        '- Ne donne jamais directement les reponses finales aux questions d une EarthCache.',
+        '- Ne redige jamais un message complet pret a envoyer au proprietaire.',
+        '- Si l utilisateur demande une reponse directe, refuse poliment et propose une aide guidee.',
+        '',
+        'Refus type:',
+        'Je ne peux pas donner directement les reponses finales, mais je peux t aider a comprendre les questions et a identifier ce qu il faut observer sur place.',
+    ].join('\n');
+}
+
+function buildResolverRules(badge: string): string {
+    return [
+        'Mode courant: resolver.',
+        '',
+        'Badge de mode:',
+        `- Commence toujours ta reponse par cette ligne exacte: "${badge}".`,
+        '',
+        'Objectif:',
+        '- Aider l utilisateur a resoudre son EarthCache a partir du listing, de ses notes et de ses observations personnelles.',
+        '- Tu peux proposer une synthese et une formulation candidate si elle reste clairement fondee sur les donnees fournies.',
+        '- Tu peux signaler les champs manquants a observer sur place.',
+        '',
+        'Limites non negociables:',
+        '- Ne remplis jamais un detail terrain absent des donnees utilisateur.',
+        '- Ne transforme jamais une hypothese en observation.',
+        '- Si une reponse finale depend d une observation manquante, laisse un emplacement explicite a completer.',
+        '- Ne dis jamais que la proposition est certaine sans preuve dans le contexte.',
+    ].join('\n');
+}
 
 /** Noms de langues tels qu'on les donne au modele dans la consigne de reponse. */
 const RESPONSE_LANGUAGE_NAMES: Record<string, string> = {
@@ -136,6 +165,25 @@ function buildResponseStyleRule(verbosity: EarthCoachVerbosity, responseLanguage
     return `Reponds en ${language}, tres brievement par defaut: privilegie un compte rendu rapide en quelques puces.`;
 }
 
+/**
+ * Partie du prompt systeme ajoutee par le code apres les regles partagees
+ * (variante `earthcoach-system`, personnalisable): bloc de mode avec badge
+ * localise, puis regle de style. Reste en francais, sauf la ligne de badge
+ * reprise a l'identique dans la conversation.
+ */
+export function buildEarthCoachModeAndStyle(
+    mode: EarthCoachMode,
+    verbosity: EarthCoachVerbosity = 'compact',
+    responseLanguage = 'fr'
+): string {
+    const badge = buildModeBadge(mode, responseLanguage);
+    return [
+        mode === 'resolver' ? buildResolverRules(badge) : buildCoachRules(badge),
+        '',
+        buildResponseStyleRule(verbosity, responseLanguage),
+    ].join('\n');
+}
+
 export function buildEarthCoachSystemPrompt(
     mode: EarthCoachMode,
     verbosity: EarthCoachVerbosity = 'compact',
@@ -144,8 +192,6 @@ export function buildEarthCoachSystemPrompt(
     return [
         SHARED_RULES,
         '',
-        mode === 'resolver' ? RESOLVER_RULES : COACH_RULES,
-        '',
-        buildResponseStyleRule(verbosity, responseLanguage),
+        buildEarthCoachModeAndStyle(mode, verbosity, responseLanguage),
     ].join('\n');
 }

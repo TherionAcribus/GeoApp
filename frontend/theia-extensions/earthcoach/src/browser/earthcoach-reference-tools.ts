@@ -3,9 +3,9 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     ToolInvocationRegistry,
     ToolRequest,
-    ToolRequestParameters,
 } from '@theia/ai-core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { buildParams, err, ok, parseArgs } from './earthcoach-tool-utils';
 import {
     EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
     EARTHCOACH_REFERENCES_LANGUAGE_PREF,
@@ -35,37 +35,6 @@ const REFERENCE_SOURCE_ORDER: EarthCoachReferenceSource[] = [
     'geowiki',
     'planet-terre',
 ];
-
-function ok(data: unknown): string {
-    return JSON.stringify({ success: true, data });
-}
-
-function err(message: string): string {
-    return JSON.stringify({ success: false, error: message });
-}
-
-function buildParams(
-    props: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>
-): ToolRequestParameters {
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    for (const [key, value] of Object.entries(props)) {
-        const { required: isRequired, ...rest } = value;
-        properties[key] = rest;
-        if (isRequired) {
-            required.push(key);
-        }
-    }
-    return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
-}
-
-function parseArgs(argString: string): Record<string, unknown> {
-    try {
-        return JSON.parse(argString || '{}') as Record<string, unknown>;
-    } catch {
-        return {};
-    }
-}
 
 // Timeout des appels externes (Wikipedia/Commons): sans borne, une API lente
 // bloque le tool indefiniment pendant une session de chat.

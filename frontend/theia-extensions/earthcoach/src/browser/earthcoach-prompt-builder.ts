@@ -524,13 +524,11 @@ function buildResolverTemplateInstruction(loggingTasks: LoggingTask[], captured:
     if (captured) {
         // Le detail part dans earthcoach_capture_result et s'affiche dans le
         // dossier: le recopier dans le chat doublait les tokens de sortie.
+        // Le contrat des champs (answer, missing, evidence, confidence) n'est
+        // pas repete ici: il vit dans le prompt systeme partage.
         return [
             '--- GABARIT DE RESOLUTION ---',
-            'Le detail question par question passe uniquement par earthcoach_capture_result, une proposition par question:',
-            '- question et question_translation; status ready / partial / missing;',
-            '- answer: uniquement si elle decoule des observations fournies, sinon vide;',
-            '- evidence_ids: ids des observations ou images qui la fondent; confidence high / medium / low selon la qualite des preuves;',
-            '- missing: ce qu il reste a mesurer, observer ou photographier sur place.',
+            'Le detail question par question passe uniquement par earthcoach_capture_result, une proposition par question.',
             ...guardrails,
             coverage,
             'Dans la conversation, ne recopie pas les reponses question par question: le dossier terrain les affiche.',
@@ -641,15 +639,12 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
     if (prepared.unavailableImages.length) {
         lines.push(`Images non transmises (ne jamais affirmer les avoir examinees): ${prepared.unavailableImages.map(image => `${image.id}:${image.reason}`).join('; ')}`);
     }
-    lines.push(
-        'A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.',
-        'Chaque proposition contient task_id, question originale, question_translation dans la langue utilisateur, status ready/partial/missing, answer, evidence_ids, confidence high/medium/low et missing.',
-        'Le champ answer contient uniquement la reponse candidate factuelle. Toute action a effectuer, mesure a relever, photo a prendre ou information absente va exclusivement dans missing et impose un statut partial ou missing.',
-    );
+    // Le contrat des propositions (champs, answer vs missing, JSON invisible)
+    // n'est pas repete ici: il vit dans le prompt systeme partage.
+    lines.push('A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.');
     if (prepared.action !== 'resolve') {
         lines.push('Pour cette analyse, fournis une proposition par question avec status et missing (ce qu il reste a relever sur le terrain), answer vide: le dossier en fait une liste de releves a faire.');
     }
-    lines.push('N affiche jamais le JSON du tool dans la conversation. Le tool suffit pour enregistrer les propositions.');
     return lines;
 }
 
@@ -775,8 +770,9 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         ...(loggingTasksBlock.length ? ['', ...loggingTasksBlock] : []),
         ...(input.preparedRequest ? ['', ...buildPreparedRequestBlock(input)] : []),
         '',
-        '--- MODE EARTHCOACH ---',
-        `Mode: ${input.mode}`,
+        // Pas de ligne "Mode:" figee dans l'historique: earthcoach_set_mode
+        // peut changer le mode courant apres l'envoi de ce prompt.
+        '--- ACTION DEMANDEE ---',
         buildActionInstruction(input.action, input.mode, verbosity, Boolean(input.preparedRequest)),
         ...(input.mode === 'resolver' ? ['', ...buildResolverTemplateInstruction(loggingTasks, Boolean(input.preparedRequest))] : []),
         '',

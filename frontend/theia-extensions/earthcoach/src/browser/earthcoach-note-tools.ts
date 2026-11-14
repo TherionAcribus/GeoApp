@@ -3,43 +3,12 @@ import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     ToolInvocationRegistry,
     ToolRequest,
-    ToolRequestParameters,
 } from '@theia/ai-core';
+import { buildParams, err, ok, parseArgs, toPositiveInteger } from './earthcoach-tool-utils';
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import { GeoAppWidgetEventsService } from 'theia-ide-zones-ext/lib/browser/geoapp-widget-events-service';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
-
-function ok(data: unknown): string {
-    return JSON.stringify({ success: true, data });
-}
-
-function err(message: string): string {
-    return JSON.stringify({ success: false, error: message });
-}
-
-function buildParams(
-    props: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>
-): ToolRequestParameters {
-    const properties: Record<string, unknown> = {};
-    const required: string[] = [];
-    for (const [key, value] of Object.entries(props)) {
-        const { required: isRequired, ...rest } = value;
-        properties[key] = rest;
-        if (isRequired) {
-            required.push(key);
-        }
-    }
-    return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
-}
-
-function parseArgs(argString: string): Record<string, unknown> {
-    try {
-        return JSON.parse(argString || '{}') as Record<string, unknown>;
-    } catch {
-        return {};
-    }
-}
 
 export interface SaveEarthCoachNoteOptions {
     geocacheId: number;
@@ -100,7 +69,7 @@ export class EarthCoachNoteTools implements FrontendApplicationContribution {
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {
-                    const geocacheId = this.toPositiveInteger(args.geocache_id);
+                    const geocacheId = toPositiveInteger(args.geocache_id);
                     if (!geocacheId) {
                         return err('geocache_id is required');
                     }
@@ -147,11 +116,4 @@ export class EarthCoachNoteTools implements FrontendApplicationContribution {
         ].join('\n');
     }
 
-    protected toPositiveInteger(value: unknown): number | undefined {
-        const parsed = typeof value === 'number' ? value : Number(value);
-        if (!Number.isInteger(parsed) || parsed <= 0) {
-            return undefined;
-        }
-        return parsed;
-    }
 }

@@ -61,9 +61,17 @@ export class EarthCoachResultCaptureService {
     }
 
     /**
-     * Vrai quand l'outil de capture (ou un bloc ```earthcoach-result) a deja
-     * enregistre des propositions pour cette requete : un attachement Markdown
-     * seul, sans capture prealable, laisserait le dossier sans propositions.
+     * Vrai quand un dossier prepare a enregistre ce requestId avant l'envoi:
+     * c'est le critere de correlation de l'observateur de fin de reponse.
+     */
+    hasRequest(requestId: string | undefined): boolean {
+        return Boolean(requestId) && this.requests.has(requestId as string);
+    }
+
+    /**
+     * Vrai quand l'outil de capture a deja enregistre des propositions pour
+     * cette requete : un attachement Markdown seul, sans capture prealable,
+     * laisserait le dossier sans propositions.
      */
     wasCaptured(requestId: string | undefined): boolean {
         return Boolean(requestId) && this.capturedRequestIds.has(requestId as string);
@@ -137,24 +145,6 @@ export class EarthCoachResultCaptureService {
         return true;
     }
 
-    /**
-     * Repli pour les evenements anciens qui ne transportent pas encore de
-     * `requestId`. Ne pas l'utiliser pour les nouveaux envois.
-     */
-    async attachLatestMarkdown(markdown: string, sessionId?: string): Promise<EarthCoachResult | undefined> {
-        const requests = Array.from(this.requests.values());
-        const snapshot = requests[requests.length - 1];
-        if (!snapshot || !markdown.trim()) {
-            return undefined;
-        }
-        return this.capture({
-            request_id: snapshot.requestId,
-            geocache_id: snapshot.geocacheId,
-            action: snapshot.action === 'resolve' ? 'resolve' : 'analyze',
-            proposals: [],
-        }, { markdown, sessionId });
-    }
-
     async capture(payload: EarthCoachCapturePayload, options: { markdown?: string; sessionId?: string } = {}): Promise<EarthCoachResult> {
         const snapshot = this.requests.get(payload.request_id);
         if (!snapshot) {
@@ -188,28 +178,6 @@ export class EarthCoachResultCaptureService {
         this.capturedEmitter.fire(result);
         return result;
     }
-}
-
-export function extractEarthCoachResultBlock(markdown: string): EarthCoachCapturePayload | undefined {
-    const pattern = /```earthcoach-result\s*\n([\s\S]*?)\n?```/gi;
-    let latest: EarthCoachCapturePayload | undefined;
-    let match = pattern.exec(markdown || '');
-    while (match) {
-        try {
-            const parsed = JSON.parse(match[1]) as EarthCoachCapturePayload;
-            if (
-                parsed && typeof parsed.request_id === 'string' &&
-                Number.isInteger(parsed.geocache_id) &&
-                (parsed.action === 'analyze' || parsed.action === 'resolve')
-            ) {
-                latest = parsed;
-            }
-        } catch {
-            // Un bloc invalide ne doit pas masquer un éventuel bloc valide suivant.
-        }
-        match = pattern.exec(markdown || '');
-    }
-    return latest;
 }
 
 export function stripEarthCoachResultBlocks(markdown: string): string {
