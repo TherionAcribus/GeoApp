@@ -848,6 +848,8 @@ Ils verifient notamment :
 - resumes purs BRGM (lithologie, feuille, notice) et altitude (denivele, source par point) ;
 - sauvegarde d'une note EarthCoach avec `source: earthcoach`.
 
+Un harnais d'evaluation manuelle du comportement LLM vit dans `frontend/theia-extensions/earthcoach/eval/` (`npm run test:earthcoach:eval`, voir `eval/README.md`). Il joue de vraies conversations multi-tours contre un endpoint OpenAI-compatible local (Ollama par defaut) en reutilisant les vrais builders de prompts et schemas de tools, puis verifie des marqueurs comportementaux : refus guide en mode coach, extraction complete des questions, capture structuree `request_id`/`proposals`, ancrage des reponses sur les observations fournies, badge de mode et langue de reponse. C'est un lancement manuel opt-in qui exige `EARTHCOACH_EVAL_MODEL` et un modele compatible tool calling : il n'est jamais branche a `npm test` ni aux builds, et ses assertions restent des evals (echecs = ecarts nets, avertissements = soupcons a verifier).
+
 Tests backend des proxies geo :
 
 ```bash
