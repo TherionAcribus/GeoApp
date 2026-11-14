@@ -23,43 +23,20 @@ interface EarthCoachPromptLimits {
     images: number;
 }
 
-const PROMPT_LIMITS_BY_VERBOSITY: Record<EarthCoachVerbosity, EarthCoachPromptLimits> = {
-    compact: {
-        description: 900,
-        hints: 350,
-        waypointNote: 120,
-        note: 450,
-        observation: 450,
-        loggingTaskText: 300,
-        waypoints: 5,
-        observations: 5,
-        loggingTasks: 10,
-        images: 6,
-    },
-    normal: {
-        description: 1800,
-        hints: 700,
-        waypointNote: 180,
-        note: 800,
-        observation: 800,
-        loggingTaskText: 500,
-        waypoints: 8,
-        observations: 8,
-        loggingTasks: 15,
-        images: 10,
-    },
-    detailed: {
-        description: 3200,
-        hints: 1200,
-        waypointNote: 260,
-        note: 1200,
-        observation: 1200,
-        loggingTaskText: 800,
-        waypoints: 12,
-        observations: 12,
-        loggingTasks: 25,
-        images: 12,
-    },
+// Budget de contexte unique, decouple de la verbosite de reponse: meme en
+// mode compact, le modele doit lire le listing complet; seul le style de
+// sortie change (cf. buildVerbosityInstruction / buildActionInstruction).
+const CONTEXT_LIMITS: EarthCoachPromptLimits = {
+    description: 3200,
+    hints: 1200,
+    waypointNote: 260,
+    note: 1200,
+    observation: 1200,
+    loggingTaskText: 800,
+    waypoints: 12,
+    observations: 12,
+    loggingTasks: 25,
+    images: 12,
 };
 
 const LOGGING_TASK_STATUS_LABELS: Record<LoggingTask['status'], string> = {
@@ -731,7 +708,8 @@ function buildVerbosityInstruction(verbosity: EarthCoachVerbosity): string[] {
 
 export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
     const verbosity = normalizeVerbosity(input.verbosity);
-    const baseLimits = PROMPT_LIMITS_BY_VERBOSITY[verbosity];
+    // Le budget de contexte ne suit plus la verbosite de reponse: en compact,
+    // le modele lit quand meme le listing complet; seul le style est compact.
     // extract_logging_tasks aussi: le modele ne peut lister que ce qu'il lit,
     // un extrait borne en mode compact produisait une liste de questions
     // incomplete (audit: 5 questions sur 15 conservees).
@@ -739,7 +717,7 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         || input.action === 'resolve'
         || input.action === 'extract_logging_tasks';
     const limits: EarthCoachPromptLimits = evidenceAction ? {
-        ...baseLimits,
+        ...CONTEXT_LIMITS,
         description: Number.MAX_SAFE_INTEGER,
         hints: Number.MAX_SAFE_INTEGER,
         waypointNote: Number.MAX_SAFE_INTEGER,
@@ -750,7 +728,7 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         observations: Number.MAX_SAFE_INTEGER,
         loggingTasks: Number.MAX_SAFE_INTEGER,
         images: Number.MAX_SAFE_INTEGER,
-    } : baseLimits;
+    } : CONTEXT_LIMITS;
     const data = input.geocache;
     const loggingTasks = input.loggingTasks || [];
     const descriptionExcerpt = buildEarthCoachDescriptionExcerpt(

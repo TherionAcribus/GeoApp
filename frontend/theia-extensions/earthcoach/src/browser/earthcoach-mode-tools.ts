@@ -6,6 +6,7 @@ import {
     ToolRequestParameters,
 } from '@theia/ai-core';
 import { ChatService } from '@theia/ai-chat';
+import { ChatToolContext } from '@theia/ai-chat/lib/common/chat-tool-request-service';
 import { EarthCoachMode } from './earthcoach-types';
 import {
     applyEarthCoachModeToSettings,
@@ -77,20 +78,23 @@ export class EarthCoachModeTools implements FrontendApplicationContribution {
             id: EarthCoachModeTools.SET_MODE_TOOL_ID,
             name: 'earthcoach_set_mode',
             description: [
-                'Change le mode EarthCoach de la session de chat active (coach <-> resolver) quand l utilisateur le demande.',
+                'Change le mode EarthCoach de la session de chat courante (coach <-> resolver) quand l utilisateur le demande.',
                 'Le nouveau mode s applique a partir du prochain message.',
                 'N appelle ce tool que sur demande explicite de changement de mode.',
             ].join(' '),
             providerName: PROVIDER_NAME,
             parameters,
-            handler: async (argString: string) => {
+            handler: async (argString: string, ctx?: unknown) => {
                 const args = parseArgs(argString);
                 const mode = normalizeEarthCoachMode(args.mode);
                 if (!mode) {
                     return err('mode must be "coach" or "resolver"');
                 }
                 try {
-                    this.applyMode(mode);
+                    // Le contexte transporte la session a l'origine de la requete,
+                    // contrairement a getActiveSession() qui derive quand
+                    // l'utilisateur change d'onglet pendant l'appel du LLM.
+                    this.applyMode(mode, ChatToolContext.is(ctx) ? ctx.request.session : undefined);
                     return ok({
                         mode,
                         label: EARTHCOACH_MODE_LABELS[mode],
@@ -103,12 +107,15 @@ export class EarthCoachModeTools implements FrontendApplicationContribution {
         };
     }
 
-    protected applyMode(mode: EarthCoachMode): void {
-        if (!this.chatService) {
-            throw new Error('Service de chat indisponible pour changer de mode.');
+    protected applyMode(mode: EarthCoachMode, sessionModel?: SessionModelWithSettings): void {
+        let model = sessionModel;
+        if (!model) {
+            if (!this.chatService) {
+                throw new Error('Service de chat indisponible pour changer de mode.');
+            }
+            // Repli hors contexte chat: la session active reste la meilleure cible.
+            model = this.chatService.getActiveSession()?.model as SessionModelWithSettings | undefined;
         }
-        const session = this.chatService.getActiveSession();
-        const model = session?.model as SessionModelWithSettings | undefined;
         if (!model || typeof model.setSettings !== 'function') {
             throw new Error('Aucune session de chat active a mettre a jour.');
         }

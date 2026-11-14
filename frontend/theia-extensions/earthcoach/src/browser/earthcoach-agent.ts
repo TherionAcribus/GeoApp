@@ -1,20 +1,15 @@
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import {
     AgentService,
     AIVariableContext,
-    LanguageModel,
     LanguageModelRequirement,
-    LanguageModelResponse,
-    ToolRequest,
 } from '@theia/ai-core';
 import {
     AbstractStreamParsingChatAgent,
     ChatSessionContext,
     SystemMessageDescription,
 } from '@theia/ai-chat/lib/common/chat-agents';
-import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
-import { LanguageModelMessage } from '@theia/ai-core/lib/common/language-model';
 import { EarthCoachAgentId, EarthCoachMode, EarthCoachVerbosity } from './earthcoach-types';
 import { buildEarthCoachSystemPrompt } from './earthcoach-prompts';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
@@ -72,16 +67,14 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachResultTools)
     protected readonly resultTools!: EarthCoachResultTools;
 
-    protected override async sendLlmRequest(
-        request: MutableChatRequestModel,
-        messages: LanguageModelMessage[],
-        toolRequests: ToolRequest[],
-        deferredToolIds: string[] | undefined,
-        languageModel: LanguageModel,
-        promptVariantId?: string,
-        isPromptVariantCustomized?: boolean
-    ): Promise<LanguageModelResponse> {
-        const earthCoachTools = [
+    // Les tools sont pousses dans additionalToolRequests: Theia les garantit a
+    // chaque requete et les enveloppe via ChatToolRequestService, ce qui donne
+    // a leurs handlers le contexte chat (session + annulation). L'injection
+    // dans sendLlmRequest contournait ce contexte.
+    @postConstruct()
+    override init(): void {
+        super.init();
+        this.additionalToolRequests.push(
             ...this.referenceTools.buildAllTools(),
             ...this.noteTools.buildAllTools(),
             ...this.loggingTaskTools.buildAllTools(),
@@ -89,18 +82,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
             ...this.geologyTools.buildAllTools(),
             ...this.elevationTools.buildAllTools(),
             ...this.modeTools.buildAllTools(),
-            ...this.resultTools.buildAllTools(),
-        ];
-        const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));
-        const nonEarthCoachTools = toolRequests.filter(tool => !earthCoachToolIds.has(tool.id));
-        return super.sendLlmRequest(
-            request,
-            messages,
-            [...nonEarthCoachTools, ...earthCoachTools],
-            deferredToolIds,
-            languageModel,
-            promptVariantId,
-            isPromptVariantCustomized
+            ...this.resultTools.buildAllTools()
         );
     }
 

@@ -400,7 +400,9 @@ function testPromptHonorsCompactVerbosity(): void {
     assert.match(prompt, /Verbosite: compact/);
     assert.match(prompt, /compte rendu rapide du listing/);
     assert.match(prompt, /5 puces maximum/);
-    assert.ok(prompt.length < longDescription.length);
+    // La verbosite ne borne plus le contexte: le listing tient dans le budget
+    // de contexte unique (extrait), seul le style de reponse est compact.
+    assert.match(prompt, /Description du listing \(extrait/);
 }
 
 function testPromptIncludesStructuredObservationMetadata(): void {
@@ -1194,6 +1196,28 @@ function testApplyEarthCoachModeToSettings(): void {
     assert.equal(readEarthCoachModeFromSettings({}), 'coach');
 }
 
+async function testSetModeToolTargetsRequestSession(): Promise<void> {
+    // Le handler ecrit dans la session portee par le contexte de l'appel, pas
+    // dans getActiveSession() qui peut avoir change pendant la requete LLM.
+    const tools = new EarthCoachModeTools();
+    const tool = tools.buildAllTools()[0];
+    let applied: Record<string, unknown> | undefined;
+    const fakeModel = {
+        settings: { commonSettings: { geoapp: { earthcoachMode: 'coach' } } },
+        setSettings: (settings: Record<string, unknown>) => { applied = settings; },
+    };
+    const result = await tool.handler(
+        JSON.stringify({ mode: 'resolver' }),
+        { request: { session: fakeModel }, response: {} } as never
+    );
+
+    assert.equal((JSON.parse(result as string) as { success: boolean }).success, true);
+    const geoapp = (applied?.commonSettings as { geoapp?: { earthcoachMode?: string } } | undefined)?.geoapp;
+    assert.equal(geoapp?.earthcoachMode, 'resolver');
+    // Le mode precedent et le reste des settings sont preserves.
+    assert.equal(readEarthCoachModeFromSettings(applied), 'resolver');
+}
+
 function testQuickActionIconsAreConsistent(): void {
     const emojiPattern = /[\u{1F300}-\u{1FAFF}\u{2B00}-\u{2BFF}]/u;
     const picks = buildQuickActionPicks();
@@ -1331,7 +1355,9 @@ function testPromptRequiresExplicitLoggingTaskExtractionWhenMissing(): void {
         images: [],
     });
 
-    assert.match(promptWithoutTasks, /extrait cible/);
+    // Le budget de contexte ne depend plus de la verbosite: le listing arrive
+    // complet meme en compact, les questions du proprietaire restent visibles.
+    assert.match(promptWithoutTasks, /Description du listing \(integrale\)/);
     assert.match(promptWithoutTasks, /Quelle est la couleur dominante/);
     assert.match(promptWithoutTasks, /Aucune question n est encore enregistree dans GeoApp/);
     assert.match(promptWithoutTasks, /Ne les extrais pas automatiquement/);
@@ -2210,6 +2236,7 @@ async function run(): Promise<void> {
     testModeToolShape();
     testNormalizeEarthCoachMode();
     testApplyEarthCoachModeToSettings();
+    await testSetModeToolTargetsRequestSession();
     testQuickActionIconsAreConsistent();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();

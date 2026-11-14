@@ -53,7 +53,7 @@ Fichiers principaux :
 | `earthcoach-elevation-service.ts` | Client frontend du proxy altimetrie (`/api/earthcoach/elevation`). |
 | `earthcoach-elevation-tools.ts` | Tool `earthcoach_elevation_at_point` (altitude et denivele). |
 | `earthcoach-mode.ts` | Helpers purs du mode: normalisation, lecture et mise a jour des settings de session. |
-| `earthcoach-mode-tools.ts` | Tool `earthcoach_set_mode` (bascule coach <-> resolver de la session active). |
+| `earthcoach-mode-tools.ts` | Tool `earthcoach_set_mode` (bascule coach <-> resolver de la session a l'origine de la requete). |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -91,26 +91,35 @@ readonly name = '@EarthCoach';
 
 L'agent herite de `AbstractStreamParsingChatAgent`.
 
-Il expose les tools EarthCoach a chaque requete via `sendLlmRequest()` :
+Il expose les tools EarthCoach a chaque requete via `additionalToolRequests`, peuple dans `init()` :
 
 - `earthcoach_search_reference`
 - `earthcoach_save_note`
 - `earthcoach_extract_logging_tasks`
 - `earthcoach_calculate`
 - `earthcoach_geology_at_point`
+- `earthcoach_geology_france`
+- `earthcoach_elevation_at_point`
 - `earthcoach_set_mode`
+- `earthcoach_capture_result`
 
-La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis ajoute les instances reconstruites par les managers :
+Theia enveloppe ces tools via `ChatToolRequestService` a chaque invocation : leurs handlers recoivent un `ChatToolContext` (requete, session, annulation). Injecte ainsi, `earthcoach_set_mode` sait quelle session a emis la requete meme si l'utilisateur a change d'onglet entre-temps.
 
 ```ts
-const earthCoachTools = [
-    ...this.referenceTools.buildAllTools(),
-    ...this.noteTools.buildAllTools(),
-    ...this.loggingTaskTools.buildAllTools(),
-    ...this.geoCalculatorTools.buildAllTools(),
-    ...this.geologyTools.buildAllTools(),
-    ...this.modeTools.buildAllTools(),
-];
+@postConstruct()
+override init(): void {
+    super.init();
+    this.additionalToolRequests.push(
+        ...this.referenceTools.buildAllTools(),
+        ...this.noteTools.buildAllTools(),
+        ...this.loggingTaskTools.buildAllTools(),
+        ...this.geoCalculatorTools.buildAllTools(),
+        ...this.geologyTools.buildAllTools(),
+        ...this.elevationTools.buildAllTools(),
+        ...this.modeTools.buildAllTools(),
+        ...this.resultTools.buildAllTools()
+    );
+}
 ```
 
 ## Modes
@@ -146,7 +155,7 @@ Le mode courant est rendu visible de deux facons :
 - le **titre de session** encode deja le mode (`EARTHCOACH - <gc>` vs `EARTHCOACH RESOLUTION - <gc>`) ;
 - le prompt systeme impose a l'agent de **commencer chaque reponse par une ligne de badge** (`**Mode EarthCoach : coach**` ou `**Mode EarthCoach : resolution**`) qui rappelle aussi comment changer.
 
-Pour **basculer sans repasser par le QuickPick**, l'utilisateur formule sa demande en langage naturel ("passe en resolution", "reviens en coach"). L'agent appelle alors le tool `earthcoach_set_mode` (`earthcoach-mode-tools.ts`), qui met a jour `commonSettings.geoapp.earthcoachMode` de la **session de chat active** via `ChatService.getActiveSession()` puis `session.model.setSettings(...)` (helper pur `applyEarthCoachModeToSettings`). Le nouveau mode est lu par `readMode()` (via `readEarthCoachModeFromSettings`) et s'applique **au message suivant**.
+Pour **basculer sans repasser par le QuickPick**, l'utilisateur formule sa demande en langage naturel ("passe en resolution", "reviens en coach"). L'agent appelle alors le tool `earthcoach_set_mode` (`earthcoach-mode-tools.ts`), qui met a jour `commonSettings.geoapp.earthcoachMode` de la **session a l'origine de la requete** via le `ChatToolContext` recu par son handler (`ctx.request.session.setSettings(...)`, helper pur `applyEarthCoachModeToSettings`) ; hors contexte chat, il retombe sur `ChatService.getActiveSession()`. Le nouveau mode est lu par `readMode()` (via `readEarthCoachModeFromSettings`) et s'applique **au message suivant**.
 
 La verbosite des reponses EarthCoach est aussi transmise par le bridge :
 
