@@ -20,6 +20,8 @@ export class EarthCoachResultCaptureService {
     protected readonly requests = new Map<string, EarthCoachPreparedRequest>();
     /** Requetes de generation de la reponse finale, correlees au resultat source. */
     protected readonly finalRequests = new Map<string, EarthCoachFinalRequest>();
+    /** Requetes dont une capture a effectivement produit des propositions. */
+    protected readonly capturedRequestIds = new Set<string>();
     protected readonly capturedEmitter = new Emitter<EarthCoachResult>();
 
     @inject(EarthCoachWorkspaceService)
@@ -56,6 +58,15 @@ export class EarthCoachResultCaptureService {
 
     isFinalRequest(requestId: string | undefined): boolean {
         return Boolean(requestId) && this.finalRequests.has(requestId as string);
+    }
+
+    /**
+     * Vrai quand l'outil de capture (ou un bloc ```earthcoach-result) a deja
+     * enregistre des propositions pour cette requete : un attachement Markdown
+     * seul, sans capture prealable, laisserait le dossier sans propositions.
+     */
+    wasCaptured(requestId: string | undefined): boolean {
+        return Boolean(requestId) && this.capturedRequestIds.has(requestId as string);
     }
 
     /**
@@ -165,6 +176,15 @@ export class EarthCoachResultCaptureService {
             markdown: options.markdown,
             sessionId: options.sessionId,
         });
+        // Suivi borne comme les autres maps: il distingue en fin de reponse
+        // un dossier avec propositions d'un dossier qui n'a recu que le texte.
+        this.capturedRequestIds.add(payload.request_id);
+        if (this.capturedRequestIds.size > 50) {
+            const oldest = this.capturedRequestIds.keys().next().value;
+            if (oldest) {
+                this.capturedRequestIds.delete(oldest);
+            }
+        }
         this.capturedEmitter.fire(result);
         return result;
     }

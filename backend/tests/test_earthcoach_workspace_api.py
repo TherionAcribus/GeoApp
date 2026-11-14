@@ -490,7 +490,9 @@ def test_result_patch_stores_final_answer(client, seeded):
     assert update.status_code == 200
     assert update.get_json()['result']['final_answer'] == 'Réponse finale relue.'
     # Le PATCH final_answer ne touche ni les propositions ni le markdown.
-    assert update.get_json()['result']['proposals'] == [{'question': 'Q'}]
+    assert update.get_json()['result']['proposals'] == [
+        {'question': 'Q', 'status': 'missing', 'confidence': 'low'},
+    ]
 
 
 def test_result_capture_normalizes_missing_list(client, seeded):
@@ -510,6 +512,55 @@ def test_result_capture_normalizes_missing_list(client, seeded):
     assert create.status_code == 201
     proposal = create.get_json()['result']['proposals'][0]
     assert proposal['missing'] == 'mesurer la hauteur\nprendre une photo'
+
+
+def test_result_capture_normalizes_status_and_confidence(client, seeded):
+    # La capture corrige les valeurs hors contrat du modele plutot que de
+    # rejeter la reponse: statut inconnu -> 'missing', confiance -> 'low'.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-normalized-status',
+            'action': 'resolve',
+            'proposals': [{
+                'task_id': seeded['task_id'],
+                'question': 'Q1',
+                'status': 'done',
+                'confidence': 'certain',
+                'answer': 'Réponse',
+                'question_translation': 42,
+            }],
+        },
+    )
+    assert create.status_code == 201
+    proposal = create.get_json()['result']['proposals'][0]
+    assert proposal['status'] == 'missing'
+    assert proposal['confidence'] == 'low'
+    assert proposal['question'] == 'Q1'
+    # Un champ texte non chaine retombe a None plutot que d'etre stocke brut.
+    assert proposal['question_translation'] is None
+
+
+def test_result_capture_downgrades_ready_without_answer(client, seeded):
+    # Un statut 'ready' sans reponse est incoherent: il devient 'partial' a la
+    # capture pour qu'un apply ne puisse pas reporter une reponse vide.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-ready-without-answer',
+            'action': 'resolve',
+            'proposals': [
+                {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'ready'},
+                {'task_id': seeded['task_id'], 'question': 'Q2', 'status': 'ready', 'answer': '   '},
+                {'task_id': seeded['task_id'], 'question': 'Q3', 'status': 'ready', 'answer': 'Réponse'},
+            ],
+        },
+    )
+    assert create.status_code == 201
+    proposals = create.get_json()['result']['proposals']
+    assert proposals[0]['status'] == 'partial'
+    assert proposals[1]['status'] == 'partial'
+    assert proposals[2]['status'] == 'ready'
 
 
 def test_aggregated_context_contains_workspace(client, seeded):

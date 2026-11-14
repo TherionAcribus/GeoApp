@@ -39,7 +39,15 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         if (!payload) {
             try {
                 if (event.requestId) {
+                    // Lu avant attachMarkdown: l'attachement appelle lui-meme
+                    // capture() et marquerait la requete comme deja capturee.
+                    const captured = this.capture.wasCaptured(event.requestId);
                     await this.capture.attachMarkdown(event.requestId, visibleMarkdown, event.sessionId);
+                    if (!captured) {
+                        // Le modele n'a jamais appele l'outil de capture: le
+                        // dossier a le texte mais aucune proposition structuree.
+                        this.messages.warn('Le dossier EarthCoach a reçu le texte Markdown, mais aucune proposition structurée : vous pouvez demander à l agent de relancer la capture.');
+                    }
                 } else {
                     await this.capture.attachLatestMarkdown(visibleMarkdown, event.sessionId);
                 }

@@ -118,6 +118,7 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                     description: 'true uniquement apres que l utilisateur a accepte le diff presente. Optionnel.',
                 },
             }),
+            confirmAlwaysAllow: 'Remplacer les questions deja enregistrees pour cette EarthCache ?',
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {

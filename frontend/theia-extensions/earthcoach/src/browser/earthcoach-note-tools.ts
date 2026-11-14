@@ -96,6 +96,7 @@ export class EarthCoachNoteTools implements FrontendApplicationContribution {
                     required: false,
                 },
             }),
+            confirmAlwaysAllow: 'Enregistrer cette synthese EarthCoach dans les notes GeoApp ?',
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {

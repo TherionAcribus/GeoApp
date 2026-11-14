@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _GROUP_ROLES = {'overview', 'detail', 'masked', 'original', 'before', 'after', 'other'}
 _ACTIONS = {'analyze', 'resolve'}
 _PROPOSAL_STATES = {'ready', 'partial', 'missing'}
+_PROPOSAL_CONFIDENCES = {'high', 'medium', 'low'}
 
 
 def _optional_text(value: object) -> str | None:
@@ -68,9 +69,31 @@ def _question_key(value: str) -> str:
     return re.sub(r'\s+', ' ', normalized)
 
 
-def _validate_proposals(value: object) -> list[dict]:
+def _normalize_proposal(item: dict) -> None:
+    """Le modele renvoie parfois des statuts ou des types hors contrat: la
+    capture corrige plutot que de perdre la reponse. Le PATCH (corrections
+    humaines) reste strict et ne passe pas par ici."""
+    status = str(item.get('status') or '').strip().lower()
+    if status not in _PROPOSAL_STATES:
+        status = 'missing'
+    # Un statut 'ready' sans reponse est incoherent: on degrade a 'partial'
+    # plutot que d'autoriser un report qui echouerait de toute facon.
+    if status == 'ready' and not _optional_text(item.get('answer')):
+        status = 'partial'
+    item['status'] = status
+    confidence = str(item.get('confidence') or '').strip().lower()
+    item['confidence'] = confidence if confidence in _PROPOSAL_CONFIDENCES else 'low'
+    # Champs texte: les chaines sont nettoyees, tout le reste retombe a None
+    # plutot que de stocker un type que l'UI n'attend pas.
+    for key in ('question', 'answer', 'missing', 'question_translation'):
+        if key in item:
+            item[key] = _optional_text(item[key]) if isinstance(item[key], str) else None
+
+
+def _validate_proposals(value: object, *, normalize: bool = False) -> list[dict]:
     """Une proposition non objet (null, string) passerait sinon en base et
-    casserait l'affichage du dossier terrain."""
+    casserait l'affichage du dossier terrain. Avec `normalize` (capture IA),
+    les champs hors contrat sont corriges plutot que rejetes."""
     if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
         raise ValueError('proposals must be a list of objects')
     # `missing` arrive parfois en liste depuis le modele: on la replie en texte
@@ -79,6 +102,8 @@ def _validate_proposals(value: object) -> list[dict]:
         missing = item.get('missing')
         if isinstance(missing, list):
             item['missing'] = '\n'.join(str(entry) for entry in missing if str(entry).strip()) or None
+        if normalize:
+            _normalize_proposal(item)
     return value
 
 
@@ -439,7 +464,7 @@ def capture_result(geocache_id: int):
             return jsonify({'error': 'request_id is required'}), 400
         if action not in _ACTIONS:
             return jsonify({'error': 'action must be analyze or resolve'}), 400
-        proposals = _validate_proposals(data.get('proposals') or [])
+        proposals = _validate_proposals(data.get('proposals') or [], normalize=True)
         context_snapshot = data.get('context_snapshot') or {}
         if not isinstance(context_snapshot, dict):
             return jsonify({'error': 'context_snapshot must be an object'}), 400

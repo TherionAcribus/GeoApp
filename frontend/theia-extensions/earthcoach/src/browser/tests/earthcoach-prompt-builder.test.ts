@@ -218,6 +218,8 @@ function testNoteToolShape(): void {
     assert.equal(tools[0].id, EarthCoachNoteTools.SAVE_NOTE_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_save_note');
     assert.match(tools[0].description, /source=earthcoach/);
+    // Ecriture dans les notes: la confirmation precede l'autorisation durable.
+    assert.equal(tools[0].confirmAlwaysAllow, 'Enregistrer cette synthese EarthCoach dans les notes GeoApp ?');
 }
 
 class TestNoteTools extends EarthCoachNoteTools {
@@ -839,6 +841,8 @@ function testLoggingTaskToolShape(): void {
     assert.equal(tools[0].id, EarthCoachLoggingTaskTools.EXTRACT_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_extract_logging_tasks');
     assert.match(tools[0].description, /REMPLACE/);
+    // Extraction destructive: la confirmation precede l'autorisation durable.
+    assert.equal(tools[0].confirmAlwaysAllow, 'Remplacer les questions deja enregistrees pour cette EarthCache ?');
 }
 
 function testLoggingTaskInputBuilder(): void {
@@ -1807,6 +1811,36 @@ async function testResultCaptureAttachesMarkdownToItsOwnRequest(): Promise<void>
     await assert.rejects(() => service.attachMarkdown('req-inconnue', 'x'));
 }
 
+async function testCaptureMarksCapturedRequestIds(): Promise<void> {
+    // wasCaptured distingue un dossier avec propositions (outil appele) d'un
+    // dossier qui n'a recu que du Markdown: l'observateur s'en sert pour
+    // prevenir l'utilisateur quand le modele reste muet sur la capture.
+    const service = new EarthCoachResultCaptureService();
+    (service as unknown as { workspaceService: unknown }).workspaceService = {
+        captureResult: async () => ({ id: 1 } as never),
+    };
+    service.register({
+        requestId: 'req-cap',
+        geocacheId: 1,
+        action: 'resolve',
+        preparedAt: '',
+        listing: { language: 'fr', fingerprint: 'x', reliableSeparation: true, html: '', text: '' },
+        observations: [],
+        loggingTasks: [],
+        images: [],
+        groups: [],
+        unavailableImages: [],
+    });
+
+    assert.equal(service.wasCaptured('req-cap'), false);
+    assert.equal(service.wasCaptured('req-inconnue'), false);
+    assert.equal(service.wasCaptured(undefined), false);
+
+    await service.capture({ request_id: 'req-cap', geocache_id: 1, action: 'resolve', proposals: [] });
+    assert.equal(service.wasCaptured('req-cap'), true);
+    assert.equal(service.wasCaptured('req-autre'), false);
+}
+
 async function testPreparedImagesDetectUndecodableBlob(): Promise<void> {
     const image: GeoImage = { id: '7', origin: 'user_observation', fileUri: 'https://example.test/heic.heic' };
     const result = await prepareEarthCoachImagesForTransmission(
@@ -2190,6 +2224,7 @@ async function run(): Promise<void> {
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
     await testResultCaptureAttachesMarkdownToItsOwnRequest();
+    await testCaptureMarksCapturedRequestIds();
     await testPreparedImagesDetectUndecodableBlob();
     await testCaptureSnapshotCorrectedOnTransmissionFailure();
     await testFinalAnswerAttachesToSourceResult();
