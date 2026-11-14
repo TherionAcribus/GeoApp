@@ -571,6 +571,49 @@ async function testBridgeReusesSessionAcrossGeoappEntryPoints(): Promise<void> {
 }
 
 /**
+ * Envoi de dossier EarthCoach : `earthcoachRequestId` force une session neuve
+ * meme si une session existe deja pour la meme annonce et le meme sessionKind.
+ * Sans requestId (ouverture conversationnelle), la reprise reste active.
+ */
+async function testEarthcoachDossierSendForcesNewSession(): Promise<void> {
+    const earthCoachAgent = { id: 'earthcoach', name: '@EarthCoach' };
+    const { bridge, chatService } = createBridge({
+        agents: [earthCoachAgent],
+        preferences: { 'geoApp.chat.defaultProfile': 'fast' },
+        readyAgentIds: ['earthcoach'],
+    });
+
+    const baseDetail = {
+        geocacheId: 42,
+        gcCode: 'GC4242',
+        prompt: 'Dossier d analyse.',
+        workflowKind: 'general',
+        sessionKind: 'earthcoach' as const,
+        preferredAgentId: 'earthcoach',
+    };
+
+    await triggerOpenChat(bridge, { ...baseDetail, earthcoachRequestId: 'req-1' });
+    await triggerOpenChat(bridge, { ...baseDetail, earthcoachRequestId: 'req-2' });
+
+    // Deux envois de dossier sur la meme annonce : deux sessions distinctes.
+    assert.equal(chatService.createCalls.length, 2);
+    assert.equal(chatService.sessions.length, 2);
+    assert.equal(chatService.activeCalls.length, 0);
+    assert.equal(chatService.sentRequests.length, 2);
+    assert.notEqual(chatService.sentRequests[0].id, chatService.sentRequests[1].id);
+
+    // Ouverture conversationnelle sans requestId : la premiere session est reprise.
+    await triggerOpenChat(bridge, baseDetail);
+
+    assert.equal(chatService.createCalls.length, 2);
+    assert.equal(chatService.sessions.length, 2);
+    assert.equal(chatService.activeCalls.length, 1);
+    assert.equal(chatService.activeCalls[0].id, chatService.sessions[0].id);
+    assert.equal(chatService.sentRequests.length, 3);
+    assert.equal(chatService.sentRequests[2].id, chatService.sessions[0].id);
+}
+
+/**
  * Session d'analyse de sortie : ni `geocacheId` ni `gcCode`, donc l'appariement repose
  * entièrement sur le titre. C'est ce qui fait qu'une seconde analyse le même jour reprend
  * la conversation au lieu d'en ouvrir une deuxième.
@@ -816,6 +859,7 @@ async function run(): Promise<void> {
     await testBridgeRemovesSessionMetadataOnDeletedEvent();
     await testBridgeAcceptsGeocacheDetailsPayloadBuilder();
     await testBridgeReusesSessionAcrossGeoappEntryPoints();
+    await testEarthcoachDossierSendForcesNewSession();
     await testOutingSessionIsPinnedAndMatchedByTitle();
     await testLocalProfileAcceptsLocalOllamaModel();
     await testLocalProfileRejectsCloudModelWithoutFallback();

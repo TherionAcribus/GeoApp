@@ -143,7 +143,14 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                 this.messages.warn(`${imagePreparation.failures.length} image(s) n'ont pas pu être transmise(s) au modèle.`);
             }
 
-            const existingSession = this.findExistingSession(detail, baseSessionTitle);
+            // Un envoi de dossier EarthCoach est autocontenu : l'annonce et le
+            // dossier sont retransmis a chaque envoi. Une session neuve evite
+            // les propositions perimees et une croissance sans borne de
+            // l'historique/des jetons. La reutilisation reste reservee aux
+            // ouvertures conversationnelles du coach (sans requestId).
+            const existingSession = detail.earthcoachRequestId?.trim()
+                ? undefined
+                : this.findExistingSession(detail, baseSessionTitle);
             if (existingSession) {
                 const pinnedAgent = this.hasExplicitAgentSelection(detail) || !existingSession.pinnedAgent
                     ? await this.resolveDefaultChatAgent(detail)
