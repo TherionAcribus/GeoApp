@@ -522,3 +522,108 @@ class TestPluginManagerEntryPointCheck:
         assert str(plugin_dir) in errors
         assert 'Point d' in errors[str(plugin_dir)]
         assert 'main.py' in errors[str(plugin_dir)]
+
+
+class TestPluginManagerRelocation:
+    """Tests de déplacement d'un plugin : un plugin déplacé (custom -> official
+    ou dossier renommé) doit survivre à une SEULE découverte, en conservant sa
+    ligne DB (id, enabled) et en mettant à jour path/source."""
+
+    def test_moved_plugin_survives_single_discovery(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin déplacé de custom/ vers official/ n'est pas supprimé."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'test_plugin', valid_plugin_json
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='test_plugin').first()
+            plugin_id = plugin.id
+            plugin.enabled = False
+            db.session.commit()
+
+        # Déplacer le dossier vers official/
+        new_dir = temp_plugins_dir / 'official' / 'test_plugin'
+        shutil.move(str(plugin_dir), str(new_dir))
+
+        # Une seule découverte doit suffire
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='test_plugin').first()
+            assert plugin is not None
+            assert plugin.id == plugin_id
+            assert plugin.path == str(new_dir)
+            assert plugin.source == 'official'
+            assert plugin.enabled is False
+
+    def test_renamed_plugin_dir_survives_single_discovery(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un dossier renommé dans custom/ (name inchangé dans plugin.json)
+        n'est pas supprimé."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'test_plugin', valid_plugin_json
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='test_plugin').first()
+            plugin_id = plugin.id
+
+        # Renommer le dossier (le name du plugin.json ne change pas)
+        new_dir = temp_plugins_dir / 'custom' / 'test_plugin_renamed'
+        shutil.move(str(plugin_dir), str(new_dir))
+
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='test_plugin').first()
+            assert plugin is not None
+            assert plugin.id == plugin_id
+            assert plugin.path == str(new_dir)
+            assert plugin.source == 'custom'
+
+    def test_moved_plugin_is_unloaded_and_reloads_from_new_path(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin chargé puis déplacé est déchargé à la découverte, puis
+        rechargé depuis son nouvel emplacement au prochain get_plugin."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'test_plugin', valid_plugin_json
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        wrapper = manager.get_plugin('test_plugin')
+        assert wrapper is not None
+        assert 'test_plugin' in manager.loaded_plugins
+
+        new_dir = temp_plugins_dir / 'official' / 'test_plugin'
+        shutil.move(str(plugin_dir), str(new_dir))
+
+        manager.discover_plugins()
+
+        # Le wrapper pointant vers l'ancien dossier a été déchargé
+        assert 'test_plugin' not in manager.loaded_plugins
+
+        # Le prochain get_plugin recharge depuis le nouveau chemin
+        wrapper = manager.get_plugin('test_plugin')
+        assert wrapper is not None
+        assert wrapper.metadata.path == str(new_dir)
+
+        result = manager.execute_plugin('test_plugin', {})
+        assert result['status'] == 'ok'

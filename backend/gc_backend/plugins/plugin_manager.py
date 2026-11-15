@@ -346,11 +346,23 @@ class PluginManager:
                     pass
 
             existing_hash = existing_metadata.get('_hash', '')
-            if current_hash and current_hash == existing_hash:
+            path_changed = existing.path != plugin_info['path']
+            if (
+                current_hash and current_hash == existing_hash
+                and not path_changed
+                and existing.source == plugin_info['source']
+            ):
                 logger.debug(
                     f"Plugin {plugin_info['name']} inchangé (hash identique)"
                 )
                 return False
+
+            if path_changed:
+                logger.info(
+                    f"Plugin {plugin_info['name']} déplacé: "
+                    f"{existing.path} -> {plugin_info['path']}"
+                )
+                self.unload_plugin(plugin_info['name'])
 
             logger.info(
                 f"Mise à jour plugin {plugin_info['name']} "
