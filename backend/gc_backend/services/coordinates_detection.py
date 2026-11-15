@@ -152,21 +152,6 @@ def _is_valid_degrees_minutes(lat_deg: int, lat_min: float, lon_deg: int, lon_mi
         return False
 
 
-def _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec) -> bool:
-    """Valide des composantes deg/min/millièmes séparées (min et sec/millièmes).
-
-    Reconstitue les minutes décimales (``min.sec``) puis délègue à
-    ``_is_valid_degrees_minutes``. Retourne False sur toute entrée non numérique.
-    """
-    try:
-        return _is_valid_degrees_minutes(
-            int(lat_deg), float(f"{lat_min}.{lat_sec}"),
-            int(lon_deg), float(f"{lon_min}.{lon_sec}"),
-        )
-    except (TypeError, ValueError):
-        return False
-
-
 def _format_ddm_minutes(min_str: str) -> str:
     """Normalise une chaîne de minutes en ``MM.ddd`` (format géocaching).
 
@@ -243,6 +228,66 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
     logger.debug('_format_coordinate: Résultat formaté: %s', result)
     return result
 
+
+def _ddm_candidate(span, lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min) -> Optional[Dict]:
+    """Construit un candidat DDM validé, ``None`` si hors bornes ou non numérique.
+
+    Factorise le squelette commun des détecteurs : validation des bornes
+    (``_is_valid_degrees_minutes``) puis formatage canonique ``X DD° MM.ddd'``
+    (degrés zfillés 2/3 chiffres, minutes via ``_format_ddm_minutes``).
+    ``lat_min``/``lon_min`` acceptent str ou float ; la virgule décimale est
+    tolérée. Un float (minutes calculées, p.ex. DMS -> DDM) est arrondi au
+    millième ; une chaîne brute est tronquée/paddée via ``_format_ddm_minutes``.
+    """
+    def _fmt_min(v) -> str:
+        if isinstance(v, float):
+            return f"{v:.3f}"
+        return _format_ddm_minutes(str(v).replace(',', '.'))
+
+    try:
+        lat_min_s = str(lat_min).replace(',', '.')
+        lon_min_s = str(lon_min).replace(',', '.')
+        if not _is_valid_degrees_minutes(
+            int(lat_deg), float(lat_min_s), int(lon_deg), float(lon_min_s)
+        ):
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    ddm_lat = f"{str(lat_dir).upper()} {str(lat_deg).zfill(2)}° {_fmt_min(lat_min)}'"
+    ddm_lon = f"{str(lon_dir).upper()} {str(lon_deg).zfill(3)}° {_fmt_min(lon_min)}'"
+    return {
+        "span": [span[0], span[1]] if span else None,
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+    }
+
+
+def _decimal_candidate(span, lat: float, lon: float, lat_dir: str, lon_dir: str) -> Optional[Dict]:
+    """Construit un candidat depuis des degrés décimaux, ``None`` si hors bornes.
+
+    ``lat_dir``/``lon_dir`` : hémisphères déjà déterminés par l'appelant
+    (lettre cardinale ou signe de la valeur).
+    """
+    if abs(lat) > 90 or abs(lon) > 180:
+        return None
+
+    lat_deg, lat_min = _decimal_to_ddm(lat)
+    lon_deg, lon_min = _decimal_to_ddm(lon)
+    ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
+    ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
+    return {
+        "span": [span[0], span[1]] if span else None,
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+        "decimal_latitude": round(lat, 8),
+        "decimal_longitude": round(lon, 8),
+    }
+
 # ------------------------------------------------------------------------------
 # Détection du format DMM classique (par exemple "N 48° 33.787' E 006° 38.803'")
 # ------------------------------------------------------------------------------
@@ -264,33 +309,12 @@ _DETECT_DMM_REGEX = re.compile(
 
 def _iter_dmm_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
     """Itère tous les candidats DMM valides (un match invalide ne masque plus les suivants)."""
-    logger.debug("_iter_dmm_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('_iter_dmm_coordinates: Regex utilisée: %s', _DETECT_DMM_REGEX)
     for match in _DETECT_DMM_REGEX.finditer(text):
-        logger.debug('_iter_dmm_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
-        # Uniformiser la virgule décimale éventuelle avant conversion/formatage
-        lat_min = lat_min.replace(',', '.')
-        lon_min = lon_min.replace(',', '.')
-        # Normaliser minutes en float pour validation bornes
-        try:
-            lat_min_f = float(lat_min)
-            lon_min_f = float(lon_min)
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_dmm_coordinates: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}'"
-        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}'"
-        logger.debug('_iter_dmm_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min,
+                              lon_dir, lon_deg, lon_min)
+        if cand:
+            yield cand
 
 
 def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -318,34 +342,12 @@ def _iter_tabspace_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
 
     Ce format est plus souple et accepte des variations dans les espaces et la ponctuation.
     """
-    logger.debug("_iter_tabspace_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('_iter_tabspace_coordinates: Regex utilisée: %s', _DETECT_TABSPACE_REGEX)
     for match in _DETECT_TABSPACE_REGEX.finditer(text):
-        logger.debug('_iter_tabspace_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
-
-        # Formatage des coordonnées
-        try:
-            lat_min_f = float(f"{lat_min}.{lat_sec}")
-            lon_min_f = float(f"{lon_min}.{lon_sec}")
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_tabspace_coordinates: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
-
-        logger.debug('_iter_tabspace_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+        if cand:
+            yield cand
 
 
 def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -455,29 +457,12 @@ def _iter_specific_tabpoint_coordinates(text: str) -> Iterator[Dict[str, Optiona
 
     Cette fonction est optimisée pour ce format particulier.
     """
-    logger.debug("_iter_specific_tabpoint_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('_iter_specific_tabpoint_coordinates: Regex utilisée: %s', _DETECT_SPECIFIC_TABPOINT_REGEX)
     for match in _DETECT_SPECIFIC_TABPOINT_REGEX.finditer(text):
-        logger.debug('_iter_specific_tabpoint_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
-
-        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
-            logger.debug("_iter_specific_tabpoint_coordinates: Bornes invalides, candidat suivant")
-            continue
-
-        # Formatage des coordonnées
-        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
-
-        logger.debug('_iter_specific_tabpoint_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+        if cand:
+            yield cand
 
 
 def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -543,22 +528,12 @@ def _iter_simplified_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]
                 lat_deg, lat_min, lat_sec = lat_parts[0], lat_parts[1], lat_parts[2]
                 lon_deg, lon_min, lon_sec = lon_parts[0], lon_parts[1], lon_parts[2]
 
-                if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+                cand = _ddm_candidate(None, lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                                      lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+                if not cand:
                     logger.debug("_iter_simplified_coordinates: Bornes invalides, rejet")
                     return
-
-                # Formatage des coordonnées
-                ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
-                ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
-
-                logger.debug('_iter_simplified_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-                yield {
-                    "exist": True,
-                    "ddm_lat": ddm_lat,
-                    "ddm_lon": ddm_lon,
-                    "ddm": f"{ddm_lat} {ddm_lon}"
-                }
+                yield cand
                 return
 
     logger.debug("_iter_simplified_coordinates: Aucune coordonnée détectée")
@@ -618,23 +593,12 @@ def _iter_flexible_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
             lat_dir, lat_deg, lat_min, lat_sec = lat_match.groups()
             lon_dir, lon_deg, lon_min, lon_sec = lon_match.groups()
 
-            if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
-                logger.debug("_iter_flexible_coordinates: Bornes invalides, paire suivante")
-                continue
-
-            # Formatage des coordonnées (lettres canoniques en majuscules)
-            ddm_lat = f"{lat_dir.upper()} {lat_deg}° {lat_min}.{lat_sec}'"
-            ddm_lon = f"{lon_dir.upper()} {lon_deg}° {lon_min}.{lon_sec}'"
-
-            logger.debug('_iter_flexible_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-            yield {
-                "span": [min(lat_match.start(), lon_match.start()), max(lat_match.end(), lon_match.end())],
-                "exist": True,
-                "ddm_lat": ddm_lat,
-                "ddm_lon": ddm_lon,
-                "ddm": f"{ddm_lat} {ddm_lon}"
-            }
+            span = (min(lat_match.start(), lon_match.start()),
+                    max(lat_match.end(), lon_match.end()))
+            cand = _ddm_candidate(span, lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                                  lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+            if cand:
+                yield cand
 
 
 def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -664,26 +628,11 @@ def _iter_nord_est_format(text: str) -> Iterator[Dict[str, Optional[str]]]:
     logger.debug("_iter_nord_est_format: Analyse du texte: '%s'", text)
     logger.debug('_iter_nord_est_format: Regex utilisée: %s', _DETECT_NORD_EST_REGEX)
     for match in _DETECT_NORD_EST_REGEX.finditer(text):
-        logger.debug('_iter_nord_est_format: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
-
-        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
-            logger.debug("_iter_nord_est_format: Bornes invalides, candidat suivant")
-            continue
-
-        # Formatage des coordonnées
-        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
-        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
-
-        logger.debug('_iter_nord_est_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+        if cand:
+            yield cand
 
 
 def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -749,23 +698,12 @@ def _iter_nord_est_variations(text: str) -> Iterator[Dict[str, Optional[str]]]:
             lat_dir, lat_deg, lat_min, lat_sec = nord_match.groups()
             lon_dir, lon_deg, lon_min, lon_sec = est_match.groups()
 
-            if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
-                logger.debug("_iter_nord_est_variations: Bornes invalides, paire suivante")
-                continue
-
-            # Formatage des coordonnées
-            ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
-            ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
-
-            logger.debug('_iter_nord_est_variations: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-            yield {
-                "span": [min(nord_match.start(), est_match.start()), max(nord_match.end(), est_match.end())],
-                "exist": True,
-                "ddm_lat": ddm_lat,
-                "ddm_lon": ddm_lon,
-                "ddm": f"{ddm_lat} {ddm_lon}"
-            }
+            span = (min(nord_match.start(), est_match.start()),
+                    max(nord_match.end(), est_match.end()))
+            cand = _ddm_candidate(span, lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                                  lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+            if cand:
+                yield cand
 
 
 def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -791,39 +729,21 @@ def _iter_dms_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
 
     Ce format est couramment utilisé dans le géocaching.
     """
-    logger.debug("_iter_dms_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('_iter_dms_coordinates: Regex utilisée: %s', _DETECT_DMS_REGEX)
     for match in _DETECT_DMS_REGEX.finditer(text):
-        logger.debug('_iter_dms_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
 
-        # Convertir DMS en DDM (la virgule décimale éventuelle est acceptée
-        # par le pattern : « 51' 24,5" » vaut 24.5 secondes)
+        # Convertir DMS en DDM : secondes -> minutes décimales (la virgule est
+        # acceptée par le pattern : « 51' 24,5" » vaut 24.5 secondes).
         try:
-            lat_min_decimal = int(lat_min) + float(lat_sec.replace(',', '.')) / 60
-            lon_min_decimal = int(lon_min) + float(lon_sec.replace(',', '.')) / 60
-            # Valider les bornes (degrés + minutes reconstituées), comme les autres
-            # détecteurs. Rejette p.ex. secondes >= 60 (=> minutes >= 60) ou degrés
-            # hors plage.
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_decimal, int(lon_deg), lon_min_decimal):
-                logger.debug("_iter_dms_coordinates: Bornes invalides, candidat suivant")
-                continue
+            lat_min_dec = int(lat_min) + float(lat_sec.replace(',', '.')) / 60
+            lon_min_dec = int(lon_min) + float(lon_sec.replace(',', '.')) / 60
         except (TypeError, ValueError):
             continue
 
-        # Formatage des coordonnées
-        ddm_lat = f"{lat_dir} {lat_deg}° {lat_min_decimal:.3f}'"
-        ddm_lon = f"{lon_dir} {lon_deg}° {lon_min_decimal:.3f}'"
-
-        logger.debug('_iter_dms_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min_dec,
+                              lon_dir, lon_deg, lon_min_dec)
+        if cand:
+            yield cand
 
 
 def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -898,23 +818,11 @@ def _iter_roman_numerals_coordinates(text: str) -> Iterator[Dict[str, Optional[s
 
                 logger.debug('_iter_roman_numerals_coordinates: Conversion - lat: %s %s %s, lon: %s %s %s', lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec)
 
-                if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
-                    logger.debug("_iter_roman_numerals_coordinates: Bornes invalides, candidat suivant")
-                    continue
-
-                # Formatage des coordonnées (lettres canoniques en majuscules)
-                ddm_lat = f"{lat_dir.upper()} {lat_deg}° {lat_min}.{lat_sec}'"
-                ddm_lon = f"{lon_dir.upper()} {lon_deg}° {lon_min}.{lon_sec}'"
-
-                logger.debug('_iter_roman_numerals_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-                yield {
-                    "span": [match.start(), match.end()],
-                    "exist": True,
-                    "ddm_lat": ddm_lat,
-                    "ddm_lon": ddm_lon,
-                    "ddm": f"{ddm_lat} {ddm_lon}"
-                }
+                # Formatage + validation des bornes (lettres canoniques en majuscules)
+                cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_sec}",
+                                      lon_dir, lon_deg, f"{lon_min}.{lon_sec}")
+                if cand:
+                    yield cand
             except Exception as e:
                 logger.debug('_iter_roman_numerals_coordinates: Erreur lors de la conversion: %s', e)
 
@@ -1009,27 +917,10 @@ def _iter_numeric_only(text: str, origin_coords: Optional[Dict[str, str]] = None
                     logger.warning("Erreur lors de l'extraction des directions depuis les coordonnées d'origine: %s", e)
                     # En cas d'erreur, on garde les directions par défaut
 
-            # Validation bornes
-            try:
-                if not _is_valid_degrees_minutes(int(lat_deg), float(f"{lat_min}.{lat_dec}"), int(lon_deg), float(f"{lon_min}.{lon_dec}")):
-                    logger.debug("_iter_numeric_only: Bornes invalides, candidat suivant")
-                    continue
-            except Exception:
-                continue
-
-            # Formatage des coordonnées
-            ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_dec}'"
-            ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_dec}'"
-
-            logger.debug('_iter_numeric_only: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-            yield {
-                "span": [match.start(), match.end()],
-                "exist": True,
-                "ddm_lat": ddm_lat,
-                "ddm_lon": ddm_lon,
-                "ddm": f"{ddm_lat} {ddm_lon}"
-            }
+            cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_dec}",
+                                  lon_dir, lon_deg, f"{lon_min}.{lon_dec}")
+            if cand:
+                yield cand
         except Exception as e:
             logger.exception('_iter_numeric_only: Erreur lors du formatage: %s', e)
 
@@ -1091,27 +982,10 @@ def _iter_compact_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
             lon_min = padded_lon_digits[3:5]
             lon_dec = padded_lon_digits[5:8]
 
-            # Validation bornes
-            try:
-                if not _is_valid_degrees_minutes(int(lat_deg), float(f"{lat_min}.{lat_dec}"), int(lon_deg), float(f"{lon_min}.{lon_dec}")):
-                    logger.debug("_iter_compact_coordinates: Bornes invalides, candidat suivant")
-                    continue
-            except Exception:
-                continue
-
-            # Formatage des coordonnées
-            ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_dec}'"
-            ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_dec}'"
-
-            logger.debug('_iter_compact_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-            yield {
-                "span": [match.start(), match.end()],
-                "exist": True,
-                "ddm_lat": ddm_lat,
-                "ddm_lon": ddm_lon,
-                "ddm": f"{ddm_lat} {ddm_lon}"
-            }
+            cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_dec}",
+                                  lon_dir, lon_deg, f"{lon_min}.{lon_dec}")
+            if cand:
+                yield cand
         except Exception as e:
             logger.exception('_iter_compact_coordinates: Erreur lors du formatage: %s', e)
 
@@ -1140,36 +1014,12 @@ def _iter_dmm_dot_separator(text: str) -> Iterator[Dict[str, Optional[str]]]:
       - N50.02.117 e004.52.677
     Les lettres cardinales peuvent être en majuscule ou minuscule.
     """
-    logger.debug("_iter_dmm_dot_separator: Analyse du texte: '%s...' (tronqué)", text[:100])
-    logger.debug('_iter_dmm_dot_separator: Regex utilisée: %s', _DETECT_DMM_DOT_REGEX)
     for match in _DETECT_DMM_DOT_REGEX.finditer(text):
-        logger.debug('_iter_dmm_dot_separator: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
-
-        # Normaliser les directions
-        lat_dir = lat_dir.upper()
-        lon_dir = lon_dir.upper()
-
-        try:
-            lat_min_f = float(f"{lat_min}.{lat_dec}")
-            lon_min_f = float(f"{lon_min}.{lon_dec}")
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_dmm_dot_separator: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min}.{lat_dec}'"
-        ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min}.{lon_dec}'"
-
-        logger.debug('_iter_dmm_dot_separator: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_dec}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_dec}")
+        if cand:
+            yield cand
 
 
 def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1213,8 +1063,6 @@ def _iter_decimal_pair(text: str) -> Iterator[Dict[str, Optional[str]]]:
     cardinaux est gérée par la confiance (0.80 < 0.95) et la dédup par span de
     detect_all_gps_coordinates.
     """
-    logger.debug("_iter_decimal_pair: Analyse du texte")
-
     for match in _DETECT_DECIMAL_PAIR_REGEX.finditer(text):
         try:
             lat = float(match.group(1))
@@ -1222,28 +1070,11 @@ def _iter_decimal_pair(text: str) -> Iterator[Dict[str, Optional[str]]]:
         except (TypeError, ValueError):
             continue
 
-        if abs(lat) > 90 or abs(lon) > 180:
-            logger.debug("_iter_decimal_pair: Hors bornes, candidat suivant")
-            continue
-
-        lat_dir = 'N' if lat >= 0 else 'S'
-        lon_dir = 'E' if lon >= 0 else 'W'
-        lat_deg, lat_min = _decimal_to_ddm(lat)
-        lon_deg, lon_min = _decimal_to_ddm(lon)
-
-        ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
-        ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}",
-            # Décimales déjà connues : évite un aller-retour de conversion
-            "decimal_latitude": round(lat, 8),
-            "decimal_longitude": round(lon, 8),
-        }
+        cand = _decimal_candidate(match.span(), lat, lon,
+                                  'N' if lat >= 0 else 'S',
+                                  'E' if lon >= 0 else 'W')
+        if cand:
+            yield cand
 
 
 def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1270,28 +1101,12 @@ def _iter_dmm_suffix_direction(text: str) -> Iterator[Dict[str, Optional[str]]]:
       - "48 51.234 N, 2 17.567 E"
     Fréquent sur les listings internationaux.
     """
-    logger.debug("_iter_dmm_suffix_direction: Analyse du texte")
     for match in _DETECT_DMM_SUFFIX_REGEX.finditer(text):
-        lat_deg, lat_min_raw, lat_dir, lon_deg, lon_min_raw, lon_dir = match.groups()
-        lat_min_raw = lat_min_raw.replace(',', '.')
-        lon_min_raw = lon_min_raw.replace(',', '.')
-
-        try:
-            if not _is_valid_degrees_minutes(int(lat_deg), float(lat_min_raw), int(lon_deg), float(lon_min_raw)):
-                logger.debug("_iter_dmm_suffix_direction: Bornes invalides, candidat suivant")
-                continue
-        except (TypeError, ValueError):
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {_format_ddm_minutes(lat_min_raw)}'"
-        ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {_format_ddm_minutes(lon_min_raw)}'"
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}",
-        }
+        lat_deg, lat_min, lat_dir, lon_deg, lon_min, lon_dir = match.groups()
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min,
+                              lon_dir, lon_deg, lon_min)
+        if cand:
+            yield cand
 
 
 def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1314,27 +1129,18 @@ def _iter_dms_suffix_direction(text: str) -> Iterator[Dict[str, Optional[str]]]:
       - "48°51'24.1\" N 2°17'26\" E"
     Convertit les secondes en minutes décimales (comme _iter_dms_coordinates).
     """
-    logger.debug("_iter_dms_suffix_direction: Analyse du texte")
     for match in _DETECT_DMS_SUFFIX_REGEX.finditer(text):
         lat_deg, lat_min, lat_sec, lat_dir, lon_deg, lon_min, lon_sec, lon_dir = match.groups()
         try:
             lat_min_dec = int(lat_min) + float(lat_sec.replace(',', '.')) / 60.0
             lon_min_dec = int(lon_min) + float(lon_sec.replace(',', '.')) / 60.0
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_dec, int(lon_deg), lon_min_dec):
-                logger.debug("_iter_dms_suffix_direction: Bornes invalides, candidat suivant")
-                continue
         except (TypeError, ValueError):
             continue
 
-        ddm_lat = f"{lat_dir} {int(lat_deg):02d}° {lat_min_dec:06.3f}'"
-        ddm_lon = f"{lon_dir} {int(lon_deg):03d}° {lon_min_dec:06.3f}'"
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}",
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min_dec,
+                              lon_dir, lon_deg, lon_min_dec)
+        if cand:
+            yield cand
 
 
 def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1391,25 +1197,12 @@ def _ddeg_candidate(match, lat_str, lon_str, lat_dir, lon_dir) -> Iterator[Dict[
         return
     if lon < 0 and lon_dir != 'W':
         return
-    if abs(lat) > 90 or abs(lon) > 180:
-        return
-
     lat = -abs(lat) if lat_dir == 'S' else abs(lat)
     lon = -abs(lon) if lon_dir == 'W' else abs(lon)
-    lat_deg, lat_min = _decimal_to_ddm(lat)
-    lon_deg, lon_min = _decimal_to_ddm(lon)
 
-    ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
-    ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
-    yield {
-        "span": [match.start(), match.end()],
-        "exist": True,
-        "ddm_lat": ddm_lat,
-        "ddm_lon": ddm_lon,
-        "ddm": f"{ddm_lat} {ddm_lon}",
-        "decimal_latitude": round(lat, 8),
-        "decimal_longitude": round(lon, 8),
-    }
+    cand = _decimal_candidate(match.span(), lat, lon, lat_dir, lon_dir)
+    if cand:
+        yield cand
 
 
 def _detect_ddeg_cardinal(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1456,25 +1249,11 @@ def _iter_labeled_decimal(text: str) -> Iterator[Dict[str, Optional[str]]]:
             lon = float(match.group(1) if is_reversed else match.group(2))
         except (TypeError, ValueError):
             continue
-        if abs(lat) > 90 or abs(lon) > 180:
-            continue
-
-        lat_dir = 'N' if lat >= 0 else 'S'
-        lon_dir = 'E' if lon >= 0 else 'W'
-        lat_deg, lat_min = _decimal_to_ddm(lat)
-        lon_deg, lon_min = _decimal_to_ddm(lon)
-
-        ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
-        ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}",
-            "decimal_latitude": round(lat, 8),
-            "decimal_longitude": round(lon, 8),
-        }
+        cand = _decimal_candidate(match.span(), lat, lon,
+                                  'N' if lat >= 0 else 'S',
+                                  'E' if lon >= 0 else 'W')
+        if cand:
+            yield cand
 
 
 def _detect_labeled_decimal(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1500,32 +1279,18 @@ def _iter_decimal_comma(text: str) -> Iterator[Dict[str, Optional[str]]]:
       - "48,8566 2,3522"
       - "-33,8688; 151,2093"
     """
-    logger.debug("_iter_decimal_comma: Analyse du texte")
     for match in _DETECT_DECIMAL_COMMA_REGEX.finditer(text):
         try:
             lat = float(match.group(1).replace(',', '.'))
             lon = float(match.group(2).replace(',', '.'))
         except (TypeError, ValueError):
             continue
-        if abs(lat) > 90 or abs(lon) > 180:
-            continue
 
-        lat_dir = 'N' if lat >= 0 else 'S'
-        lon_dir = 'E' if lon >= 0 else 'W'
-        lat_deg, lat_min = _decimal_to_ddm(lat)
-        lon_deg, lon_min = _decimal_to_ddm(lon)
-
-        ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
-        ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}",
-            "decimal_latitude": round(lat, 8),
-            "decimal_longitude": round(lon, 8),
-        }
+        cand = _decimal_candidate(match.span(), lat, lon,
+                                  'N' if lat >= 0 else 'S',
+                                  'E' if lon >= 0 else 'W')
+        if cand:
+            yield cand
 
 
 def _detect_decimal_comma(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -2001,38 +1766,11 @@ def _iter_dmm_no_degree_symbol(text: str) -> Iterator[Dict[str, Optional[str]]]:
     # Longitude : E/W, 1-3 chiffres degrés, espace(s), minutes avec/sans décimales
     logger.debug('_iter_dmm_no_degree_symbol: Regex utilisée: %s', _DETECT_DMM_NO_DEGREE_REGEX)
     for match in _DETECT_DMM_NO_DEGREE_REGEX.finditer(text):
-        logger.debug('_iter_dmm_no_degree_symbol: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
-
-        # Remplacer la virgule éventuelle par un point pour les décimales
-        lat_min = lat_min.replace(',', '.')
-        lon_min = lon_min.replace(',', '.')
-
-        # S'assurer que les valeurs minutes ont bien 3 décimales (format géocaching)
-        lat_min_fmt = _format_ddm_minutes(lat_min)
-        lon_min_fmt = _format_ddm_minutes(lon_min)
-
-        # Validation des bornes
-        try:
-            lat_min_f = float(lat_min_fmt)
-            lon_min_f = float(lon_min_fmt)
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_dmm_no_degree_symbol: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}'"
-        ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}'"
-
-        logger.debug('_iter_dmm_no_degree_symbol: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min,
+                              lon_dir, lon_deg, lon_min)
+        if cand:
+            yield cand
 
 
 def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -2062,36 +1800,11 @@ def _iter_dmm_no_symbol_no_dot(text: str) -> Iterator[Dict[str, Optional[str]]]:
     logger.debug("_iter_dmm_no_symbol_no_dot: Analyse du texte: '%s...' (tronqué)", text[:100])
     logger.debug('_iter_dmm_no_symbol_no_dot: Regex utilisée: %s', _DETECT_DMM_NO_SYMBOL_REGEX)
     for match in _DETECT_DMM_NO_SYMBOL_REGEX.finditer(text):
-        logger.debug('_iter_dmm_no_symbol_no_dot: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
-
-        # Mise en forme des composantes minutes + décimales
-        lat_min_fmt = lat_min.zfill(2)
-        lon_min_fmt = lon_min.zfill(2)
-        lat_dec_fmt = lat_dec.ljust(3, '0')[:3]
-        lon_dec_fmt = lon_dec.ljust(3, '0')[:3]
-
-        # Validation des bornes
-        try:
-            lat_min_f = float(f"{lat_min_fmt}.{lat_dec_fmt}")
-            lon_min_f = float(f"{lon_min_fmt}.{lon_dec_fmt}")
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_dmm_no_symbol_no_dot: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}.{lat_dec_fmt}'"
-        ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}.{lon_dec_fmt}'"
-
-        logger.debug('_iter_dmm_no_symbol_no_dot: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_dec}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_dec}")
+        if cand:
+            yield cand
 
 
 def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -2122,35 +1835,11 @@ def _iter_geocaching_standard_format(text: str) -> Iterator[Dict[str, Optional[s
     # Accepte : N/S + 1-2 chiffres + espace + minutes.décimales + espace + E/W + 1-3 chiffres + espace + minutes.décimales
     logger.debug('_iter_geocaching_standard_format: Regex utilisée: %s', _DETECT_GEOCACHING_REGEX)
     for match in _DETECT_GEOCACHING_REGEX.finditer(text):
-        logger.debug('_iter_geocaching_standard_format: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
-
-        # Formatage des coordonnées (s'assurer que les minutes ont 3 décimales)
-        lat_min_fmt = _format_ddm_minutes(lat_min)
-        lon_min_fmt = _format_ddm_minutes(lon_min)
-
-        # Validation des bornes
-        try:
-            lat_min_f = float(lat_min_fmt)
-            lon_min_f = float(lon_min_fmt)
-            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_f, int(lon_deg), lon_min_f):
-                logger.debug("_iter_geocaching_standard_format: Bornes invalides, candidat suivant")
-                continue
-        except Exception:
-            continue
-
-        ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}'"
-        ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}'"
-
-        logger.debug('_iter_geocaching_standard_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
-
-        yield {
-            "span": [match.start(), match.end()],
-            "exist": True,
-            "ddm_lat": ddm_lat,
-            "ddm_lon": ddm_lon,
-            "ddm": f"{ddm_lat} {ddm_lon}"
-        }
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min,
+                              lon_dir, lon_deg, lon_min)
+        if cand:
+            yield cand
 
 
 def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional[str]]]:
