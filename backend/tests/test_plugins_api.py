@@ -10,6 +10,7 @@ Ces tests vérifient :
 
 import pytest
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from gc_backend import create_app
@@ -3176,3 +3177,130 @@ class TestPluginAPIIntegration:
         assert status_data['plugins']['caesar']['loaded'] is True
 
 
+
+
+class TestBatchTaskRetention:
+    """Tests de la purge des tâches batch en mémoire : rétention horaire,
+    cap de tâches terminées, et conservation des tâches encore actives."""
+
+    @pytest.fixture
+    def clean_batch_tasks(self):
+        from gc_backend.blueprints.plugins import execute
+        execute.batch_tasks.clear()
+        yield execute
+        execute.batch_tasks.clear()
+
+    def _make_task(
+        self, task_id, status='completed',
+        started_at=None, completed_at=None, cancelled=False
+    ):
+        from gc_backend.blueprints.plugins.execute import BatchPluginTask
+        task = BatchPluginTask(
+            task_id=task_id, plugin_name='x', geocaches=[], inputs={}
+        )
+        task.status = status
+        task.started_at = started_at
+        task.completed_at = completed_at
+        task.cancelled = cancelled
+        return task
+
+    def test_purge_removes_old_finished_tasks(self, clean_batch_tasks):
+        """Une tâche terminée depuis 2h est purgée, une de 5min est gardée."""
+        execute = clean_batch_tasks
+        now = datetime.utcnow()
+        execute.batch_tasks['old'] = self._make_task(
+            'old', completed_at=now - timedelta(hours=2)
+        )
+        execute.batch_tasks['recent'] = self._make_task(
+            'recent', completed_at=now - timedelta(minutes=5)
+        )
+
+        removed = execute._purge_batch_tasks()
+
+        assert removed == 1
+        assert 'old' not in execute.batch_tasks
+        assert 'recent' in execute.batch_tasks
+
+    def test_purge_keeps_running_and_pending_tasks(self, clean_batch_tasks):
+        """Les tâches running/pending (completed_at None) ne sont jamais purgées."""
+        execute = clean_batch_tasks
+        now = datetime.utcnow()
+        execute.batch_tasks['running'] = self._make_task(
+            'running', status='running',
+            started_at=now - timedelta(hours=5), completed_at=None
+        )
+        execute.batch_tasks['pending'] = self._make_task(
+            'pending', status='pending'
+        )
+
+        removed = execute._purge_batch_tasks()
+
+        assert removed == 0
+        assert 'running' in execute.batch_tasks
+        assert 'pending' in execute.batch_tasks
+
+    def test_purge_keeps_cancelled_still_running(self, clean_batch_tasks):
+        """Une tâche annulée dont le thread tourne encore (completed_at None)
+        doit être conservée."""
+        execute = clean_batch_tasks
+        now = datetime.utcnow()
+        execute.batch_tasks['cancelled'] = self._make_task(
+            'cancelled', status='cancelled', cancelled=True,
+            started_at=now - timedelta(hours=5), completed_at=None
+        )
+
+        removed = execute._purge_batch_tasks()
+
+        assert removed == 0
+        assert 'cancelled' in execute.batch_tasks
+
+    def test_purge_caps_finished_tasks(self, clean_batch_tasks):
+        """Au-delà de 20 tâches terminées, les plus anciennes sont purgées."""
+        execute = clean_batch_tasks
+        now = datetime.utcnow()
+        for i in range(25):
+            execute.batch_tasks[f'task_{i}'] = self._make_task(
+                f'task_{i}',
+                completed_at=now - timedelta(minutes=25 - i)
+            )
+
+        removed = execute._purge_batch_tasks()
+
+        assert removed == 5
+        assert len(execute.batch_tasks) == 20
+        # Les 20 plus récentes (task_5 .. task_24) sont conservées
+        remaining = set(execute.batch_tasks.keys())
+        assert remaining == {f'task_{i}' for i in range(5, 25)}
+
+    def test_batch_list_purges_expired_tasks(
+        self, client, app, clean_batch_tasks
+    ):
+        """GET /api/plugins/batch-list purge les tâches expirées ; leur
+        statut individuel retourne ensuite 404."""
+        execute = clean_batch_tasks
+        execute.batch_tasks['expired'] = self._make_task(
+            'expired',
+            completed_at=datetime.utcnow() - timedelta(hours=2)
+        )
+
+        response = client.get('/api/plugins/batch-list')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert 'expired' not in [t['task_id'] for t in data['tasks']]
+
+        response = client.get('/api/plugins/batch-status/expired')
+        assert response.status_code == 404
+
+    def test_batch_tasks_dict_identity_kept(self, clean_batch_tasks):
+        """La purge mute le dict en place : l'objet re-exporté via le package
+        reste le même."""
+        from gc_backend.blueprints import plugins as plugins_pkg
+
+        execute = clean_batch_tasks
+        execute.batch_tasks['done'] = self._make_task(
+            'done', completed_at=datetime.utcnow() - timedelta(hours=2)
+        )
+
+        execute._purge_batch_tasks()
+
+        assert plugins_pkg.batch_tasks is execute.batch_tasks

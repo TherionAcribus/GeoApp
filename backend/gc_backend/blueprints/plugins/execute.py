@@ -24,7 +24,51 @@ from ._common import (
 from . import _common
 
 # Stockage des taches batch en memoire (en production, utiliser Redis ou une base de donnees)
+# Rétention : purge après BATCH_TASK_RETENTION_SECONDS et cap à BATCH_TASK_MAX_FINISHED.
+BATCH_TASK_RETENTION_SECONDS = 3600
+BATCH_TASK_MAX_FINISHED = 20
+
 batch_tasks: Dict[str, 'BatchPluginTask'] = {}
+_batch_tasks_lock = threading.Lock()
+
+
+def _purge_batch_tasks(now: Optional[datetime] = None) -> int:
+    """
+    Purge les tâches batch terminées : celles plus vieilles que la rétention,
+    puis les plus anciennes au-delà de BATCH_TASK_MAX_FINISHED.
+
+    Une tâche n'est « terminée » que si completed_at est posé : une tâche
+    'cancelled' dont le thread tourne encore garde completed_at à None et
+    doit être conservée, comme les tâches pending/running.
+
+    Returns:
+        int: Nombre de tâches supprimées
+    """
+    if now is None:
+        now = datetime.utcnow()
+
+    removed = 0
+    with _batch_tasks_lock:
+        for task_id, task in list(batch_tasks.items()):
+            if task.completed_at is None:
+                continue
+            if (now - task.completed_at).total_seconds() > BATCH_TASK_RETENTION_SECONDS:
+                del batch_tasks[task_id]
+                removed += 1
+
+        finished = sorted(
+            (task for task in batch_tasks.values() if task.completed_at is not None),
+            key=lambda task: task.completed_at
+        )
+        while len(finished) > BATCH_TASK_MAX_FINISHED:
+            oldest = finished.pop(0)
+            if batch_tasks.pop(oldest.task_id, None) is not None:
+                removed += 1
+
+    if removed:
+        logger.info(f"{removed} tâche(s) batch purgée(s) de la mémoire")
+
+    return removed
 
 
 class BatchPluginTask:
@@ -617,8 +661,10 @@ def batch_execute_plugins():
             include_images=include_images,
         )
         
-        # Stocker la tâche
-        batch_tasks[task_id] = batch_task
+        # Stocker la tâche (purge opportuniste des anciennes au passage)
+        _purge_batch_tasks()
+        with _batch_tasks_lock:
+            batch_tasks[task_id] = batch_task
         
         # Démarrer l'exécution en arrière-plan
         thread = threading.Thread(target=batch_task.execute)
@@ -671,10 +717,10 @@ def get_batch_status(task_id):
         "completed_at": "2023-..."  # si terminé
     }
     """
-    if task_id not in batch_tasks:
+    task = batch_tasks.get(task_id)
+    if task is None:
         return jsonify({"error": "Task not found"}), 404
-    
-    task = batch_tasks[task_id]
+
     return jsonify(task.get_status())
 
 
@@ -688,10 +734,10 @@ def cancel_batch_task(task_id):
         "message": "Task cancelled successfully"
     }
     """
-    if task_id not in batch_tasks:
+    task = batch_tasks.get(task_id)
+    if task is None:
         return jsonify({"error": "Task not found"}), 404
-    
-    task = batch_tasks[task_id]
+
     task.cancel()
     
     return jsonify({"message": "Task cancellation requested"})
@@ -717,8 +763,13 @@ def list_batch_tasks():
         ]
     }
     """
+    _purge_batch_tasks()
+
+    with _batch_tasks_lock:
+        tasks_snapshot = list(batch_tasks.items())
+
     tasks_info = []
-    for task_id, task in batch_tasks.items():
+    for task_id, task in tasks_snapshot:
         tasks_info.append({
             "task_id": task_id,
             "plugin_name": task.plugin_name,
