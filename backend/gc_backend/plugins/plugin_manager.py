@@ -15,7 +15,7 @@ import copy
 import json
 import hashlib
 import threading
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -379,7 +379,11 @@ class PluginManager:
                     f"Plugin {plugin_info['name']} déplacé: "
                     f"{existing.path} -> {plugin_info['path']}"
                 )
-                self.unload_plugin(plugin_info['name'])
+
+            # Le plugin.json a changé : décharger le wrapper (métadonnées
+            # potentiellement obsolètes) ; il sera rechargé au prochain
+            # get_plugin. No-op si le plugin n'est pas chargé.
+            self.unload_plugin(plugin_info['name'])
 
             logger.info(
                 f"Mise à jour plugin {plugin_info['name']} "
@@ -633,28 +637,52 @@ class PluginManager:
             return lock
 
     def _is_source_stale(self, plugin_name: str) -> bool:
-        """Indique si le fichier source d'un plugin suivi a été modifié
-        depuis son chargement (mtime plus récent). Retourne False pour les
-        plugins non suivis (non chargés ou point d'entrée introuvable)."""
+        """Indique si les sources d'un plugin suivi ont changé depuis son
+        chargement (signature du dossier différente). Retourne False pour
+        les plugins non suivis (non chargés ou point d'entrée introuvable)."""
         watch = self._watched_sources.get(plugin_name)
         if not watch:
             return False
-        entry_file, loaded_mtime = watch
+        plugin_dir, signature = watch
         try:
-            return os.path.getmtime(entry_file) > loaded_mtime
+            return self._source_signature(plugin_dir) != signature
         except OSError:
             return False
 
-    def _track_source(self, plugin_name: str, plugin_record: Plugin) -> None:
-        """Mémorise le mtime du fichier d'entrée d'un plugin chargé (hot-reload).
+    def _source_signature(self, plugin_dir: str) -> Tuple[int, float]:
+        """Signature (nombre, mtime max) des fichiers .py d'un dossier de
+        plugin, récursivement (hors __pycache__)."""
+        count = 0
+        max_mtime = 0.0
+        for root, dirs, files in os.walk(plugin_dir):
+            dirs[:] = [d for d in dirs if d != '__pycache__']
+            for filename in files:
+                if not filename.endswith('.py'):
+                    continue
+                try:
+                    mtime = os.path.getmtime(os.path.join(root, filename))
+                except OSError:
+                    continue
+                count += 1
+                if mtime > max_mtime:
+                    max_mtime = mtime
+        return count, max_mtime
 
-        Tous les plugins sont suivis (officiels comme customs) : une édition du
-        point d'entrée déclenche un rechargement automatique au prochain
-        get_plugin.
+    def _track_source(self, plugin_name: str, plugin_record: Plugin) -> None:
+        """Mémorise la signature des sources du dossier d'un plugin chargé
+        (hot-reload).
+
+        Tous les plugins sont suivis (officiels comme customs) : toute édition
+        ou ajout de .py dans le dossier déclenche un rechargement automatique
+        au prochain get_plugin.
         """
         try:
             entry_file = os.path.join(plugin_record.path, plugin_record.entry_point)
-            self._watched_sources[plugin_name] = (entry_file, os.path.getmtime(entry_file))
+            os.path.getmtime(entry_file)
+            self._watched_sources[plugin_name] = (
+                plugin_record.path,
+                self._source_signature(plugin_record.path),
+            )
         except (OSError, TypeError):
             self._watched_sources.pop(plugin_name, None)
 

@@ -827,7 +827,10 @@ class LuaAnalyzer:
             ))
 
         # Extract Urwigo hash comparisons (hash protected)
-        from urwigo_hash import urwigo_hash
+        try:
+            from .urwigo_hash import urwigo_hash
+        except ImportError:
+            from urwigo_hash import urwigo_hash
         for match in self.ANSWER_PATTERNS['urwigo_hash'].finditer(handler_content):
             hash_value_str = match.group(1)
             try:

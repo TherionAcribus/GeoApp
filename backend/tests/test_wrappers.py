@@ -612,6 +612,62 @@ class TestSourceWatch:
 
         assert mgr._is_source_stale('p') is True
 
+    def test_sibling_source_edit_marks_stale(self, temp_plugin_dir):
+        """Éditer un fichier frère du plugin (pas le point d'entrée) doit
+        aussi déclencher le hot-reload."""
+        import os
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        entry = temp_plugin_dir / 'main.py'
+        entry.write_text('x = 1\n')
+        sibling = temp_plugin_dir / 'helper_watch.py'
+        sibling.write_text('y = 1\n')
+
+        mgr = PluginManager('dummy_path')
+        rec = self._make_record(temp_plugin_dir, 'main.py', 'custom')
+        mgr._track_source('p', rec)
+
+        assert mgr._is_source_stale('p') is False
+
+        new_mtime = os.path.getmtime(sibling) + 10
+        os.utime(sibling, (new_mtime, new_mtime))
+
+        assert mgr._is_source_stale('p') is True
+
+    def test_new_sibling_file_marks_stale(self, temp_plugin_dir):
+        """Ajouter un nouveau .py dans le dossier du plugin marque stale."""
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        entry = temp_plugin_dir / 'main.py'
+        entry.write_text('x = 1\n')
+
+        mgr = PluginManager('dummy_path')
+        rec = self._make_record(temp_plugin_dir, 'main.py', 'custom')
+        mgr._track_source('p', rec)
+
+        assert mgr._is_source_stale('p') is False
+
+        (temp_plugin_dir / 'helper_added.py').write_text('z = 1\n')
+
+        assert mgr._is_source_stale('p') is True
+
+    def test_pycache_files_ignored(self, temp_plugin_dir):
+        """Les .py sous __pycache__ ne doivent pas marquer le plugin stale."""
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        entry = temp_plugin_dir / 'main.py'
+        entry.write_text('x = 1\n')
+
+        mgr = PluginManager('dummy_path')
+        rec = self._make_record(temp_plugin_dir, 'main.py', 'custom')
+        mgr._track_source('p', rec)
+
+        pycache = temp_plugin_dir / '__pycache__'
+        pycache.mkdir()
+        (pycache / 'cached.py').write_text('cached = 1\n')
+
+        assert mgr._is_source_stale('p') is False
+
 
 class TestBinaryPluginWrapper:
     """Tests pour le wrapper de plugins binaires."""
@@ -753,6 +809,124 @@ class TestPluginWrapperFactory:
         for ghost_type in ("rust", "wasm", "node"):
             wrapper = create_plugin_wrapper(ghost_type, metadata)
             assert wrapper is None, f"{ghost_type} ne doit plus produire de wrapper"
+
+
+class TestPluginPackageNamespace:
+    """Tests du namespace package par plugin : les imports relatifs entre
+    fichiers du plugin fonctionnent, les modules frères sont isolés par
+    plugin et purgés au cleanup."""
+
+    def _metadata(self, name, path):
+        return PluginMetadata(
+            name=name,
+            version='1.0.0',
+            plugin_type=PluginType.PYTHON,
+            entry_point='main.py',
+            path=str(path),
+            timeout_seconds=0
+        )
+
+    def test_relative_import_and_cleanup(self, temp_plugin_dir):
+        """from .helper import X fonctionne : le frère vit sous
+        geoapp_plugin_<name>.helper et tout est retiré au cleanup."""
+        plugin_dir = temp_plugin_dir / 'relpkg_a'
+        plugin_dir.mkdir()
+        (plugin_dir / 'rel_helper_a.py').write_text(
+            "VALUE = 'rel-value'\n", encoding='utf-8'
+        )
+        (plugin_dir / 'main.py').write_text(
+            'from .rel_helper_a import VALUE\n'
+            'class RelPlugAPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": [{"text_output": VALUE}]}\n',
+            encoding='utf-8',
+        )
+
+        wrapper = PythonPluginWrapper(self._metadata('rel_plug_a', plugin_dir))
+        assert wrapper.initialize() is True
+
+        assert 'geoapp_plugin_rel_plug_a.rel_helper_a' in sys.modules
+        assert 'rel_helper_a' not in sys.modules
+
+        wrapper.cleanup()
+        assert not any(
+            key == 'geoapp_plugin_rel_plug_a'
+            or key.startswith('geoapp_plugin_rel_plug_a.')
+            for key in sys.modules
+        )
+
+    def test_sibling_modules_isolated_between_plugins(self, temp_plugin_dir):
+        """Deux plugins avec un frère de même nom (pattern wherigo
+        try-relatif/except-nu) chargés en même temps gardent chacun leur
+        propre module."""
+        def make_plugin(dir_name, class_name, value):
+            plugin_dir = temp_plugin_dir / dir_name
+            plugin_dir.mkdir()
+            (plugin_dir / 'shared_helper.py').write_text(
+                f"VALUE = '{value}'\n", encoding='utf-8'
+            )
+            (plugin_dir / 'main.py').write_text(
+                'try:\n'
+                '    from .shared_helper import VALUE\n'
+                'except ImportError:\n'
+                '    from shared_helper import VALUE\n'
+                f'class {class_name}:\n'
+                '    def execute(self, inputs):\n'
+                '        return {"status": "ok", "results": [{"text_output": VALUE}]}\n',
+                encoding='utf-8',
+            )
+            return plugin_dir
+
+        dir_one = make_plugin('iso_one', 'IsoOnePlugin', 'value-one')
+        dir_two = make_plugin('iso_two', 'IsoTwoPlugin', 'value-two')
+
+        wrapper_one = PythonPluginWrapper(self._metadata('iso_one', dir_one))
+        wrapper_two = PythonPluginWrapper(self._metadata('iso_two', dir_two))
+        assert wrapper_one.initialize() is True
+        assert wrapper_two.initialize() is True
+        try:
+            assert wrapper_one.execute({})['results'][0]['text_output'] == 'value-one'
+            assert wrapper_two.execute({})['results'][0]['text_output'] == 'value-two'
+        finally:
+            wrapper_one.cleanup()
+            wrapper_two.cleanup()
+
+    def test_bare_import_cleaned_and_reloaded(self, temp_plugin_dir):
+        """Un plugin qui n'utilise que l'import nu continue de marcher ;
+        le frère nu est retiré au cleanup et réimporté au prochain init."""
+        import os
+
+        plugin_dir = temp_plugin_dir / 'bareplug'
+        plugin_dir.mkdir()
+        helper = plugin_dir / 'bare_helper_x.py'
+        helper.write_text("VALUE = 'v1'\n", encoding='utf-8')
+        (plugin_dir / 'main.py').write_text(
+            'from bare_helper_x import VALUE\n'
+            'class BarePlugPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": [{"text_output": VALUE}]}\n',
+            encoding='utf-8',
+        )
+
+        metadata = self._metadata('bare_plug', plugin_dir)
+        wrapper = PythonPluginWrapper(metadata)
+        assert wrapper.initialize() is True
+        assert wrapper.execute({})['results'][0]['text_output'] == 'v1'
+        wrapper.cleanup()
+
+        assert 'bare_helper_x' not in sys.modules
+
+        # Éditer le helper avec un mtime strictement postérieur
+        helper.write_text("VALUE = 'v2'\n", encoding='utf-8')
+        new_mtime = os.path.getmtime(helper) + 10
+        os.utime(helper, (new_mtime, new_mtime))
+
+        wrapper = PythonPluginWrapper(metadata)
+        assert wrapper.initialize() is True
+        try:
+            assert wrapper.execute({})['results'][0]['text_output'] == 'v2'
+        finally:
+            wrapper.cleanup()
 
 
 # Import nécessaire pour test binaire

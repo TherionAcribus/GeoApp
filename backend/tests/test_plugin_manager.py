@@ -739,3 +739,80 @@ class TestPluginManagerDiscoveryErrorStatus:
         error = errors[str(plugin_dir)]
         assert error.startswith("Validation échouée:")
         assert 'plugin_type' in error or 'rust' in error
+
+
+class TestPluginManagerHotReloadMultiFile:
+    """Tests du hot-reload multi-fichiers : l'édition d'un module frère ou
+    du plugin.json recharge le wrapper au prochain get_plugin."""
+
+    def test_sibling_edit_triggers_reload_e2e(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin multi-fichiers exécuté, dont le helper est édité, est
+        rechargé automatiquement (execute retourne la nouvelle valeur)."""
+        import os
+
+        data = valid_plugin_json.copy()
+        data['name'] = 'rel_e2e_plugin'
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'rel_e2e_plugin', data
+        )
+        helper = plugin_dir / 'e2e_helper.py'
+        helper.write_text("VALUE = 'v1'\n", encoding='utf-8')
+        (plugin_dir / 'main.py').write_text(
+            'from .e2e_helper import VALUE\n'
+            'class RelE2ePluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": [{"text_output": VALUE}]}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('rel_e2e_plugin', {})
+        assert result['status'] == 'ok'
+        assert result['results'][0]['text_output'] == 'v1'
+
+        # Éditer le helper avec un mtime strictement postérieur
+        helper.write_text("VALUE = 'v2'\n", encoding='utf-8')
+        new_mtime = os.path.getmtime(helper) + 10
+        os.utime(helper, (new_mtime, new_mtime))
+
+        result = manager.execute_plugin('rel_e2e_plugin', {})
+        assert result['status'] == 'ok'
+        assert result['results'][0]['text_output'] == 'v2'
+
+    def test_plugin_json_change_unloads_wrapper(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une modification de plugin.json décharge le wrapper chargé : le
+        prochain get_plugin repart des métadonnées fraîches."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', valid_plugin_json
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        assert manager.get_plugin('test_plugin') is not None
+        assert 'test_plugin' in manager.loaded_plugins
+
+        updated_data = valid_plugin_json.copy()
+        updated_data['version'] = '1.0.1'
+        with open(plugin_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(updated_data, f)
+
+        manager.discover_plugins()
+
+        assert 'test_plugin' not in manager.loaded_plugins
+
+        wrapper = manager.get_plugin('test_plugin')
+        assert wrapper is not None
+        assert wrapper.metadata.version == '1.0.1'

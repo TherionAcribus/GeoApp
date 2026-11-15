@@ -18,6 +18,7 @@ import time
 import threading
 import subprocess
 import importlib.util
+import importlib.machinery
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -159,6 +160,7 @@ class PythonPluginWrapper(PluginInterface):
         self._module = None
         self._module_name = None
         self._instance = None
+        self._owned_modules = set()
 
         logger.debug(f"PythonPluginWrapper créé pour {metadata.name}")
     
@@ -179,10 +181,13 @@ class PythonPluginWrapper(PluginInterface):
                 logger.error(f"Fichier d'entrée non trouvé: {entry_file}")
                 return False
             
-            # Nom de module préfixé et unique : évite qu'un plugin nommé comme un
-            # module standard (json, time, code...) ne le masque dans sys.modules
-            # pour tout le process.
-            module_name = f"geoapp_plugin_{self.metadata.name}"
+            # Nom de package préfixé et unique : évite qu'un plugin nommé comme
+            # un module standard (json, time, code...) ne le masque dans
+            # sys.modules pour tout le process, et isole les modules frères du
+            # plugin sous geoapp_plugin_<name>.* (imports relatifs possibles).
+            pkg_name = f"geoapp_plugin_{self.metadata.name}"
+            module_name = f"{pkg_name}.{entry_file.stem}"
+            plugin_dir = str(Path(self.metadata.path))
 
             # Importer le module dynamiquement
             spec = importlib.util.spec_from_file_location(
@@ -194,25 +199,47 @@ class PythonPluginWrapper(PluginInterface):
                 logger.error(f"Impossible de créer spec pour {entry_file}")
                 return False
 
-            self._module = importlib.util.module_from_spec(spec)
-            self._module_name = module_name
-
-            plugin_dir = str(Path(self.metadata.path))
-
             # Sérialiser l'import : sys.path/sys.modules sont globaux au process.
             with _SYS_PATH_LOCK:
-                sys.modules[spec.name] = self._module
+                self._purge_plugin_modules(pkg_name, plugin_dir)
+
+                # Package synthétique (le __init__.py du plugin n'est PAS
+                # exécuté) pour que ses imports relatifs résolvent.
+                pkg_spec = importlib.machinery.ModuleSpec(
+                    pkg_name, None, is_package=True
+                )
+                pkg_spec.submodule_search_locations = [plugin_dir]
+                package = importlib.util.module_from_spec(pkg_spec)
+                sys.modules[pkg_name] = package
+
+                self._module = importlib.util.module_from_spec(spec)
+                self._module_name = pkg_name
+                sys.modules[module_name] = self._module
 
                 added_to_path = plugin_dir not in sys.path
                 if added_to_path:
                     sys.path.insert(0, plugin_dir)
 
+                modules_before = set(sys.modules)
                 try:
                     spec.loader.exec_module(self._module)
                 finally:
                     # Ne retirer que si c'est nous qui l'avons ajouté
                     if added_to_path and plugin_dir in sys.path:
                         sys.path.remove(plugin_dir)
+
+                # Modules nus chargés depuis le dossier du plugin pendant
+                # l'exec (fallback des imports non relatifs) : mémorisés pour
+                # être purgés au cleanup, sans toucher aux modules préexistants.
+                dir_prefix = os.path.normpath(plugin_dir) + os.sep
+                for name, module in list(sys.modules.items()):
+                    if name in modules_before or name.startswith(pkg_name + '.'):
+                        continue
+                    module_file = getattr(module, '__file__', None)
+                    if module_file and os.path.normpath(
+                        str(module_file)
+                    ).startswith(dir_prefix):
+                        self._owned_modules.add(name)
             
             # Chercher la classe du plugin
             plugin_class = self._find_plugin_class()
@@ -238,10 +265,42 @@ class PythonPluginWrapper(PluginInterface):
             return True
             
         except Exception as e:
+            # Ne pas laisser de modules partiellement chargés du plugin.
+            self._purge_plugin_modules(
+                f"geoapp_plugin_{self.metadata.name}", self.metadata.path
+            )
             logger.opt(exception=e).error(
                 f"Erreur lors de l'initialisation du plugin {self.metadata.name}: {e}"
             )
             return False
+
+    def _purge_plugin_modules(
+        self,
+        pkg_name: str,
+        plugin_dir: Optional[str] = None
+    ) -> None:
+        """Retire de sys.modules le package du plugin, tous ses sous-modules
+        et les modules nus importés depuis son dossier."""
+        prefix = pkg_name + '.'
+        for name in [
+            key for key in sys.modules
+            if key == pkg_name or key.startswith(prefix)
+        ]:
+            sys.modules.pop(name, None)
+
+        owned = set(self._owned_modules)
+        if plugin_dir:
+            dir_prefix = os.path.normpath(str(plugin_dir)) + os.sep
+            for name, module in list(sys.modules.items()):
+                module_file = getattr(module, '__file__', None)
+                if module_file and os.path.normpath(
+                    str(module_file)
+                ).startswith(dir_prefix):
+                    owned.add(name)
+
+        for name in owned:
+            sys.modules.pop(name, None)
+        self._owned_modules = set()
 
     @property
     def instance(self):
@@ -458,10 +517,11 @@ class PythonPluginWrapper(PluginInterface):
             if self._instance and hasattr(self._instance, 'cleanup'):
                 self._instance.cleanup()
 
-            # Retirer le module de sys.modules pour éviter une fuite et permettre
-            # un rechargement propre (reload_plugin).
+            # Retirer le package et tous les modules du plugin de sys.modules
+            # pour éviter une fuite et permettre un rechargement propre
+            # (reload_plugin, hot-reload).
             if self._module_name:
-                sys.modules.pop(self._module_name, None)
+                self._purge_plugin_modules(self._module_name)
 
             self._module = None
             self._module_name = None
