@@ -752,11 +752,25 @@ export interface PluginsStatus {
     plugins: Record<string, {
         enabled: boolean;
         loaded: boolean;
-        error?: string;
+        error?: string | null;
     }>;
 
     /** Erreurs de découverte des dossiers de plugins non enregistrés, par chemin */
     discovery_errors?: Record<string, string>;
+}
+
+/**
+ * Résultat de la découverte de plugins (retourné par POST /api/plugins/discover).
+ */
+export interface PluginDiscoveryResult {
+    /** Nombre de plugins découverts */
+    discovered: number;
+
+    /** Erreurs de découverte par chemin de dossier de plugin */
+    errors: Record<string, string>;
+
+    /** Message récapitulatif du backend */
+    message?: string;
 }
 
 /**
@@ -804,7 +818,7 @@ export interface PluginsService {
     /**
      * Demande au backend de redécouvrir les plugins.
      */
-    discoverPlugins(): Promise<void>;
+    discoverPlugins(): Promise<PluginDiscoveryResult>;
     
     /**
      * Recharge un plugin spécifique.

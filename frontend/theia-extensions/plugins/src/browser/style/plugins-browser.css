@@ -301,3 +301,54 @@
         align-items: flex-start;
     }
 }
+
+/* ========== Erreurs de découverte ========== */
+
+.plugins-discovery-errors {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-inputValidation-warningBackground);
+    font-size: 12px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.plugins-discovery-errors summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.plugins-discovery-errors ul {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 8px 0 0;
+    padding-left: 16px;
+}
+
+.plugins-discovery-errors code {
+    font-size: 11px;
+}
+
+/* ========== Erreur par plugin ========== */
+
+.plugin-item.has-error {
+    border-color: var(--theia-inputValidation-errorBorder);
+}
+
+.plugin-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.plugin-error-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--theia-errorForeground);
+    margin-bottom: 8px;
+    word-break: break-word;
+}

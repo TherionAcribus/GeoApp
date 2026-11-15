@@ -10,7 +10,7 @@ import { injectable, inject, postConstruct } from '@theia/core/shared/inversify'
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PluginsService } from '../common/plugin-protocol';
-import { Plugin, PluginFilters } from '../common/plugin-protocol';
+import { Plugin, PluginFilters, PluginsStatus } from '../common/plugin-protocol';
 import { PluginExecutorContribution } from './plugins-contribution';
 
 /**
@@ -36,6 +36,7 @@ export class PluginsBrowserWidget extends ReactWidget {
     protected filteredPlugins: Plugin[] = [];
     protected loading = true;
     protected error: string | undefined;
+    protected status: PluginsStatus | undefined;
     
     // Filtres
     protected sourceFilter: 'all' | 'official' | 'custom' = 'all';
@@ -70,7 +71,18 @@ export class PluginsBrowserWidget extends ReactWidget {
         this.update();
         
         try {
-            this.plugins = await this.pluginsService.listPlugins();
+            // enabled=false côté backend signifie « ne pas restreindre aux
+            // plugins activés » : la liste complète est nécessaire au filtre
+            // « Désactivés » (appliqué localement).
+            const [plugins, status] = await Promise.all([
+                this.pluginsService.listPlugins({ enabled: false }),
+                this.pluginsService.getPluginsStatus().catch(err => {
+                    console.warn('Statut des plugins indisponible:', err);
+                    return undefined;
+                })
+            ]);
+            this.plugins = plugins;
+            this.status = status;
             this.extractCategories();
             this.applyFilters();
             this.loading = false;
@@ -150,12 +162,20 @@ export class PluginsBrowserWidget extends ReactWidget {
      */
     async discoverPlugins(): Promise<void> {
         try {
-            await this.pluginsService.discoverPlugins();
-            this.messageService.info('Redécouverte des plugins lancée');
-            
-            // Recharger après une courte pause
-            setTimeout(() => this.loadPlugins(), 1000);
-            
+            // POST /api/plugins/discover est synchrone : la liste peut être
+            // rechargée immédiatement.
+            const result = await this.pluginsService.discoverPlugins();
+            await this.loadPlugins();
+
+            const errorCount = Object.keys(result.errors).length;
+            if (errorCount > 0) {
+                this.messageService.warn(
+                    `${result.discovered} plugin(s) découvert(s), ${errorCount} erreur(s) — détail dans la liste des plugins`
+                );
+            } else {
+                this.messageService.info(`${result.discovered} plugin(s) découvert(s)`);
+            }
+
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Erreur inconnue';
             this.messageService.error(`Erreur lors de la redécouverte: ${message}`);
@@ -204,6 +224,27 @@ export class PluginsBrowserWidget extends ReactWidget {
     protected handlePluginClick = (plugin: Plugin): void => {
         this.pluginExecutorContribution.openWithPlugin(plugin.name);
     };
+
+    /**
+     * Ouvre le plugin via le clavier (Enter / Space) sur la carte cliquable.
+     */
+    protected handlePluginKeyDown = (event: React.KeyboardEvent, plugin: Plugin): void => {
+        if (event.key === ' ' || event.key === 'Spacebar') {
+            // Empêcher le défilement de page déclenché par Space
+            event.preventDefault();
+            this.handlePluginClick(plugin);
+        } else if (event.key === 'Enter') {
+            this.handlePluginClick(plugin);
+        }
+    };
+
+    /**
+     * Retourne les deux derniers segments d'un chemin de dossier.
+     */
+    protected lastPathSegments(path: string): string {
+        const segments = path.split(/[\\/]/).filter(Boolean);
+        return segments.slice(-2).join('/');
+    }
     
     /**
      * Rendu du widget.
@@ -213,6 +254,7 @@ export class PluginsBrowserWidget extends ReactWidget {
             <div className="mysterai-plugins-browser">
                 {this.renderToolbar()}
                 {this.renderFilters()}
+                {this.renderDiscoveryErrors()}
                 {this.renderContent()}
             </div>
         );
@@ -281,7 +323,7 @@ export class PluginsBrowserWidget extends ReactWidget {
                 </div>
                 
                 <div className="filter-group">
-                    <label>Catégorie4:</label>
+                    <label>Catégorie:</label>
                     <select
                         className="theia-select"
                         value={this.categoryFilter}
@@ -312,6 +354,34 @@ export class PluginsBrowserWidget extends ReactWidget {
         );
     }
     
+    /**
+     * Rendu du panneau des erreurs de découverte (dossiers de plugins
+     * ignorés car non enregistrés ou en double).
+     */
+    protected renderDiscoveryErrors(): React.ReactNode {
+        const discoveryErrors = this.status?.discovery_errors;
+        const entries = discoveryErrors ? Object.entries(discoveryErrors) : [];
+        if (entries.length === 0) {
+            return undefined;
+        }
+
+        return (
+            <details className="plugins-discovery-errors">
+                <summary>
+                    <i className="fa fa-exclamation-triangle" aria-hidden="true" />
+                    {entries.length} dossier(s) de plugin ignoré(s)
+                </summary>
+                <ul>
+                    {entries.map(([dirPath, message]) => (
+                        <li key={dirPath}>
+                            <code title={dirPath}>{this.lastPathSegments(dirPath)}</code> {message}
+                        </li>
+                    ))}
+                </ul>
+            </details>
+        );
+    }
+
     /**
      * Rendu du contenu principal.
      */
@@ -362,12 +432,16 @@ export class PluginsBrowserWidget extends ReactWidget {
     protected renderPluginItem(plugin: Plugin): React.ReactNode {
         const isOfficial = plugin.source === 'official';
         const isEnabled = plugin.enabled === true;
-        
+        const pluginError = this.status?.plugins[plugin.name]?.error;
+
         return (
             <div
                 key={plugin.name}
-                className={`plugin-item ${!isEnabled ? 'disabled' : ''}`}
+                className={`plugin-item ${!isEnabled ? 'disabled' : ''} ${pluginError ? 'has-error' : ''}`}
                 onClick={() => this.handlePluginClick(plugin)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={event => this.handlePluginKeyDown(event, plugin)}
             >
                 <div className="plugin-header">
                     <div className="plugin-status">
@@ -397,6 +471,13 @@ export class PluginsBrowserWidget extends ReactWidget {
                 {plugin.description && (
                     <div className="plugin-description">
                         {plugin.description}
+                    </div>
+                )}
+
+                {pluginError && (
+                    <div className="plugin-error-message" role="status">
+                        <i className="fa fa-exclamation-triangle" aria-hidden="true" />
+                        {pluginError}
                     </div>
                 )}
                 

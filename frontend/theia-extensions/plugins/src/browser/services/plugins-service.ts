@@ -12,6 +12,7 @@ import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/pref
 import {
     Plugin,
     PluginDetails,
+    PluginDiscoveryResult,
     PluginFilters,
     PluginInputs,
     PluginResult,
@@ -247,9 +248,15 @@ export class PluginsServiceImpl implements IPluginsService {
     /**
      * Demande au backend de redécouvrir les plugins.
      */
-    async discoverPlugins(): Promise<void> {
+    async discoverPlugins(): Promise<PluginDiscoveryResult> {
         try {
-            await this.client.post('/api/plugins/discover');
+            const response = await this.client.post('/api/plugins/discover');
+            const data = response.data || {};
+            return {
+                discovered: data.discovered ?? 0,
+                errors: data.errors ?? {},
+                message: data.message
+            };
             
         } catch (error) {
             console.error('Erreur lors de la découverte des plugins:', error);
