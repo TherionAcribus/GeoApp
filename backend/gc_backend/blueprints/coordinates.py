@@ -4,7 +4,6 @@ import re
 import logging
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.exceptions import HTTPException
-import traceback
 
 logger = logging.getLogger(__name__)
 # Le niveau de log est piloté par la configuration applicative : ne pas forcer DEBUG
@@ -385,8 +384,7 @@ def calculate_coordinates():
                 result["distance_from_origin"] = distance_info
                 logger.debug('Distance calculée: %s', distance_info)
             except Exception as e:
-                logger.error('Erreur lors du calcul de la distance: %s', str(e))
-                traceback.print_exc()
+                logger.exception('Erreur lors du calcul de la distance: %s', e)
         else:
             logger.debug('Calcul de distance impossible: origin_lat=%s, origin_lon=%s, global_status=%s', origin_lat, origin_lon, global_status)
             logger.debug('lat_decimal_value est de type %s: %s', type(lat_decimal).__name__, lat_decimal)
@@ -1587,8 +1585,7 @@ def _iter_numeric_only(text: str, origin_coords: Optional[Dict[str, str]] = None
                 "ddm": f"{ddm_lat} {ddm_lon}"
             }
         except Exception as e:
-            logger.error('_iter_numeric_only: Erreur lors du formatage: %s', e)
-            traceback.print_exc()
+            logger.exception('_iter_numeric_only: Erreur lors du formatage: %s', e)
 
 
 def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Optional[str]]]:
@@ -1670,8 +1667,7 @@ def _iter_compact_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
                 "ddm": f"{ddm_lat} {ddm_lon}"
             }
         except Exception as e:
-            logger.error('_iter_compact_coordinates: Erreur lors du formatage: %s', e)
-            traceback.print_exc()
+            logger.exception('_iter_compact_coordinates: Erreur lors du formatage: %s', e)
 
 
 def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -2537,6 +2533,12 @@ def detect_all_gps_coordinates(text: str, include_numeric_only: bool = False,
     return results
 
 # Nouvelle route API pour détecter les coordonnées dans un texte
+# Plafond de taille du texte pour la détection simple et multi (évite les
+# payloads abusifs ; reprend l'ordre de grandeur du batch divisé par son
+# plafond de textes).
+_DETECT_ALL_MAX_CHARS = 200_000
+
+
 @coordinates_bp.route('/api/detect_coordinates', methods=['POST'])
 def detect_coordinates_in_text():
     """
@@ -2564,10 +2566,17 @@ def detect_coordinates_in_text():
             list(data.keys()) if isinstance(data, dict) else None,
             len(str(data.get('text', ''))) if isinstance(data, dict) else 0,
         )
-        if not data or 'text' not in data:
+        if not isinstance(data, dict) or 'text' not in data:
             return jsonify({"error": "Le champ 'text' est requis"}), 400
-            
+
         text = data['text']
+        if not isinstance(text, str):
+            return jsonify({"error": "'text' doit être une chaîne"}), 400
+        if len(text) > _DETECT_ALL_MAX_CHARS:
+            return jsonify({
+                "error": f"Texte trop volumineux (max {_DETECT_ALL_MAX_CHARS} caractères)"
+            }), 400
+            
         # Récupérer le paramètre include_numeric_only (False par défaut)
         include_numeric_only = data.get('include_numeric_only', False)
         # Récupérer le paramètre include_written (False par défaut)
@@ -2642,8 +2651,13 @@ def detect_coordinates_in_text():
 
             return jsonify(enriched)
         except Exception as e:
+            # Ne pas renvoyer str(e) au client (détails internes, cf.
+            # _error_response) : le détail va dans les logs.
+            logger.exception("detect_coordinates_in_text: written find a échoué: %s", e)
             enriched['written']['attempted'] = True
-            enriched['written']['error'] = str(e)
+            enriched['written']['error'] = (
+                "Erreur lors de la détection écrite. Consultez les logs backend."
+            )
             return jsonify(enriched)
         
     except Exception as e:
@@ -2769,12 +2783,6 @@ def detect_coordinates_batch():
 
     except Exception as e:
         return _error_response("Erreur detect_coordinates_batch", e)
-
-
-# Plafond de taille du texte pour la détection multi (évite les payloads
-# abusifs ; reprend l'ordre de grandeur du batch divisé par son plafond
-# de textes).
-_DETECT_ALL_MAX_CHARS = 200_000
 
 
 @coordinates_bp.route('/api/detect_coordinates_all', methods=['POST'])
