@@ -28,6 +28,13 @@ DISTANCE_FAR_MILES = 2.5
 # coordonnées indépendantes (waypoints, étapes...) qu'il ne faut pas apparier.
 MAX_COORD_PAIR_GAP = 40
 
+# La lettre cardinale ne doit pas être collée à une lettre : elle doit être
+# isolée ou précédée d'un chiffre (« N4812123 », « WP1N48 »), sans quoi le S de
+# « WAYPOINTS 48° … » ou le e de « température de 12° » sont lus comme des
+# hémisphères. Même garde-fou que _DETECT_NE_VAR_* — appliqué en tête de chaque
+# pattern de détecteur (le groupe E/W interne est toujours précédé de chiffres).
+_CARDINAL_LB = r'(?<![^\W\d_])'
+
 
 def _error_response(log_message: str, exception: Exception, status: int = 500):
     """
@@ -67,10 +74,10 @@ def _ddm_component_to_decimal(component: str) -> float:
         raise ValueError(f"Minutes hors bornes: {minutes}")
 
     direction = direction.upper()
-    if direction in ('N', 'S') and not 0 <= degrees <= 90:
-        raise ValueError(f"Latitude hors bornes: {degrees}")
-    if direction in ('E', 'W') and not 0 <= degrees <= 180:
-        raise ValueError(f"Longitude hors bornes: {degrees}")
+    if direction in ('N', 'S') and not (0 <= degrees < 90 or degrees == 90 and minutes == 0):
+        raise ValueError(f"Latitude hors bornes: {degrees}° {minutes}'")
+    if direction in ('E', 'W') and not (0 <= degrees < 180 or degrees == 180 and minutes == 0):
+        raise ValueError(f"Longitude hors bornes: {degrees}° {minutes}'")
 
     decimal = degrees + (minutes / 60.0)
     if direction in ('S', 'W'):
@@ -678,8 +685,8 @@ def _evaluate_math_expression(expression):
 def _is_valid_degrees_minutes(lat_deg: int, lat_min: float, lon_deg: int, lon_min: float) -> bool:
     """
     Valide les bornes des degrés et minutes pour une coordonnée DDM.
-    - Latitude degrés: 0 à 90
-    - Longitude degrés: 0 à 180
+    - Latitude degrés: 0 à 90 (90° n'admet que 00.000 en minutes)
+    - Longitude degrés: 0 à 180 (180° n'admet que 00.000 en minutes)
     - Minutes: 0 à < 60
     """
     try:
@@ -690,6 +697,11 @@ def _is_valid_degrees_minutes(lat_deg: int, lat_min: float, lon_deg: int, lon_mi
         if lat_min < 0 or lat_min >= 60:
             return False
         if lon_min < 0 or lon_min >= 60:
+            return False
+        # La valeur totale ne doit pas dépasser 90°/180°.
+        if lat_deg == 90 and lat_min > 0:
+            return False
+        if lon_deg == 180 and lon_min > 0:
             return False
         return True
     except Exception:
@@ -793,7 +805,7 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
 
 # Pattern DDM « classique » : N/S deg° min[.,]dec E/W deg° min[.,]dec.
 _DETECT_DMM_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
     r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
 )
 
@@ -840,7 +852,7 @@ def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Pattern plus souple qui accepte des variations dans les espaces et la
 # ponctuation (DOTALL conservé du code d'origine).
 _DETECT_TABSPACE_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})\s*'
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})\s*'
     r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})',
     re.DOTALL,
 )
@@ -894,7 +906,7 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
 
 # Le pattern autorise espaces, retours à la ligne ou "/" comme séparateurs.
 _DETECT_VARIANT_REGEX = re.compile(
-    r"(?P<lat_dir>[NS])\s*[/\n\s]*\s*(?P<lat>\d{7})\s*(?P<lon_dir>[EW])\s*[/\n\s]*\s*(?P<lon>\d{6,8})"
+    _CARDINAL_LB + r"(?P<lat_dir>[NS])\s*[/\n\s]*\s*(?P<lat>\d{7})\s*(?P<lon_dir>[EW])\s*[/\n\s]*\s*(?P<lon>\d{6,8})"
 )
 
 
@@ -977,7 +989,7 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
 # La borne est interpolée à la compilation (une seule fois au chargement).
 # re.DOTALL inutile : le gap [^\d] matche déjà les retours à la ligne.
 _DETECT_SPECIFIC_TABPOINT_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
     rf'[^\d]{{0,{MAX_COORD_PAIR_GAP}}}'
     r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
 )
@@ -1097,11 +1109,11 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
 # Composantes « flexibles » : lettre cardinale + degrés (°/deg/degrees) +
 # minutes + décimales, en deux recherches indépendantes (lat puis lon).
 _DETECT_FLEXIBLE_LAT_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
     re.IGNORECASE,
 )
 _DETECT_FLEXIBLE_LON_REGEX = re.compile(
-    r'([EW])\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
+    _CARDINAL_LB + r'([EW])\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})',
     re.IGNORECASE,
 )
 
@@ -1170,7 +1182,7 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
 # Pattern pour détecter la lettre cardinale suivie de chiffres séparés par
 # des espaces (les mots « nord/est/sud/ouest… » ont été blankés en amont).
 _DETECT_NORD_EST_REGEX = re.compile(
-    r'([NS])\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)([EW])\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
+    _CARDINAL_LB + r'([NS])\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)([EW])\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
 )
 
 
@@ -1299,7 +1311,7 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
 
 # Pattern du format DMS (degrés, minutes, secondes).
 _DETECT_DMS_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*\s*'
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*\s*'
     r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*'
 )
 
@@ -1358,7 +1370,7 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
 # des lettres : N/S et E/W acceptés (re.IGNORECASE pour les chiffres romains
 # en minuscules).
 _DETECT_ROMAN_REGEX = re.compile(
-    r'([NS])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+([EW])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))',
+    _CARDINAL_LB + r'([NS])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+([EW])\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))',
     re.IGNORECASE,
 )
 
@@ -1565,7 +1577,7 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
 
 # Format compact : direction latitude, 7 chiffres, direction longitude,
 # 6-8 chiffres, espaces optionnels entre les composants.
-_DETECT_COMPACT_REGEX = re.compile(r'([NS])\s*(\d{7})\s*([EW])\s*(\d{6,8})', re.IGNORECASE)
+_DETECT_COMPACT_REGEX = re.compile(_CARDINAL_LB + r'([NS])\s*(\d{7})\s*([EW])\s*(\d{6,8})', re.IGNORECASE)
 
 
 def _iter_compact_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
@@ -1650,7 +1662,7 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
 # DDM avec des points à la place du symbole ° et du séparateur décimal
 # (lettres cardinales en majuscule ou minuscule).
 _DETECT_DMM_DOT_REGEX = re.compile(
-    r'([ns])\s*(\d{1,2})\.(\d{2})\.(\d{3})\s*'  # Latitude : dir, deg, minutes, décimales
+    _CARDINAL_LB + r'([ns])\s*(\d{1,2})\.(\d{2})\.(\d{3})\s*'  # Latitude : dir, deg, minutes, décimales
     r'([ew])\s*(\d{1,3})\.(\d{2})\.(\d{3})',    # Longitude : dir, deg, minutes, décimales
     re.IGNORECASE,
 )
@@ -2603,7 +2615,7 @@ def detect_coordinates_all():
 # DDM sans symbole ° : le séparateur degrés/minutes est un ou plusieurs
 # espaces ; minutes avec ou sans décimales.
 _DETECT_DMM_NO_DEGREE_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s+(\d{1,2}(?:[.,]\d+)?)\s*'  # Latitude
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s+(\d{1,2}(?:[.,]\d+)?)\s*'  # Latitude
     r'([EW])\s*(\d{1,3})\s+(\d{1,2}(?:[.,]\d+)?)'      # Longitude
 )
 
@@ -2667,7 +2679,7 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
 # DDM sans symbole ° ni point décimal : N/S deg min dec, E/W deg min dec,
 # séparés par des espaces.
 _DETECT_DMM_NO_SYMBOL_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})\s*'  # Latitude
+    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})\s*'  # Latitude
     r'([EW])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'      # Longitude
 )
 
@@ -2726,7 +2738,7 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
 # Format géocaching standard : Direction + degrés + espace + minutes.décimales
 # (sans symbole ° ni apostrophe).
 _DETECT_GEOCACHING_REGEX = re.compile(
-    r'([NS])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+([EW])(\d{1,3})\s+(\d{1,2}\.\d{1,3})'
+    _CARDINAL_LB + r'([NS])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+([EW])(\d{1,3})\s+(\d{1,2}\.\d{1,3})'
 )
 
 

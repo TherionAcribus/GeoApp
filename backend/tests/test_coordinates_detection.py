@@ -213,6 +213,33 @@ class TestCharacterizationRejections:
     def test_binary_pure_rejected(self):
         assert d("0110100 0110101", include_numeric_only=True)["exist"] is False
 
+    def test_cardinal_inside_word_rejected(self):
+        # Le « S » final de « WAYPOINTS » n'est pas un hémisphère Sud.
+        assert d("WAYPOINTS 48° 12.345 E 002° 20.123")["exist"] is False
+
+    def test_lon_letter_inside_word_rejected(self):
+        # Le « e » de « de » n'est pas une longitude Est.
+        assert d("température de 12° 30.500 N 48° 51.234")["exist"] is False
+
+    def test_pole_latitude_with_minutes_rejected(self):
+        # 90° n'admet que 00.000 en minutes.
+        assert d("N 90° 30.000 E 002° 20.123")["exist"] is False
+
+
+class TestIsolatedCardinalLetters:
+    """La lettre cardinale doit être isolée (pas collée à une lettre),
+    mais un chiffre avant elle reste admis (« WP1N48 », « N4812123 »)."""
+
+    def test_letter_after_digit_still_detected(self):
+        _check("WP1N48 51.234 E002 17.567",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
+               dec_lat=48.8539, dec_lon=2.29278333)
+
+    def test_pole_latitude_zero_minutes_ok(self):
+        _check("N 90° 00.000 E 002° 20.123",
+               ddm_lat="N 90° 00.000'", ddm_lon="E 002° 20.123'",
+               dec_lat=90.0, dec_lon=2.33538333)
+
 
 class TestTargetBehaviour:
     """Corrections attendues de la refonte 4.1 (échouent sur le code pré-refonte)."""
