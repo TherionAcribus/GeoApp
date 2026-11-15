@@ -826,6 +826,11 @@ export interface PluginsService {
     reloadPlugin(name: string): Promise<void>;
 
     /**
+     * Active ou désactive un plugin.
+     */
+    setPluginEnabled(name: string, enabled: boolean): Promise<Plugin>;
+
+    /**
      * Retourne la liste des plugins éligibles au metasolver pour un preset donné.
      */
     getMetasolverEligiblePlugins(preset?: string): Promise<MetasolverEligiblePluginsResponse>;

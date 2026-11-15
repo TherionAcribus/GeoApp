@@ -285,6 +285,66 @@ def get_plugins_status():
         }), 500
 
 
+@bp.route('/<plugin_name>/enabled', methods=['PUT'])
+def set_plugin_enabled(plugin_name: str):
+    """
+    Active ou désactive un plugin.
+
+    Args:
+        plugin_name (str): Nom du plugin
+
+    Body:
+        {"enabled": true|false}
+
+    Returns:
+        JSON: {"success": true, "plugin": {...}}
+
+    Example:
+        PUT /api/plugins/caesar/enabled
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({
+            "error": "Requête invalide",
+            "message": "Le champ 'enabled' (booléen) est requis"
+        }), 400
+
+    if not isinstance(payload.get('enabled'), bool):
+        return jsonify({
+            "error": "Requête invalide",
+            "message": "Le champ 'enabled' (booléen) est requis"
+        }), 400
+
+    try:
+        manager = get_plugin_manager()
+
+        plugin = manager.set_plugin_enabled(plugin_name, payload['enabled'])
+
+        if plugin is None:
+            return jsonify({
+                "error": "Plugin non trouvé",
+                "plugin_name": plugin_name
+            }), 404
+
+        # Les candidats metasolver sont filtrés sur enabled : invalider.
+        invalidate_metasolver_caches()
+
+        return jsonify({
+            "success": True,
+            "plugin": plugin
+        }), 200
+
+    except Exception as e:
+        logger.opt(exception=e).error(
+            f"Erreur lors du changement d'état du plugin {plugin_name}: {e}"
+        )
+        return jsonify({
+            "error": "Erreur lors du changement d'état",
+            "message": str(e)
+        }), 500
+
+
 @bp.route('/<plugin_name>/reload', methods=['POST'])
 def reload_plugin(plugin_name: str):
     """
@@ -306,11 +366,17 @@ def reload_plugin(plugin_name: str):
     """
     try:
         manager = get_plugin_manager()
-        
+
+        if manager.get_plugin_info(plugin_name) is None:
+            return jsonify({
+                "error": "Plugin non trouvé",
+                "plugin_name": plugin_name
+            }), 404
+
         logger.info(f"Rechargement du plugin: {plugin_name}")
-        
+
         success = manager.reload_plugin(plugin_name)
-        
+
         if success:
             return jsonify({
                 "success": True,
@@ -319,7 +385,8 @@ def reload_plugin(plugin_name: str):
         else:
             return jsonify({
                 "success": False,
-                "message": f"Échec du rechargement du plugin {plugin_name}"
+                "message": f"Échec du rechargement du plugin {plugin_name}",
+                "error": manager.get_discovery_errors().get(plugin_name)
             }), 500
             
     except Exception as e:

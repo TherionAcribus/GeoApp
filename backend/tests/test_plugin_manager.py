@@ -1035,3 +1035,106 @@ class TestPluginManagerRuntimePreferences:
         manager.refresh_runtime_preferences()
 
         assert wrapper.metadata.timeout_seconds == 0
+
+
+class TestPluginManagerEnableDisable:
+    """Tests de set_plugin_enabled : activer/désactiver un plugin à chaud."""
+
+    def _make_executable_plugin(
+        self, temp_plugins_dir, valid_plugin_json, name='test_plugin'
+    ):
+        data = valid_plugin_json.copy()
+        data['name'] = name
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', name, data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+        return plugin_dir
+
+    def test_set_plugin_enabled_disable(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Désactiver un plugin chargé le décharge, bloque get_plugin et
+        execute retourne plugin_disabled (cache d'infos invalidé)."""
+        self._make_executable_plugin(temp_plugins_dir, valid_plugin_json)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+        assert manager.get_plugin('test_plugin') is not None
+
+        # Réchauffer le cache d'infos pour vérifier son invalidation
+        assert manager.get_plugin_info('test_plugin')['enabled'] is True
+
+        result = manager.set_plugin_enabled('test_plugin', False)
+        assert result is not None
+        assert result['enabled'] is False
+
+        assert 'test_plugin' not in manager.loaded_plugins
+        assert manager.get_plugin('test_plugin') is None
+
+        exec_result = manager.execute_plugin('test_plugin', {})
+        assert exec_result['status'] == 'error'
+        assert exec_result['error']['code'] == 'plugin_disabled'
+
+        assert manager.get_plugin_info('test_plugin')['enabled'] is False
+
+    def test_set_plugin_enabled_reenable_and_unknown(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Réactiver rend le plugin exécutable ; un nom inconnu → None."""
+        self._make_executable_plugin(temp_plugins_dir, valid_plugin_json)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        manager.set_plugin_enabled('test_plugin', False)
+        result = manager.set_plugin_enabled('test_plugin', True)
+        assert result is not None
+        assert result['enabled'] is True
+
+        exec_result = manager.execute_plugin('test_plugin', {})
+        assert exec_result['status'] == 'ok'
+
+        assert manager.set_plugin_enabled('unknown_plugin', True) is None
+
+    def test_disabled_state_survives_rediscovery(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """La désactivation survit à une re-découverte, même après un bump
+        de version du plugin.json."""
+        plugin_dir = self._make_executable_plugin(
+            temp_plugins_dir, valid_plugin_json
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+        manager.set_plugin_enabled('test_plugin', False)
+
+        # Bump de version puis re-découverte
+        updated_data = valid_plugin_json.copy()
+        updated_data['version'] = '1.0.1'
+        with open(plugin_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(updated_data, f)
+
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='test_plugin').first()
+            assert plugin.enabled is False
+            assert plugin.version == '1.0.1'
+
+    def test_unknown_plugin_execute_is_unavailable(
+        self, app, temp_plugins_dir
+    ):
+        """Un plugin inexistant retourne plugin_unavailable (pas disabled)."""
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        exec_result = manager.execute_plugin('nonexistent_plugin', {})
+        assert exec_result['status'] == 'error'
+        assert exec_result['error']['code'] == 'plugin_unavailable'

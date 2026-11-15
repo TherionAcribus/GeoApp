@@ -831,6 +831,26 @@ class PluginManager:
         plugin = self.get_plugin(plugin_name)
 
         if not plugin:
+            # Un plugin existant mais désactivé remonte une erreur dédiée.
+            info = self.get_plugin_info(plugin_name)
+            if info and info.get('enabled') is False:
+                logger.error(f"Plugin {plugin_name} désactivé")
+                return normalize_plugin_result({
+                    "status": "error",
+                    "summary": f"Plugin {plugin_name} désactivé",
+                    "results": [],
+                    "plugin_info": {
+                        "name": plugin_name,
+                        "version": info.get('version', 'unknown'),
+                        "execution_time_ms": 0
+                    },
+                    "error": {
+                        "type": "PluginDisabled",
+                        "code": "plugin_disabled",
+                        "message": f"Plugin {plugin_name} désactivé"
+                    }
+                }, name=plugin_name, version=info.get('version', 'unknown'))
+
             logger.error(f"Plugin {plugin_name} non disponible pour exécution")
             return normalize_plugin_result({
                 "status": "error",
@@ -1030,6 +1050,51 @@ class PluginManager:
 
         return count
     
+    def set_plugin_enabled(self, plugin_name: str, enabled: bool) -> Optional[Dict]:
+        """
+        Active ou désactive un plugin en DB. Un plugin désactivé est
+        déchargé et refusé par get_plugin jusqu'à réactivation.
+
+        Args:
+            plugin_name (str): Nom du plugin
+            enabled (bool): Nouvel état
+
+        Returns:
+            Optional[Dict]: Représentation du plugin, None si introuvable
+        """
+        if not self.app:
+            return None
+
+        try:
+            with self.app.app_context():
+                plugin = Plugin.query.filter_by(name=plugin_name).first()
+                if plugin is None:
+                    logger.warning(f"Plugin {plugin_name} non trouvé en DB")
+                    return None
+
+                plugin.enabled = bool(enabled)
+                db.session.commit()
+
+                if not enabled:
+                    self.unload_plugin(plugin_name)
+
+                self._invalidate_metadata_cache(plugin_name)
+
+                logger.info(
+                    f"Plugin {plugin_name} {'activé' if enabled else 'désactivé'}"
+                )
+
+                return plugin.to_dict()
+
+        except Exception as e:
+            db.session.rollback()
+            logger.opt(exception=e).error(
+                "Erreur lors du changement d'état du plugin {}: {}",
+                plugin_name,
+                e,
+            )
+            raise
+
     def reload_plugin(self, plugin_name: str) -> bool:
         """
         Recharge un plugin (décharge puis recharge).

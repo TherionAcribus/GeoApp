@@ -144,6 +144,7 @@
 .plugin-header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 8px;
 }
@@ -163,12 +164,32 @@
 
 .plugin-name {
     flex: 1;
+    min-width: 0;
     font-weight: 600;
     font-size: 13px;
     color: var(--theia-foreground);
     display: flex;
     align-items: center;
     gap: 6px;
+}
+
+.plugin-name-button {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.plugin-name-button:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
 }
 
 .plugin-version {
@@ -253,11 +274,10 @@
 /* ========== Plugin Indicators ========== */
 
 .plugin-indicators {
-    position: absolute;
-    top: 8px;
-    right: 40px;
     display: flex;
+    align-items: center;
     gap: 6px;
+    margin-left: auto;
 }
 
 .plugin-indicators .indicator {
@@ -338,9 +358,82 @@
     border-color: var(--theia-inputValidation-errorBorder);
 }
 
-.plugin-item:focus-visible {
+/* ========== Actions par plugin ========== */
+
+.plugin-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.plugin-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 12px;
+}
+
+.plugin-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.plugin-toggle input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.plugin-toggle-track {
+    display: inline-block;
+    position: relative;
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    transition: background 0.15s ease;
+}
+
+.plugin-toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--theia-foreground);
+    transition: left 0.15s ease;
+}
+
+.plugin-toggle input:checked + .plugin-toggle-track {
+    background: var(--theia-button-background);
+}
+
+.plugin-toggle input:checked + .plugin-toggle-track::after {
+    left: 13px;
+}
+
+.plugin-toggle input:focus-visible + .plugin-toggle-track {
     outline: 1px solid var(--theia-focusBorder);
     outline-offset: 1px;
+}
+
+.plugin-toggle input:disabled,
+.plugin-toggle input:disabled + .plugin-toggle-track {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .plugin-error-message {

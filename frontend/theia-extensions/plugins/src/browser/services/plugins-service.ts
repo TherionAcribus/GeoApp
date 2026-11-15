@@ -270,10 +270,28 @@ export class PluginsServiceImpl implements IPluginsService {
     async reloadPlugin(name: string): Promise<void> {
         try {
             await this.client.post(`/api/plugins/${name}/reload`);
-            
+
         } catch (error) {
             console.error(`Erreur lors du rechargement du plugin ${name}:`, error);
-            throw new Error(`Échec du rechargement: ${this.getErrorMessage(error)}`);
+            // Le backend joint la raison de l'échec dans le champ 'error' du
+            // corps (ex. erreur de découverte) : la remonter dans le message.
+            const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+            const suffix = typeof detail === 'string' && detail ? ` : ${detail}` : '';
+            throw new Error(`Échec du rechargement: ${this.getErrorMessage(error)}${suffix}`);
+        }
+    }
+
+    /**
+     * Active ou désactive un plugin.
+     */
+    async setPluginEnabled(name: string, enabled: boolean): Promise<Plugin> {
+        try {
+            const response = await this.client.put(`/api/plugins/${name}/enabled`, { enabled });
+            return response.data.plugin;
+
+        } catch (error) {
+            console.error(`Erreur lors du changement d'état du plugin ${name}:`, error);
+            throw new Error(`Impossible de modifier l'état du plugin: ${this.getErrorMessage(error)}`);
         }
     }
 

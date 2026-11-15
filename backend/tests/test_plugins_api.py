@@ -3116,11 +3116,10 @@ class TestPluginManagementAPI:
         assert 'caesar' in data['message']
     
     def test_reload_plugin_not_found(self, client, app):
-        """Test rechargement d'un plugin inexistant."""
+        """Test rechargement d'un plugin inexistant → 404."""
         response = client.post('/api/plugins/nonexistent/reload')
-        
-        # Le rechargement échouera mais ne doit pas planter
-        assert response.status_code in [200, 500]
+
+        assert response.status_code == 404
 
 
 class TestPluginAPIIntegration:
@@ -3304,3 +3303,86 @@ class TestBatchTaskRetention:
         execute._purge_batch_tasks()
 
         assert plugins_pkg.batch_tasks is execute.batch_tasks
+
+
+class TestPluginEnabledAPI:
+    """Tests de PUT /api/plugins/<name>/enabled et du reload 404."""
+
+    @pytest.fixture
+    def plugin_row(self, app):
+        """Insère un plugin activé en DB (aucun fichier nécessaire)."""
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='toggle_plugin').first()
+            if plugin is None:
+                plugin = Plugin(
+                    name='toggle_plugin',
+                    version='1.0.0',
+                    plugin_api_version='2.0',
+                    description='Plugin de test',
+                    author='Test',
+                    plugin_type='python',
+                    source='official',
+                    path='/fake/toggle_plugin',
+                    entry_point='main.py',
+                    enabled=True,
+                )
+                db.session.add(plugin)
+                db.session.commit()
+            return plugin.name
+
+    def test_put_enabled_disable_and_list(self, client, app, plugin_row):
+        """Désactiver via PUT : la liste par défaut l'exclut, enabled=false
+        (sans restriction) le montre désactivé."""
+        response = client.put(
+            f'/api/plugins/{plugin_row}/enabled',
+            data=json.dumps({'enabled': False}),
+            content_type='application/json'
+        )
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['success'] is True
+        assert data['plugin']['enabled'] is False
+
+        response = client.get('/api/plugins')
+        assert response.status_code == 200
+        names = [p['name'] for p in json.loads(response.data)['plugins']]
+        assert 'toggle_plugin' not in names
+
+        response = client.get('/api/plugins?enabled=false')
+        assert response.status_code == 200
+        plugins = {
+            p['name']: p for p in json.loads(response.data)['plugins']
+        }
+        assert plugins['toggle_plugin']['enabled'] is False
+
+    def test_put_enabled_invalid_value_returns_400(
+        self, client, app, plugin_row
+    ):
+        """enabled non booléen ou absent → 400."""
+        response = client.put(
+            f'/api/plugins/{plugin_row}/enabled',
+            data=json.dumps({'enabled': 'yes'}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+
+        response = client.put(
+            f'/api/plugins/{plugin_row}/enabled',
+            data=json.dumps({}),
+            content_type='application/json'
+        )
+        assert response.status_code == 400
+
+    def test_put_enabled_unknown_plugin_returns_404(self, client, app):
+        """PUT enabled sur un plugin inexistant → 404."""
+        response = client.put(
+            '/api/plugins/unknown_xyz/enabled',
+            data=json.dumps({'enabled': True}),
+            content_type='application/json'
+        )
+        assert response.status_code == 404
+
+    def test_reload_unknown_plugin_returns_404(self, client, app):
+        """POST reload sur un plugin inexistant → 404."""
+        response = client.post('/api/plugins/unknown_xyz/reload')
+        assert response.status_code == 404

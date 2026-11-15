@@ -12,6 +12,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { PluginsService } from '../common/plugin-protocol';
 import { Plugin, PluginFilters, PluginsStatus } from '../common/plugin-protocol';
 import { PluginExecutorContribution } from './plugins-contribution';
+import { PluginToolsManager } from './plugin-tools-manager';
 
 /**
  * Widget pour naviguer dans les plugins disponibles.
@@ -30,6 +31,9 @@ export class PluginsBrowserWidget extends ReactWidget {
     
     @inject(PluginExecutorContribution)
     protected readonly pluginExecutorContribution!: PluginExecutorContribution;
+
+    @inject(PluginToolsManager)
+    protected readonly pluginToolsManager!: PluginToolsManager;
     
     // État du widget
     protected plugins: Plugin[] = [];
@@ -37,6 +41,9 @@ export class PluginsBrowserWidget extends ReactWidget {
     protected loading = true;
     protected error: string | undefined;
     protected status: PluginsStatus | undefined;
+
+    // Plugins en cours d'action (toggle / reload) : leurs contrôles sont gelés
+    protected busyPlugins = new Set<string>();
     
     // Filtres
     protected sourceFilter: 'all' | 'official' | 'custom' = 'all';
@@ -71,29 +78,38 @@ export class PluginsBrowserWidget extends ReactWidget {
         this.update();
         
         try {
-            // enabled=false côté backend signifie « ne pas restreindre aux
-            // plugins activés » : la liste complète est nécessaire au filtre
-            // « Désactivés » (appliqué localement).
-            const [plugins, status] = await Promise.all([
-                this.pluginsService.listPlugins({ enabled: false }),
-                this.pluginsService.getPluginsStatus().catch(err => {
-                    console.warn('Statut des plugins indisponible:', err);
-                    return undefined;
-                })
-            ]);
-            this.plugins = plugins;
-            this.status = status;
-            this.extractCategories();
-            this.applyFilters();
+            await this.fetchPlugins();
             this.loading = false;
             this.update();
-            
+
         } catch (err) {
             this.error = err instanceof Error ? err.message : 'Erreur inconnue';
             this.loading = false;
             this.update();
             this.messageService.error(`Erreur lors du chargement des plugins: ${this.error}`);
         }
+    }
+
+    /**
+     * Récupère la liste des plugins et leur statut sans toucher au spinner :
+     * utilisé par loadPlugins et pour le rafraîchissement silencieux après
+     * une action sur un plugin.
+     */
+    protected async fetchPlugins(): Promise<void> {
+        // enabled=false côté backend signifie « ne pas restreindre aux
+        // plugins activés » : la liste complète est nécessaire au filtre
+        // « Désactivés » (appliqué localement).
+        const [plugins, status] = await Promise.all([
+            this.pluginsService.listPlugins({ enabled: false }),
+            this.pluginsService.getPluginsStatus().catch(err => {
+                console.warn('Statut des plugins indisponible:', err);
+                return undefined;
+            })
+        ]);
+        this.plugins = plugins;
+        this.status = status;
+        this.extractCategories();
+        this.applyFilters();
     }
     
     /**
@@ -222,21 +238,62 @@ export class PluginsBrowserWidget extends ReactWidget {
      * Gère le clic sur un plugin - Ouvre le Plugin Executor avec le plugin pré-sélectionné.
      */
     protected handlePluginClick = (plugin: Plugin): void => {
+        if (plugin.enabled !== true) {
+            this.messageService.info(
+                `Le plugin ${plugin.name} est désactivé. Activez-le pour l'utiliser.`
+            );
+            return;
+        }
         this.pluginExecutorContribution.openWithPlugin(plugin.name);
     };
 
     /**
-     * Ouvre le plugin via le clavier (Enter / Space) sur la carte cliquable.
+     * Active ou désactive un plugin, puis rafraîchit la liste et les outils.
      */
-    protected handlePluginKeyDown = (event: React.KeyboardEvent, plugin: Plugin): void => {
-        if (event.key === ' ' || event.key === 'Spacebar') {
-            // Empêcher le défilement de page déclenché par Space
-            event.preventDefault();
-            this.handlePluginClick(plugin);
-        } else if (event.key === 'Enter') {
-            this.handlePluginClick(plugin);
+    protected async togglePluginEnabled(plugin: Plugin): Promise<void> {
+        this.busyPlugins.add(plugin.name);
+        this.update();
+
+        try {
+            await this.pluginsService.setPluginEnabled(plugin.name, !plugin.enabled);
+            await this.fetchPlugins();
+            void this.pluginToolsManager.refreshTools({ silent: true });
+            this.messageService.info(
+                `Plugin ${plugin.name} ${plugin.enabled ? 'désactivé' : 'activé'}`
+            );
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue';
+            this.messageService.error(
+                `Erreur lors du changement d'état du plugin: ${message}`
+            );
+        } finally {
+            this.busyPlugins.delete(plugin.name);
+            this.update();
         }
-    };
+    }
+
+    /**
+     * Recharge un plugin (code rechargé depuis le disque).
+     */
+    protected async reloadPlugin(plugin: Plugin): Promise<void> {
+        this.busyPlugins.add(plugin.name);
+        this.update();
+
+        try {
+            await this.pluginsService.reloadPlugin(plugin.name);
+            this.messageService.info(`Plugin ${plugin.name} rechargé`);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Erreur inconnue';
+            this.messageService.error(
+                `Erreur lors du rechargement de ${plugin.name}: ${message}`
+            );
+        } finally {
+            // Rafraîchir le statut pour afficher une éventuelle erreur de chargement
+            await this.fetchPlugins().catch(err => console.warn('Rafraîchissement des plugins impossible:', err));
+            this.busyPlugins.delete(plugin.name);
+            this.update();
+        }
+    }
 
     /**
      * Retourne les deux derniers segments d'un chemin de dossier.
@@ -433,15 +490,14 @@ export class PluginsBrowserWidget extends ReactWidget {
         const isOfficial = plugin.source === 'official';
         const isEnabled = plugin.enabled === true;
         const pluginError = this.status?.plugins[plugin.name]?.error;
+        const isBusy = this.busyPlugins.has(plugin.name);
+        const isLoaded = this.status?.plugins[plugin.name]?.loaded === true;
 
         return (
             <div
                 key={plugin.name}
                 className={`plugin-item ${!isEnabled ? 'disabled' : ''} ${pluginError ? 'has-error' : ''}`}
                 onClick={() => this.handlePluginClick(plugin)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={event => this.handlePluginKeyDown(event, plugin)}
             >
                 <div className="plugin-header">
                     <div className="plugin-status">
@@ -452,8 +508,36 @@ export class PluginsBrowserWidget extends ReactWidget {
                         )}
                     </div>
                     <div className="plugin-name">
-                        {plugin.name}
+                        <button type="button" className="plugin-name-button">
+                            {plugin.name}
+                        </button>
                         <span className="plugin-version">v{plugin.version}</span>
+                    </div>
+                    <div className="plugin-actions" onClick={e => e.stopPropagation()}>
+                        <button
+                            type="button"
+                            className="theia-button secondary plugin-action-button"
+                            title="Recharger le plugin"
+                            aria-label={`Recharger le plugin ${plugin.name}`}
+                            disabled={isBusy || !isEnabled}
+                            onClick={() => this.reloadPlugin(plugin)}
+                        >
+                            <i className={`fa fa-refresh${isBusy ? ' fa-spin' : ''}`} aria-hidden="true" />
+                        </button>
+                        <label
+                            className="plugin-toggle"
+                            title={isEnabled ? 'Désactiver le plugin' : 'Activer le plugin'}
+                        >
+                            <input
+                                type="checkbox"
+                                role="switch"
+                                checked={isEnabled}
+                                disabled={isBusy}
+                                aria-label={`Activer le plugin ${plugin.name}`}
+                                onChange={() => this.togglePluginEnabled(plugin)}
+                            />
+                            <span className="plugin-toggle-track" aria-hidden="true" />
+                        </label>
                     </div>
                     <div className="plugin-badge">
                         {isOfficial ? (
@@ -494,25 +578,30 @@ export class PluginsBrowserWidget extends ReactWidget {
                             <i className="fa fa-user-o" /> {plugin.author}
                         </div>
                     )}
-                </div>
-                
-                {/* Indicateurs de ressources */}
-                <div className="plugin-indicators">
-                    {plugin.heavy_cpu && (
-                        <span className="indicator" title="Gourmand en CPU">
-                            <i className="fa fa-microchip" />
-                        </span>
-                    )}
-                    {plugin.needs_network && (
-                        <span className="indicator" title="Nécessite le réseau">
-                            <i className="fa fa-wifi" />
-                        </span>
-                    )}
-                    {plugin.needs_filesystem && (
-                        <span className="indicator" title="Accès fichiers">
-                            <i className="fa fa-folder-open" />
-                        </span>
-                    )}
+
+                    {/* Indicateurs de ressources et d'état */}
+                    <div className="plugin-indicators">
+                        {isLoaded && (
+                            <span className="indicator" title="Chargé en mémoire">
+                                <i className="fa fa-bolt" aria-hidden="true" />
+                            </span>
+                        )}
+                        {plugin.heavy_cpu && (
+                            <span className="indicator" title="Gourmand en CPU">
+                                <i className="fa fa-microchip" />
+                            </span>
+                        )}
+                        {plugin.needs_network && (
+                            <span className="indicator" title="Nécessite le réseau">
+                                <i className="fa fa-wifi" />
+                            </span>
+                        )}
+                        {plugin.needs_filesystem && (
+                            <span className="indicator" title="Accès fichiers">
+                                <i className="fa fa-folder-open" />
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
         );
