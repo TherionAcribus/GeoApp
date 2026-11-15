@@ -491,6 +491,7 @@ export class PluginsBrowserWidget extends ReactWidget {
         const isEnabled = plugin.enabled === true;
         const pluginError = this.status?.plugins[plugin.name]?.error;
         const missingDeps = this.status?.plugins[plugin.name]?.missing_dependencies;
+        const usage = this.status?.plugins[plugin.name]?.usage;
         const hasWarning = !pluginError && !!missingDeps && missingDeps.length > 0;
         const isBusy = this.busyPlugins.has(plugin.name);
         const isLoaded = this.status?.plugins[plugin.name]?.loaded === true;
@@ -593,6 +594,19 @@ export class PluginsBrowserWidget extends ReactWidget {
                         {isLoaded && (
                             <span className="indicator" title="Chargé en mémoire">
                                 <i className="fa fa-bolt" aria-hidden="true" />
+                            </span>
+                        )}
+                        {usage && usage.executions > 0 && (
+                            <span
+                                className="indicator plugin-usage"
+                                title={
+                                    `${usage.executions} exécution(s) · ` +
+                                    `${usage.errors} erreur(s) · ` +
+                                    `${usage.avg_execution_time_ms} ms en moyenne`
+                                }
+                            >
+                                <i className="fa fa-bar-chart" aria-hidden="true" />
+                                {` ${usage.executions}`}
                             </span>
                         )}
                         {plugin.heavy_cpu && (

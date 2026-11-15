@@ -14,6 +14,7 @@ import os
 import re
 import copy
 import json
+import time
 import hashlib
 import threading
 import importlib.metadata
@@ -27,7 +28,7 @@ from loguru import logger
 import jsonschema
 
 from ..database import db
-from .models import Plugin
+from .models import Plugin, PluginUsageStat
 from .executor import (
     TextHandlingError,
     apply_text_handling,
@@ -1119,12 +1120,14 @@ class PluginManager:
             )
             warnings = []
 
+        exec_started = time.monotonic()
         try:
             logger.info(f"Exécution du plugin {plugin_name}")
 
             # Exécuter le plugin (borne maxParallelRuns sur la concurrence)
             with self._execution_slot(metadata):
                 raw_result = plugin.execute(inputs)
+            exec_elapsed_ms = (time.monotonic() - exec_started) * 1000
 
             # Normaliser vers le contrat de résultat documenté
             result = normalize_plugin_result(
@@ -1161,6 +1164,12 @@ class PluginManager:
 
             self._append_missing_dependency_warning(result, plugin_name)
 
+            self._record_plugin_usage(
+                plugin_name,
+                ok=result.get('status') != 'error',
+                elapsed_ms=exec_elapsed_ms,
+            )
+
             return result
 
         except Exception as e:
@@ -1184,7 +1193,36 @@ class PluginManager:
                 }
             }
             self._append_missing_dependency_warning(result, plugin_name)
+            self._record_plugin_usage(
+                plugin_name,
+                ok=False,
+                elapsed_ms=(time.monotonic() - exec_started) * 1000,
+            )
             return result
+
+    def _record_plugin_usage(
+        self, plugin_name: str, ok: bool, elapsed_ms: float
+    ) -> None:
+        """
+        Enregistre une exécution dans les statistiques d'usage
+        (``plugin_usage_stats``). Toutes les sources sont comptées, y
+        compris les exécutions imbriquées (enfants du metasolver). Un
+        échec d'écriture ne doit jamais casser l'exécution.
+        """
+        if not self.app:
+            return
+        try:
+            with self.app.app_context():
+                stat = PluginUsageStat.query.get(plugin_name)
+                if stat is None:
+                    stat = PluginUsageStat(name=plugin_name)
+                    db.session.add(stat)
+                stat.record_execution(ok, elapsed_ms)
+                db.session.commit()
+        except Exception as e:
+            logger.warning(
+                f"Statistiques d'usage non enregistrées pour {plugin_name}: {e}"
+            )
 
     def _append_missing_dependency_warning(
         self,
@@ -1415,6 +1453,9 @@ class PluginManager:
             with self.app.app_context():
                 all_plugins = Plugin.query.all()
                 plugins_by_name = {p.name: p for p in all_plugins}
+                stats_by_name = {
+                    s.name: s for s in PluginUsageStat.query.all()
+                }
 
                 for plugin in all_plugins:
                     dependencies = []
@@ -1439,6 +1480,10 @@ class PluginManager:
                         "plugin_type": plugin.plugin_type,
                         "missing_dependencies": self._missing_dependencies(
                             dependencies, plugins_by_name
+                        ),
+                        "usage": (
+                            stats_by_name[plugin.name].to_dict()
+                            if plugin.name in stats_by_name else None
                         )
                     }
         except Exception as e:

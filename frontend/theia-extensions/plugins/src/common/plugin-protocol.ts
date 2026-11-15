@@ -755,6 +755,14 @@ export interface PluginsStatus {
         error?: string | null;
         /** Dépendances manquantes (avertissement, jamais bloquant) */
         missing_dependencies?: string[];
+        /** Statistiques d'usage persistées (null si jamais exécuté) */
+        usage?: {
+            executions: number;
+            successes: number;
+            errors: number;
+            avg_execution_time_ms: number;
+            last_used_at: string | null;
+        } | null;
     }>;
 
     /** Erreurs de découverte des dossiers de plugins non enregistrés, par chemin */

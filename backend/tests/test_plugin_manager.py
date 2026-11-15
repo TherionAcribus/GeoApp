@@ -17,7 +17,7 @@ import threading
 from pathlib import Path
 
 from gc_backend.plugins.plugin_manager import PluginManager
-from gc_backend.plugins.models import Plugin
+from gc_backend.plugins.models import Plugin, PluginUsageStat
 from gc_backend import create_app
 from gc_backend.database import db
 
@@ -1275,6 +1275,145 @@ class TestPluginManagerExecutionLimit:
             set_preference_value('geoApp.plugins.executor.maxParallelRuns', 1)
         manager.refresh_runtime_preferences()
         assert manager.max_parallel_runs == 1
+
+
+class TestPluginManagerUsageStats:
+    """Tests des statistiques d'usage (table plugin_usage_stats)."""
+
+    def _make_plugin(self, temp_plugins_dir, valid_plugin_json,
+                     name='stats_plugin', main_py=None):
+        data = valid_plugin_json.copy()
+        data['name'] = name
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', name, data
+        )
+        if main_py is None:
+            main_py = (
+                'class StatsPluginPlugin:\n'
+                '    def execute(self, inputs):\n'
+                '        return {"status": "ok", "results": []}\n'
+            )
+        (plugin_dir / 'main.py').write_text(main_py, encoding='utf-8')
+        return plugin_dir
+
+    def _stat(self, app, name):
+        with app.app_context():
+            return PluginUsageStat.query.get(name)
+
+    def test_stats_recorded_on_success(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une exécution réussie crée la ligne de stats (executions=1,
+        successes=1, errors=0, last_used_at renseigné)."""
+        self._make_plugin(temp_plugins_dir, valid_plugin_json)
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('stats_plugin', {})
+        assert result['status'] == 'ok'
+
+        stat = self._stat(app, 'stats_plugin')
+        assert stat is not None
+        assert stat.executions == 1
+        assert stat.successes == 1
+        assert stat.errors == 0
+        assert stat.last_used_at is not None
+
+    def test_stats_recorded_on_plugin_error(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin qui lève une exception compte une erreur."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, name='stats_fail',
+            main_py=(
+                'class StatsFailPlugin:\n'
+                '    def execute(self, inputs):\n'
+                "        raise ValueError('boom')\n"
+            ),
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('stats_fail', {})
+        assert result['status'] == 'error'
+
+        stat = self._stat(app, 'stats_fail')
+        assert stat is not None
+        assert stat.executions == 1
+        assert stat.successes == 0
+        assert stat.errors == 1
+
+    def test_stats_accumulate_across_executions(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Succès et erreurs s'accumulent sur plusieurs exécutions."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, name='stats_multi',
+            main_py=(
+                'class StatsMultiPlugin:\n'
+                '    def execute(self, inputs):\n'
+                "        if inputs.get('fail'):\n"
+                "            raise ValueError('boom')\n"
+                '        return {"status": "ok", "results": []}\n'
+            ),
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        manager.execute_plugin('stats_multi', {})
+        manager.execute_plugin('stats_multi', {})
+        manager.execute_plugin('stats_multi', {'fail': True})
+
+        stat = self._stat(app, 'stats_multi')
+        assert stat.executions == 3
+        assert stat.successes == 2
+        assert stat.errors == 1
+
+    def test_usage_exposed_in_status(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """get_plugin_status expose le bloc usage pour chaque plugin."""
+        self._make_plugin(temp_plugins_dir, valid_plugin_json)
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+        manager.execute_plugin('stats_plugin', {})
+
+        status = manager.get_plugin_status()
+        usage = status['stats_plugin']['usage']
+        assert usage is not None
+        assert usage['executions'] == 1
+        assert usage['errors'] == 0
+        assert 'avg_execution_time_ms' in usage
+
+    def test_rejected_validation_not_counted(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un rejet de validation (validate_inputs) n'exécute pas le
+        plugin : aucune stat enregistrée."""
+        data = valid_plugin_json.copy()
+        data['name'] = 'stats_plugin'
+        data['input_types'] = {
+            'text': {'type': 'string', 'label': 'Texte', 'required': True}
+        }
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'stats_plugin', data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class StatsPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin(
+            'stats_plugin', {}, validate_inputs=True
+        )
+        assert result['status'] == 'error'
+        assert result['error']['code'] == 'invalid_inputs'
+
+        assert self._stat(app, 'stats_plugin') is None
 
 
 class TestPluginManagerEnableDisable:

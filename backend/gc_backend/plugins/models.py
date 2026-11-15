@@ -5,8 +5,8 @@ Ce module définit le modèle Plugin qui stocke les métadonnées
 et informations de configuration de chaque plugin découvert.
 """
 
-from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, JSON
+from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, Float, String, Text, Boolean, DateTime, JSON
 from sqlalchemy.sql import func
 
 from ..database import db
@@ -218,3 +218,48 @@ class Plugin(db.Model):
                 schema['required'].append(key)
         
         return schema
+
+
+class PluginUsageStat(db.Model):
+    """
+    Statistiques d'usage agrégées par plugin (toutes sources d'exécution
+    confondues : /execute, batch, tâches, metasolver, workflow).
+
+    Persistées en base : contrairement au chargement lazy des plugins,
+    elles survivent au redémarrage. Utiles pour les priorités du
+    metasolver et un tri « favoris / récents » côté interface.
+    """
+    __tablename__ = 'plugin_usage_stats'
+
+    name = Column(String(128), primary_key=True)
+    executions = Column(Integer, nullable=False, default=0)
+    successes = Column(Integer, nullable=False, default=0)
+    errors = Column(Integer, nullable=False, default=0)
+    total_execution_time_ms = Column(Float, nullable=False, default=0.0)
+    last_used_at = Column(DateTime)
+
+    def record_execution(self, ok: bool, elapsed_ms: float) -> None:
+        self.executions = (self.executions or 0) + 1
+        if ok:
+            self.successes = (self.successes or 0) + 1
+        else:
+            self.errors = (self.errors or 0) + 1
+        self.total_execution_time_ms = (
+            self.total_execution_time_ms or 0.0
+        ) + elapsed_ms
+        self.last_used_at = datetime.now(timezone.utc)
+
+    def to_dict(self):
+        avg = (
+            self.total_execution_time_ms / self.executions
+            if self.executions else 0.0
+        )
+        return {
+            'executions': self.executions,
+            'successes': self.successes,
+            'errors': self.errors,
+            'avg_execution_time_ms': round(avg, 2),
+            'last_used_at': (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
+        }
