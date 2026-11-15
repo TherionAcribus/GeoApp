@@ -175,7 +175,9 @@ def _detect_gps_confidence(
     include_numeric_only: bool = False,
     origin_coords: Optional[Dict[str, str]] = None,
 ) -> Tuple[float, Dict[str, Any]]:
-    if not _gps_gatekeeper_fast(text):
+    # When the cache's coordinates are known, digit-only candidates
+    # ("48 51.234 2 21.456") are worth a look despite lacking a cardinal marker.
+    if not _gps_gatekeeper_fast(text) and not (include_numeric_only and origin_coords):
         return 0.0, {"exist": False}
 
     try:
@@ -673,6 +675,37 @@ def _is_single_case_letters(block: str) -> bool:
     return block.isupper() or block.islower() or block[1:].islower()
 
 
+def _encoded_pattern_analysis(text: str) -> Tuple[float, Optional[str]]:
+    """(penalty, kind) where kind is 'base64', 'hex', 'numeric' or None."""
+    if not text or len(text) < 8:
+        return 1.0, None
+
+    stripped = text.strip()
+    total_len = len(stripped)
+
+    # Base64-like: single long block of base64 chars
+    if _RE_BASE64_LIKE.match(stripped) and not _is_single_case_letters(stripped):
+        return 0.1, 'base64'
+
+    # Hex pairs: "6E 67 74 20 64 65"
+    hex_matches = _RE_HEX_PAIRS.findall(stripped)
+    hex_coverage = sum(len(m) for m in hex_matches) / max(1, total_len) if hex_matches else 0.0
+    if hex_coverage > 0.6:
+        return 0.05, 'hex'
+    if hex_coverage > 0.3:
+        return 0.2, 'hex'
+
+    # Numeric coded: "76 69 6 67 74" (sequences of short numbers separated by spaces)
+    num_matches = _RE_NUMERIC_CODED.findall(stripped)
+    num_coverage = sum(len(m) for m in num_matches) / max(1, total_len) if num_matches else 0.0
+    if num_coverage > 0.6:
+        return 0.15, 'numeric'
+    if num_coverage > 0.3:
+        return 0.35, 'numeric'
+
+    return 1.0, None
+
+
 def _encoded_pattern_penalty(text: str) -> float:
     """Detect still-encoded output (hex pairs, numeric codes, base64).
 
@@ -683,33 +716,7 @@ def _encoded_pattern_penalty(text: str) -> float:
     This catches outputs where a cipher plugin barely transformed the input,
     leaving hex pairs like ``76 69 6E 67 74`` or numeric codes like ``12 34 56``.
     """
-    if not text or len(text) < 8:
-        return 1.0
-
-    stripped = text.strip()
-    total_len = len(stripped)
-
-    # Base64-like: single long block of base64 chars
-    if _RE_BASE64_LIKE.match(stripped) and not _is_single_case_letters(stripped):
-        return 0.1
-
-    # Hex pairs: "6E 67 74 20 64 65"
-    hex_matches = _RE_HEX_PAIRS.findall(stripped)
-    hex_coverage = sum(len(m) for m in hex_matches) / max(1, total_len) if hex_matches else 0.0
-    if hex_coverage > 0.6:
-        return 0.05
-    if hex_coverage > 0.3:
-        return 0.2
-
-    # Numeric coded: "76 69 6 67 74" (sequences of short numbers separated by spaces)
-    num_matches = _RE_NUMERIC_CODED.findall(stripped)
-    num_coverage = sum(len(m) for m in num_matches) / max(1, total_len) if num_matches else 0.0
-    if num_coverage > 0.6:
-        return 0.15
-    if num_coverage > 0.3:
-        return 0.35
-
-    return 1.0
+    return _encoded_pattern_analysis(text)[0]
 
 
 # ── Numeric signal feature (coord_words + number_richness, merged) ───────
@@ -959,7 +966,7 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
 
     gps_conf, gps_details = _detect_gps_confidence(
         text,
-        include_numeric_only=False,
+        include_numeric_only=origin is not None,
         origin_coords=_origin_as_ddm(origin) if origin else None,
     )
     gps_conf, geo = _apply_geo_context(gps_conf, gps_details, origin)
@@ -984,12 +991,16 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
         (_quadgram_fitness_from_logp(v) for v in quadgram_logps.values()), default=0.0
     )
     repetition_quality = _repetition_quality(text)
-    encoded_penalty = _encoded_pattern_penalty(text)
+    encoded_penalty, encoded_kind = _encoded_pattern_analysis(text)
     if segmentation_lang and _RE_BASE64_LIKE.match(text.strip()):
         # A block that splits into real words is glued text in mixed case
         # ("LaCacheSeTrouve"), not base64.
         encoded_penalty = 1.0
     numeric_signal = _numeric_signal_feature(word_text)
+    if geo and geo['status'] != 'near':
+        raw_gps = geo.get('gps_confidence_raw') or 0.0
+        if raw_gps > 0.0:
+            numeric_signal *= float(gps_conf) / raw_gps
 
     # Unified coordinate channel: a formal GPS detection or a strong written
     # numeric signal. numeric_signal is scaled by 0.85 so a formal GPS hit is
@@ -1008,6 +1019,7 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
         and ic < 0.038
         and gps_conf < 0.7
         and numeric_signal < 0.3
+        and lexical < 0.4
     ):
         return ScoreResult(
             score=0.0,
@@ -1068,7 +1080,10 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
 
     # Apply encoded-pattern penalty as a multiplicative factor.
     # Heavily penalizes outputs that still look like hex/base64/numeric codes.
-    if encoded_penalty < 1.0:
+    # A strong formal GPS detection is exempt from the digit-group penalty
+    # only: real coordinates legitimately look like numeric codes, never
+    # like hex pairs or base64.
+    if encoded_penalty < 1.0 and not (gps_conf >= 0.5 and encoded_kind == 'numeric'):
         score *= encoded_penalty
         if encoded_penalty < 0.2:
             early_exit = 'encoded_pattern'
@@ -1210,10 +1225,11 @@ def _score_text_fast_cached(letters: str) -> float:
     if rep <= 0.0:
         return 0.0
 
-    # Tier 0: IC check — reject if clearly random
+    # Tier 0: IC check — a low IC caps the score but does not reject outright:
+    # real text with a skewed letter distribution (pangrams, text ending in a
+    # code) keeps whatever its quadgrams are worth.
     ic = _compute_ic_from_letters(letters)
-    if ic < 0.035 and n >= 20:
-        return 0.0
+    low_ic = ic < 0.035 and n >= 20
 
     # Tier 1: quadgram fitness, best of every shipped table
     best_fitness = 0.0
@@ -1224,7 +1240,7 @@ def _score_text_fast_cached(letters: str) -> float:
 
     # Hard gate: if quadgram fitness is very low, this isn't natural language
     # (monoalphabetic substitutions preserve IC but destroy quadgrams)
-    if best_fitness < 0.15:
+    if best_fitness < 0.15 or low_ic:
         return float(best_fitness * 0.3)
 
     # Combine: quadgram-dominant formula
@@ -1291,7 +1307,10 @@ def score_and_rank_results(
     """Score a batch of plugin results with tiered pruning and top-K selection.
 
     Pipeline:
-      1. Tier 0 — fast reject via score_text_fast() (< 0.1ms each)
+      0. Dedupe identical outputs (normalised spacing; first kept), so
+         the same answer reached by several keys cannot crowd out others
+      1. Tier 0 — fast reject via score_text_fast() (< 0.1ms each); items
+         with fewer than _QUADGRAM_MIN_LETTERS letters always survive
       2. Sort survivors by fast score, keep top max(top_k*3, 75, 10% of the
          lot) plus anything tied with the last one kept
       3. Tier 1 — full score_text() on survivors
@@ -1315,6 +1334,16 @@ def score_and_rank_results(
     if not valid_items:
         return []
 
+    seen_keys = set()
+    deduped_items: List[Dict[str, Any]] = []
+    for item in valid_items:
+        dedup_key = ' '.join(item['text_output'].split())
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+        deduped_items.append(item)
+    valid_items = deduped_items
+
     # For small result sets, skip fast-reject and score everything directly
     use_fast_filter = len(valid_items) > top_k
 
@@ -1323,6 +1352,9 @@ def score_and_rank_results(
         scored_fast: List[Tuple[float, int, Dict[str, Any]]] = []
         for idx, item in enumerate(valid_items):
             text_output = item['text_output']
+            if len(_normalize_for_stats(text_output)) < _QUADGRAM_MIN_LETTERS:
+                scored_fast.append((float('inf'), idx, item))
+                continue
             fast_score = score_text_fast(text_output)
             if fast_score < fast_reject_threshold:
                 continue

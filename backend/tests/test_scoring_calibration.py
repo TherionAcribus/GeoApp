@@ -910,3 +910,129 @@ class TestLanguageIdentification:
         for cat in CASES.values():
             for text in cat:
                 assert 0.0 <= self._language(text)[1] <= 1.0
+
+
+# ── Veto IC vs vocabulaire reconnu ──────────────────────────────────
+
+
+class TestIcVetoRescuedByLexical:
+    """Un IC bas (distribution de lettres atypique : pangramme, code en fin de
+    phrase, moitie decodee) ne doit pas annuler un texte dont les mots sont
+    majoritairement reconnus. Le veto reste actif sur le vrai charabia."""
+
+    @pytest.mark.parametrize("text", [
+        "LE CODE DU CADENAS EST XKQZJWVBTR",
+        "LA CACHE SE TROUVE XQZT KJWQ PFMZ VBNX QWRT",
+        "PORTEZ CE VIEUX WHISKY AU JUGE BLOND QUI FUME",
+        "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
+    ])
+    def test_low_ic_real_text_is_not_vetoed(self, text):
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring["early_exit"] != "ic_veto", scoring["explanation"]
+        assert scoring["score"] >= 0.25, scoring["score"]
+        assert _fast(text) >= 0.05, _fast(text)
+
+    def test_low_ic_gibberish_is_still_vetoed(self):
+        text = "LA CACHW GK SGBZBY FI RAXP WO HYGMO KOKIQ NRZE XF WN SONTAINW"
+        scoring = score_text(text)["metadata"]["scoring"]
+        assert scoring["early_exit"] == "ic_veto"
+        assert scoring["score"] == 0.0
+
+
+# ── Reponses de moins de 4 lettres dans un gros lot ─────────────────
+
+
+class TestTinyAnswersSurviveRanking:
+    """Sous 4 lettres, le score rapide est a 0 par construction : le pre-filtre
+    les laisse passer pour que le scorer complet les evalue."""
+
+    @pytest.mark.parametrize("text", ["MUR", "ARC", "GUE"])
+    def test_tiny_answer_wins_caesar_bruteforce(self, text):
+        results = [{"text_output": _caesar(text, k)} for k in range(26)]
+        ranked = score_and_rank_results(
+            results,
+            top_k=25,
+            min_score=TestValidCasesSurviveRanking.PROD_MIN_SCORE,
+            fast_reject_threshold=TestValidCasesSurviveRanking.PROD_FAST_REJECT,
+        )
+        # Des candidats trivialement meilleurs (mots plus longs par hasard)
+        # peuvent passer devant ; la reponse doit au moins figurer dans le top.
+        outputs = [r["text_output"] for r in ranked]
+        assert text in outputs, outputs
+
+    def test_tiny_answer_survives_a_large_lot(self):
+        garbage = [
+            {"text_output": f"XQZJWK{i}PLMCVBNRTYGHSXQZJWK{i}KLMNPQRST"}
+            for i in range(200)
+        ]
+        results = garbage + [{"text_output": "MUR", "truth": True}]
+        ranked = score_and_rank_results(results, top_k=25, min_score=0.03)
+        assert any(r.get("truth") for r in ranked)
+
+
+# ── Deduplication des sorties identiques ────────────────────────────
+
+
+class TestRankingDedup:
+    """La meme reponse atteinte par plusieurs cles ne doit pas occuper tout le
+    top-K au detriment d'autres candidats."""
+
+    def test_duplicates_cannot_drown_out_another_answer(self):
+        items = [{"text_output": "LA CACHE EST SOUS LE PONT", "k": i} for i in range(30)]
+        items.append({"text_output": "SOUS LE BANC", "truth": True})
+        ranked = score_and_rank_results(items, top_k=25)
+        assert any(r.get("truth") for r in ranked)
+        assert sum(1 for r in ranked if r["text_output"] == "LA CACHE EST SOUS LE PONT") == 1
+
+    def test_first_occurrence_is_kept(self):
+        items = [
+            {"text_output": "SOUS LE BANC", "k": "premiere"},
+            {"text_output": "SOUS  LE BANC", "k": "seconde"},
+        ]
+        ranked = score_and_rank_results(items, top_k=25)
+        assert [r["k"] for r in ranked] == ["premiere"]
+
+    def test_case_variants_are_not_merged(self):
+        """'N48...' et 'n48...' peuvent etre deux reponses distinctes : la
+        deduplication ne fusionne que les espacements."""
+        items = [{"text_output": "N48 51.234 E002 21.456"}, {"text_output": "n48 51.234 e002 21.456"}]
+        ranked = score_and_rank_results(items, top_k=25)
+        assert len(ranked) == 2
+
+
+# ── Coordonnees numeriques avec origine ─────────────────────────────
+
+
+class TestNumericOnlyCoordsWithOrigin:
+    """Sans lettre cardinale, un decodage de chiffres n'a de sens que par
+    rapport a la cache : la detection numerique ne s'active que si l'origine
+    est fournie, et la penalite « code numerique » est alors levee."""
+
+    ORIGIN = {"origin_latitude": 48.8539, "origin_longitude": 2.3576}
+
+    def test_compact_digits_score_high_only_with_origin(self):
+        text = "4851234 0221456"
+        assert score_text(text, context=self.ORIGIN)["score"] >= 0.8
+        assert score_text(text)["score"] < 0.15
+
+    def test_digit_groups_escape_encoded_penalty_only_on_gps_hit(self):
+        """La penalite encodee est levee quand le detecteur trouve de vraies
+        coordonnees ; un texte de chiffres sans correspondance la subit."""
+        scoring = score_text("43 51 234 5 21 456", context=self.ORIGIN)["metadata"]["scoring"]
+        assert scoring["features"]["gps_confidence"] == 0.0
+        assert scoring["features"]["encoded_penalty"] < 1.0
+        assert scoring["score"] < 0.15
+
+    def test_hex_pairs_stay_penalised_despite_detector_match(self):
+        """Un faux positif du detecteur dans des paires hex ne doit jamais
+        lever la penalite encodee : hex/base64 ne sont pas un format valide."""
+        text = "76 69 6E 67 74 20 64 65 75 78 20 70 6E 69 6E 74 20 71 75 61 74 72 65 20 63 65 6E 74"
+        assert _full(text) < 0.15
+
+    def test_far_coordinates_damp_the_numeric_channel(self):
+        """Le malus de distance s'applique aussi au signal numerique : des
+        chiffres plausibles mais a 600 km ne compensent plus le GPS devalue."""
+        far = score_text("N 43° 51.234 E 005° 21.456", context=self.ORIGIN)
+        near = score_text("N 48° 51.234 E 002° 21.456", context=self.ORIGIN)
+        assert far["score"] < 0.5
+        assert near["score"] > 0.9
