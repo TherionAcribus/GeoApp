@@ -8,6 +8,7 @@
 import * as React from '@theia/core/shared/react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { ConfirmDialog, Dialog, SingleTextInputDialog } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PluginsService } from '../common/plugin-protocol';
 import { Plugin, PluginFilters, PluginsStatus } from '../common/plugin-protocol';
@@ -44,6 +45,9 @@ export class PluginsBrowserWidget extends ReactWidget {
 
     // Plugins en cours d'action (toggle / reload) : leurs contrôles sont gelés
     protected busyPlugins = new Set<string>();
+
+    // Champ fichier caché pour l'installation d'archives .zip
+    protected fileInputRef = React.createRef<HTMLInputElement>();
     
     // Filtres
     protected sourceFilter: 'all' | 'official' | 'custom' = 'all';
@@ -296,6 +300,90 @@ export class PluginsBrowserWidget extends ReactWidget {
     }
 
     /**
+     * Sélection d'une archive .zip : installe le plugin puis recharge la liste.
+     */
+    protected async onInstallFileSelected(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file) {
+            return;
+        }
+
+        this.loading = true;
+        this.update();
+        try {
+            const result = await this.pluginsService.installPlugin(file);
+            const message = result.message || `Plugin '${result.plugin_name}' installé`;
+            if (result.warning) {
+                this.messageService.warn(`${message} — ${result.warning}`);
+            } else {
+                this.messageService.info(message);
+            }
+        } catch (err) {
+            this.messageService.error(err instanceof Error ? err.message : String(err));
+        } finally {
+            this.loading = false;
+            await this.loadPlugins().catch(err => console.warn('Rechargement des plugins impossible:', err));
+            this.update();
+        }
+    }
+
+    /**
+     * Assistant "nouveau plugin" : demande un nom et crée un squelette.
+     */
+    protected async createPlugin(): Promise<void> {
+        const dialog = new SingleTextInputDialog({
+            title: 'Nouveau plugin',
+            placeholder: 'nom_du_plugin',
+            confirmButtonLabel: 'Créer',
+            validate: input => /^[a-z0-9_]{2,64}$/.test(input.trim())
+                ? ''
+                : 'snake_case attendu : minuscules, chiffres et underscores (2-64 caractères)',
+        });
+        const name = await dialog.open();
+        if (!name) {
+            return;
+        }
+
+        try {
+            const result = await this.pluginsService.scaffoldPlugin({ name: name.trim() });
+            this.messageService.info(result.message || `Plugin '${result.plugin_name}' créé`);
+        } catch (err) {
+            this.messageService.error(err instanceof Error ? err.message : String(err));
+        }
+        await this.loadPlugins().catch(err => console.warn('Rechargement des plugins impossible:', err));
+        this.update();
+    }
+
+    /**
+     * Supprime un plugin custom après confirmation.
+     */
+    protected async uninstallPlugin(plugin: Plugin): Promise<void> {
+        const dialog = new ConfirmDialog({
+            title: 'Supprimer le plugin',
+            msg: `Supprimer définitivement le plugin custom '${plugin.name}' ?\nSon dossier et ses fichiers seront effacés.`,
+            ok: Dialog.YES,
+            cancel: Dialog.CANCEL,
+        });
+        if (!await dialog.open()) {
+            return;
+        }
+
+        this.busyPlugins.add(plugin.name);
+        this.update();
+        try {
+            await this.pluginsService.uninstallPlugin(plugin.name);
+            this.messageService.info(`Plugin ${plugin.name} supprimé`);
+        } catch (err) {
+            this.messageService.error(err instanceof Error ? err.message : String(err));
+        } finally {
+            this.busyPlugins.delete(plugin.name);
+            await this.loadPlugins().catch(err => console.warn('Rechargement des plugins impossible:', err));
+            this.update();
+        }
+    }
+
+    /**
      * Retourne les deux derniers segments d'un chemin de dossier.
      */
     protected lastPathSegments(path: string): string {
@@ -340,6 +428,29 @@ export class PluginsBrowserWidget extends ReactWidget {
                 >
                     <i className="fa fa-search" /> Découvrir
                 </button>
+                <button
+                    className="theia-button"
+                    onClick={() => this.fileInputRef.current?.click()}
+                    title="Installer un plugin depuis une archive .zip"
+                    disabled={this.loading}
+                >
+                    <i className="fa fa-upload" /> Installer
+                </button>
+                <button
+                    className="theia-button"
+                    onClick={() => this.createPlugin()}
+                    title="Créer un nouveau plugin (squelette)"
+                    disabled={this.loading}
+                >
+                    <i className="fa fa-plus" /> Nouveau
+                </button>
+                <input
+                    ref={this.fileInputRef}
+                    type="file"
+                    accept=".zip"
+                    style={{ display: 'none' }}
+                    onChange={e => this.onInstallFileSelected(e)}
+                />
                 <div className="plugins-count">
                     {this.filteredPlugins.length} / {this.plugins.length} plugins
                 </div>
@@ -527,6 +638,18 @@ export class PluginsBrowserWidget extends ReactWidget {
                         >
                             <i className={`fa fa-refresh${isBusy ? ' fa-spin' : ''}`} aria-hidden="true" />
                         </button>
+                        {plugin.source === 'custom' && (
+                            <button
+                                type="button"
+                                className="theia-button secondary plugin-action-button plugin-delete-button"
+                                title="Supprimer le plugin custom"
+                                aria-label={`Supprimer le plugin ${plugin.name}`}
+                                disabled={isBusy}
+                                onClick={() => this.uninstallPlugin(plugin)}
+                            >
+                                <i className="fa fa-trash" aria-hidden="true" />
+                            </button>
+                        )}
                         <label
                             className="plugin-toggle"
                             title={isEnabled ? 'Désactiver le plugin' : 'Activer le plugin'}

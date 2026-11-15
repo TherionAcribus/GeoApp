@@ -15,7 +15,9 @@ import {
     PluginDiscoveryResult,
     PluginFilters,
     PluginInputs,
+    PluginInstallResult,
     PluginResult,
+    PluginScaffoldRequest,
     PluginsStatus,
     PluginsService as IPluginsService,
     PuzzleStateDeleteResponse,
@@ -571,6 +573,57 @@ export class PluginsServiceImpl implements IPluginsService {
                 'Content-Type': 'application/json'
             }
         });
+    }
+
+    /**
+     * Installe un plugin custom depuis une archive .zip.
+     */
+    async installPlugin(file: File): Promise<PluginInstallResult> {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await this.client.post('/api/plugins/install', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            return response.data;
+
+        } catch (error) {
+            console.error('Erreur lors de l\'installation du plugin:', error);
+            const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+            const suffix = typeof detail === 'string' && detail ? ` : ${detail}` : '';
+            throw new Error(`Échec de l'installation${suffix || `: ${this.getErrorMessage(error)}`}`);
+        }
+    }
+
+    /**
+     * Crée un squelette de plugin custom.
+     */
+    async scaffoldPlugin(request: PluginScaffoldRequest): Promise<PluginInstallResult> {
+        try {
+            const response = await this.client.post('/api/plugins/scaffold', request);
+            return response.data;
+
+        } catch (error) {
+            console.error('Erreur lors de la création du plugin:', error);
+            const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+            const suffix = typeof detail === 'string' && detail ? ` : ${detail}` : '';
+            throw new Error(`Échec de la création${suffix || `: ${this.getErrorMessage(error)}`}`);
+        }
+    }
+
+    /**
+     * Supprime un plugin custom.
+     */
+    async uninstallPlugin(name: string): Promise<void> {
+        try {
+            await this.client.delete(`/api/plugins/${name}`);
+
+        } catch (error) {
+            console.error(`Erreur lors de la suppression du plugin ${name}:`, error);
+            const detail = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+            const suffix = typeof detail === 'string' && detail ? ` : ${detail}` : '';
+            throw new Error(`Échec de la suppression: ${this.getErrorMessage(error)}${suffix}`);
+        }
     }
 
     private updateBaseUrl(url: string): void {

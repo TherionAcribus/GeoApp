@@ -784,6 +784,38 @@ export interface PluginDiscoveryResult {
 }
 
 /**
+ * Requête de création d'un squelette de plugin (POST /api/plugins/scaffold).
+ */
+export interface PluginScaffoldRequest {
+    /** Nom du plugin (snake_case : minuscules, chiffres, underscores) */
+    name: string;
+    /** Description courte */
+    description?: string;
+    /** Auteur */
+    author?: string;
+    /** Familles de plugin (ex. ["code"]) */
+    kinds?: string[];
+    /** Catégories affichées */
+    categories?: string[];
+}
+
+/**
+ * Résultat d'une installation ou création de plugin.
+ */
+export interface PluginInstallResult {
+    /** Nom du plugin installé */
+    plugin_name: string;
+    /** Message du backend */
+    message?: string;
+    /** Version déclarée dans le plugin.json */
+    version?: string;
+    /** Source ("custom") */
+    source?: string;
+    /** Avertissement éventuel (ex. masquage d'un plugin officiel) */
+    warning?: string;
+}
+
+/**
  * Le symbole utilisé pour injecter le service des plugins.
  */
 export const PluginsService = Symbol('PluginsService');
@@ -839,6 +871,21 @@ export interface PluginsService {
      * Active ou désactive un plugin.
      */
     setPluginEnabled(name: string, enabled: boolean): Promise<Plugin>;
+
+    /**
+     * Installe un plugin custom depuis une archive .zip.
+     */
+    installPlugin(file: File): Promise<PluginInstallResult>;
+
+    /**
+     * Crée un squelette de plugin custom.
+     */
+    scaffoldPlugin(request: PluginScaffoldRequest): Promise<PluginInstallResult>;
+
+    /**
+     * Supprime un plugin custom.
+     */
+    uninstallPlugin(name: string): Promise<void>;
 
     /**
      * Retourne la liste des plugins éligibles au metasolver pour un preset donné.

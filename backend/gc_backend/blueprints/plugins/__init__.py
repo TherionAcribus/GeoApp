@@ -17,7 +17,7 @@ from ._common import (
 )
 
 # L'import des sous-modules enregistre les routes sur bp.
-from . import listing, metasolver, workflow, scoring, manage, execute  # noqa: F401,E402
+from . import listing, metasolver, workflow, scoring, manage, execute, install  # noqa: F401,E402
 
 # Re-exports de compatibilite pour les anciens importeurs du module plat.
 from .execute import BatchPluginTask  # noqa: E402
