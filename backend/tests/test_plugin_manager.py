@@ -816,3 +816,142 @@ class TestPluginManagerHotReloadMultiFile:
         wrapper = manager.get_plugin('test_plugin')
         assert wrapper is not None
         assert wrapper.metadata.version == '1.0.1'
+
+
+class TestPluginManagerDuplicateNames:
+    """Tests de dédoublonnage par nom : un custom l'emporte sur un official
+    de même nom ; à source égale, le dossier au chemin trié en premier."""
+
+    def _dup_json(self, valid_plugin_json, version):
+        data = valid_plugin_json.copy()
+        data['name'] = 'dup_plugin'
+        data['version'] = version
+        return data
+
+    def test_custom_overrides_official_same_name(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """official/dup (v1) + custom/dup (v2), même name : le custom gagne."""
+        official_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'dup',
+            self._dup_json(valid_plugin_json, '1.0.0')
+        )
+        custom_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'dup',
+            self._dup_json(valid_plugin_json, '2.0.0')
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        discovered = manager.discover_plugins()
+
+        assert [p['name'] for p in discovered].count('dup_plugin') == 1
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='dup_plugin').first()
+            assert plugin is not None
+            assert plugin.source == 'custom'
+            assert plugin.version == '2.0.0'
+            assert plugin.path == str(custom_dir)
+
+        errors = manager.get_discovery_errors()
+        assert str(official_dir) in errors
+        assert 'double' in errors[str(official_dir)]
+
+        orphans = manager.get_orphan_discovery_errors()
+        assert str(official_dir) in orphans
+
+    def test_duplicate_name_discovery_is_stable(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une re-découverte ne doit pas faire flip-flopper la ligne ni
+        décharger le plugin chargé."""
+        for source in ('official', 'custom'):
+            plugin_dir = create_test_plugin(
+                temp_plugins_dir, source, 'dup',
+                self._dup_json(valid_plugin_json, '1.0.0')
+            )
+            (plugin_dir / 'main.py').write_text(
+                'class DupPluginPlugin:\n'
+                '    def execute(self, inputs):\n'
+                '        return {"status": "ok", "results": []}\n',
+                encoding='utf-8',
+            )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        assert manager.get_plugin('dup_plugin') is not None
+        assert 'dup_plugin' in manager.loaded_plugins
+
+        with app.app_context():
+            before = Plugin.query.filter_by(name='dup_plugin').first()
+            row_id, row_path, row_source = before.id, before.path, before.source
+
+        manager.discover_plugins()
+
+        assert 'dup_plugin' in manager.loaded_plugins
+
+        with app.app_context():
+            after = Plugin.query.filter_by(name='dup_plugin').first()
+            assert after.id == row_id
+            assert after.path == row_path
+            assert after.source == row_source
+
+    def test_duplicate_name_same_source_first_path_wins(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Deux dossiers custom de même name : le chemin trié en premier
+        gagne, l'autre est signalé."""
+        a_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'a_dir',
+            self._dup_json(valid_plugin_json, '1.0.0')
+        )
+        b_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'b_dir',
+            self._dup_json(valid_plugin_json, '1.0.0')
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='dup_plugin').first()
+            assert plugin is not None
+            assert plugin.path == str(a_dir)
+
+        errors = manager.get_discovery_errors()
+        assert str(b_dir) in errors
+        assert 'double' in errors[str(b_dir)]
+
+    def test_removing_custom_duplicate_falls_back_to_official(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Supprimer le custom dupliqué fait revenir l'official, même ligne."""
+        official_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'dup',
+            self._dup_json(valid_plugin_json, '1.0.0')
+        )
+        custom_dir = create_test_plugin(
+            temp_plugins_dir, 'custom', 'dup',
+            self._dup_json(valid_plugin_json, '2.0.0')
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        with app.app_context():
+            row_id = Plugin.query.filter_by(name='dup_plugin').first().id
+
+        shutil.rmtree(custom_dir)
+        manager.discover_plugins()
+
+        with app.app_context():
+            plugin = Plugin.query.filter_by(name='dup_plugin').first()
+            assert plugin is not None
+            assert plugin.id == row_id
+            assert plugin.source == 'official'
+            assert plugin.version == '1.0.0'
+            assert plugin.path == str(official_dir)
+
+        errors = manager.get_discovery_errors()
+        assert not any('double' in error for error in errors.values())

@@ -132,6 +132,8 @@ class PluginManager:
                 'custom': self.plugins_dir / 'custom'
             }
 
+            candidates: List[Dict] = []
+
             for source_name, source_path in sources.items():
                 if not source_path.exists():
                     logger.warning(f"Répertoire {source_name} non trouvé: {source_path}")
@@ -139,7 +141,7 @@ class PluginManager:
 
                 logger.debug(f"Scan des plugins {source_name} dans: {source_path}")
 
-                for plugin_json_path in source_path.rglob('plugin.json'):
+                for plugin_json_path in sorted(source_path.rglob('plugin.json')):
                     plugin_dir = plugin_json_path.parent
                     discovered_paths.add(str(plugin_dir))
 
@@ -153,16 +155,7 @@ class PluginManager:
 
                         plugin_info['path'] = str(plugin_dir)
                         plugin_info['source'] = source_name
-
-                        if existing_plugins_by_name is not None:
-                            db_dirty = self._upsert_plugin_record(plugin_info, existing_plugins_by_name) or db_dirty
-
-                        discovered_plugins.append(plugin_info)
-
-                        logger.info(
-                            f"Plugin découvert: {plugin_info['name']} v{plugin_info['version']} "
-                            f"({source_name})"
-                        )
+                        candidates.append(plugin_info)
                     except Exception as error:
                         logger.opt(exception=error).error(
                             "Erreur lors du chargement de {}: {}",
@@ -170,6 +163,17 @@ class PluginManager:
                             error,
                         )
                         self._loading_errors[str(plugin_dir)] = str(error)
+
+            for plugin_info in self._resolve_duplicate_names(candidates):
+                if existing_plugins_by_name is not None:
+                    db_dirty = self._upsert_plugin_record(plugin_info, existing_plugins_by_name) or db_dirty
+
+                discovered_plugins.append(plugin_info)
+
+                logger.info(
+                    f"Plugin découvert: {plugin_info['name']} v{plugin_info['version']} "
+                    f"({plugin_info['source']})"
+                )
 
             if existing_plugins_by_name is not None:
                 db_dirty = self._cleanup_deleted_plugins_batched(discovered_paths, existing_plugins_by_name) or db_dirty
@@ -197,6 +201,46 @@ class PluginManager:
         )
 
         return discovered_plugins
+
+    def _resolve_duplicate_names(self, plugin_infos: List[Dict]) -> List[Dict]:
+        """
+        Départage les plugins déclarant le même ``name`` : un plugin custom
+        l'emporte sur un official ; à source égale, le dossier dont le chemin
+        trie en premier gagne. Les perdants sont ignorés et signalés dans
+        ``_loading_errors``.
+
+        Args:
+            plugin_infos (List[Dict]): Candidats valides (path et source posés)
+
+        Returns:
+            List[Dict]: Un plugin_info par name, dans l'ordre du tri
+        """
+        source_rank = {'custom': 0, 'official': 1}
+        winners: Dict[str, Dict] = {}
+
+        for plugin_info in sorted(
+            plugin_infos,
+            key=lambda info: (
+                info['name'],
+                source_rank.get(info['source'], 2),
+                info['path']
+            )
+        ):
+            winner = winners.get(plugin_info['name'])
+            if winner is None:
+                winners[plugin_info['name']] = plugin_info
+                continue
+
+            logger.warning(
+                f"Plugin en double ignoré: '{plugin_info['name']}' dans "
+                f"{plugin_info['path']} ({plugin_info['source']})"
+            )
+            self._loading_errors[plugin_info['path']] = (
+                f"Nom de plugin en double: '{plugin_info['name']}' est déjà "
+                f"fourni par {winner['path']} ({winner['source']}) — dossier ignoré"
+            )
+
+        return list(winners.values())
 
     def _load_and_validate_plugin(
         self,
