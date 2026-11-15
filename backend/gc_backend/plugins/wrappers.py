@@ -416,10 +416,11 @@ class PythonPluginWrapper(PluginInterface):
             )
 
             if heavy_cpu:
-                # Sous-processus dédié : le timeout est un vrai kill
-                # (terminate), contrairement au thread daemon in-process.
-                from .subprocess_runner import run_in_subprocess
-                result = run_in_subprocess(
+                # Worker persistant dédié : le plugin n'est chargé qu'une fois
+                # (torch/z3 importés au premier appel) et le timeout reste un
+                # vrai kill du processus, contrairement au thread in-process.
+                from .subprocess_runner import get_worker_pool
+                result = get_worker_pool().execute(
                     plugin_path=self.metadata.path,
                     entry_point=self.metadata.entry_point,
                     plugin_name=self.metadata.name,
@@ -551,6 +552,15 @@ class PythonPluginWrapper(PluginInterface):
             # Appeler cleanup() si le plugin l'implémente
             if self._instance and hasattr(self._instance, 'cleanup'):
                 self._instance.cleanup()
+
+            # Worker persistant éventuel : l'arrêter pour que le prochain
+            # chargement reparte d'un code à jour (reload, suppression).
+            if getattr(self.metadata, 'heavy_cpu', False):
+                try:
+                    from .subprocess_runner import get_worker_pool
+                    get_worker_pool().shutdown(self.metadata.name)
+                except Exception:
+                    pass
 
             # Retirer le package et tous les modules du plugin de sys.modules
             # pour éviter une fuite et permettre un rechargement propre

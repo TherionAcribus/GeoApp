@@ -7,6 +7,12 @@ boucle CPU continue de consommer un cœur. Le sous-processus offre un vrai
 kill (``terminate``/``kill``) et isole l'interpréteur du backend (imports
 lourds type torch/z3, crashs natifs éventuels).
 
+Deux modes d'isolation :
+- ``run_in_subprocess`` : processus éphémère par exécution (one-shot) ;
+- ``get_worker_pool`` : worker persistant par plugin, qui ne charge le
+  plugin qu'une fois (évite de ré-importer torch/z3 à chaque appel) tout
+  en gardant le vrai kill au timeout. Utilisé par les plugins heavy_cpu.
+
 Limites assumées :
 - pas de ``plugin_manager`` injecté dans l'enfant : un plugin heavy_cpu
   ne peut pas appeler ``execute_plugin`` (pas d'orchestration imbriquée) ;
@@ -14,18 +20,28 @@ Limites assumées :
   les blueprints/services du backend ne sont pas démarrés ;
 - inputs et résultat doivent être sérialisables par pickle (les payloads
   JSON des plugins le sont) ;
-- chaque exécution paie le coût d'un interpréteur Python neuf (contexte
-  ``spawn``, obligatoire sous Windows).
+- un worker persistant garde la mémoire du plugin (ex. modèles chargés)
+  entre les exécutions : il est recyclé après WORKER_IDLE_TTL d'inactivité.
 """
 
+import atexit
 import multiprocessing as mp
 import os
 import queue as queue_mod
+import threading
 import time
 import traceback
 from typing import Any, Dict, Optional
 
 from loguru import logger
+
+# Un worker persistant restant inutilisé plus longtemps que ce délai est
+# recyclé à la prochaine exécution (évite de garder torch en RAM à vie).
+WORKER_IDLE_TTL = 600.0
+
+# L'initialisation du worker (import du plugin, ex. torch pour easyocr) peut
+# être très lente : délai généreux avant de déclarer le worker mort.
+WORKER_INIT_TIMEOUT = 120.0
 
 
 def _push_minimal_app_context(plugin_name: str):
@@ -220,3 +236,270 @@ def run_in_subprocess(
         f"{time.monotonic() - started:.2f}s"
     )
     return msg['result']
+
+
+# =============================================================================
+# Pool de workers persistants pour les plugins heavy_cpu
+# =============================================================================
+#
+# Un worker par plugin : processus enfant gardé en vie qui charge le plugin une
+# seule fois (torch/z3 importés au premier appel seulement) puis traite les
+# exécutions à la demande via un pipe. Avantages vs spawn par exécution :
+# - pas de ré-import des dépendances lourdes à chaque appel ;
+# - état interne du plugin conservé entre appels (ex. modèle OCR déjà chargé).
+# Le vrai kill au timeout est conservé : un worker bloqué est tué puis respawn
+# à la demande. Un worker inactif plus de WORKER_IDLE_TTL est aussi recyclé.
+
+
+def _worker_entry(child_conn, plugin_path: str, entry_point: str, name: str) -> None:
+    """
+    Boucle d'un worker persistant (processus enfant).
+
+    Initialise le plugin et le contexte applicatif une fois, envoie
+    ``{'ready': True}``, puis traite les requêtes ``{'inputs': ...}`` jusqu'à
+    réception du sentinel ``None`` ou fermeture du pipe.
+    """
+    app_ctx = None
+    try:
+        from .wrappers import (
+            PluginMetadata,
+            PluginType,
+            PythonPluginWrapper,
+        )
+        from ..database import db
+
+        metadata = PluginMetadata(
+            name=name,
+            version='worker',
+            plugin_type=PluginType.PYTHON,
+            entry_point=entry_point,
+            path=plugin_path,
+            timeout_seconds=0,
+            # heavy_cpu=False : le worker exécute localement, sans récursion.
+        )
+        wrapper = PythonPluginWrapper(metadata, plugin_manager=None)
+        app_ctx = _push_minimal_app_context(name)
+        app_ctx.push()
+
+        if not wrapper.initialize():
+            child_conn.send({'ready': False, 'error': "Échec d'initialisation du plugin"})
+            return
+        child_conn.send({'ready': True})
+
+        while True:
+            try:
+                req = child_conn.recv()
+            except (EOFError, BrokenPipeError, OSError):
+                break
+            if req is None:
+                break
+            try:
+                result = wrapper._instance.execute(req.get('inputs', {}))
+                child_conn.send({'ok': True, 'result': result})
+            except BaseException as exc:
+                try:
+                    child_conn.send({
+                        'ok': False,
+                        'error': f'{type(exc).__name__}: {exc}',
+                        'traceback': traceback.format_exc(),
+                    })
+                except Exception:
+                    break
+            finally:
+                try:
+                    db.session.remove()
+                except Exception:
+                    pass
+
+    except BaseException as exc:
+        try:
+            child_conn.send({
+                'ready': False,
+                'error': f'{type(exc).__name__}: {exc}',
+                'traceback': traceback.format_exc(),
+            })
+        except Exception:
+            pass
+    finally:
+        if app_ctx is not None:
+            try:
+                app_ctx.pop()
+            except Exception:
+                pass
+
+
+class _WorkerProcess:
+    """Worker persistant d'un plugin heavy_cpu (1 processus, accès sérialisé)."""
+
+    def __init__(self, plugin_path: str, entry_point: str, name: str, idle_ttl: float):
+        self.plugin_path = plugin_path
+        self.entry_point = entry_point
+        self.name = name
+        self.idle_ttl = idle_ttl
+        self.lock = threading.Lock()
+        self._proc = None
+        self._conn = None
+        self.last_used = 0.0
+
+    def _kill_locked(self) -> None:
+        """Tue le processus worker. Doit être appelé sous ``self.lock``."""
+        proc, conn = self._proc, self._conn
+        self._proc = None
+        self._conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        if proc is not None:
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(2)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(2)
+            else:
+                proc.join(0)
+
+    def _spawn_locked(self) -> None:
+        """Démarre le worker et attend sa ready. Doit être appelé sous ``self.lock``."""
+        self._kill_locked()
+        ctx = mp.get_context('spawn')
+        parent_conn, child_conn = ctx.Pipe(duplex=True)
+        proc = ctx.Process(
+            target=_worker_entry,
+            args=(child_conn, self.plugin_path, self.entry_point, self.name),
+            daemon=True,
+            name=f'plugin-worker-{self.name}',
+        )
+        self._conn = parent_conn
+        self._proc = proc
+        proc.start()
+        child_conn.close()
+
+        try:
+            if not parent_conn.poll(WORKER_INIT_TIMEOUT):
+                raise RuntimeError(
+                    f"Worker {self.name}: initialisation dépassée "
+                    f"({WORKER_INIT_TIMEOUT:.0f}s, import du plugin trop long ?)"
+                )
+            msg = parent_conn.recv()
+            if not msg.get('ready'):
+                tb = msg.get('traceback')
+                if tb:
+                    logger.debug(f"Traceback init worker {self.name}:\n{tb}")
+                raise RuntimeError(
+                    f"Worker {self.name}: {msg.get('error', 'init échouée')}"
+                )
+            self.last_used = time.monotonic()
+            logger.debug(f"Worker persistant démarré pour {self.name} (pid={proc.pid})")
+        except BaseException:
+            self._kill_locked()
+            raise
+
+    def execute(self, inputs: Dict[str, Any], timeout: Optional[float]) -> Dict[str, Any]:
+        """Exécute le plugin dans le worker (accès sérialisé par plugin)."""
+        with self.lock:
+            expired = (
+                self.idle_ttl is not None
+                and time.monotonic() - self.last_used > self.idle_ttl
+            )
+            if self._proc is None or not self._proc.is_alive() or expired:
+                if expired:
+                    logger.debug(f"Worker {self.name} recyclé après inactivité")
+                self._spawn_locked()
+
+            conn = self._conn
+            try:
+                conn.send({'inputs': inputs})
+            except (EOFError, BrokenPipeError, OSError) as e:
+                self._kill_locked()
+                raise RuntimeError(f"Worker {self.name} injoignable: {e}")
+
+            if not conn.poll(timeout):
+                self._kill_locked()
+                raise TimeoutError(
+                    f"Plugin {self.name} tué après {timeout}s (worker persistant)"
+                )
+            try:
+                msg = conn.recv()
+            except (EOFError, BrokenPipeError, OSError) as e:
+                self._kill_locked()
+                raise RuntimeError(f"Worker {self.name} mort pendant l'exécution: {e}")
+
+            self.last_used = time.monotonic()
+
+            if not msg.get('ok'):
+                tb = msg.get('traceback')
+                if tb:
+                    logger.debug(f"Traceback du plugin {self.name} (worker):\n{tb}")
+                raise RuntimeError(
+                    f"Plugin {self.name} en échec (worker): "
+                    f"{msg.get('error', 'erreur inconnue')}"
+                )
+            return msg['result']
+
+    def shutdown(self) -> None:
+        """Arrêt propre du worker : sentinel de sortie puis kill si besoin."""
+        with self.lock:
+            proc, conn = self._proc, self._conn
+            if proc is not None and proc.is_alive() and conn is not None:
+                try:
+                    conn.send(None)
+                    proc.join(5)
+                except Exception:
+                    pass
+            self._kill_locked()
+
+
+class WorkerPool:
+    """Pool de workers persistants, un par plugin heavy_cpu."""
+
+    def __init__(self, idle_ttl: float = WORKER_IDLE_TTL):
+        self.idle_ttl = idle_ttl
+        self._workers: Dict[str, _WorkerProcess] = {}
+        self._lock = threading.Lock()
+
+    def execute(
+        self,
+        plugin_path: str,
+        entry_point: str,
+        plugin_name: str,
+        inputs: Dict[str, Any],
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Exécute le plugin dans son worker persistant (spawn lazy au 1er appel)."""
+        with self._lock:
+            worker = self._workers.get(plugin_name)
+            if worker is None:
+                worker = _WorkerProcess(
+                    plugin_path, entry_point, plugin_name, self.idle_ttl
+                )
+                self._workers[plugin_name] = worker
+        return worker.execute(inputs, timeout)
+
+    def shutdown(self, plugin_name: str) -> None:
+        """Arrête le worker d'un plugin (unload, reload, suppression)."""
+        with self._lock:
+            worker = self._workers.pop(plugin_name, None)
+        if worker is not None:
+            worker.shutdown()
+
+    def shutdown_all(self) -> None:
+        """Arrête tous les workers (fin du backend)."""
+        with self._lock:
+            workers = list(self._workers.values())
+            self._workers.clear()
+        for worker in workers:
+            worker.shutdown()
+
+
+_worker_pool = WorkerPool()
+
+
+def get_worker_pool() -> WorkerPool:
+    """Pool partagé des workers heavy_cpu."""
+    return _worker_pool
+
+
+atexit.register(_worker_pool.shutdown_all)

@@ -166,3 +166,149 @@ class TestHeavyCpuSubprocess:
         child_pid = int(result['results'][0]['text_output'])
         assert child_pid == os.getpid()
         assert 'geoapp_plugin_light_plugin.main' in sys.modules
+
+
+class TestPersistentWorkerPool:
+    """Pool de workers persistants pour heavy_cpu (réutilisation, recyclage)."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_workers(self):
+        yield
+        from gc_backend.plugins.subprocess_runner import get_worker_pool
+        get_worker_pool().shutdown_all()
+
+    @staticmethod
+    def _pid_of(result):
+        assert result['status'] == 'ok'
+        return int(result['results'][0]['text_output'])
+
+    def test_worker_reused_across_executions(self, app, temp_plugins_dir):
+        """Deux exécutions du même plugin passent par le MÊME worker
+        (plugin chargé une seule fois — pas de ré-import torch)."""
+        _write_plugin(
+            temp_plugins_dir, 'pid_plugin',
+            'import os\n'
+            'class PidPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": '
+            '[{"id": "1", "text_output": str(os.getpid())}]}\n',
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        pid1 = self._pid_of(manager.execute_plugin('pid_plugin', {}))
+        pid2 = self._pid_of(manager.execute_plugin('pid_plugin', {}))
+
+        assert pid1 == pid2
+        assert pid1 != os.getpid()
+
+    def test_worker_state_persists_between_calls(self, app, temp_plugins_dir):
+        """L'instance du plugin survit entre appels (modèle OCR déjà chargé,
+        état conservé)."""
+        _write_plugin(
+            temp_plugins_dir, 'counter_plugin',
+            'class CounterPluginPlugin:\n'
+            '    def __init__(self):\n'
+            '        self.count = 0\n'
+            '    def execute(self, inputs):\n'
+            '        self.count += 1\n'
+            '        return {"status": "ok", "results": '
+            '[{"id": "1", "text_output": str(self.count)}]}\n',
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        manager.execute_plugin('counter_plugin', {})
+        result = manager.execute_plugin('counter_plugin', {})
+
+        assert result['status'] == 'ok'
+        assert result['results'][0]['text_output'] == '2'
+
+    def test_worker_respawns_after_timeout_kill(self, app, temp_plugins_dir):
+        """Un worker tué au timeout est respawn : l'exécution suivante
+        tourne dans un NOUVEAU processus."""
+        _write_plugin(
+            temp_plugins_dir, 'loop_pid',
+            'import os, time\n'
+            'class LoopPidPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        if inputs.get("mode") == "loop":\n'
+            '            while True:\n'
+            '                time.sleep(0.05)\n'
+            '        return {"status": "ok", "results": '
+            '[{"id": "1", "text_output": str(os.getpid())}]}\n',
+            timeout_seconds=2,
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        pid1 = self._pid_of(manager.execute_plugin('loop_pid', {}))
+
+        killed = manager.execute_plugin('loop_pid', {'mode': 'loop'})
+        assert killed['status'] == 'error'
+        assert killed['error']['type'] == 'TimeoutError'
+
+        pid2 = self._pid_of(manager.execute_plugin('loop_pid', {}))
+        assert pid2 != pid1
+
+    def test_worker_recycled_after_idle_ttl(self, app, temp_plugins_dir):
+        """Un worker inactif au-delà du TTL est recyclé (nouveau pid)."""
+        from gc_backend.plugins.subprocess_runner import get_worker_pool
+        pool = get_worker_pool()
+        old_ttl = pool.idle_ttl
+        pool.idle_ttl = 0.3
+        try:
+            _write_plugin(
+                temp_plugins_dir, 'idle_plugin',
+                'import os\n'
+                'class IdlePluginPlugin:\n'
+                '    def execute(self, inputs):\n'
+                '        return {"status": "ok", "results": '
+                '[{"id": "1", "text_output": str(os.getpid())}]}\n',
+            )
+            manager = PluginManager(str(temp_plugins_dir), app)
+            manager.discover_plugins()
+
+            pid1 = self._pid_of(manager.execute_plugin('idle_plugin', {}))
+            time.sleep(0.6)
+            pid2 = self._pid_of(manager.execute_plugin('idle_plugin', {}))
+
+            assert pid2 != pid1
+        finally:
+            pool.idle_ttl = old_ttl
+
+    def test_unload_stops_worker(self, app, temp_plugins_dir):
+        """Décharger/recharger le plugin tue le worker (le code modifié
+        repart sur un worker frais)."""
+        _write_plugin(
+            temp_plugins_dir, 'reloadable_pl',
+            'import os\n'
+            'class ReloadablePlPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": '
+            '[{"id": "1", "text_output": str(os.getpid())}]}\n',
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        pid1 = self._pid_of(manager.execute_plugin('reloadable_pl', {}))
+        manager.unload_plugin('reloadable_pl')
+        pid2 = self._pid_of(manager.execute_plugin('reloadable_pl', {}))
+
+        assert pid2 != pid1
+
+    def test_worker_error_surfaces(self, app, temp_plugins_dir):
+        """Une exception du plugin dans le worker remonte en erreur normalisée."""
+        _write_plugin(
+            temp_plugins_dir, 'err_plugin',
+            'class ErrPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            "        raise ValueError('worker boom')\n",
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('err_plugin', {})
+
+        assert result['status'] == 'error'
+        assert 'worker boom' in result['summary']
