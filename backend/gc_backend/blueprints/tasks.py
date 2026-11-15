@@ -134,7 +134,7 @@ def create_task():
         }), 201
         
     except Exception as e:
-        logger.error(f"Erreur lors de la création de la tâche: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors de la création de la tâche: {e}")
         return jsonify({
             "error": "Erreur lors de la création de la tâche",
             "message": str(e)
@@ -169,9 +169,8 @@ def get_task_status(task_id: str):
         return jsonify(status), 200
         
     except Exception as e:
-        logger.error(
-            f"Erreur lors de la récupération du statut de la tâche {task_id}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors de la récupération du statut de la tâche {task_id}: {e}"
         )
         return jsonify({
             "error": "Erreur lors de la récupération du statut",
@@ -216,9 +215,8 @@ def cancel_task(task_id: str):
             }), 400
             
     except Exception as e:
-        logger.error(
-            f"Erreur lors de l'annulation de la tâche {task_id}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors de l'annulation de la tâche {task_id}: {e}"
         )
         return jsonify({
             "error": "Erreur lors de l'annulation",
@@ -281,7 +279,7 @@ def list_tasks():
         }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors du listage des tâches: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors du listage des tâches: {e}")
         return jsonify({
             "error": "Erreur lors du listage des tâches",
             "message": str(e)
@@ -307,7 +305,7 @@ def get_statistics():
         return jsonify(stats), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération des statistiques: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors de la récupération des statistiques: {e}")
         return jsonify({
             "error": "Erreur lors de la récupération des statistiques",
             "message": str(e)
@@ -361,7 +359,7 @@ def cleanup_old_tasks():
         }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors du nettoyage: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors du nettoyage: {e}")
         return jsonify({
             "error": "Erreur lors du nettoyage",
             "message": str(e)

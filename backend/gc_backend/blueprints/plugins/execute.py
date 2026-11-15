@@ -494,9 +494,8 @@ def execute_plugin(plugin_name: str):
         return jsonify(result), 200
         
     except Exception as e:
-        logger.error(
-            f"Erreur lors de l'exécution du plugin {plugin_name}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors de l'exécution du plugin {plugin_name}: {e}"
         )
         return jsonify({
             "error": "Erreur d'exécution",

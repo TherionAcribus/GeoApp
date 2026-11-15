@@ -2538,7 +2538,7 @@ def preview_workflow():
     except LookupError as lookup_error:
         return jsonify({"error": "Geocache introuvable", "message": str(lookup_error)}), 404
     except Exception as e:
-        logger.error(f"Erreur apercu workflow: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur apercu workflow: {e}")
         raise
 
 
@@ -2597,7 +2597,7 @@ def resolve_workflow():
             "message": str(lookup_error)
         }), 404
     except Exception as e:
-        logger.error(f"Erreur orchestrateur workflow: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur orchestrateur workflow: {e}")
         return jsonify({
             "error": "Erreur orchestrateur workflow",
             "message": str(e)
@@ -2653,7 +2653,7 @@ def run_workflow_next_step():
             "message": str(lookup_error)
         }), 404
     except Exception as e:
-        logger.error(f"Erreur execution workflow step: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur execution workflow step: {e}")
         return jsonify({
             "error": "Erreur execution workflow step",
             "message": str(e)

@@ -97,7 +97,7 @@ def metasolver_eligible_plugins():
         }), 200
 
     except Exception as e:
-        logger.error(f"Erreur listing metasolver eligible: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur listing metasolver eligible: {e}")
         return jsonify({
             "error": "Erreur listing metasolver eligible",
             "message": str(e)
@@ -160,7 +160,7 @@ def metasolver_recommend_plugins():
         )
         return jsonify(payload), 200
     except Exception as e:
-        logger.error(f"Erreur recommandation metasolver: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur recommandation metasolver: {e}")
         return jsonify({
             "error": "Erreur recommandation metasolver",
             "message": str(e)
@@ -281,7 +281,7 @@ def metasolver_execute_stream():
                 try:
                     event_data = json.dumps(event.get('data', {}), ensure_ascii=False)
                 except Exception as serial_exc:
-                    logger.error(f"[streaming] JSON serialization error on event '{event_type}': {serial_exc}", exc_info=True)
+                    logger.opt(exception=serial_exc).error(f"[streaming] JSON serialization error on event '{event_type}': {serial_exc}")
                     event_data = json.dumps({"error": f"Serialization error: {serial_exc}"}, ensure_ascii=False)
                 logger.debug(f"[streaming] Yielding event: {event_type}")
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
@@ -293,7 +293,7 @@ def metasolver_execute_stream():
             cancel_event.set()
             raise
         except Exception as exc:
-            logger.error(f"[streaming] Unhandled exception in generate(): {exc}", exc_info=True)
+            logger.opt(exception=exc).error(f"[streaming] Unhandled exception in generate(): {exc}")
             error_data = json.dumps({
                 "error": str(exc),
                 "type": type(exc).__name__

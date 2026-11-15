@@ -64,7 +64,7 @@ def score_text_endpoint():
         return jsonify(score_text(text, context=context or {})), 200
 
     except Exception as e:
-        logger.error(f"Erreur scoring: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur scoring: {e}")
         return jsonify({
             "error": "Erreur scoring",
             "message": str(e)
@@ -154,9 +154,9 @@ def ai_score_endpoint():
                 models_data = r.json().get('data') or []
                 if models_data:
                     model = models_data[0].get('id', '')
-                    logger.info("[ai_scorer] Modele LMStudio auto-detecte: %s", model)
+                    logger.info("[ai_scorer] Modele LMStudio auto-detecte: {}", model)
         except Exception as _me:
-            logger.warning("[ai_scorer] Impossible d'auto-detecter le modele LMStudio: %s", _me)
+            logger.warning("[ai_scorer] Impossible d'auto-detecter le modele LMStudio: {}", _me)
 
     if not model:
         return jsonify({
@@ -224,5 +224,5 @@ def ai_score_endpoint():
             'usage': usage or None,
         }), 200
     except Exception as exc:
-        logger.error('Erreur ai-score: %s', exc, exc_info=True)
+        logger.opt(exception=exc).error('Erreur ai-score: {}', exc)
         raise

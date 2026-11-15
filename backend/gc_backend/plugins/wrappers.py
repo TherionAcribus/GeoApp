@@ -238,9 +238,8 @@ class PythonPluginWrapper(PluginInterface):
             return True
             
         except Exception as e:
-            logger.error(
-                f"Erreur lors de l'initialisation du plugin {self.metadata.name}: {e}",
-                exc_info=True
+            logger.opt(exception=e).error(
+                f"Erreur lors de l'initialisation du plugin {self.metadata.name}: {e}"
             )
             return False
 
@@ -373,9 +372,8 @@ class PythonPluginWrapper(PluginInterface):
             }
 
         except Exception as e:
-            logger.error(
-                f"Erreur lors de l'exécution du plugin {self.metadata.name}: {e}",
-                exc_info=True
+            logger.opt(exception=e).error(
+                f"Erreur lors de l'exécution du plugin {self.metadata.name}: {e}"
             )
             
             # Retourner une erreur au format standardisé
@@ -634,9 +632,8 @@ class BinaryPluginWrapper(PluginInterface):
                 }
             }
         except Exception as e:
-            logger.error(
-                f"Erreur lors de l'exécution du binaire {self.metadata.name}: {e}",
-                exc_info=True
+            logger.opt(exception=e).error(
+                f"Erreur lors de l'exécution du binaire {self.metadata.name}: {e}"
             )
             return {
                 "status": "error",

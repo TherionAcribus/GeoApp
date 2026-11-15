@@ -293,9 +293,8 @@ class TaskManager:
             self._handle_cancellation(task_info)
             
         except Exception as e:
-            logger.error(
-                f"Erreur lors de l'exécution de la tâche {task_id}: {e}",
-                exc_info=True
+            logger.opt(exception=e).error(
+                f"Erreur lors de l'exécution de la tâche {task_id}: {e}"
             )
             
             task_info.status = TaskStatus.FAILED

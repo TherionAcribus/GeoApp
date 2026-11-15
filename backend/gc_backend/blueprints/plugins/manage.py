@@ -89,7 +89,7 @@ def list_plugins():
         }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors du listage des plugins: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors du listage des plugins: {e}")
         return jsonify({
             "error": "Erreur lors du listage des plugins",
             "message": str(e)
@@ -127,9 +127,8 @@ def get_plugin_info(plugin_name: str):
         return jsonify(plugin_info), 200
         
     except Exception as e:
-        logger.error(
-            f"Erreur lors de la récupération du plugin {plugin_name}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors de la récupération du plugin {plugin_name}: {e}"
         )
         return jsonify({
             "error": "Erreur lors de la récupération des informations",
@@ -173,9 +172,8 @@ def get_plugin_interface(plugin_name: str):
         return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
         
     except Exception as e:
-        logger.error(
-            f"Erreur lors de la génération de l'interface pour {plugin_name}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors de la génération de l'interface pour {plugin_name}: {e}"
         )
         return jsonify({
             "error": "Erreur lors de la génération de l'interface",
@@ -233,7 +231,7 @@ def discover_plugins():
         }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors de la découverte: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors de la découverte: {e}")
         return jsonify({
             "error": "Erreur lors de la découverte",
             "message": str(e)
@@ -275,7 +273,7 @@ def get_plugins_status():
         }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération du statut: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur lors de la récupération du statut: {e}")
         return jsonify({
             "error": "Erreur lors de la récupération du statut",
             "message": str(e)
@@ -320,9 +318,8 @@ def reload_plugin(plugin_name: str):
             }), 500
             
     except Exception as e:
-        logger.error(
-            f"Erreur lors du rechargement du plugin {plugin_name}: {e}",
-            exc_info=True
+        logger.opt(exception=e).error(
+            f"Erreur lors du rechargement du plugin {plugin_name}: {e}"
         )
         return jsonify({
             "error": "Erreur lors du rechargement",

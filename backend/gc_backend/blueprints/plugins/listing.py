@@ -2696,7 +2696,7 @@ def classify_listing():
 
         return jsonify(_build_listing_classification_response(listing_inputs, max_secret_fragments)), 200
     except Exception as e:
-        logger.error(f"Erreur classification listing: {e}", exc_info=True)
+        logger.opt(exception=e).error(f"Erreur classification listing: {e}")
         return jsonify({
             "error": "Erreur classification listing",
             "message": str(e)
