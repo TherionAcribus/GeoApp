@@ -208,9 +208,9 @@ class RailFenceCipherPlugin(CipherPluginBase):
                 for idx, sol in enumerate(solutions, start=1):
                     confidence = self._confidence_for_key(sol["key"])
                     if enable_scoring:
-                        fast_score = self._score_fast(self._clean_text_for_scoring(sol["decoded_text"]), default=0.3)
-                        if fast_score > 0:
-                            confidence = fast_score
+                        text_score = self._score_full(self._clean_text_for_scoring(sol["decoded_text"]), context=context, default=0.3)
+                        if text_score > 0:
+                            confidence = text_score
 
                     res = {
                         "id": f"result_{idx}",

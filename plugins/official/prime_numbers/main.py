@@ -263,9 +263,9 @@ class PrimeNumbersPlugin(CipherPluginBase):
                             decoded, hits = self._decode_tokens(segmentation)
                             confidence = hits / len(segmentation) if segmentation else 0.0
                             if enable_scoring:
-                                fast_score = self._score_fast(decoded, default=0.0)
-                                if fast_score > 0:
-                                    confidence = fast_score
+                                text_score = self._score_full(decoded, context=context, default=0.0)
+                                if text_score > 0:
+                                    confidence = text_score
 
                             result = {
                                 "id": f"result_{len(results) + 1}",

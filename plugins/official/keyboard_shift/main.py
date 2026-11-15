@@ -232,7 +232,7 @@ class KeyboardShiftPlugin(CipherPluginBase):
                 candidates.append(
                     {
                         "text_output": text_output,
-                        "confidence": self._score_fast(text_output, default=0.5),
+                        "confidence": self._score_full(text_output, default=0.5),
                         "parameters": {"layout": layout, "amount": amount},
                         "metadata": {
                             "sequence_length": n,

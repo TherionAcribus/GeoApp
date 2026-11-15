@@ -241,7 +241,7 @@ class BeaufortCipherPlugin(CipherPluginBase):
             except ValueError:
                 continue
 
-            confidence = self._score_fast(decoded, default=0.3) if enable_scoring else 0.3
+            confidence = self._score_full(decoded, context=context, default=0.3) if enable_scoring else 0.3
             results.append(
                 {
                     "id": f"result_{index}",

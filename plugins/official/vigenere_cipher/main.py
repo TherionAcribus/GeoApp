@@ -174,7 +174,7 @@ class VigenereCipherPlugin(CipherPluginBase):
 
                 for idx, candidate_key in enumerate(keys[:max_results], 1):
                     decoded = self.decode(text, candidate_key)
-                    confidence = self._score_fast(decoded, default=0.3) if enable_scoring else 0.3
+                    confidence = self._score_full(decoded, context=context, default=0.3) if enable_scoring else 0.3
                     result = {
                         "id": f"result_{idx}",
                         "text_output": decoded,

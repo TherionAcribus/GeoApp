@@ -222,7 +222,7 @@ class WolseleyCipherPlugin(CipherPluginBase):
             elif do_bruteforce:
                 solutions = self.bruteforce(text, removed_letter, candidate_keys=candidate_keys)
                 for idx, sol in enumerate(solutions[:max_results], 1):
-                    confidence = self._score_fast(self._clean_text(sol["decoded_text"]), default=0.3) if enable_scoring else 0.3
+                    confidence = self._score_full(self._clean_text(sol["decoded_text"]), context=context, default=0.3) if enable_scoring else 0.3
                     result = {
                         "id": f"result_{idx}",
                         "text_output": sol["decoded_text"],

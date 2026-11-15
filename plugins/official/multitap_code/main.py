@@ -554,9 +554,9 @@ class MultitapCodePlugin(CipherPluginBase):
         unknown_chars = solution.get("unknown_chars", 0)
 
         if enable_scoring and self._scoring_available:
-            fast_score = self._score_fast(decoded_text, default=0.0)
-            if fast_score > 0:
-                base_confidence = fast_score
+            text_score = self._score_full(decoded_text, context=context, default=0.0)
+            if text_score > 0:
+                base_confidence = text_score
                 if "none_variant" in separator:
                     base_confidence *= 0.95
                 elif separator == "space":

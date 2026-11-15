@@ -169,7 +169,7 @@ class CaesarPlugin(CipherPluginBase):
         
         for shift in range(1, 26):
             decoded_text = self._caesar_shift(text, -shift)
-            confidence = self._score_fast(decoded_text)
+            confidence = self._score_full(decoded_text)
             
             results.append({
                 "id": f"result_{shift}",

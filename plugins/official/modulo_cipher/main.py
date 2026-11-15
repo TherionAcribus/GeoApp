@@ -152,9 +152,9 @@ class ModuloCipherPlugin(CipherPluginBase):
                 continue
 
             confidence = self._calculate_confidence(modulo=modulo, decoded_text=decoded)
-            fast = self._score_fast(decoded, default=0.0)
-            if fast > 0:
-                confidence = max(confidence, fast)
+            text_score = self._score_full(decoded, default=0.0)
+            if text_score > 0:
+                confidence = max(confidence, text_score)
             results.append(
                 {
                     "id": f"result_{idx}",

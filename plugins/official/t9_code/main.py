@@ -309,9 +309,9 @@ class T9CodePlugin(CipherPluginBase):
                 for i, result in enumerate(decoded_results):
                     confidence = min(result.get("score", 0.0), 1.0)
                     if enable_scoring:
-                        fast_score = self._score_fast(result["word"], default=0.3)
-                        if fast_score > 0:
-                            confidence = fast_score
+                        text_score = self._score_full(result["word"], context=context, default=0.3)
+                        if text_score > 0:
+                            confidence = text_score
                     entry = {
                         "id": f"result_{i + 1}",
                         "text_output": result["word"],

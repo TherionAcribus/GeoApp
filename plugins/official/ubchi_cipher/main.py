@@ -185,7 +185,7 @@ class UbchiCipherPlugin(CipherPluginBase):
             elif do_bruteforce:
                 solutions = self.bruteforce(text, max_key_length=5, null_letters=null_letters)
                 for idx, sol in enumerate(solutions, 1):
-                    confidence = self._score_fast(self._clean_text(sol["decoded_text"]), default=0.3) if enable_scoring else 0.3
+                    confidence = self._score_full(self._clean_text(sol["decoded_text"]), context=context, default=0.3) if enable_scoring else 0.3
                     res = {
                         "id": f"result_{idx}",
                         "text_output": sol["decoded_text"],

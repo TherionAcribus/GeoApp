@@ -39,10 +39,12 @@ from .code_solving import (
 )
 
 try:  # pragma: no cover - dependance optionnelle (scoring lourd)
+    from .scoring import score_text as _score_text
     from .scoring import score_text_fast as _score_text_fast
 
     _SCORING_AVAILABLE = True
 except Exception:  # pragma: no cover - dependance optionnelle
+    _score_text = None
     _score_text_fast = None
     _SCORING_AVAILABLE = False
 
@@ -176,6 +178,11 @@ class CipherPluginBase:
     def _score_fast(self, text: str, default: float = 0.5) -> float:
         """Score rapide d'un texte via ``score_text_fast`` (0..1).
 
+        Pre-filtre bon marche (quadgrammes seulement) : il sature a 1.0 sur
+        du charabia prononcable et ignore lexique, coordonnees et contexte.
+        A reserver au tri interne de gros lots — pour une confiance affichee,
+        preferer ``_score_full``.
+
         Renvoie ``default`` si le module de scoring est indisponible ou
         leve une exception (execution standalone, ressources absentes...).
         """
@@ -183,6 +190,31 @@ class CipherPluginBase:
             return default
         try:
             return float(_score_text_fast(text))
+        except Exception:
+            return default
+
+    def _score_full(
+        self,
+        text: str,
+        context: Optional[Dict[str, Any]] = None,
+        default: float = 0.5,
+    ) -> float:
+        """Score complet d'un texte via ``score_text`` (0..1).
+
+        Le score complet combine quadgrammes, vocabulaire, coherence,
+        signal numerique et coordonnees ponderees par le contexte
+        geographique (``context.origin_coords``...). ~10x plus couteux que
+        ``_score_fast`` : a utiliser pour la confiance d'un resultat, pas en
+        pre-filtre de milliers de candidats.
+
+        Renvoie ``default`` si le module de scoring est indisponible ou
+        leve une exception.
+        """
+        if not _SCORING_AVAILABLE or _score_text is None:
+            return default
+        try:
+            scored = _score_text(text, context=context or {}) or {}
+            return float(scored.get("score", default))
         except Exception:
             return default
 
