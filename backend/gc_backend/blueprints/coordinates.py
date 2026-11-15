@@ -1039,6 +1039,10 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
 # Séquences de chiffres consécutifs (extraction des composantes par ligne).
 _DIGITS_RUN_REGEX = re.compile(r'\d+')
 
+# Reste d'une ligne « simplified » : chiffres et séparateurs uniquement (pas de
+# lettre), avec au moins un chiffre.
+_SIMPLIFIED_LINE_REGEX = re.compile(r'[\d\W]*\d[\d\W]*')
+
 
 def _iter_simplified_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
     """
@@ -1064,6 +1068,16 @@ def _iter_simplified_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]
         logger.debug("_iter_simplified_coordinates: Ligne longitude: '%s'", lon_line)
 
         if lat_line[:1] in ('N', 'S') and lon_line[:1] in ('E', 'W'):
+            # Le reste de chaque ligne ne doit contenir que des chiffres et
+            # des séparateurs : « N'oubliez pas 1 stylo, 2 gants et 3 amis »
+            # commençait aussi par « N » et alignait trois nombres.
+            if not (
+                _SIMPLIFIED_LINE_REGEX.fullmatch(lat_line[1:])
+                and _SIMPLIFIED_LINE_REGEX.fullmatch(lon_line[1:])
+            ):
+                logger.debug("_iter_simplified_coordinates: Lettres dans la ligne, rejet")
+                return
+
             lat_dir = lat_line[0]
             lon_dir = lon_line[0]
             # Extraction des nombres de la latitude
@@ -1233,16 +1247,17 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
 # doit être isolée — ni précédée ni suivie d'une lettre — pour ne pas la
 # lire dans un mot capitalisé (« Session 48 32 296 Errors 6 40 636 »).
 # Le séparateur non numérique entre la lettre et chaque groupe de chiffres
-# est BORNÉ (_NE_VAR_MAX_SEP) : un « [^\d]* » libre assemblait des chiffres
-# éparpillés à distance arbitraire (« N x x x …(200 chars)… 48 32 296 »
-# formait une fausse latitude). L'appariement latitude/longitude reste régi
-# par MAX_COORD_PAIR_GAP, inchangé.
+# est BORNÉ (_NE_VAR_MAX_SEP) et sans lettres : un « [^\d]* » libre assemblait
+# des chiffres éparpillés à distance arbitraire (« N x x x …(200 chars)…
+# 48 32 296 » formait une fausse latitude), et [^\w] rejette aussi les mots
+# intercalés (« N vaut 48 a 32 b 296 »). L'appariement latitude/longitude
+# reste régi par MAX_COORD_PAIR_GAP, inchangé.
 _NE_VAR_MAX_SEP = 10
 _DETECT_NE_VAR_NORD_REGEX = re.compile(
-    rf'(?<![^\W\d_])([NS])(?![^\W\d_])[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
+    rf'(?<![^\W\d_])([NS])(?![^\W\d_])[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
 )
 _DETECT_NE_VAR_EST_REGEX = re.compile(
-    rf'(?<![^\W\d_])([EW])(?![^\W\d_])[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\d]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
+    rf'(?<![^\W\d_])([EW])(?![^\W\d_])[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,2}})[^\w]{{0,{_NE_VAR_MAX_SEP}}}(\d{{1,3}})'
 )
 
 
@@ -1728,7 +1743,7 @@ def _decimal_to_ddm(value: float) -> tuple:
 # Paire de degrés décimaux : 3 à 8 décimales par valeur, séparateur
 # virgule/point-virgule/espace, signe optionnel.
 _DETECT_DECIMAL_PAIR_REGEX = re.compile(
-    r'(?<![\d.])(-?\d{1,3}\.\d{3,8})\s*[,;]?\s+(-?\d{1,3}\.\d{3,8})(?![\d.])'
+    r'(?<![\d.])(-?\d{1,3}\.\d{3,8})\s*(?:[,;]\s*|\s+)(-?\d{1,3}\.\d{3,8})(?![\d.])'
 )
 
 
@@ -1874,6 +1889,197 @@ def _iter_dms_suffix_direction(text: str) -> Iterator[Dict[str, Optional[str]]]:
 def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
     """Premier candidat « DMS suffixe » valide (compat : façade de l'itérateur)."""
     return next(_iter_dms_suffix_direction(text), None)
+
+
+# ------------------------------------------------------------------------------
+# Détection des degrés décimaux avec lettres cardinales
+# (ex: "N 48.8566° E 2.3522°", "48.8566°N 2.3522°E", "N48.85660 E002.35220")
+# ------------------------------------------------------------------------------
+
+# Valeur en degrés décimaux : 3 à 8 décimales (comme la paire décimale).
+_DDEG_VALUE = r'(-?\d{1,3}\.\d{3,8})'
+
+_DETECT_DDEG_PREFIX_REGEX = re.compile(
+    _CARDINAL_LB + r'([NS])\s*' + _DDEG_VALUE + r'\s*[°º]?\s*[,;]?\s*'
+    r'([EW])\s*' + _DDEG_VALUE + r'\s*[°º]?',
+    re.IGNORECASE,
+)
+_DETECT_DDEG_SUFFIX_REGEX = re.compile(
+    _DDEG_VALUE + r'\s*[°º]?\s*([NS])[\s,]+'
+    + _DDEG_VALUE + r'\s*[°º]?\s*([EW])',
+    re.IGNORECASE,
+)
+
+
+def _iter_ddeg_cardinal(text: str) -> Iterator[Dict[str, Optional[str]]]:
+    """
+    Itère les coordonnées en degrés décimaux avec lettres cardinales :
+      - préfixe : "N 48.8566° E 2.3522°", "N48.85660 E002.35220"
+      - suffixe : "48.8566°N 2.3522°E", "33.8688° S, 151.2093° E"
+    L'hémisphère vient de la lettre ; un signe négatif contradictoire
+    (« N -48.5 ») rejette le candidat.
+    """
+    logger.debug("_iter_ddeg_cardinal: Analyse du texte: '%s...' (tronqué)", text[:100])
+    for match in _DETECT_DDEG_PREFIX_REGEX.finditer(text):
+        lat_dir, lat_str, lon_dir, lon_str = match.groups()
+        yield from _ddeg_candidate(match, lat_str, lon_str, lat_dir, lon_dir)
+    for match in _DETECT_DDEG_SUFFIX_REGEX.finditer(text):
+        lat_str, lat_dir, lon_str, lon_dir = match.groups()
+        yield from _ddeg_candidate(match, lat_str, lon_str, lat_dir, lon_dir)
+
+
+def _ddeg_candidate(match, lat_str, lon_str, lat_dir, lon_dir) -> Iterator[Dict[str, Optional[str]]]:
+    """Valide et formate un candidat degrés décimaux + lettres cardinales."""
+    try:
+        lat, lon = float(lat_str), float(lon_str)
+    except (TypeError, ValueError):
+        return
+    lat_dir, lon_dir = lat_dir.upper(), lon_dir.upper()
+    # Un signe négatif explicite doit être cohérent avec la lettre.
+    if lat < 0 and lat_dir != 'S':
+        return
+    if lon < 0 and lon_dir != 'W':
+        return
+    if abs(lat) > 90 or abs(lon) > 180:
+        return
+
+    lat = -abs(lat) if lat_dir == 'S' else abs(lat)
+    lon = -abs(lon) if lon_dir == 'W' else abs(lon)
+    lat_deg, lat_min = _decimal_to_ddm(lat)
+    lon_deg, lon_min = _decimal_to_ddm(lon)
+
+    ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
+    ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
+    yield {
+        "span": [match.start(), match.end()],
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+        "decimal_latitude": round(lat, 8),
+        "decimal_longitude": round(lon, 8),
+    }
+
+
+def _detect_ddeg_cardinal(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """Premier candidat « degrés décimaux + cardinaux » valide."""
+    return next(_iter_ddeg_cardinal(text), None)
+
+
+# ------------------------------------------------------------------------------
+# Détection d'une paire décimale étiquetée (ex: "lat: 48.8566 lon: 2.3522")
+# ------------------------------------------------------------------------------
+
+_DETECT_LABELED_DECIMAL_REGEX = re.compile(
+    r'\blat(?:itude)?\b\s*[:=]?\s*(-?\d{1,3}\.\d{3,8})\s*[,;/]?\s*'
+    r'\b(?:longitude|long|lng|lon)\b\s*[:=]?\s*(-?\d{1,3}\.\d{3,8})',
+    re.IGNORECASE,
+)
+# Même motif, ordre inverse (« lon: … lat: … ») : groupes (lon, lat).
+_DETECT_LABELED_DECIMAL_REV_REGEX = re.compile(
+    r'\b(?:longitude|long|lng|lon)\b\s*[:=]?\s*(-?\d{1,3}\.\d{3,8})\s*[,;/]?\s*'
+    r'\blat(?:itude)?\b\s*[:=]?\s*(-?\d{1,3}\.\d{3,8})',
+    re.IGNORECASE,
+)
+
+
+def _iter_labeled_decimal(text: str) -> Iterator[Dict[str, Optional[str]]]:
+    """
+    Itère les paires décimales explicitement étiquetées :
+      - "lat: 48.8566 lon: 2.3522"
+      - "latitude 48.8566, longitude -2.3522"
+    Le signe détermine l'hémisphère ; l'ordre « lon … lat » est aussi accepté.
+    """
+    logger.debug("_iter_labeled_decimal: Analyse du texte")
+    matches = (
+        (match, False) for match in _DETECT_LABELED_DECIMAL_REGEX.finditer(text)
+    )
+    reversed_matches = (
+        (match, True) for match in _DETECT_LABELED_DECIMAL_REV_REGEX.finditer(text)
+    )
+    for match, is_reversed in sorted(
+        (*matches, *reversed_matches), key=lambda item: item[0].start()
+    ):
+        try:
+            lat = float(match.group(2) if is_reversed else match.group(1))
+            lon = float(match.group(1) if is_reversed else match.group(2))
+        except (TypeError, ValueError):
+            continue
+        if abs(lat) > 90 or abs(lon) > 180:
+            continue
+
+        lat_dir = 'N' if lat >= 0 else 'S'
+        lon_dir = 'E' if lon >= 0 else 'W'
+        lat_deg, lat_min = _decimal_to_ddm(lat)
+        lon_deg, lon_min = _decimal_to_ddm(lon)
+
+        ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
+        ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
+        yield {
+            "span": [match.start(), match.end()],
+            "exist": True,
+            "ddm_lat": ddm_lat,
+            "ddm_lon": ddm_lon,
+            "ddm": f"{ddm_lat} {ddm_lon}",
+            "decimal_latitude": round(lat, 8),
+            "decimal_longitude": round(lon, 8),
+        }
+
+
+def _detect_labeled_decimal(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """Premier candidat « paire étiquetée » valide."""
+    return next(_iter_labeled_decimal(text), None)
+
+
+# ------------------------------------------------------------------------------
+# Détection d'une paire décimale à virgule (ex: "48,8566 2,3522")
+# ------------------------------------------------------------------------------
+
+# Même prudence que la paire à point : 3-8 décimales exigées, et espace
+# obligatoire entre les deux valeurs (« 48,8566,2,3522 » serait ambigu).
+# Confiance inférieure : « 1,234 5,678 » peut aussi être des milliers.
+_DETECT_DECIMAL_COMMA_REGEX = re.compile(
+    r'(?<![\d,.])(-?\d{1,3},\d{3,8})[,;]?\s+(-?\d{1,3},\d{3,8})(?![\d,.])'
+)
+
+
+def _iter_decimal_comma(text: str) -> Iterator[Dict[str, Optional[str]]]:
+    """
+    Itère les paires de degrés décimaux à virgule décimale (notation française) :
+      - "48,8566 2,3522"
+      - "-33,8688; 151,2093"
+    """
+    logger.debug("_iter_decimal_comma: Analyse du texte")
+    for match in _DETECT_DECIMAL_COMMA_REGEX.finditer(text):
+        try:
+            lat = float(match.group(1).replace(',', '.'))
+            lon = float(match.group(2).replace(',', '.'))
+        except (TypeError, ValueError):
+            continue
+        if abs(lat) > 90 or abs(lon) > 180:
+            continue
+
+        lat_dir = 'N' if lat >= 0 else 'S'
+        lon_dir = 'E' if lon >= 0 else 'W'
+        lat_deg, lat_min = _decimal_to_ddm(lat)
+        lon_deg, lon_min = _decimal_to_ddm(lon)
+
+        ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
+        ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
+        yield {
+            "span": [match.start(), match.end()],
+            "exist": True,
+            "ddm_lat": ddm_lat,
+            "ddm_lon": ddm_lon,
+            "ddm": f"{ddm_lat} {ddm_lon}",
+            "decimal_latitude": round(lat, 8),
+            "decimal_longitude": round(lon, 8),
+        }
+
+
+def _detect_decimal_comma(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """Premier candidat « paire à virgule » valide."""
+    return next(_iter_decimal_comma(text), None)
 
 
 # Fonction principale de détection multi-format
@@ -2819,11 +3025,14 @@ _DETECTOR_CONFIDENCE = {
     _iter_roman_numerals_coordinates:    0.90,
     _iter_tabspace_coordinates:          0.90,
     _iter_dmm_no_degree_symbol:          0.90,
+    _iter_ddeg_cardinal:                 0.88,
+    _iter_labeled_decimal:               0.85,
     _iter_nord_est_variations:           0.88,
     _iter_nord_est_format:               0.85,
     _iter_dmm_no_symbol_no_dot:          0.85,
     _iter_specific_tabpoint_coordinates: 0.82,
     _iter_decimal_pair:                  0.80,
+    _iter_decimal_comma:                 0.75,
     _iter_simplified_coordinates:        0.80,
     _iter_flexible_coordinates:          0.75,
     _iter_variant_coordinates:           0.70,

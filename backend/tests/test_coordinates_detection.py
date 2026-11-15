@@ -198,6 +198,60 @@ class TestNewFormats:
                ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
                dec_lat=48.8539, dec_lon=2.29278, min_conf=0.9)
 
+    def test_ddeg_prefix(self):
+        _check("N 48.8566° E 2.3522°",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.85)
+
+    def test_ddeg_prefix_compact(self):
+        _check("N48.85660 E002.35220",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.85)
+
+    def test_ddeg_suffix(self):
+        _check("48.8566°N 2.3522°E",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.85)
+
+    def test_ddeg_south_west(self):
+        _check("S 33.8688° W 151.2093°",
+               ddm_lat="S 33° 52.128'", ddm_lon="W 151° 12.558'",
+               dec_lat=-33.8688, dec_lon=-151.2093, min_conf=0.85)
+
+    def test_ddeg_contradicting_sign_rejected(self):
+        # « N -48.8566 » : le signe contredit la lettre cardinale.
+        assert d("N -48.8566° E 2.3522°")["exist"] is False
+
+    def test_decimal_pair_no_space(self):
+        _check("48.8566,2.3522",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.7)
+
+    def test_decimal_comma_pair(self):
+        _check("48,8566 2,3522",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.7)
+
+    def test_decimal_comma_negative(self):
+        _check("-33,8688; 151,2093",
+               ddm_lat="S 33° 52.128'", ddm_lon="E 151° 12.558'",
+               dec_lat=-33.8688, dec_lon=151.2093, min_conf=0.7)
+
+    def test_labeled_decimal(self):
+        _check("lat: 48.8566 lon: 2.3522",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.8)
+
+    def test_labeled_decimal_full_words(self):
+        _check("latitude -33.8688 longitude 151.2093",
+               ddm_lat="S 33° 52.128'", ddm_lon="E 151° 12.558'",
+               dec_lat=-33.8688, dec_lon=151.2093, min_conf=0.8)
+
+    def test_labeled_decimal_reversed(self):
+        _check("lon: 2.3522 lat: 48.8566",
+               ddm_lat="N 48° 51.396'", ddm_lon="E 002° 21.132'",
+               dec_lat=48.8566, dec_lon=2.3522, min_conf=0.8)
+
     def test_dms_suffix_direction(self):
         r = _check("48°51'24.1\" N 2°17'26\" E",
                    ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.433'", min_conf=0.85)
@@ -224,6 +278,20 @@ class TestCharacterizationRejections:
     def test_pole_latitude_with_minutes_rejected(self):
         # 90° n'admet que 00.000 en minutes.
         assert d("N 90° 30.000 E 002° 20.123")["exist"] is False
+
+    def test_simplified_prose_lines_rejected(self):
+        # Deux lignes de prose commençant par N/E alignaient trois nombres
+        # chacune : le détecteur « simplified » exige désormais des lignes
+        # sans lettres après la direction.
+        text = ("N'oubliez pas 1 stylo, 2 gants et 3 amis\n"
+                "Et 4 piles, 5 lampes, 6 cordes")
+        assert d(text)["exist"] is False
+
+    def test_ne_var_words_in_separator_rejected(self):
+        # Des lettres entre la direction et les groupes de chiffres ne sont
+        # plus des séparateurs valides (« N vaut 48 a 32 b 296 »).
+        assert d("N a 48 b 32 c 296 E x 6 y 40 z 636")["exist"] is False
+        assert d("N vaut 48 32 296 et E 6 40 636")["exist"] is False
 
 
 class TestIsolatedCardinalLetters:
