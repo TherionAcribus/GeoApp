@@ -18,6 +18,7 @@ frontend et la route ``/execute`` :
   maniere opt-in par les autres chemins d'execution.
 """
 
+import math
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -448,3 +449,166 @@ def score_plugin_results(
         result['results'] = items
 
     return result
+
+
+# =============================================================================
+# Validation des inputs (opt-in, frontière HTTP /execute uniquement)
+# =============================================================================
+
+def _normalize_select_value(value: Any) -> str:
+    """Normalisation tolérante pour la comparaison des options select.
+
+    Les vrais booléens deviennent 'true'/'false' (et non 'True'/'False') afin
+    qu'une option déclarée ``True`` accepte la valeur JSON ``'true'``.
+    """
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return str(value)
+
+
+def _parse_number_value(value: Any) -> Optional[float]:
+    """Parse un int/float/str (virgule décimale acceptée) en float.
+
+    Retourne None si la valeur n'est pas un nombre exploitable ; NaN et les
+    infinis sont rejetés. Les booléens ne sont PAS des nombres.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        try:
+            parsed = float(text)
+        except ValueError:
+            try:
+                parsed = float(text.replace(',', '.'))
+            except ValueError:
+                return None
+    else:
+        return None
+
+    if math.isnan(parsed) or math.isinf(parsed):
+        return None
+    return parsed
+
+
+def _is_boolean_value(value: Any) -> bool:
+    """True si la valeur représente un booléen acceptable."""
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):
+        return value in (0, 1)
+    if isinstance(value, str):
+        return value.strip().lower() in {
+            'true', 'false', '1', '0',
+            'yes', 'no', 'oui', 'non', 'on', 'off',
+        }
+    return False
+
+
+def validate_plugin_inputs(
+    inputs: Any,
+    input_types: Optional[Dict[str, Any]]
+) -> Dict[str, str]:
+    """Valide les inputs d'exécution contre le bloc input_types du plugin.json.
+
+    Validation opt-in — activée uniquement par la route HTTP /execute : les
+    orchestrateurs internes (metasolver, workflow, batch, tasks) appellent
+    execute_plugin avec des inputs volontairement partiels.
+
+    Non destructive : aucune coercion, aucune injection de valeur par défaut,
+    les clés non déclarées sont ignorées.
+
+    Args:
+        inputs: Payload 'inputs' tel que reçu (dict attendu).
+        input_types: Bloc input_types du plugin.json.
+
+    Returns:
+        Dict[str, str]: {champ: message d'erreur} — dict vide si valide.
+    """
+    if not isinstance(inputs, dict) or not isinstance(input_types, dict):
+        return {}
+
+    errors: Dict[str, str] = {}
+
+    for field, definition in input_types.items():
+        if not isinstance(definition, dict):
+            continue
+
+        value = inputs.get(field)
+        is_empty = (
+            field not in inputs
+            or value is None
+            or (isinstance(value, str) and not value.strip())
+        )
+
+        if is_empty:
+            if (
+                definition.get('required')
+                and 'default' not in definition
+                and not definition.get('default_value_source')
+                and not definition.get('hidden')
+            ):
+                errors[field] = "Champ requis"
+            # Un champ vide (optionnel) ne déclenche aucun autre contrôle
+            continue
+
+        field_type = definition.get('type')
+
+        if field_type == 'select':
+            options = definition.get('options')
+            if not isinstance(options, list) or not options:
+                continue
+            allowed = [
+                opt.get('value') if isinstance(opt, dict) else opt
+                for opt in options
+            ]
+            normalized = _normalize_select_value(value)
+            if normalized not in {
+                _normalize_select_value(allowed_value)
+                for allowed_value in allowed
+            }:
+                listed = ', '.join(
+                    _normalize_select_value(allowed_value)
+                    for allowed_value in allowed[:10]
+                )
+                if len(allowed) > 10:
+                    listed += '…'
+                errors[field] = (
+                    f"Valeur '{normalized}' invalide. Options: {listed}"
+                )
+
+        elif field_type in ('number', 'float'):
+            parsed = _parse_number_value(value)
+            if parsed is None:
+                errors[field] = "Nombre attendu"
+                continue
+            min_value = definition.get('min')
+            max_value = definition.get('max')
+            if (
+                isinstance(min_value, (int, float))
+                and not isinstance(min_value, bool)
+                and parsed < min_value
+            ):
+                errors[field] = f"Doit être ≥ {min_value}"
+            elif (
+                isinstance(max_value, (int, float))
+                and not isinstance(max_value, bool)
+                and parsed > max_value
+            ):
+                errors[field] = f"Doit être ≤ {max_value}"
+
+        elif field_type in ('boolean', 'checkbox'):
+            if not _is_boolean_value(value):
+                errors[field] = "Booléen attendu"
+
+        elif field_type in ('string', 'textarea', 'file'):
+            if isinstance(value, bool) or not isinstance(
+                value, (str, int, float)
+            ):
+                errors[field] = "Texte attendu"
+
+        # Type inconnu : pas de contrôle
+
+    return errors

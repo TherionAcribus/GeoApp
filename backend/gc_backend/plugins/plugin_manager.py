@@ -32,6 +32,7 @@ from .executor import (
     normalize_plugin_result,
     score_plugin_results,
     scoring_context_from_inputs,
+    validate_plugin_inputs,
 )
 from .wrappers import (
     create_plugin_wrapper,
@@ -917,7 +918,8 @@ class PluginManager:
         plugin_name: str,
         inputs: Dict[str, Any],
         *,
-        apply_scoring: bool = False
+        apply_scoring: bool = False,
+        validate_inputs: bool = False
     ) -> Dict[str, Any]:
         """
         Exécute un plugin avec les inputs fournis.
@@ -934,6 +936,11 @@ class PluginManager:
             plugin_name (str): Nom du plugin à exécuter
             inputs (dict): Paramètres d'entrée pour le plugin
             apply_scoring (bool): Appliquer le scoring post-exécution
+            validate_inputs (bool): Valider les inputs contre le bloc
+                ``input_types`` du plugin.json avant exécution. Opt-in :
+                activé uniquement par la route HTTP /execute — les
+                orchestrateurs internes (metasolver, workflow, batch, tasks)
+                envoient des inputs volontairement partiels.
 
         Returns:
             Dict: Résultat de l'exécution au format standardisé
@@ -998,6 +1005,41 @@ class PluginManager:
         text_handling = metadata.get('text_handling')
         input_types = metadata.get('input_types') or info.get('input_types')
         plugin_version = info.get('version') or 'unknown'
+
+        # Validation serveur des inputs (opt-in : uniquement la route
+        # /execute — les orchestrateurs internes envoient des inputs partiels).
+        if validate_inputs:
+            try:
+                input_errors = validate_plugin_inputs(inputs, input_types)
+            except Exception as e:
+                # Un crash du validateur ne doit jamais bloquer l'exécution
+                logger.warning(
+                    f"Validation des inputs de {plugin_name} impossible, "
+                    f"exécution poursuivie: {e}"
+                )
+            else:
+                if input_errors:
+                    message = "Paramètres invalides — " + "; ".join(
+                        f"{field}: {msg}"
+                        for field, msg in input_errors.items()
+                    )
+                    logger.warning(f"Inputs rejetés pour {plugin_name}: {message}")
+                    return {
+                        "status": "error",
+                        "summary": message,
+                        "results": [],
+                        "plugin_info": {
+                            "name": plugin_name,
+                            "version": plugin_version,
+                            "execution_time_ms": 0
+                        },
+                        "error": {
+                            "type": "InputValidationError",
+                            "code": "invalid_inputs",
+                            "message": message,
+                            "fields": input_errors
+                        }
+                    }
 
         # Normalisation des inputs (portage de normalizeInputsForPlugin)
         warnings: List[str] = []

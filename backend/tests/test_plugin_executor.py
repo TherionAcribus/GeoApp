@@ -14,6 +14,7 @@ from gc_backend.plugins.executor import (
     apply_text_handling,
     normalize_plugin_result,
     score_plugin_results,
+    validate_plugin_inputs,
 )
 
 
@@ -495,3 +496,214 @@ class TestScorePluginResults:
         # plugin_confidence deja present n'est pas ecrase
         assert out['results'][1]['metadata']['plugin_confidence'] == 0.4
         assert out['results'][0]['metadata']['plugin_confidence'] == 0.8
+
+
+# =============================================================================
+# validate_plugin_inputs
+# =============================================================================
+
+class TestValidatePluginInputs:
+    """Tests de la validation opt-in des inputs contre input_types."""
+
+    def test_non_dict_inputs_returns_empty(self):
+        assert validate_plugin_inputs('nope', {'text': {}}) == {}
+        assert validate_plugin_inputs(None, {'text': {}}) == {}
+        assert validate_plugin_inputs([], {'text': {}}) == {}
+
+    def test_missing_or_invalid_input_types_returns_empty(self):
+        assert validate_plugin_inputs({'text': 'x'}, None) == {}
+        assert validate_plugin_inputs({'text': 'x'}, {}) == {}
+        assert validate_plugin_inputs({'text': 'x'}, 'bogus') == {}
+
+    def test_undeclared_keys_ignored(self):
+        """Les clés non déclarées (brute_force, geocache_id...) sont ignorées."""
+        input_types = {'text': {'type': 'string', 'required': True}}
+        inputs = {'text': 'hello', 'brute_force': True, 'geocache_id': 42}
+        assert validate_plugin_inputs(inputs, input_types) == {}
+
+    def test_required_missing(self):
+        input_types = {'text': {'type': 'string', 'required': True}}
+        assert validate_plugin_inputs({}, input_types) == {
+            'text': 'Champ requis'
+        }
+
+    def test_required_none_and_blank_string(self):
+        input_types = {'text': {'type': 'string', 'required': True}}
+        assert validate_plugin_inputs({'text': None}, input_types) == {
+            'text': 'Champ requis'
+        }
+        assert validate_plugin_inputs({'text': '   '}, input_types) == {
+            'text': 'Champ requis'
+        }
+
+    def test_required_with_default_not_reported(self):
+        input_types = {
+            'mode': {'type': 'string', 'required': True, 'default': 'decode'}
+        }
+        assert validate_plugin_inputs({}, input_types) == {}
+
+    def test_required_with_default_value_source_not_reported(self):
+        input_types = {
+            'text': {
+                'type': 'string', 'required': True,
+                'default_value_source': 'description'
+            }
+        }
+        assert validate_plugin_inputs({}, input_types) == {}
+
+    def test_required_hidden_not_reported(self):
+        input_types = {
+            'secret': {'type': 'string', 'required': True, 'hidden': True}
+        }
+        assert validate_plugin_inputs({}, input_types) == {}
+
+    def test_empty_optional_field_skips_other_checks(self):
+        """Un optionnel vide ('') ne déclenche ni type ni min/max."""
+        input_types = {'shift': {'type': 'number', 'min': 1, 'max': 25}}
+        assert validate_plugin_inputs({'shift': ''}, input_types) == {}
+
+    def test_select_valid(self):
+        input_types = {
+            'mode': {'type': 'select', 'options': ['encode', 'decode']}
+        }
+        assert validate_plugin_inputs({'mode': 'encode'}, input_types) == {}
+
+    def test_select_invalid_lists_options(self):
+        input_types = {
+            'mode': {'type': 'select', 'options': ['encode', 'decode']}
+        }
+        errors = validate_plugin_inputs({'mode': 'bogus'}, input_types)
+        assert errors['mode'] == (
+            "Valeur 'bogus' invalide. Options: encode, decode"
+        )
+
+    def test_select_dict_options(self):
+        input_types = {
+            'mode': {
+                'type': 'select',
+                'options': [{'value': 'e', 'label': 'Encode'}, {'value': 'd'}]
+            }
+        }
+        assert validate_plugin_inputs({'mode': 'd'}, input_types) == {}
+        errors = validate_plugin_inputs({'mode': 'x'}, input_types)
+        assert 'Options: e, d' in errors['mode']
+
+    def test_select_bool_and_numeric_options_lenient(self):
+        """Comparaison normalisée : True == 'true', 3 == '3'."""
+        input_types = {
+            'a': {'type': 'select', 'options': [True, False]},
+            'b': {'type': 'select', 'options': [3, 5]},
+        }
+        assert validate_plugin_inputs(
+            {'a': 'true', 'b': '3'}, input_types
+        ) == {}
+        assert validate_plugin_inputs(
+            {'a': True, 'b': 3}, input_types
+        ) == {}
+
+    def test_select_without_options_no_check(self):
+        input_types = {'mode': {'type': 'select'}}
+        assert validate_plugin_inputs({'mode': 'whatever'}, input_types) == {}
+
+    def test_select_more_than_10_options_truncated(self):
+        input_types = {
+            'mode': {
+                'type': 'select',
+                'options': [str(i) for i in range(15)]
+            }
+        }
+        errors = validate_plugin_inputs({'mode': 'nope'}, input_types)
+        assert errors['mode'].endswith('…')
+        assert '10' not in errors['mode'].split('Options: ')[1]
+
+    def test_number_accepts_int_float_and_strings(self):
+        input_types = {'shift': {'type': 'number'}}
+        assert validate_plugin_inputs({'shift': 3}, input_types) == {}
+        assert validate_plugin_inputs({'shift': 2.5}, input_types) == {}
+        assert validate_plugin_inputs({'shift': '12'}, input_types) == {}
+        # Virgule décimale acceptée
+        assert validate_plugin_inputs({'shift': '1,5'}, input_types) == {}
+
+    def test_number_rejects_non_numeric(self):
+        input_types = {'shift': {'type': 'number'}}
+        for value in ('abc', True, float('nan'), float('inf'), [1]):
+            assert validate_plugin_inputs({'shift': value}, input_types) == {
+                'shift': 'Nombre attendu'
+            }, value
+
+    def test_number_min_max_inclusive(self):
+        input_types = {
+            'shift': {'type': 'number', 'min': 1, 'max': 25}
+        }
+        assert validate_plugin_inputs({'shift': 1}, input_types) == {}
+        assert validate_plugin_inputs({'shift': 25}, input_types) == {}
+        assert validate_plugin_inputs({'shift': 0}, input_types) == {
+            'shift': 'Doit être ≥ 1'
+        }
+        assert validate_plugin_inputs({'shift': 99}, input_types) == {
+            'shift': 'Doit être ≤ 25'
+        }
+
+    def test_number_min_max_ignored_when_not_numeric(self):
+        input_types = {
+            'shift': {'type': 'number', 'min': 'abc', 'max': None}
+        }
+        assert validate_plugin_inputs({'shift': -999}, input_types) == {}
+
+    def test_float_type_same_rules(self):
+        input_types = {'ratio': {'type': 'float', 'min': 0, 'max': 1}}
+        assert validate_plugin_inputs({'ratio': '0.5'}, input_types) == {}
+        assert validate_plugin_inputs({'ratio': 2}, input_types) == {
+            'ratio': 'Doit être ≤ 1'
+        }
+
+    def test_boolean_accepts_bool_ints_and_strings(self):
+        for field_type in ('boolean', 'checkbox'):
+            input_types = {'flag': {'type': field_type}}
+            for value in (
+                True, False, 0, 1,
+                'true', 'FALSE', 'yes', 'No', 'oui', 'non',
+                'on', 'off', '1', '0'
+            ):
+                assert validate_plugin_inputs(
+                    {'flag': value}, input_types
+                ) == {}, (field_type, value)
+
+    def test_boolean_rejects_other_values(self):
+        input_types = {'flag': {'type': 'checkbox'}}
+        assert validate_plugin_inputs({'flag': 'maybe'}, input_types) == {
+            'flag': 'Booléen attendu'
+        }
+        assert validate_plugin_inputs({'flag': 2}, input_types) == {
+            'flag': 'Booléen attendu'
+        }
+
+    def test_text_types_accept_str_and_numbers(self):
+        for field_type in ('string', 'textarea', 'file'):
+            input_types = {'f': {'type': field_type}}
+            assert validate_plugin_inputs({'f': 'abc'}, input_types) == {}
+            assert validate_plugin_inputs({'f': 12}, input_types) == {}
+            assert validate_plugin_inputs({'f': 1.5}, input_types) == {}
+
+    def test_text_rejects_list_dict_and_bool(self):
+        input_types = {'text': {'type': 'string'}}
+        assert validate_plugin_inputs({'text': ['a']}, input_types) == {
+            'text': 'Texte attendu'
+        }
+        assert validate_plugin_inputs({'text': True}, input_types) == {
+            'text': 'Texte attendu'
+        }
+
+    def test_unknown_type_no_check(self):
+        input_types = {'f': {'type': 'mystery'}}
+        assert validate_plugin_inputs({'f': object()}, input_types) == {}
+
+    def test_no_coercion_inputs_unchanged(self):
+        """La validation ne modifie jamais les inputs."""
+        inputs = {'shift': '12', 'flag': 'yes'}
+        input_types = {
+            'shift': {'type': 'number'},
+            'flag': {'type': 'boolean'},
+        }
+        validate_plugin_inputs(inputs, input_types)
+        assert inputs == {'shift': '12', 'flag': 'yes'}

@@ -27,7 +27,10 @@ REPO_ROOT = BACKEND_DIR.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from gc_backend.plugins.executor import normalize_plugin_result  # noqa: E402
+from gc_backend.plugins.executor import (  # noqa: E402
+    normalize_plugin_result,
+    validate_plugin_inputs,
+)
 
 
 OFFICIAL_DIR = REPO_ROOT / 'plugins' / 'official'
@@ -64,6 +67,19 @@ PLUGIN_DIRS = (
 
 # Delai max par plugin : un plugin qui pend ne doit pas bloquer la suite.
 PLUGIN_TIMEOUT_S = 30
+
+# Tous les plugin.json (official + custom) pour le garde-fou de validation
+# des inputs : pas d'exécution, donc pas d'exclusion SLOW_OR_EXTERNAL.
+VALIDATION_DIRS = [
+    d
+    for base in (
+        REPO_ROOT / 'plugins' / 'official',
+        REPO_ROOT / 'plugins' / 'custom',
+    )
+    if base.exists()
+    for d in sorted(base.iterdir())
+    if d.is_dir() and (d / 'plugin.json').exists()
+]
 
 
 def _build_inputs(plugin_json: Dict[str, Any]) -> Dict[str, Any]:
@@ -193,3 +209,112 @@ def test_plugin_result_contract(plugin_dir: Path):
     assert plugin_info.get('version')
     if result['status'] == 'error':
         assert isinstance(result.get('error'), dict)
+
+
+def _validation_placeholder(field_def: Dict[str, Any]) -> Any:
+    """Valeur placeholder par type pour les champs requis sans défaut."""
+    field_type = field_def.get('type')
+    if field_type == 'select':
+        options = field_def.get('options') or []
+        if options:
+            first = options[0]
+            return first.get('value') if isinstance(first, dict) else first
+        return 'TEST'
+    if field_type in ('number', 'float'):
+        if isinstance(field_def.get('min'), (int, float)):
+            return field_def['min']
+        if isinstance(field_def.get('max'), (int, float)):
+            return field_def['max']
+        return 1
+    if field_type in ('boolean', 'checkbox'):
+        return False
+    return 'TEST'
+
+
+def _normalized_option(value: Any) -> str:
+    """Même normalisation tolérante que le validateur (bool -> 'true'/'false')."""
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    return str(value)
+
+
+@pytest.mark.parametrize(
+    'plugin_dir',
+    VALIDATION_DIRS,
+    ids=[d.name for d in VALIDATION_DIRS],
+)
+def test_plugin_inputs_are_self_consistent(plugin_dir: Path):
+    """Les inputs construits depuis le plugin.json passent validate_plugin_inputs.
+
+    Garantit que chaque ``default`` déclaré et la première option de chaque
+    select de chaque plugin.json réel passent la validation (et que les
+    incohérences type min > max ressortent). Les champs sans défaut sont
+    remplis par des placeholders typés — ``_build_inputs`` est inchangé car
+    le test de contrat d'exécution en dépend. Aucune exécution : tous les
+    plugins sont couverts, y compris SLOW_OR_EXTERNAL.
+    """
+    plugin_json = json.loads(
+        (plugin_dir / 'plugin.json').read_text(encoding='utf-8')
+    )
+    input_types = plugin_json.get('input_types') or {}
+    inputs = _build_inputs(plugin_json)
+
+    for field_name, field_def in input_types.items():
+        if not isinstance(field_def, dict) or field_name in inputs:
+            continue
+        inputs[field_name] = _validation_placeholder(field_def)
+
+    errors = validate_plugin_inputs(inputs, input_types)
+    assert errors == {}, f'{plugin_dir.name}: {errors}'
+
+
+@pytest.mark.parametrize(
+    'plugin_dir',
+    VALIDATION_DIRS,
+    ids=[d.name for d in VALIDATION_DIRS],
+)
+def test_plugin_field_declarations_are_coherent(plugin_dir: Path):
+    """Garde-fou de cohérence des déclarations de champs :
+
+    - pour chaque champ numérique déclarant min ET max, min <= max ;
+    - pour chaque select déclarant un default, ce default fait partie des
+      valeurs d'options (normalisation tolérante identique au validateur).
+    """
+    plugin_json = json.loads(
+        (plugin_dir / 'plugin.json').read_text(encoding='utf-8')
+    )
+    input_types = plugin_json.get('input_types') or {}
+    problems = []
+
+    for field_name, field_def in input_types.items():
+        if not isinstance(field_def, dict):
+            continue
+
+        min_value = field_def.get('min')
+        max_value = field_def.get('max')
+        if (
+            isinstance(min_value, (int, float))
+            and not isinstance(min_value, bool)
+            and isinstance(max_value, (int, float))
+            and not isinstance(max_value, bool)
+            and min_value > max_value
+        ):
+            problems.append(
+                f'{field_name}: min ({min_value}) > max ({max_value})'
+            )
+
+        if field_def.get('type') == 'select' and 'default' in field_def:
+            options = field_def.get('options') or []
+            allowed = {
+                _normalized_option(
+                    opt.get('value') if isinstance(opt, dict) else opt
+                )
+                for opt in options
+            }
+            if allowed and _normalized_option(field_def['default']) not in allowed:
+                problems.append(
+                    f"{field_name}: default "
+                    f"{field_def['default']!r} absent des options {sorted(allowed)}"
+                )
+
+    assert problems == [], f'{plugin_dir.name}: {problems}'

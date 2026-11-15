@@ -3420,3 +3420,66 @@ class TestPluginStatusDependencies:
         ]
         for plugin_status in data['plugins'].values():
             assert isinstance(plugin_status['missing_dependencies'], list)
+
+
+class TestPluginExecuteInputValidationAPI:
+    """Validation serveur des inputs sur POST /api/plugins/<name>/execute."""
+
+    def test_execute_rejects_non_dict_inputs(self, client, app, caesar_plugin):
+        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        if not (plugins_dir / 'official' / 'caesar').exists():
+            pytest.skip("Plugin Caesar non disponible")
+
+        response = client.post(
+            '/api/plugins/caesar/execute',
+            data=json.dumps({'inputs': []}),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['error'] == 'Requête invalide'
+        assert 'objet JSON' in data['message']
+
+    def test_execute_invalid_inputs_returns_validation_error(
+        self, client, app, caesar_plugin
+    ):
+        """Inputs invalides → HTTP 200 avec error.code 'invalid_inputs'."""
+        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        if not (plugins_dir / 'official' / 'caesar').exists():
+            pytest.skip("Plugin Caesar non disponible")
+
+        response = client.post(
+            '/api/plugins/caesar/execute',
+            data=json.dumps({
+                'inputs': {'text': 'HELLO', 'mode': 'bogus', 'shift': 99}
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+        assert data['error']['code'] == 'invalid_inputs'
+        assert set(data['error']['fields']) == {'mode', 'shift'}
+        assert data['results'] == []
+
+    def test_execute_valid_inputs_still_executes(
+        self, client, app, caesar_plugin
+    ):
+        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        if not (plugins_dir / 'official' / 'caesar').exists():
+            pytest.skip("Plugin Caesar non disponible")
+
+        response = client.post(
+            '/api/plugins/caesar/execute',
+            data=json.dumps({
+                'inputs': {'text': 'HELLO', 'mode': 'encode', 'shift': 3}
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'ok'
+        assert data['results'][0]['text_output'] == 'KHOOR'

@@ -488,7 +488,13 @@ def execute_plugin(plugin_name: str):
             }), 400
         
         inputs = data['inputs']
-        
+
+        if not isinstance(inputs, dict):
+            return jsonify({
+                "error": "Requête invalide",
+                "message": "Le champ 'inputs' doit être un objet JSON"
+            }), 400
+
         logger.info(
             f"Exécution synchrone du plugin {plugin_name} "
             f"avec inputs: {list(inputs.keys())}"
@@ -507,7 +513,8 @@ def execute_plugin(plugin_name: str):
         # la normalisation du résultat et le scoring opt-in sont gérés par
         # la couche centrale d'exécution (plugins/executor.py via le manager).
         result = manager.execute_plugin(
-            plugin_name, inputs, apply_scoring=enable_scoring
+            plugin_name, inputs, apply_scoring=enable_scoring,
+            validate_inputs=True
         )
 
         if not result:

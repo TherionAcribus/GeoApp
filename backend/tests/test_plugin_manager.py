@@ -1330,3 +1330,79 @@ class TestPluginManagerDependencies:
         manager.get_plugin_status()
 
         assert 'definitely_not_installed_pkg_xyz' not in sys.modules
+
+
+class TestPluginManagerInputValidation:
+    """Tests de la validation opt-in des inputs dans execute_plugin."""
+
+    def _make_plugin(self, temp_plugins_dir, valid_plugin_json):
+        data = valid_plugin_json.copy()
+        data['input_types'] = {
+            'text': {'type': 'string', 'label': 'Texte', 'required': True},
+            'shift': {'type': 'number', 'label': 'Décalage', 'min': 1, 'max': 25},
+        }
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "summary": "executed",\n'
+            '                "results": [{"id": "marker"}]}\n',
+            encoding='utf-8',
+        )
+        return plugin_dir
+
+    def test_validate_inputs_rejects_and_skips_execution(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Avec validate_inputs=True, des inputs invalides retournent une
+        erreur 'invalid_inputs' SANS exécuter le plugin."""
+        self._make_plugin(temp_plugins_dir, valid_plugin_json)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        # 'text' requis manquant + 'shift' hors min/max
+        result = manager.execute_plugin(
+            'test_plugin', {'shift': 99}, validate_inputs=True
+        )
+
+        assert result['status'] == 'error'
+        assert result['error']['code'] == 'invalid_inputs'
+        assert result['error']['type'] == 'InputValidationError'
+        assert set(result['error']['fields']) == {'text', 'shift'}
+        # Le plugin n'a pas été exécuté (pas de résultat marqueur)
+        assert result['results'] == []
+
+    def test_validate_inputs_default_off_executes(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Sans validate_inputs (défaut), le même payload est exécuté —
+        les orchestrateurs internes envoient des inputs partiels."""
+        self._make_plugin(temp_plugins_dir, valid_plugin_json)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('test_plugin', {'shift': 99})
+
+        assert result['status'] == 'ok'
+        assert result['results'][0]['id'] == 'marker'
+
+    def test_validate_inputs_valid_payload_executes(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Avec validate_inputs=True et des inputs valides, exécution normale."""
+        self._make_plugin(temp_plugins_dir, valid_plugin_json)
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin(
+            'test_plugin', {'text': 'HELLO', 'shift': 3},
+            validate_inputs=True
+        )
+
+        assert result['status'] == 'ok'
+        assert result['results'][0]['id'] == 'marker'
