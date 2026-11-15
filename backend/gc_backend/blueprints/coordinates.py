@@ -803,10 +803,18 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
 # Détection du format DMM classique (par exemple "N 48° 33.787' E 006° 38.803'")
 # ------------------------------------------------------------------------------
 
+# Séparateur toléré entre les composantes latitude/longitude : espaces,
+# ponctuation usuelle (virgule, point-virgule, slash, tiret) et le mot « et »,
+# empilables (« …, et E … »). Les chiffres restent interdits : sans eux, pas de
+# traversée d'une autre coordonnée.
+_COMPONENT_SEP = r'\s*(?:(?:[,;:/-]|(?i:et)\b)\s*)*'
+
 # Pattern DDM « classique » : N/S deg° min[.,]dec E/W deg° min[.,]dec.
+# La lettre cardinale peut être suivie de « : » ou « = » (« N: 48° 51.234 »).
 _DETECT_DMM_REGEX = re.compile(
-    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
-    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
+    _CARDINAL_LB + r'([NS])[:=]?\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
+    + _COMPONENT_SEP
+    + r'([EW])[:=]?\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
 )
 
 
@@ -1326,8 +1334,9 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
 
 # Pattern du format DMS (degrés, minutes, secondes).
 _DETECT_DMS_REGEX = re.compile(
-    _CARDINAL_LB + r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*\s*'
-    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*'
+    _CARDINAL_LB + r'([NS])[:=]?\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*'
+    + _COMPONENT_SEP
+    + r'([EW])[:=]?\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*'
 )
 
 
@@ -1807,7 +1816,7 @@ def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
 # DDM avec direction cardinale en suffixe (listings internationaux).
 _DETECT_DMM_SUFFIX_REGEX = re.compile(
     r'(\d{1,2})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([NS])'
-    r'[\s,]+'
+    r'[\s,;/:-]+'
     r'(\d{1,3})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([EW])'
 )
 

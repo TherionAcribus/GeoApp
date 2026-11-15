@@ -137,6 +137,23 @@ class TestCharacterizationValidFormats:
         _check("la reponse est N 48° 33.787' E 006° 38.803' bravo",
                ddm_lat="N 48° 33.787'", ddm_lon="E 006° 38.803'")
 
+    @pytest.mark.parametrize("sep", [", ", " - ", " / ", " ; ", " et ", " ET ", ", et "])
+    def test_dmm_component_separators(self, sep):
+        # Le détecteur DDM principal (0.95) tolère les séparateurs usuels.
+        _check(f"N 48° 51.234{sep}E 002° 17.567",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
+               dec_lat=48.8539, dec_lon=2.29278333, min_conf=0.9)
+
+    def test_dmm_colon_after_letters(self):
+        _check("N: 48° 51.234 E: 002° 17.567",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
+               dec_lat=48.8539, dec_lon=2.29278333, min_conf=0.9)
+
+    def test_dms_comma_separator(self):
+        _check("N 48° 51' 24.12\", E 002° 17' 26.1\"",
+               ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.435'",
+               dec_lat=48.8567, dec_lon=2.29058333, min_conf=0.85)
+
 
 class TestNewFormats:
     """Formats ajoutés par le Lot 4.2."""
