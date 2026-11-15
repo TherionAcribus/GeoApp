@@ -69,7 +69,7 @@ class Plugin(db.Model):
     input_types = Column(JSON, default=dict)  # Configuration des inputs du formulaire
     
     # Policies d'exécution
-    heavy_cpu = Column(Boolean, default=False)  # Nécessite ProcessPool
+    heavy_cpu = Column(Boolean, default=False)  # Exécuté en sous-processus dédié
     needs_network = Column(Boolean, default=False)  # Nécessite accès réseau
     needs_filesystem = Column(Boolean, default=False)  # Nécessite accès FS
     

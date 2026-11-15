@@ -57,6 +57,8 @@ class PluginMetadata:
         entry_point (str): Point d'entrée (fichier à charger/exécuter)
         path (str): Chemin vers le dossier du plugin
         timeout_seconds (int): Timeout d'exécution en secondes
+        heavy_cpu (bool): Exécution dans un sous-processus dédié
+            (vrai kill au timeout, pas d'import in-process)
     """
     name: str
     version: str
@@ -64,6 +66,7 @@ class PluginMetadata:
     entry_point: str
     path: str
     timeout_seconds: int = 30
+    heavy_cpu: bool = False
 
 
 # =============================================================================
@@ -181,7 +184,17 @@ class PythonPluginWrapper(PluginInterface):
             if not entry_file.exists():
                 logger.error(f"Fichier d'entrée non trouvé: {entry_file}")
                 return False
-            
+
+            # Plugin heavy_cpu : le module n'est PAS importé dans ce process
+            # (deps lourdes type torch/z3). Il sera chargé dans le
+            # sous-processus à chaque exécution — voir execute().
+            if self.metadata.heavy_cpu:
+                logger.info(
+                    f"Plugin {self.metadata.name} marqué heavy_cpu: "
+                    "chargement différé au sous-processus"
+                )
+                return True
+
             # Nom de package préfixé et unique : évite qu'un plugin nommé comme
             # un module standard (json, time, code...) ne le masque dans
             # sys.modules pour tout le process, et isole les modules frères du
@@ -378,18 +391,23 @@ class PythonPluginWrapper(PluginInterface):
             RuntimeError: Si le plugin n'est pas initialisé
             NotImplementedError: Si le plugin n'implémente pas execute()
         """
-        if not self._instance:
-            raise RuntimeError(
-                f"Plugin {self.metadata.name} non initialisé. "
-                "Appelez initialize() d'abord."
-            )
-        
-        if not hasattr(self._instance, 'execute'):
-            raise NotImplementedError(
-                f"Le plugin {self.metadata.name} n'implémente pas la méthode execute()"
-            )
-
         timeout = getattr(self.metadata, 'timeout_seconds', 0) or 0
+        heavy_cpu = getattr(self.metadata, 'heavy_cpu', False)
+
+        # Un plugin heavy_cpu n'est jamais initialisé in-process (initialize()
+        # diffère le chargement au sous-processus) : les checks d'instance ne
+        # s'appliquent qu'aux plugins exécutés in-process.
+        if not heavy_cpu:
+            if not self._instance:
+                raise RuntimeError(
+                    f"Plugin {self.metadata.name} non initialisé. "
+                    "Appelez initialize() d'abord."
+                )
+
+            if not hasattr(self._instance, 'execute'):
+                raise NotImplementedError(
+                    f"Le plugin {self.metadata.name} n'implémente pas la méthode execute()"
+                )
 
         try:
             logger.debug(
@@ -397,7 +415,18 @@ class PythonPluginWrapper(PluginInterface):
                 f"{list(inputs.keys())}"
             )
 
-            if timeout and timeout > 0:
+            if heavy_cpu:
+                # Sous-processus dédié : le timeout est un vrai kill
+                # (terminate), contrairement au thread daemon in-process.
+                from .subprocess_runner import run_in_subprocess
+                result = run_in_subprocess(
+                    plugin_path=self.metadata.path,
+                    entry_point=self.metadata.entry_point,
+                    plugin_name=self.metadata.name,
+                    inputs=inputs,
+                    timeout=timeout if timeout > 0 else None,
+                )
+            elif timeout and timeout > 0:
                 result = self._run_with_hard_timeout(inputs, timeout)
             else:
                 # timeout <= 0 : pas de mur d'exécution (ex. plugins meta qui

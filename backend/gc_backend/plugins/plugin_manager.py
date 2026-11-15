@@ -877,7 +877,8 @@ class PluginManager:
                     plugin_type=PluginType(plugin_record.plugin_type),
                     entry_point=plugin_record.entry_point,
                     path=plugin_record.path,
-                    timeout_seconds=self._get_timeout_from_metadata(plugin_record)
+                    timeout_seconds=self._get_timeout_from_metadata(plugin_record),
+                    heavy_cpu=bool(getattr(plugin_record, 'heavy_cpu', False)),
                 )
                 
                 # Créer le wrapper approprié
