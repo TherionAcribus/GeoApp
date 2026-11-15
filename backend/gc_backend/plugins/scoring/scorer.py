@@ -992,6 +992,22 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
     )
     repetition_quality = _repetition_quality(text)
     encoded_penalty, encoded_kind = _encoded_pattern_analysis(text)
+
+    # Function-word soup ("DE LA LE ET UN EN A") fools both the quadgram
+    # tables — particle sequences are the most common n-grams — and the
+    # vocabulary. Content words (4+ letters, number words, digits) must make
+    # up a quarter of the tokens or the language features are damped.
+    norm_tokens = [_norm_lex_token(t) for t in tokens]
+    function_soup = False
+    if len(norm_tokens) >= 4:
+        n_content = sum(
+            1 for t in norm_tokens
+            if len(t) >= 4 or t.isdigit() or t in _CW_NUMBER_WORDS
+        )
+        function_soup = n_content / len(norm_tokens) < 0.25
+    if function_soup:
+        lexical *= 0.3
+        coherence *= 0.3
     if segmentation_lang and _RE_BASE64_LIKE.match(text.strip()):
         # A block that splits into real words is glued text in mixed case
         # ("LaCacheSeTrouve"), not base64.
@@ -1011,6 +1027,8 @@ def _compute_score(text: str, origin: Optional[Tuple[float, float]] = None) -> S
     # fitness (at most ~0.3, and length-dependent) is no longer mixed in: it
     # only feeds language detection and stays in the metadata.
     ngram_fitness = float(quadgram_fitness * repetition_quality)
+    if function_soup:
+        ngram_fitness *= 0.3
 
     n_letters = len(_normalize_for_stats(text))
 

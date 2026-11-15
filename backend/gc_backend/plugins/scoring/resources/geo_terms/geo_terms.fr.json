@@ -1,3 +1,11 @@
 [
-  "cache", "geocache", "geocaching", "coordonnees", "coordonnées", "indice", "enigme", "énigme", "final", "waypoint", "projection", "chiffre", "decoder", "décoder", "message"
+  "cache", "geocache", "geocaching", "coordonnees", "coordonnées", "indice", "enigme", "énigme", "final", "waypoint", "projection", "chiffre", "decoder", "décoder", "message",
+  "menhir", "dolmen", "lavoir", "abreuvoir", "oratoire", "calvaire", "croix", "obelisque", "obélisque", "stele", "stèle", "borne", "statue", "monument", "ruine", "ruines",
+  "moulin", "puits", "citerne", "fontaine", "source", "cascade", "grotte", "gouffre", "aven", "porche", "chapelle", "clocher", "crypte", "tombe", "tombeau",
+  "ecluse", "écluse", "barrage", "passerelle", "viaduc", "aqueduc", "tunnel", "belvedere", "belvédère", "pergola", "gazebo", "tonnelle", "kiosque",
+  "abri", "cabane", "cabanon", "refuge", "grange", "hangar", "silo", "chateau", "château", "tour", "donjon", "rempart", "portail", "talus", "fosse", "fossé",
+  "escalier", "escaliers", "balise", "phare", "semaphore", "sémaphore", "vigie", "antenne", "pylone", "pylône", "transformateur", "relais", "bivouac",
+  "pigeonnier", "colombier", "gariotte", "capitelle", "borie", "cazelle", "amer", "dune", "falaise", "rocher", "souche", "poteau", "lampadaire",
+  "micro", "nano", "aimant", "magnetique", "magnétique", "boite", "boîte", "contenant", "logbook", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradi", "traditionnelle", "mystery", "mystere", "mystère", "etape", "étape", "reponse", "réponse", "solution", "cadenas", "clef"
 ]

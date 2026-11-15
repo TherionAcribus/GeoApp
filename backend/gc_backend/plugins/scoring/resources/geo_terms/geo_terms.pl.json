@@ -1,3 +1,13 @@
 [
-  "cache", "geocache", "geocaching", "współrzędne", "wskazówka", "zagadk", "final", "waypoint", "projekcja", "szyfr", "dekoduj", "wiadomość"
+  "cache", "geocache", "geocaching", "współrzędne", "wskazówka", "zagadk", "final", "waypoint", "projekcja", "szyfr", "dekoduj", "wiadomość",
+  "menhir", "dolmen", "kapliczka", "krzyż", "obelisk", "stela", "pomnik", "figura", "posag", "posąg", "ruiny", "ruina",
+  "młyn", "studnia", "cysterna", "fontanna", "źródło", "wodospad", "jaskinia", "grota", "kaplica", "dzwonnica", "krypta",
+  "grób", "grobowiec", "śluza", "tama", "jaz", "kładka", "wiadukt", "akwedukt", "tunel", "widok", "belweder", "altana",
+  "pergola", "kiosk", "wiata", "schronienie", "chata", "chatka", "szałas", "szopa", "stodoła", "silos", "zamek", "wieża",
+  "baszta", "brama", "ogrodzenie", "schody", "stopnie", "ławka", "stół", "latarnia", "słup", "słupek", "drogowskaz",
+  "maszt", "antena", "transformator", "pomost", "molo", "skarpa", "rów", "przęsło", "głaz", "skała", "skałka",
+  "pień", "pniak", "korzeń", "korzenie", "rozdroże", "krzyżówka", "pagórek", "urwisko", "row", "kamien", "kamień",
+  "przystań", "pomost", "grodla", "osada", "przelaz", "przełaz", "płotek", "wejście", "przejście", "szczyt", "podejście",
+  "micro", "nano", "magnes", "magnetyczny", "pojemnik", "logbook", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradycyjna", "mystery", "etap", "odpowiedź", "rozwiązanie", "kłódka", "kod"
 ]

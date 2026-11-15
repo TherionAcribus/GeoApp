@@ -391,6 +391,15 @@ class TestVocabulary:
         "treasure", "fence", "stump", "bridge", "bench",
         "versteckt", "friedhof", "brunnen", "kirche",
         "escondido", "puente", "iglesia", "skarb",
+        # Lexique de cachettes : mots de reponse typiques hors top-frequence.
+        "menhir", "dolmen", "lavoir", "abreuvoir", "pigeonnier", "ecluse",
+        "dolmen", "menhir", "cairn", "stile", "sluice", "obelisk",
+        "dolmen", "bildstock", "schleuse", "marterl",
+        "dolmen", "lavadero", "abrevadero", "mirador", "esclusa",
+        "dolmen", "lavatoio", "abbeveratoio", "edicola", "chiusa",
+        "hunebed", "veldkapel", "sluis", "duiker",
+        "dolmen", "kapliczka", "kladka", "sluza", "grobowiec",
+        "dolmen", "lavadouro", "cruzeiro", "miradouro", "eclusa",
     ])
     def test_everyday_geocaching_word_is_known(self, word):
         assert word in _all_known_words()
@@ -1036,3 +1045,33 @@ class TestNumericOnlyCoordsWithOrigin:
         near = score_text("N 48° 51.234 E 002° 21.456", context=self.ORIGIN)
         assert far["score"] < 0.5
         assert near["score"] > 0.9
+
+
+# ── Soupe de mots-outils ────────────────────────────────────────────
+
+
+class TestFunctionWordSoup:
+    """Une suite de particules (« DE LA LE ET UN EN A ») ou un mot repete
+    trompe les quadgrammes — ce sont les fenetres les plus frequentes — et le
+    vocabulaire : les features langue sont amorties tant qu'aucun mot de
+    contenu (4+ lettres, nombre, chiffre) ne represente un quart des tokens."""
+
+    @pytest.mark.parametrize("text", [
+        "DE LA LE ET UN EN A",
+        "LE LE LE LE LE LE LE LE",
+        "AU DU DE LA EN ET LE UN",
+        "A LA DE LE ET UN EN ON",
+    ])
+    def test_particle_soup_stays_below_plain_text(self, text):
+        prose_floor = min(_full(t) for t in CASES["correct_decrypt"])
+        assert _full(text) < prose_floor * 0.6, (text, _full(text))
+        assert _full(text) < 0.4, (text, _full(text))
+
+    @pytest.mark.parametrize("text", [
+        "PAS DE LA CASE",          # un seul mot de contenu sur quatre suffit
+        "RUE DES LILAS",
+        "UN DEUX TROIS",           # les mots-nombres sont du contenu
+        "N QUATRE HUIT E ZERO ZERO DEUX",
+    ])
+    def test_legitimate_short_answers_are_untouched(self, text):
+        assert _full(text) >= 0.5, (text, _full(text))

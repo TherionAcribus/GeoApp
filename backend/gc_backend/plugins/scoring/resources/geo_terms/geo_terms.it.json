@@ -1,3 +1,13 @@
 [
-  "cache", "geocache", "geocaching", "coordinate", "indizio", "enigma", "final", "waypoint", "proiezione", "cifrario", "decodifica", "messaggio"
+  "cache", "geocache", "geocaching", "coordinate", "indizio", "enigma", "final", "waypoint", "proiezione", "cifrario", "decodifica", "messaggio",
+  "menhir", "dolmen", "lavatoio", "abbeveratoio", "oratorio", "calvario", "croce", "obelisco", "stele", "cippo", "statua", "monumento",
+  "rudere", "rovina", "mulino", "forno", "pozzo", "cisterna", "fontana", "sorgente", "cascata", "grotta", "cappella", "campanile",
+  "cripta", "tomba", "sepolcro", "edicola", "madonnina", "capitello", "chiusa", "conca", "diga", "passerella", "viadotto",
+  "acquedotto", "galleria", "tunnel", "belvedere", "gazebo", "pergola", "chiosco", "rifugio", "capanno", "baita", "cascina",
+  "fienile", "granaio", "castello", "torre", "mastio", "mura", "porta", "cancello", "recinto", "staccionata", "scala", "scalinata",
+  "panchina", "tavolo", "lampione", "palo", "segnavia", "balise", "faro", "antenna", "traliccio", "trasformatore",
+  "piazzola", "bivacco", "casera", "malga", "pozza", "torrente", "scarpata", "fosso", "cippo", "confine", "miliario",
+  "pietraia", "roccia", "macigno", "sasso", "ceppo", "tronco", "radice", "radici", "belvedere", "anfratto", "colonnina",
+  "micro", "nano", "calamita", "magnetico", "contenitore", "logbook", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradizionale", "mystery", "tappa", "risposta", "soluzione", "lucchetto", "codice"
 ]

@@ -1,3 +1,13 @@
 [
-  "cache", "geocache", "geocaching", "coordenadas", "pista", "acertijo", "final", "waypoint", "proyeccion", "cifrado", "decodificar", "mensaje"
+  "cache", "geocache", "geocaching", "coordenadas", "pista", "acertijo", "final", "waypoint", "proyeccion", "cifrado", "decodificar", "mensaje",
+  "menhir", "dolmen", "dólmen", "lavadero", "abrevadero", "oratorio", "calvario", "cruz", "obelisco", "estela", "hito", "estatua", "monumento",
+  "ruina", "ruinas", "molino", "horno", "pozo", "cisterna", "aljibe", "fuente", "manantial", "cascada", "cueva", "gruta",
+  "capilla", "campanario", "cripta", "tumba", "sepulcro", "ermita", "humilladero", "alminas", "esclusa", "presa", "pasarela",
+  "viaducto", "acueducto", "tunel", "túnel", "mirador", "belvedere", "pergola", "pérgola", "quiosco", "kiosco",
+  "refugio", "cabaña", "choza", "granero", "cobertizo", "silo", "castillo", "torre", "torreon", "torreón", "muralla", "puerta",
+  "cancela", "valla", "escalera", "escalinata", "farola", "poste", "baliza", "faro", "mastil", "mástil", "antena", "transformador",
+  "merendero", "area", "área", "cruce", "desvio", "desvío", "ladera", "zanja", "talud", "mojon", "mojón", "miliario",
+  "pilon", "pilón", "piedra", "roca", "peña", "barranco", "cortado", "monticulo", "montículo", "potro", "collado", "vereda",
+  "micro", "nano", "iman", "imán", "magnetico", "magnético", "contenedor", "logbook", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradicional", "mystery", "etapa", "respuesta", "solucion", "solución", "candado", "codigo", "código"
 ]

@@ -1,3 +1,12 @@
 [
-  "cache", "geocache", "geocaching", "coordinates", "hint", "puzzle", "final", "waypoint", "projection", "cipher", "decode", "message"
+  "cache", "geocache", "geocaching", "coordinates", "hint", "puzzle", "final", "waypoint", "projection", "cipher", "decode", "message",
+  "menhir", "dolmen", "washhouse", "trough", "oratory", "calvary", "cross", "obelisk", "stele", "bollard", "statue", "monument", "ruin", "ruins",
+  "mill", "well", "cistern", "fountain", "spring", "waterfall", "cave", "grotto", "chapel", "belltower", "crypt", "tomb", "vault",
+  "sluice", "dam", "footbridge", "viaduct", "aqueduct", "tunnel", "viewpoint", "belvedere", "gazebo", "pergola", "kiosk",
+  "shelter", "cabin", "barn", "shed", "silo", "castle", "tower", "keep", "rampart", "gate", "stile", "staircase", "stairs",
+  "lamppost", "marker", "beacon", "lighthouse", "mast", "antenna", "pylon", "transformer", "picnic", "clearing", "trailhead",
+  "guardrail", "milestone", "boundary", "wayside", "shrine", "boulder", "outcrop", "hollow", "stump", "trunk", "deadwood",
+  "boardwalk", "jetty", "pier", "dock", "marina", "dolomite", "cairn", "escarpment", "ridge", "gully", "ditch", "embankment",
+  "micro", "nano", "magnetic", "container", "logbook", "swag", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "traditional", "mystery", "stage", "answer", "solution", "padlock", "code"
 ]

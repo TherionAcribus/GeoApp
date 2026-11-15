@@ -1,3 +1,13 @@
 [
-  "cache", "geocache", "geocaching", "coordinaten", "hint", "puzzel", "final", "waypoint", "projectie", "cijfer", "decoderen", "bericht"
+  "cache", "geocache", "geocaching", "coordinaten", "hint", "puzzel", "final", "waypoint", "projectie", "cijfer", "decoderen", "bericht",
+  "menhir", "dolmen", "hunebed", "wasplaats", "drinkbak", "kapel", "kruis", "obelisk", "baken", "gedenkteken", "monument", "standbeeld",
+  "ruine", "ruïne", "molen", "waterput", "fontein", "bron", "waterval", "grot", "klokkentoren", "graf", "tombe", "grafkelder",
+  "sluis", "stuw", "loopbrug", "bruggetje", "viaduct", "aquaduct", "tunnel", "uitkijkpunt", "uitkijktoren", "belvedere", "prieel",
+  "pergola", "kiosk", "schuilhut", "hut", "schuur", "schuurtje", "silo", "kasteel", "burcht", "toren", "donjon", "stadsmuur",
+  "poort", "trap", "treden", "lantaarnpaal", "paal", "paaltje", "vuurtoren", "mast", "antenne", "hoogspanningsmast", "transformatorhuisje",
+  "grenspaal", "mijlpaal", "zwerfsteen", "kei", "rots", "rotsblok", "boomstronk", "stronk", "boomstam", "wortel", "vlonder",
+  "steiger", "pier", "mole", "dijk", "sloot", "berm", "wildrooster", "duiker", "picknick", "picknicktafel", "bankje",
+  "veldkeers", "veldkapel", "wegkruis", "heide", "duin", "duinen", "ven", "vijver", "vaart", "havenhoofd", "gemaal",
+  "micro", "nano", "magneet", "magnetisch", "doosje", "logboek", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "traditioneel", "mystery", "etappe", "antwoord", "oplossing", "hangslot", "code"
 ]

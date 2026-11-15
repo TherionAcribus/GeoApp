@@ -1,3 +1,12 @@
 [
-  "cache", "geocache", "geocaching", "koordinaten", "hinweis", "rätsel", "final", "wegpunkt", "projektion", "chiffre", "dekodieren", "nachricht"
+  "cache", "geocache", "geocaching", "koordinaten", "hinweis", "rätsel", "final", "wegpunkt", "projektion", "chiffre", "dekodieren", "nachricht",
+  "menhir", "dolmen", "waschhaus", "tränke", "kapelle", "kreuz", "obelisk", "stele", "denkmal", "statue", "ruine", "mühle",
+  "brunnen", "quelle", "wasserfall", "höhle", "grotte", "glockenturm", "krypta", "grab", "grabmal", "schleuse", "sperrwerk", "stauwehr",
+  "steg", "viadukt", "aquädukt", "tunnel", "aussichtspunkt", "aussicht", "belvedere", "pavillon", "pergola", "kiosk",
+  "schutzhütte", "hütte", "scheune", "schuppen", "silo", "burg", "schloss", "turm", "bergfried", "stadtmauer", "tor",
+  "treppe", "stufen", "laterne", "pfahl", "markierung", "bake", "leuchtturm", "mast", "antenne", "strommast", "transformator",
+  "wegweiser", "grenzstein", "meilenstein", "bildstock", "marterl", "wegkreuz", "felsen", "felsblock", "wurzel", "baumstamm",
+  "totholz", "baumstumpf", "bootssteg", "pier", "mole", "deich", "graben", "böschung", "rastplatz", "unterstand",
+  "micro", "nano", "magnet", "magnetisch", "dose", "logbuch", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradi", "mystery", "etappe", "antwort", "lösung", "schloss", "code"
 ]

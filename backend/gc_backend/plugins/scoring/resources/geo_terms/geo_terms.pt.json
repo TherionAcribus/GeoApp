@@ -1,3 +1,14 @@
 [
-  "cache", "geocache", "geocaching", "coordenadas", "dica", "enigma", "final", "waypoint", "projecao", "cifra", "decodificar", "mensagem"
+  "cache", "geocache", "geocaching", "coordenadas", "dica", "enigma", "final", "waypoint", "projecao", "cifra", "decodificar", "mensagem",
+  "menir", "dolmen", "anta", "lavadouro", "bebedouro", "oratorio", "oratório", "cruzeiro", "calvario", "calvário", "cruz", "obelisco",
+  "estela", "marco", "estatua", "estátua", "monumento", "ruina", "ruína", "moinho", "forno", "poço", "cisterna", "fonte",
+  "nascente", "cascata", "gruta", "capela", "campanario", "campanário", "cripta", "tumba", "túmulo", "sepulcro", "ermida",
+  "capelinha", "alminhas", "nicho", "eclusa", "barragem", "açude", "passadeira", "passadiço", "viaduto", "aqueduto",
+  "tunel", "túnel", "miradouro", "mirante", "coreto", "pergola", "pérgola", "quiosque", "abrigo", "cabana", "casebre",
+  "celeiro", "palheiro", "silo", "castelo", "torre", "muralha", "porta", "portao", "portão", "grade", "vedacao", "vedação",
+  "escada", "escadaria", "candeeiro", "poste", "baliza", "farol", "mastro", "antena", "transformador", "merendeiro",
+  "area", "área", "cruzamento", "desvio", "trilho", "ribeiro", "encosta", "vala", "talude", "miliario", "miliário",
+  "penedo", "fraga", "penha", "rocha", "pedra", "toco", "tronco", "raiz", "raizes", "raízes", "atalaia", "vigia",
+  "micro", "nano", "iman", "íman", "magnetico", "magnético", "contentor", "logbook", "spoiler", "bonus", "multi", "wherigo", "earthcache",
+  "letterbox", "tradicional", "mystery", "etapa", "resposta", "solucao", "solução", "cadeado", "codigo", "código"
 ]
