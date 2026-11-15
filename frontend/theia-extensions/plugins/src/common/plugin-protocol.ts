@@ -754,6 +754,9 @@ export interface PluginsStatus {
         loaded: boolean;
         error?: string;
     }>;
+
+    /** Erreurs de découverte des dossiers de plugins non enregistrés, par chemin */
+    discovery_errors?: Record<string, string>;
 }
 
 /**

@@ -252,6 +252,10 @@ def get_plugins_status():
                     "error": str or null,
                     ...
                 }
+            },
+            "discovery_errors": {
+                "chemin_du_dossier": "message d'erreur",
+                ...
             }
         }
         
@@ -269,7 +273,8 @@ def get_plugins_status():
             "plugins": status,
             "total": len(status),
             "loaded": sum(1 for p in status.values() if p['loaded']),
-            "enabled": sum(1 for p in status.values() if p['enabled'])
+            "enabled": sum(1 for p in status.values() if p['enabled']),
+            "discovery_errors": manager.get_orphan_discovery_errors()
         }), 200
         
     except Exception as e:

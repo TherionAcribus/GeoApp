@@ -627,3 +627,115 @@ class TestPluginManagerRelocation:
 
         result = manager.execute_plugin('test_plugin', {})
         assert result['status'] == 'ok'
+
+
+class TestPluginManagerDiscoveryErrorStatus:
+    """Tests de remontée des erreurs de découverte dans le statut des plugins.
+
+    _loading_errors est indexé par CHEMIN de dossier pour les erreurs de
+    découverte : le statut d'un plugin enregistré doit donc aussi regarder
+    son path, et les dossiers jamais enregistrés sont exposés via
+    get_orphan_discovery_errors().
+    """
+
+    def test_status_reports_discovery_error_for_registered_plugin(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin enregistré dont le plugin.json devient invalide affiche
+        l'erreur dans get_plugin_status (et sa ligne DB survit)."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', valid_plugin_json
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        # Corrompre le plugin.json (champ requis manquant)
+        invalid_data = valid_plugin_json.copy()
+        del invalid_data['version']
+        with open(plugin_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(invalid_data, f)
+
+        manager.discover_plugins()
+
+        status = manager.get_plugin_status()
+        assert 'test_plugin' in status
+        assert status['test_plugin']['error']
+        assert 'version' in status['test_plugin']['error']
+
+        with app.app_context():
+            assert Plugin.query.filter_by(name='test_plugin').first() is not None
+
+    def test_status_reports_missing_entry_point_for_registered_plugin(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin enregistré dont le point d'entrée disparaît affiche
+        l'erreur dans get_plugin_status."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', valid_plugin_json
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        (plugin_dir / 'main.py').unlink()
+
+        manager.discover_plugins()
+
+        status = manager.get_plugin_status()
+        assert 'test_plugin' in status
+        assert status['test_plugin']['error']
+        assert 'Point d' in status['test_plugin']['error']
+
+    def test_orphan_discovery_errors_only_lists_unregistered_dirs(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """get_orphan_discovery_errors contient les dossiers jamais enregistrés,
+        pas les chemins des plugins présents en DB."""
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', valid_plugin_json
+        )
+
+        # Dossier invalide dès le départ : jamais enregistré en DB
+        orphan_dir = temp_plugins_dir / 'custom' / 'orphan_plugin'
+        orphan_dir.mkdir(parents=True)
+        orphan_data = valid_plugin_json.copy()
+        orphan_data['name'] = 'orphan_plugin'
+        orphan_data['plugin_type'] = 'invalid_type'
+        with open(orphan_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(orphan_data, f)
+        (orphan_dir / 'main.py').write_text('# orphan\n')
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        # Corrompre ensuite le plugin enregistré
+        invalid_data = valid_plugin_json.copy()
+        del invalid_data['version']
+        with open(plugin_dir / 'plugin.json', 'w', encoding='utf-8') as f:
+            json.dump(invalid_data, f)
+
+        manager.discover_plugins()
+
+        orphans = manager.get_orphan_discovery_errors()
+        assert str(orphan_dir) in orphans
+        assert str(plugin_dir) not in orphans
+
+    def test_schema_error_message_contains_reason(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """L'erreur stockée pour un plugin.json invalide selon le schéma
+        contient la raison jsonschema (champ et valeur fautifs)."""
+        invalid_data = valid_plugin_json.copy()
+        invalid_data['plugin_type'] = 'rust'
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', invalid_data
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        errors = manager.get_discovery_errors()
+        error = errors[str(plugin_dir)]
+        assert error.startswith("Validation échouée:")
+        assert 'plugin_type' in error or 'rust' in error

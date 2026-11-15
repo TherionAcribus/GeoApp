@@ -219,8 +219,9 @@ class PluginManager:
                 plugin_data = json.load(f)
             
             # Valider contre le schéma
-            if not self._validate_plugin_json(plugin_data):
-                error_msg = f"Validation échouée pour {plugin_json_path}"
+            validation_error = self._schema_validation_error(plugin_data)
+            if validation_error is not None:
+                error_msg = f"Validation échouée: {validation_error}"
                 logger.error(error_msg)
                 # Enregistrer l'erreur
                 plugin_dir = str(plugin_json_path.parent)
@@ -261,32 +262,48 @@ class PluginManager:
     def _validate_plugin_json(self, plugin_data: Dict) -> bool:
         """
         Valide un plugin.json contre le schéma JSON Schema.
-        
+
         Args:
             plugin_data (Dict): Données du plugin à valider
-            
+
         Returns:
             bool: True si valide, False sinon
         """
+        return self._schema_validation_error(plugin_data) is None
+
+    def _schema_validation_error(self, plugin_data: Dict) -> Optional[str]:
+        """
+        Valide un plugin.json contre le schéma et retourne la raison de
+        l'échec (localisation + message jsonschema), ou None si valide.
+
+        Args:
+            plugin_data (Dict): Données du plugin à valider
+
+        Returns:
+            Optional[str]: Raison de l'échec, None si valide
+        """
         if not self._schema:
             logger.warning("Schéma de validation non chargé, validation ignorée")
-            return True
-        
+            return None
+
         try:
             jsonschema.validate(instance=plugin_data, schema=self._schema)
             logger.debug(f"Plugin {plugin_data.get('name')} validé avec succès")
-            return True
-            
+            return None
+
         except jsonschema.ValidationError as e:
             logger.error(
                 f"Erreur de validation pour plugin {plugin_data.get('name', 'unknown')}: "
                 f"{e.message}"
             )
             logger.debug(f"Chemin de l'erreur: {' -> '.join(str(p) for p in e.path)}")
-            return False
+            location = ' -> '.join(str(p) for p in e.path)
+            if location:
+                return f"{location}: {e.message}"
+            return e.message
         except Exception as e:
             logger.error(f"Erreur lors de la validation: {e}")
-            return False
+            return str(e)
     
     def _calculate_plugin_hash(self, plugin_json_path: Path) -> str:
         """
@@ -1040,7 +1057,10 @@ class PluginManager:
                     status[plugin.name] = {
                         "enabled": plugin.enabled,
                         "loaded": plugin.name in self.loaded_plugins,
-                        "error": self._loading_errors.get(plugin.name),
+                        "error": (
+                            self._loading_errors.get(plugin.name)
+                            or self._loading_errors.get(plugin.path)
+                        ),
                         "version": plugin.version,
                         "source": plugin.source,
                         "plugin_type": plugin.plugin_type
@@ -1049,6 +1069,34 @@ class PluginManager:
             logger.error(f"Erreur lors de la récupération du statut: {e}")
         
         return status
+
+    def get_orphan_discovery_errors(self) -> Dict[str, str]:
+        """
+        Retourne les erreurs de découverte des dossiers de plugins non
+        enregistrés en DB (clés = chemins de dossiers).
+
+        Returns:
+            Dict[str, str]: {chemin_du_dossier: message_d_erreur}
+        """
+        if not self.app:
+            return {}
+
+        try:
+            with self.app.app_context():
+                known_keys = set()
+                for plugin in Plugin.query.all():
+                    known_keys.add(plugin.name)
+                    if plugin.path:
+                        known_keys.add(plugin.path)
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des erreurs orphelines: {e}")
+            return {}
+
+        return {
+            key: error
+            for key, error in self._loading_errors.items()
+            if key not in known_keys
+        }
     
     def __repr__(self):
         return (

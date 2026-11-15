@@ -3075,7 +3075,17 @@ class TestPluginManagementAPI:
             first_plugin = next(iter(data['plugins'].values()))
             assert 'enabled' in first_plugin
             assert 'loaded' in first_plugin
-    
+
+    def test_get_plugins_status_includes_discovery_errors(self, client, app):
+        """Test GET /api/plugins/status expose discovery_errors."""
+        response = client.get('/api/plugins/status')
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert 'discovery_errors' in data
+        assert isinstance(data['discovery_errors'], dict)
+
     def test_reload_plugin_success(self, client, app, caesar_plugin):
         """Test POST /api/plugins/<name>/reload - rechargement réussi."""
         plugins_dir = Path(__file__).parent.parent / 'plugins'
