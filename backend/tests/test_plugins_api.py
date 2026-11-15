@@ -3386,3 +3386,37 @@ class TestPluginEnabledAPI:
         """POST reload sur un plugin inexistant → 404."""
         response = client.post('/api/plugins/unknown_xyz/reload')
         assert response.status_code == 404
+
+
+class TestPluginStatusDependencies:
+    """GET /api/plugins/status expose missing_dependencies par plugin."""
+
+    def test_status_includes_missing_dependencies(self, client, app):
+        with app.app_context():
+            db.session.add(Plugin(
+                name='dep_check',
+                version='1.0.0',
+                plugin_api_version='2.0',
+                description='Plugin de test',
+                author='Test',
+                plugin_type='python',
+                source='official',
+                path='/fake/dep_check',
+                entry_point='main.py',
+                enabled=True,
+                metadata_json=json.dumps({
+                    'dependencies': ['definitely-not-installed-pkg-xyz']
+                }),
+            ))
+            db.session.commit()
+
+        response = client.get('/api/plugins/status')
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        entry = data['plugins']['dep_check']
+        assert entry['missing_dependencies'] == [
+            'definitely-not-installed-pkg-xyz'
+        ]
+        for plugin_status in data['plugins'].values():
+            assert isinstance(plugin_status['missing_dependencies'], list)

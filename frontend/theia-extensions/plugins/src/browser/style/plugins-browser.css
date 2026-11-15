@@ -358,6 +358,10 @@
     border-color: var(--theia-inputValidation-errorBorder);
 }
 
+.plugin-item.has-warning {
+    border-color: var(--theia-inputValidation-warningBorder);
+}
+
 /* ========== Actions par plugin ========== */
 
 .plugin-actions {
@@ -442,6 +446,16 @@
     gap: 4px;
     font-size: 11px;
     color: var(--theia-errorForeground);
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+
+.plugin-warning-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--theia-editorWarning-foreground);
     margin-bottom: 8px;
     word-break: break-word;
 }

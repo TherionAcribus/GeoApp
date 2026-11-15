@@ -1138,3 +1138,195 @@ class TestPluginManagerEnableDisable:
         exec_result = manager.execute_plugin('nonexistent_plugin', {})
         assert exec_result['status'] == 'error'
         assert exec_result['error']['code'] == 'plugin_unavailable'
+
+
+class TestPluginManagerDependencies:
+    """Tests du rapport des dépendances manquantes (distributions pip et
+    plugins requis) — jamais bloquant, simple avertissement."""
+
+    def _make_plugin(
+        self, temp_plugins_dir, valid_plugin_json, name, dependencies=None
+    ):
+        data = valid_plugin_json.copy()
+        data['name'] = name
+        if dependencies is not None:
+            data['dependencies'] = dependencies
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', name, data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+        return plugin_dir
+
+    def test_status_reports_missing_distribution(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une distribution absente est rapportée, une installée non ; un
+        plugin sans dependencies a une liste vide."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'test_plugin',
+            dependencies=["definitely-not-installed-pkg-xyz", "jsonschema"]
+        )
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'nodep_plugin'
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        status = manager.get_plugin_status()
+        assert status['test_plugin']['missing_dependencies'] == [
+            "definitely-not-installed-pkg-xyz"
+        ]
+        assert status['nodep_plugin']['missing_dependencies'] == []
+
+    def test_dependency_name_normalization(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Casse et specifiers de version ignorés : Jsonschema>=1.0 est
+        considéré installé."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'test_plugin',
+            dependencies=["Jsonschema>=1.0", "pytest"]
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        status = manager.get_plugin_status()
+        assert status['test_plugin']['missing_dependencies'] == []
+
+    def test_plugin_dependency_enabled_and_disabled(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une dépendance nommant un autre plugin est satisfaite s'il est
+        activé ; 'plugin désactivé' sinon ; nom nu si le plugin n'existe pas."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'plugin_a',
+            dependencies=["plugin_b"]
+        )
+        b_dir = self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'plugin_b'
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        status = manager.get_plugin_status()
+        assert status['plugin_a']['missing_dependencies'] == []
+
+        manager.set_plugin_enabled('plugin_b', False)
+        status = manager.get_plugin_status()
+        assert status['plugin_a']['missing_dependencies'] == [
+            "plugin_b (plugin désactivé)"
+        ]
+
+        # Sans le dossier de B (ni distribution de ce nom) : dépendance nue
+        shutil.rmtree(b_dir)
+        manager.discover_plugins()
+        status = manager.get_plugin_status()
+        assert status['plugin_a']['missing_dependencies'] == ["plugin_b"]
+
+    def test_dependency_check_is_cached(
+        self, app, temp_plugins_dir, valid_plugin_json, monkeypatch
+    ):
+        """La vérification de distribution est mémoïsée et re-vérifiée à la
+        découverte suivante."""
+        import importlib.metadata
+
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'test_plugin',
+            dependencies=["jsonschema", "requests"]
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        calls = []
+        real_distribution = importlib.metadata.distribution
+
+        def counting_distribution(name):
+            calls.append(name)
+            return real_distribution(name)
+
+        monkeypatch.setattr(
+            importlib.metadata, 'distribution', counting_distribution
+        )
+
+        manager.get_plugin_status()
+        manager.get_plugin_status()
+        assert len(calls) == 2
+
+        # La découverte vide le cache : re-vérification des deux deps
+        manager.discover_plugins()
+        manager.get_plugin_status()
+        assert len(calls) == 4
+
+    def test_execute_error_warns_about_missing_dependencies(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Une exécution en erreur avec dépendances manquantes ajoute un
+        warning ; une exécution réussie n'en a pas."""
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'test_plugin',
+            dependencies=["definitely-not-installed-pkg-xyz"]
+        )
+        plugin_dir = temp_plugins_dir / 'official' / 'test_plugin'
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        raise ValueError("boom")\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('test_plugin', {})
+        assert result['status'] == 'error'
+        warnings = result.get('warnings') or []
+        assert any(
+            w.startswith('Dépendances manquantes:') for w in warnings
+        )
+
+        # Plugin fonctionnel : pas de warning même avec la dépendance absente
+        import os
+        main_py = plugin_dir / 'main.py'
+        main_py.write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+        new_mtime = os.path.getmtime(main_py) + 10
+        os.utime(main_py, (new_mtime, new_mtime))
+        manager.reload_plugin('test_plugin')
+
+        result = manager.execute_plugin('test_plugin', {})
+        assert result['status'] == 'ok'
+        warnings = result.get('warnings') or []
+        assert not any(
+            w.startswith('Dépendances manquantes:') for w in warnings
+        )
+
+    def test_dependency_check_never_imports(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """La vérification ne doit jamais importer le paquet (easyocr/torch
+        seraient bien trop lourds)."""
+        import sys
+
+        self._make_plugin(
+            temp_plugins_dir, valid_plugin_json, 'test_plugin',
+            dependencies=["definitely-not-installed-pkg-xyz"]
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+        manager.get_plugin_status()
+
+        assert 'definitely_not_installed_pkg_xyz' not in sys.modules

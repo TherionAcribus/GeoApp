@@ -753,6 +753,8 @@ export interface PluginsStatus {
         enabled: boolean;
         loaded: boolean;
         error?: string | null;
+        /** Dépendances manquantes (avertissement, jamais bloquant) */
+        missing_dependencies?: string[];
     }>;
 
     /** Erreurs de découverte des dossiers de plugins non enregistrés, par chemin */

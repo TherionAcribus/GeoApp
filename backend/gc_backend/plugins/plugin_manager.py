@@ -11,10 +11,12 @@ Le PluginManager est responsable de :
 """
 
 import os
+import re
 import copy
 import json
 import hashlib
 import threading
+import importlib.metadata
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime
@@ -80,6 +82,10 @@ class PluginManager:
         # des ~84 plugins à chaque exécution. Invalidé lors de la découverte/reload.
         self._metadata_cache: Dict[str, Optional[Dict]] = {}
         self._metadata_cache_lock = threading.Lock()
+        # Cache "distribution pip installée" par nom de distribution : évite
+        # un importlib.metadata.distribution par plugin à chaque get_status.
+        # Vidé à chaque découverte (répercute un pip install sans restart).
+        self._dependency_cache: Dict[str, bool] = {}
         # Suivi de la source des plugins chargés (chemin d'entrée + mtime au
         # chargement) : permet de recharger automatiquement un plugin dont le
         # main.py a été édité (officiel comme custom — un os.path.getmtime par
@@ -121,6 +127,7 @@ class PluginManager:
         # (plugin.json réparé, schéma élargi) reste remontée par /discover et
         # /status indéfiniment.
         self._loading_errors.clear()
+        self._dependency_cache.clear()
 
         discovered_plugins: List[Dict] = []
         discovered_paths = set()
@@ -367,6 +374,110 @@ class PluginManager:
             logger.error(f"Erreur calcul hash pour {plugin_json_path}: {e}")
             return ""
     
+    def _is_distribution_installed(self, requirement: str) -> bool:
+        """
+        Indique si une distribution pip est installée. Seul le nom de
+        distribution est extrait (specifiers de version et extras ignorés —
+        pas de vérification de version). Le paquet n'est JAMAIS importé
+        (certaines deps comme easyocr/torch sont très lourdes).
+
+        Args:
+            requirement (str): Entrée du bloc dependencies du plugin.json
+
+        Returns:
+            bool: True si installée (ou indéterminable)
+        """
+        match = re.match(r'[A-Za-z0-9._-]+', requirement.strip())
+        if not match:
+            return True
+
+        name = match.group(0)
+        cached = self._dependency_cache.get(name)
+        if cached is not None:
+            return cached
+
+        try:
+            importlib.metadata.distribution(name)
+            installed = True
+        except importlib.metadata.PackageNotFoundError:
+            installed = False
+        except Exception as e:
+            # En cas de doute, ne pas faussement alarmer
+            logger.debug(f"Vérification de la dépendance {name} impossible: {e}")
+            installed = True
+
+        self._dependency_cache[name] = installed
+        return installed
+
+    def _missing_dependencies(
+        self,
+        dependencies: Any,
+        plugins_by_name: Dict[str, Plugin]
+    ) -> List[str]:
+        """
+        Retourne les dépendances non satisfaites : distribution pip absente,
+        ou plugin requis désactivé (le nom d'un plugin connu prime sur une
+        distribution homonyme). Ordre déclaré préservé, sans doublon.
+
+        Args:
+            dependencies: Valeur du champ dependencies du plugin.json
+            plugins_by_name (Dict[str, Plugin]): Plugins connus par name
+
+        Returns:
+            List[str]: Dépendances manquantes (avertissement, jamais bloquant)
+        """
+        if not isinstance(dependencies, list):
+            return []
+
+        missing: List[str] = []
+        for dep in dependencies:
+            if not isinstance(dep, str) or not dep.strip():
+                continue
+
+            dep = dep.strip()
+            plugin_row = plugins_by_name.get(dep)
+            if plugin_row is not None:
+                if plugin_row.enabled:
+                    continue
+                entry = f"{dep} (plugin désactivé)"
+            elif not self._is_distribution_installed(dep):
+                entry = dep
+            else:
+                continue
+
+            if entry not in missing:
+                missing.append(entry)
+
+        return missing
+
+    def _missing_dependencies_for(self, plugin_name: str) -> List[str]:
+        """
+        Dépendances manquantes d'un plugin, pour l'avertissement d'exécution.
+        N'interroge la DB que si le plugin déclare des dépendances.
+
+        Returns:
+            List[str]: Dépendances manquantes ([] sans app ou sur erreur)
+        """
+        if not self.app:
+            return []
+
+        try:
+            info = self.get_plugin_info(plugin_name)
+            metadata = (info or {}).get('metadata') or {}
+            dependencies = metadata.get('dependencies')
+            if not dependencies:
+                return []
+
+            with self.app.app_context():
+                plugins_by_name = {
+                    plugin.name: plugin for plugin in Plugin.query.all()
+                }
+
+            return self._missing_dependencies(dependencies, plugins_by_name)
+
+        except Exception:
+            return []
+
     def _update_plugin_fields(self, plugin: Plugin, plugin_info: Dict) -> None:
         """
         Met à jour les champs d'un plugin existant.
@@ -959,6 +1070,8 @@ class PluginManager:
                         f"Scoring integration error for {plugin_name}: {e}"
                     )
 
+            self._append_missing_dependency_warning(result, plugin_name)
+
             return result
 
         except Exception as e:
@@ -967,7 +1080,7 @@ class PluginManager:
                 plugin_name,
                 e,
             )
-            return {
+            result = {
                 "status": "error",
                 "summary": f"Erreur d'exécution: {str(e)}",
                 "results": [],
@@ -981,6 +1094,29 @@ class PluginManager:
                     "message": str(e)
                 }
             }
+            self._append_missing_dependency_warning(result, plugin_name)
+            return result
+
+    def _append_missing_dependency_warning(
+        self,
+        result: Dict[str, Any],
+        plugin_name: str
+    ) -> None:
+        """Ajoute un avertissement "Dépendances manquantes" à un résultat en
+        erreur (indice fort que l'échec vient d'une dep absente — jamais
+        bloquant, simple indice pour l'utilisateur)."""
+        if result.get('status') != 'error':
+            return
+
+        missing = self._missing_dependencies_for(plugin_name)
+        if not missing:
+            return
+
+        warnings = result.get('warnings')
+        if not isinstance(warnings, list):
+            warnings = []
+        warnings.append(f"Dépendances manquantes: {', '.join(missing)}")
+        result['warnings'] = warnings
     
     def unload_plugin(self, plugin_name: str) -> bool:
         """
@@ -1189,8 +1325,19 @@ class PluginManager:
         try:
             with self.app.app_context():
                 all_plugins = Plugin.query.all()
-                
+                plugins_by_name = {p.name: p for p in all_plugins}
+
                 for plugin in all_plugins:
+                    dependencies = []
+                    if plugin.metadata_json:
+                        try:
+                            dependencies = (
+                                json.loads(plugin.metadata_json).get('dependencies')
+                                or []
+                            )
+                        except (json.JSONDecodeError, TypeError):
+                            dependencies = []
+
                     status[plugin.name] = {
                         "enabled": plugin.enabled,
                         "loaded": plugin.name in self.loaded_plugins,
@@ -1200,7 +1347,10 @@ class PluginManager:
                         ),
                         "version": plugin.version,
                         "source": plugin.source,
-                        "plugin_type": plugin.plugin_type
+                        "plugin_type": plugin.plugin_type,
+                        "missing_dependencies": self._missing_dependencies(
+                            dependencies, plugins_by_name
+                        )
                     }
         except Exception as e:
             logger.error(f"Erreur lors de la récupération du statut: {e}")

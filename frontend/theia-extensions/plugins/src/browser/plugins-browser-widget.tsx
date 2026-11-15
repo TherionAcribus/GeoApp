@@ -490,13 +490,15 @@ export class PluginsBrowserWidget extends ReactWidget {
         const isOfficial = plugin.source === 'official';
         const isEnabled = plugin.enabled === true;
         const pluginError = this.status?.plugins[plugin.name]?.error;
+        const missingDeps = this.status?.plugins[plugin.name]?.missing_dependencies;
+        const hasWarning = !pluginError && !!missingDeps && missingDeps.length > 0;
         const isBusy = this.busyPlugins.has(plugin.name);
         const isLoaded = this.status?.plugins[plugin.name]?.loaded === true;
 
         return (
             <div
                 key={plugin.name}
-                className={`plugin-item ${!isEnabled ? 'disabled' : ''} ${pluginError ? 'has-error' : ''}`}
+                className={`plugin-item ${!isEnabled ? 'disabled' : ''} ${pluginError ? 'has-error' : ''} ${hasWarning ? 'has-warning' : ''}`}
                 onClick={() => this.handlePluginClick(plugin)}
             >
                 <div className="plugin-header">
@@ -562,6 +564,13 @@ export class PluginsBrowserWidget extends ReactWidget {
                     <div className="plugin-error-message" role="status">
                         <i className="fa fa-exclamation-triangle" aria-hidden="true" />
                         {pluginError}
+                    </div>
+                )}
+
+                {missingDeps && missingDeps.length > 0 && (
+                    <div className="plugin-warning-message" role="status">
+                        <i className="fa fa-exclamation-circle" aria-hidden="true" />
+                        {`Dépendance(s) manquante(s) : ${missingDeps.join(', ')}`}
                     </div>
                 )}
                 
