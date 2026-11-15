@@ -880,6 +880,7 @@ class PluginManager:
                     path=plugin_record.path,
                     timeout_seconds=self._get_timeout_from_metadata(plugin_record),
                     heavy_cpu=bool(getattr(plugin_record, 'heavy_cpu', False)),
+                    needs_network=bool(getattr(plugin_record, 'needs_network', False)),
                 )
                 
                 # Créer le wrapper approprié

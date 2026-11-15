@@ -59,6 +59,9 @@ class PluginMetadata:
         timeout_seconds (int): Timeout d'exécution en secondes
         heavy_cpu (bool): Exécution dans un sous-processus dédié
             (vrai kill au timeout, pas d'import in-process)
+        needs_network (bool): Le plugin déclare avoir besoin du réseau.
+            Sans ce flag, les workers sous-processus bloquent les
+            connexions non-loopback (garde socket enfant).
     """
     name: str
     version: str
@@ -67,6 +70,7 @@ class PluginMetadata:
     path: str
     timeout_seconds: int = 30
     heavy_cpu: bool = False
+    needs_network: bool = False
 
 
 # =============================================================================
@@ -426,6 +430,7 @@ class PythonPluginWrapper(PluginInterface):
                     plugin_name=self.metadata.name,
                     inputs=inputs,
                     timeout=timeout if timeout > 0 else None,
+                    needs_network=getattr(self.metadata, 'needs_network', False),
                 )
             elif timeout and timeout > 0:
                 result = self._run_with_hard_timeout(inputs, timeout)

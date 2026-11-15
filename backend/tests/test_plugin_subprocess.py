@@ -51,7 +51,8 @@ def temp_plugins_dir():
 
 
 def _write_plugin(plugins_dir: Path, name: str, main_py: str,
-                  heavy_cpu: bool = True, timeout_seconds: int = None) -> Path:
+                  heavy_cpu: bool = True, timeout_seconds: int = None,
+                  needs_network: bool = None) -> Path:
     """Écrit un plugin de test (plugin.json + main.py) dans official/."""
     plugin_dir = plugins_dir / 'official' / name
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +70,8 @@ def _write_plugin(plugins_dir: Path, name: str, main_py: str,
     }
     if timeout_seconds is not None:
         data["timeout_seconds"] = timeout_seconds
+    if needs_network is not None:
+        data["needs_network"] = needs_network
 
     (plugin_dir / 'plugin.json').write_text(
         json.dumps(data), encoding='utf-8'
@@ -312,3 +315,106 @@ class TestPersistentWorkerPool:
 
         assert result['status'] == 'error'
         assert 'worker boom' in result['summary']
+
+
+class TestNetworkGuard:
+    """Garde réseau dans les workers : les plugins sans needs_network ne
+    peuvent pas ouvrir de connexion non-loopback."""
+
+    @pytest.fixture(autouse=True)
+    def _cleanup_workers(self):
+        yield
+        from gc_backend.plugins.subprocess_runner import get_worker_pool
+        get_worker_pool().shutdown_all()
+
+    def test_outbound_connection_blocked(self, app, temp_plugins_dir):
+        """connect() vers une adresse externe est bloqué dans le worker."""
+        _write_plugin(
+            temp_plugins_dir, 'net_plugin',
+            'import socket\n'
+            'class NetPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        socket.create_connection(("example.com", 80), timeout=2)\n'
+            '        return {"status": "ok"}\n',
+            needs_network=False,
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('net_plugin', {})
+
+        assert result['status'] == 'error'
+        assert 'needs_network' in result['summary']
+
+    def test_loopback_connection_allowed(self, app, temp_plugins_dir):
+        """La boucle locale reste autorisée (services locaux)."""
+        import socket as _socket
+        listener = _socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        listener.settimeout(30)
+        port = listener.getsockname()[1]
+
+        _write_plugin(
+            temp_plugins_dir, 'loop_plugin',
+            'import socket\n'
+            'class LoopPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        s = socket.create_connection(("127.0.0.1", inputs["port"]), timeout=5)\n'
+            '        s.sendall(b"ping")\n'
+            '        s.close()\n'
+            '        return {"status": "ok", "results": [{"id": "1", "text_output": "connected"}]}\n',
+            needs_network=False,
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        try:
+            result = manager.execute_plugin('loop_plugin', {'port': port})
+            conn, _ = listener.accept()
+            received = conn.recv(10)
+            conn.close()
+        finally:
+            listener.close()
+
+        assert result['status'] == 'ok'
+        assert received == b'ping'
+
+    def test_dns_resolution_blocked(self, app, temp_plugins_dir):
+        """La résolution DNS de noms non-locaux est bloquée."""
+        _write_plugin(
+            temp_plugins_dir, 'dns_plugin',
+            'import socket\n'
+            'class DnsPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        socket.gethostbyname("example.com")\n'
+            '        return {"status": "ok"}\n',
+            needs_network=False,
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('dns_plugin', {})
+
+        assert result['status'] == 'error'
+        assert 'needs_network' in result['summary']
+
+    def test_needs_network_plugin_unguarded(self, app, temp_plugins_dir):
+        """Avec needs_network: true, la garde n'est pas installée
+        (socket.socket non patché dans le worker)."""
+        _write_plugin(
+            temp_plugins_dir, 'unguarded_plugin',
+            'import socket\n'
+            'class UnguardedPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": '
+            '[{"id": "1", "text_output": socket.socket.__name__}]}\n',
+            needs_network=True,
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        result = manager.execute_plugin('unguarded_plugin', {})
+
+        assert result['status'] == 'ok'
+        assert result['results'][0]['text_output'] == 'socket'

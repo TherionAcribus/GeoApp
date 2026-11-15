@@ -73,6 +73,7 @@ def _child_entry(
     name: str,
     inputs: Dict[str, Any],
     result_queue,
+    needs_network: bool = False,
 ) -> None:
     """
     Point d'entrée du processus enfant.
@@ -95,6 +96,7 @@ def _child_entry(
             entry_point=entry_point,
             path=plugin_dir,
             timeout_seconds=0,
+            needs_network=needs_network,
             # heavy_cpu=False exprès : l'enfant charge et exécute le
             # plugin localement, sans récursion de sous-processus.
         )
@@ -102,6 +104,8 @@ def _child_entry(
         app_ctx = _push_minimal_app_context(name)
         try:
             app_ctx.push()
+            if not needs_network:
+                _install_network_guard()
             if not wrapper.initialize():
                 result_queue.put({
                     'ok': False,
@@ -136,6 +140,7 @@ def run_in_subprocess(
     plugin_name: str,
     inputs: Dict[str, Any],
     timeout: Optional[float] = None,
+    needs_network: bool = False,
 ) -> Dict[str, Any]:
     """
     Exécute un plugin Python dans un processus enfant dédié.
@@ -159,7 +164,8 @@ def run_in_subprocess(
     result_queue = ctx.Queue()
     proc = ctx.Process(
         target=_child_entry,
-        args=(plugin_path, entry_point, plugin_name, inputs, result_queue),
+        args=(plugin_path, entry_point, plugin_name, inputs, result_queue,
+              needs_network),
         daemon=True,
         name=f'plugin-subproc-{plugin_name}',
     )
@@ -239,6 +245,93 @@ def run_in_subprocess(
 
 
 # =============================================================================
+# Garde réseau pour les plugins exécutés en sous-processus
+# =============================================================================
+#
+# Un plugin qui ne déclare PAS ``needs_network: true`` n'a aucune raison
+# d'ouvrir une connexion non-locale. La garde patch ``socket.socket`` DANS
+# LE PROCESSUS ENFANT pour bloquer connect/sendto/sendmsg/bind vers des
+# adresses non-loopback, plus la résolution DNS de noms non-locaux.
+# Limites : protection applicative, pas un sandbox OS — un appel natif
+# (lib C) contournerait le patch ; la boucle locale reste autorisée.
+
+_NETWORK_BLOCK_MSG = (
+    'Accès réseau bloqué pour ce plugin '
+    '(déclarer "needs_network": true dans plugin.json si nécessaire)'
+)
+
+
+def _is_loopback_host(host) -> bool:
+    """True si l'hôte désigne la boucle locale (sans résolution DNS)."""
+    if not host:
+        return False
+    h = str(host).strip().lower().strip('[]')
+    if h in ('localhost', 'localhost.localdomain'):
+        return True
+    try:
+        import ipaddress
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def _install_network_guard() -> None:
+    """Installe la garde réseau dans le processus courant (appeler dans l'enfant)."""
+    import socket as _socket
+
+    _BaseSocket = _socket.socket
+
+    def _check_address(address) -> None:
+        """Lève PermissionError si l'adresse n'est pas loopback."""
+        host = address[0] if isinstance(address, tuple) else address
+        if not _is_loopback_host(host):
+            raise PermissionError(_NETWORK_BLOCK_MSG)
+
+    def _check_args(args) -> None:
+        """Cherche une adresse (host, port) dans les arguments positionnels."""
+        for arg in reversed(args):
+            if isinstance(arg, tuple):
+                _check_address(arg)
+                return
+
+    class _GuardedSocket(_BaseSocket):
+        def connect(self, address):
+            _check_address(address)
+            return super().connect(address)
+
+        def connect_ex(self, address):
+            _check_address(address)
+            return super().connect_ex(address)
+
+        def sendto(self, data, *args):
+            _check_args(args)
+            return super().sendto(data, *args)
+
+        def sendmsg(self, *args, **kwargs):
+            _check_args(args)
+            return super().sendmsg(*args, **kwargs)
+
+        def bind(self, address):
+            _check_address(address)
+            return super().bind(address)
+
+    _orig_getaddrinfo = _socket.getaddrinfo
+
+    def _guarded_getaddrinfo(host, *args, **kwargs):
+        if host is not None and not _is_loopback_host(host):
+            raise PermissionError(_NETWORK_BLOCK_MSG)
+        return _orig_getaddrinfo(host, *args, **kwargs)
+
+    def _blocked_resolver(*args, **kwargs):
+        raise PermissionError(_NETWORK_BLOCK_MSG)
+
+    _socket.socket = _GuardedSocket
+    _socket.getaddrinfo = _guarded_getaddrinfo
+    _socket.gethostbyname = _blocked_resolver
+    _socket.gethostbyname_ex = _blocked_resolver
+
+
+# =============================================================================
 # Pool de workers persistants pour les plugins heavy_cpu
 # =============================================================================
 #
@@ -251,7 +344,8 @@ def run_in_subprocess(
 # à la demande. Un worker inactif plus de WORKER_IDLE_TTL est aussi recyclé.
 
 
-def _worker_entry(child_conn, plugin_path: str, entry_point: str, name: str) -> None:
+def _worker_entry(child_conn, plugin_path: str, entry_point: str, name: str,
+                  needs_network: bool) -> None:
     """
     Boucle d'un worker persistant (processus enfant).
 
@@ -275,11 +369,17 @@ def _worker_entry(child_conn, plugin_path: str, entry_point: str, name: str) -> 
             entry_point=entry_point,
             path=plugin_path,
             timeout_seconds=0,
+            needs_network=needs_network,
             # heavy_cpu=False : le worker exécute localement, sans récursion.
         )
         wrapper = PythonPluginWrapper(metadata, plugin_manager=None)
         app_ctx = _push_minimal_app_context(name)
         app_ctx.push()
+
+        # Garde réseau avant l'import du plugin : sans needs_network, aucune
+        # connexion non-loopback ne doit sortir du worker.
+        if not needs_network:
+            _install_network_guard()
 
         if not wrapper.initialize():
             child_conn.send({'ready': False, 'error': "Échec d'initialisation du plugin"})
@@ -331,11 +431,13 @@ def _worker_entry(child_conn, plugin_path: str, entry_point: str, name: str) -> 
 class _WorkerProcess:
     """Worker persistant d'un plugin heavy_cpu (1 processus, accès sérialisé)."""
 
-    def __init__(self, plugin_path: str, entry_point: str, name: str, idle_ttl: float):
+    def __init__(self, plugin_path: str, entry_point: str, name: str, idle_ttl: float,
+                 needs_network: bool = False):
         self.plugin_path = plugin_path
         self.entry_point = entry_point
         self.name = name
         self.idle_ttl = idle_ttl
+        self.needs_network = needs_network
         self.lock = threading.Lock()
         self._proc = None
         self._conn = None
@@ -368,7 +470,8 @@ class _WorkerProcess:
         parent_conn, child_conn = ctx.Pipe(duplex=True)
         proc = ctx.Process(
             target=_worker_entry,
-            args=(child_conn, self.plugin_path, self.entry_point, self.name),
+            args=(child_conn, self.plugin_path, self.entry_point, self.name,
+                  self.needs_network),
             daemon=True,
             name=f'plugin-worker-{self.name}',
         )
@@ -397,9 +500,16 @@ class _WorkerProcess:
             self._kill_locked()
             raise
 
-    def execute(self, inputs: Dict[str, Any], timeout: Optional[float]) -> Dict[str, Any]:
+    def execute(self, inputs: Dict[str, Any], timeout: Optional[float],
+                needs_network: Optional[bool] = None) -> Dict[str, Any]:
         """Exécute le plugin dans le worker (accès sérialisé par plugin)."""
         with self.lock:
+            # Le flag réseau vient des métadonnées lues à l'exécution : s'il a
+            # changé (plugin.json modifié puis redécouvert), le worker respawn.
+            if needs_network is not None and needs_network != self.needs_network:
+                self.needs_network = needs_network
+                self._kill_locked()
+
             expired = (
                 self.idle_ttl is not None
                 and time.monotonic() - self.last_used > self.idle_ttl
@@ -467,16 +577,18 @@ class WorkerPool:
         plugin_name: str,
         inputs: Dict[str, Any],
         timeout: Optional[float] = None,
+        needs_network: bool = False,
     ) -> Dict[str, Any]:
         """Exécute le plugin dans son worker persistant (spawn lazy au 1er appel)."""
         with self._lock:
             worker = self._workers.get(plugin_name)
             if worker is None:
                 worker = _WorkerProcess(
-                    plugin_path, entry_point, plugin_name, self.idle_ttl
+                    plugin_path, entry_point, plugin_name, self.idle_ttl,
+                    needs_network=needs_network,
                 )
                 self._workers[plugin_name] = worker
-        return worker.execute(inputs, timeout)
+        return worker.execute(inputs, timeout, needs_network=needs_network)
 
     def shutdown(self, plugin_name: str) -> None:
         """Arrête le worker d'un plugin (unload, reload, suppression)."""
