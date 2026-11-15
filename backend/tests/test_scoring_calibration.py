@@ -1024,12 +1024,18 @@ class TestNumericOnlyCoordsWithOrigin:
         assert score_text(text, context=self.ORIGIN)["score"] >= 0.8
         assert score_text(text)["score"] < 0.15
 
+    @pytest.mark.parametrize("text", ["48 51.234 2 21.456", "48 51 234 2 21 456"])
+    def test_spaced_digit_groups_score_high_only_with_origin(self, text):
+        assert score_text(text, context=self.ORIGIN)["score"] >= 0.8
+        assert score_text(text)["score"] < 0.5
+
     def test_digit_groups_escape_encoded_penalty_only_on_gps_hit(self):
         """La penalite encodee est levee quand le detecteur trouve de vraies
-        coordonnees ; un texte de chiffres sans correspondance la subit."""
+        coordonnees plausibles ; des chiffres-coordonnees eloignes de la cache
+        sont detectes puis amortis par la distance."""
         scoring = score_text("43 51 234 5 21 456", context=self.ORIGIN)["metadata"]["scoring"]
-        assert scoring["features"]["gps_confidence"] == 0.0
-        assert scoring["features"]["encoded_penalty"] < 1.0
+        assert scoring["geo"]["status"] == "implausible"
+        assert scoring["features"]["gps_confidence"] < 0.5
         assert scoring["score"] < 0.15
 
     def test_hex_pairs_stay_penalised_despite_detector_match(self):

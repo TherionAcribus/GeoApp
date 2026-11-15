@@ -133,6 +133,22 @@ class TestCharacterizationValidFormats:
                min_conf=0.85, include_numeric_only=True,
                origin_coords="S 33° 51.123 W 151° 12.456")
 
+    def test_spaced_numeric_decimal_minutes(self):
+        _check("49 12.123 6 12.123",
+               ddm_lat="N 49° 12.123'", ddm_lon="E 006° 12.123'",
+               min_conf=0.75, include_numeric_only=True)
+
+    def test_spaced_numeric_six_groups(self):
+        _check("48 51 234 2 21 456",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 21.456'",
+               min_conf=0.75, include_numeric_only=True)
+
+    def test_spaced_numeric_origin_south_west(self):
+        _check("48 51 234 2 21 456",
+               ddm_lat="S 48° 51.234'", ddm_lon="W 002° 21.456'",
+               min_conf=0.75, include_numeric_only=True,
+               origin_coords="S 33° 51.123 W 151° 12.456")
+
     def test_detected_mid_prose(self):
         _check("la reponse est N 48° 33.787' E 006° 38.803' bravo",
                ddm_lat="N 48° 33.787'", ddm_lon="E 006° 38.803'")

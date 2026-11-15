@@ -5,7 +5,7 @@ n'expose que les fonctions pures de détection et de normalisation utilisées
 par les endpoints, le scorer et les plugins.
 """
 
-from typing import Iterator, Optional, Dict, List
+from typing import Iterator, Optional, Dict, List, Tuple
 import re
 import logging
 
@@ -840,6 +840,26 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
 _DETECT_NUMERIC_ONLY_REGEX = re.compile(r'(\d{7})\s+(\d{6,8})')
 
 
+def _origin_directions(origin_coords: Optional[Dict[str, str]]) -> Tuple[str, str]:
+    """Directions cardinales (N/S, E/W) déduites des coordonnées d'origine.
+
+    N/E par défaut ; si l'origine est connue, le final est du même côté
+    qu'elle (utilisé par les détecteurs sans lettre cardinale).
+    """
+    lat_dir, lon_dir = "N", "E"
+    if origin_coords and 'ddm_lat' in origin_coords and 'ddm_lon' in origin_coords:
+        try:
+            origin_lat_match = _ORIGIN_LAT_DIR_REGEX.search(origin_coords['ddm_lat'])
+            origin_lon_match = _ORIGIN_LON_DIR_REGEX.search(origin_coords['ddm_lon'])
+            if origin_lat_match:
+                lat_dir = origin_lat_match.group(1)
+            if origin_lon_match:
+                lon_dir = origin_lon_match.group(1)
+        except Exception as e:
+            logger.warning("Erreur lors de l'extraction des directions depuis les coordonnées d'origine: %s", e)
+    return lat_dir, lon_dir
+
+
 def _iter_numeric_only(text: str, origin_coords: Optional[Dict[str, str]] = None) -> Iterator[Dict[str, Optional[str]]]:
     """
     Itère les coordonnées au format numérique pur, sans lettres cardinales ni symboles.
@@ -897,25 +917,7 @@ def _iter_numeric_only(text: str, origin_coords: Optional[Dict[str, str]] = None
             logger.debug('_iter_numeric_only: Découpage - lon_deg=%s, lon_min=%s, lon_dec=%s', lon_deg, lon_min, lon_dec)
 
             # Déterminer les directions cardinales (N/S, E/W) en fonction des coordonnées d'origine
-            lat_dir = "N"  # Direction par défaut
-            lon_dir = "E"  # Direction par défaut
-
-            if origin_coords and 'ddm_lat' in origin_coords and 'ddm_lon' in origin_coords:
-                try:
-                    # Extraire les directions des coordonnées d'origine
-                    origin_lat_match = _ORIGIN_LAT_DIR_REGEX.search(origin_coords['ddm_lat'])
-                    origin_lon_match = _ORIGIN_LON_DIR_REGEX.search(origin_coords['ddm_lon'])
-
-                    if origin_lat_match:
-                        lat_dir = origin_lat_match.group(1)
-                        logger.debug('Direction latitude depuis origine: %s', lat_dir)
-
-                    if origin_lon_match:
-                        lon_dir = origin_lon_match.group(1)
-                        logger.debug('Direction longitude depuis origine: %s', lon_dir)
-                except Exception as e:
-                    logger.warning("Erreur lors de l'extraction des directions depuis les coordonnées d'origine: %s", e)
-                    # En cas d'erreur, on garde les directions par défaut
+            lat_dir, lon_dir = _origin_directions(origin_coords)
 
             cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_dec}",
                                   lon_dir, lon_deg, f"{lon_min}.{lon_dec}")
@@ -928,6 +930,59 @@ def _iter_numeric_only(text: str, origin_coords: Optional[Dict[str, str]] = None
 def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Optional[str]]]:
     """Premier candidat « numérique pur » valide (compat : façade de l'itérateur)."""
     return next(_iter_numeric_only(text, origin_coords), None)
+
+# ------------------------------------------------------------------------------
+# Format numérique éclaté en groupes espacés (ex: "48 51.234 2 21.456")
+# ------------------------------------------------------------------------------
+#
+# DDM sans lettres cardinales dont chaque composante est un groupe séparé par
+# des espaces. Deux variantes :
+#   - 4 groupes : « DD MM.mmm DDD MM.mmm » (minutes décimales) ;
+#   - 6 groupes : « DD MM MMM DDD MM MMM » (millièmes en groupe propre).
+# Le groupe des millièmes est exigé à 3 chiffres pour écarter les listes de
+# nombres ordinaires (tirages, codes) ; les bornes (degrés, minutes < 60) sont
+# ensuite validées par _ddm_candidate. Confiance moindre que le format compact :
+# la structure est partagée avec des énumérations quelconques.
+_DETECT_SPACED_DDM_DECIMAL_REGEX = re.compile(
+    r"(?<![\d.])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+(\d{1,3})\s+(\d{1,2}\.\d{1,3})(?![\d.])"
+)
+_DETECT_SPACED_DDM_GROUPS_REGEX = re.compile(
+    r"(?<![\d.])(\d{1,2})\s+(\d{1,2})\s+(\d{3})\s+(\d{1,3})\s+(\d{1,2})\s+(\d{3})(?![\d.])"
+)
+
+
+def _iter_spaced_numeric_coordinates(
+    text: str, origin_coords: Optional[Dict[str, str]] = None
+) -> Iterator[Dict[str, Optional[str]]]:
+    """Itère les coordonnées DDM éclatées en groupes espacés, sans cardinales.
+
+    Les directions (N/S, E/W) viennent des coordonnées d'origine quand elles
+    sont connues, N/E sinon — même contrat que _iter_numeric_only.
+    """
+    logger.debug("_iter_spaced_numeric: Analyse du texte: '%s...' (tronqué)", text[:100])
+    lat_dir, lon_dir = _origin_directions(origin_coords)
+
+    for match in _DETECT_SPACED_DDM_DECIMAL_REGEX.finditer(text):
+        lat_deg, lat_min, lon_deg, lon_min = match.groups()
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, lat_min,
+                              lon_dir, lon_deg, lon_min)
+        if cand:
+            yield cand
+
+    for match in _DETECT_SPACED_DDM_GROUPS_REGEX.finditer(text):
+        lat_deg, lat_min, lat_mmm, lon_deg, lon_min, lon_mmm = match.groups()
+        # Anti-faux-positifs : rejeter les suites purement binaires (0/1)
+        if not any(ch in '23456789' for ch in ''.join(match.groups())):
+            continue
+        cand = _ddm_candidate(match.span(), lat_dir, lat_deg, f"{lat_min}.{lat_mmm}",
+                              lon_dir, lon_deg, f"{lon_min}.{lon_mmm}")
+        if cand:
+            yield cand
+
+
+def _detect_spaced_numeric_coordinates(text: str, origin_coords: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Optional[str]]]:
+    """Premier candidat « numérique éclaté » valide (façade de l'itérateur)."""
+    return next(_iter_spaced_numeric_coordinates(text, origin_coords), None)
 
 # ------------------------------------------------------------------------------
 # Détection du format compact sans séparateurs (ex: "N4812123E00612123")
@@ -1650,11 +1705,18 @@ def _detector_iterators(origin_coords, include_numeric_only: bool):
         return _DETECTORS_SORTED
     logger.debug("_detector_iterators: Détection de coordonnées numériques pures activée")
     return sorted(
-        _DETECTORS_SORTED + [(
-            0.90, -1,
-            lambda t: _iter_numeric_only(t, origin_coords),
-            _detect_numeric_only_coordinates.__name__,
-        )],
+        _DETECTORS_SORTED + [
+            (
+                0.90, -1,
+                lambda t: _iter_numeric_only(t, origin_coords),
+                _detect_numeric_only_coordinates.__name__,
+            ),
+            (
+                0.80, -1,
+                lambda t: _iter_spaced_numeric_coordinates(t, origin_coords),
+                _detect_spaced_numeric_coordinates.__name__,
+            ),
+        ],
         key=lambda d: (-d[0], d[1]),
     )
 
