@@ -3281,7 +3281,7 @@
       },
       "x-category": "plugins",
       "x-targets": [
-        "frontend"
+        "backend"
       ],
       "x-backendKey": "plugins.executor.max_parallel"
     },

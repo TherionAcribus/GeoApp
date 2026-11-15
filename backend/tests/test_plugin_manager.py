@@ -13,6 +13,7 @@ import pytest
 import json
 import tempfile
 import shutil
+import threading
 from pathlib import Path
 
 from gc_backend.plugins.plugin_manager import PluginManager
@@ -1035,6 +1036,245 @@ class TestPluginManagerRuntimePreferences:
         manager.refresh_runtime_preferences()
 
         assert wrapper.metadata.timeout_seconds == 0
+
+
+class TestPluginManagerExecutionLimit:
+    """Tests de la borne executor.maxParallelRuns sur les exécutions
+    simultanées de plugins."""
+
+    def _make_marker_plugin(
+        self, temp_plugins_dir, valid_plugin_json,
+        name='test_plugin', main_py=None, sleep='0.15'
+    ):
+        """Plugin qui ajoute 'S' en début et 'E' en fin d'exécution à une
+        liste MARKERS de son module (partagée entre exécutions concurrentes,
+        lue via sys.modules['geoapp_plugin_<name>'].MARKERS)."""
+        data = valid_plugin_json.copy()
+        data['name'] = name
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', name, data
+        )
+        class_name = ''.join(
+            part.capitalize() for part in name.split('_')
+        ) + 'Plugin'
+        if main_py is None:
+            main_py = (
+                'import time\n'
+                'MARKERS = []\n'
+                f'class {class_name}:\n'
+                '    def execute(self, inputs):\n'
+                "        MARKERS.append('S')\n"
+                f'        time.sleep({sleep})\n'
+                "        MARKERS.append('E')\n"
+                '        return {"status": "ok", "results": []}\n'
+            )
+        (plugin_dir / 'main.py').write_text(main_py, encoding='utf-8')
+        return plugin_dir
+
+    @staticmethod
+    def _markers(name):
+        # Le point d'entrée main.py est chargé comme sous-module du package
+        # geoapp_plugin_<name> (cf. wrappers.py).
+        import sys
+        return sys.modules[f'geoapp_plugin_{name}.main'].MARKERS
+
+    def test_executions_serialized_when_limit_is_one(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Avec max_parallel_runs=1, trois exécutions concurrentes se
+        sérialisent : marqueurs strictement alternés S,E,S,E,S,E."""
+        self._make_marker_plugin(
+            temp_plugins_dir, valid_plugin_json, name='limit_serial_plugin'
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.max_parallel_runs = 1
+        manager.discover_plugins()
+
+        threads = [
+            threading.Thread(
+                target=manager.execute_plugin,
+                args=('limit_serial_plugin', {})
+            )
+            for _ in range(3)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert not any(t.is_alive() for t in threads)
+
+        assert self._markers('limit_serial_plugin') == ['S', 'E'] * 3
+
+    def test_executions_overlap_when_limit_allows(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Avec max_parallel_runs=3, trois exécutions concurrentes se
+        recouvrent : les trois 'S' précèdent le premier 'E'."""
+        self._make_marker_plugin(
+            temp_plugins_dir, valid_plugin_json, name='limit_overlap_plugin'
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.max_parallel_runs = 3
+        manager.discover_plugins()
+
+        barrier = threading.Barrier(3)
+        threads = [
+            threading.Thread(
+                target=lambda: (
+                    barrier.wait(),
+                    manager.execute_plugin('limit_overlap_plugin', {}),
+                )
+            )
+            for _ in range(3)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+        assert not any(t.is_alive() for t in threads)
+
+        markers = self._markers('limit_overlap_plugin')
+        assert markers.count('S') == 3 and markers.count('E') == 3
+        assert markers[:3] == ['S', 'S', 'S']
+
+    def test_nested_plugin_execution_does_not_deadlock(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Un plugin non-meta qui exécute un autre plugin en interne ne se
+        bloque pas, même avec max_parallel_runs=1."""
+        # Plugin enfant
+        self._make_marker_plugin(
+            temp_plugins_dir, valid_plugin_json,
+            name='limit_child_plugin', sleep='0'
+        )
+        # Plugin orchestrateur (non-meta) : appelle l'enfant dans le même
+        # thread que son execute (le thread worker du wrapper hérite de la
+        # profondeur d'exécution via contextvars).
+        main_py = (
+            'class LimitOrchestratorPlugin:\n'
+            '    def __init__(self):\n'
+            '        self._plugin_manager = None\n'
+            '    def set_plugin_manager(self, pm):\n'
+            '        self._plugin_manager = pm\n'
+            '    def execute(self, inputs):\n'
+            '        child = self._plugin_manager.execute_plugin('
+            "'limit_child_plugin', {})\n"
+            '        return {"status": "ok", "results": [], '
+            '"child_status": child.get("status")}\n'
+        )
+        data = valid_plugin_json.copy()
+        data['name'] = 'limit_orchestrator'
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'limit_orchestrator', data
+        )
+        (plugin_dir / 'main.py').write_text(main_py, encoding='utf-8')
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.max_parallel_runs = 1
+        manager.discover_plugins()
+
+        result_box = {}
+        done = threading.Event()
+
+        def run():
+            result_box['result'] = manager.execute_plugin('limit_orchestrator', {})
+            done.set()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        assert done.wait(timeout=20), (
+            "Exécution imbriquée bloquée par la borne maxParallelRuns"
+        )
+        assert result_box['result']['status'] == 'ok'
+
+    def test_meta_plugin_consumes_no_slot(
+        self, app, temp_plugins_dir, valid_plugin_json, tmp_path
+    ):
+        """Un plugin kinds=['meta'] n'occupe pas de slot : il peut
+        s'exécuter pendant qu'un plugin feuille tient l'unique slot."""
+        import sys
+        import time
+
+        self._make_marker_plugin(
+            temp_plugins_dir, valid_plugin_json,
+            name='limit_leaf_plugin', sleep='2.0'
+        )
+        data = valid_plugin_json.copy()
+        data['name'] = 'limit_meta_plugin'
+        data['kinds'] = ['meta']
+        meta_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'limit_meta_plugin', data
+        )
+        (meta_dir / 'main.py').write_text(
+            'class MetaPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.max_parallel_runs = 1
+        manager.discover_plugins()
+
+        leaf_result = {}
+        t1 = threading.Thread(
+            target=lambda: leaf_result.setdefault(
+                'r', manager.execute_plugin('limit_leaf_plugin', {})),
+            daemon=True,
+        )
+        t1.start()
+
+        # Attendre que le plugin feuille tienne le slot (marqueur 'S')
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            module = sys.modules.get('geoapp_plugin_limit_leaf_plugin.main')
+            if module is not None and 'S' in module.MARKERS:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("Le plugin feuille n'a pas démarré")
+
+        # Le meta doit finir AVANT la fin du sommeil du plugin feuille :
+        # s'il consommait un slot, il attendrait ~2s.
+        started = time.time()
+        meta_result = manager.execute_plugin('limit_meta_plugin', {})
+        elapsed = time.time() - started
+
+        assert meta_result['status'] == 'ok'
+        assert elapsed < 1.0, (
+            f"Le plugin meta a attendu un slot ({elapsed:.2f}s)"
+        )
+        assert 'E' not in self._markers('limit_leaf_plugin')
+
+        t1.join(timeout=30)
+        assert not t1.is_alive()
+        assert leaf_result['r']['status'] == 'ok'
+
+    def test_max_parallel_runs_preference_applies_hot(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Changer la préférence executor.maxParallelRuns met à jour
+        manager.max_parallel_runs via refresh_runtime_preferences."""
+        from gc_backend.utils.preferences import set_preference_value
+
+        self._make_marker_plugin(
+            temp_plugins_dir, valid_plugin_json, name='limit_pref_plugin'
+        )
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+        assert manager.max_parallel_runs == 2  # défaut du schéma
+
+        with app.app_context():
+            set_preference_value('geoApp.plugins.executor.maxParallelRuns', 4)
+        manager.refresh_runtime_preferences()
+        assert manager.max_parallel_runs == 4
+
+        with app.app_context():
+            set_preference_value('geoApp.plugins.executor.maxParallelRuns', 1)
+        manager.refresh_runtime_preferences()
+        assert manager.max_parallel_runs == 1
 
 
 class TestPluginManagerEnableDisable:

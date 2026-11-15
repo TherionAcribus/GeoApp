@@ -15,6 +15,7 @@ import os
 import sys
 import json
 import time
+import contextvars
 import threading
 import subprocess
 import importlib.util
@@ -487,8 +488,13 @@ class PythonPluginWrapper(PluginInterface):
                     except Exception:
                         pass
 
+        # Propager les contextvars dans le worker : plugin_execution_depth
+        # permet aux appels execute_plugin imbriqués lancés par ce plugin de
+        # savoir qu'un slot d'exécution est déjà tenu (pas de deadlock quand
+        # executor.maxParallelRuns est atteint).
+        exec_ctx = contextvars.copy_context()
         worker = threading.Thread(
-            target=_target,
+            target=lambda: exec_ctx.run(_target),
             daemon=True,
             name=f"plugin-exec-{self.metadata.name}"
         )

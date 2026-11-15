@@ -21,6 +21,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime
 
+from contextlib import contextmanager
+
 from loguru import logger
 import jsonschema
 
@@ -30,6 +32,7 @@ from .executor import (
     TextHandlingError,
     apply_text_handling,
     normalize_plugin_result,
+    plugin_execution_depth,
     score_plugin_results,
     scoring_context_from_inputs,
     validate_plugin_inputs,
@@ -93,6 +96,14 @@ class PluginManager:
         self.lazy_mode: bool = True
         self.default_timeout: int = 60
         self.allow_long_running: bool = False
+        self.max_parallel_runs: int = 2
+        # Borne d'exécutions simultanées (préférence
+        # geoApp.plugins.executor.maxParallelRuns). Les appels imbriqués
+        # dans le même plugin et les plugins 'meta' ne consomment pas de
+        # slot : ils se bloqueraient sinon en attendant leurs propres
+        # enfants dès que la limite est atteinte.
+        self._exec_cond = threading.Condition()
+        self._exec_running = 0
         
         # Charger le schéma de validation
         self._load_schema()
@@ -910,7 +921,43 @@ class PluginManager:
             )
             self._loading_errors[plugin_name] = str(e)
             return None
-    
+
+    @contextmanager
+    def _execution_slot(self, metadata: Dict[str, Any]):
+        """
+        Borne le nombre de plugins exécutés simultanément
+        (préférence ``geoApp.plugins.executor.maxParallelRuns``).
+
+        Deux cas ne consomment pas de slot :
+
+        - les appels imbriqués (``plugin_execution_depth`` > 0 : un plugin
+          qui en exécute un autre — le slot du parent est déjà tenu, en
+          acquérir un second bloquerait dès que la limite est atteinte) ;
+        - les plugins ``kinds: meta`` (orchestrateurs qui bornent eux-mêmes
+          leurs enfants — exécutés en parallèle dans leurs propres threads,
+          chacun acquérant son propre slot).
+        """
+        depth = plugin_execution_depth.get()
+        kinds = metadata.get('kinds') or []
+        is_meta = isinstance(kinds, list) and 'meta' in kinds
+        acquire = depth == 0 and not is_meta
+
+        if acquire:
+            with self._exec_cond:
+                while self._exec_running >= self.max_parallel_runs:
+                    self._exec_cond.wait()
+                self._exec_running += 1
+
+        token = plugin_execution_depth.set(depth + 1)
+        try:
+            yield
+        finally:
+            plugin_execution_depth.reset(token)
+            if acquire:
+                with self._exec_cond:
+                    self._exec_running -= 1
+                    self._exec_cond.notify()
+
     def execute_plugin(
         self,
         plugin_name: str,
@@ -1074,8 +1121,9 @@ class PluginManager:
         try:
             logger.info(f"Exécution du plugin {plugin_name}")
 
-            # Exécuter le plugin
-            raw_result = plugin.execute(inputs)
+            # Exécuter le plugin (borne maxParallelRuns sur la concurrence)
+            with self._execution_slot(metadata):
+                raw_result = plugin.execute(inputs)
 
             # Normaliser vers le contrat de résultat documenté
             result = normalize_plugin_result(
@@ -1440,11 +1488,21 @@ class PluginManager:
                 self.lazy_mode = bool(get_value_or_default('geoApp.plugins.lazyMode', True))
                 self.default_timeout = int(get_value_or_default('geoApp.plugins.executor.timeoutSec', 60))
                 self.allow_long_running = bool(get_value_or_default('geoApp.plugins.executor.allowLongRunning', False))
+                max_parallel = get_value_or_default(
+                    'geoApp.plugins.executor.maxParallelRuns', 2
+                )
+                with self._exec_cond:
+                    self.max_parallel_runs = max(1, int(max_parallel or 2))
+                    # Une limite relevée doit réveiller les exécutions en
+                    # attente d'un slot.
+                    self._exec_cond.notify_all()
                 logger.info(
-                    "Préférences plugins -> lazy_mode={} timeout={}s allow_long_running={}",
+                    "Préférences plugins -> lazy_mode={} timeout={}s "
+                    "allow_long_running={} max_parallel_runs={}",
                     self.lazy_mode,
                     self.default_timeout,
-                    self.allow_long_running
+                    self.allow_long_running,
+                    self.max_parallel_runs,
                 )
         except Exception as error:
             logger.warning("Impossible de charger les préférences plugins: {}", error)
@@ -1452,9 +1510,9 @@ class PluginManager:
     def refresh_runtime_preferences(self) -> None:
         """
         Recharge les préférences runtime (lazy mode, timeout par défaut,
-        allow_long_running) et réapplique le nouveau timeout sur les
-        wrappers déjà chargés (le lazy mode ne sert qu'au préchargement
-        de démarrage : rien n'est préchargé ni déchargé ici).
+        allow_long_running, max_parallel_runs) et réapplique le nouveau
+        timeout sur les wrappers déjà chargés (le lazy mode ne sert qu'au
+        préchargement de démarrage : rien n'est préchargé ni déchargé ici).
         """
         if not self.app:
             return

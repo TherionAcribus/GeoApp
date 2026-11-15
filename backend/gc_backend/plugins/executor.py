@@ -18,11 +18,21 @@ frontend et la route ``/execute`` :
   maniere opt-in par les autres chemins d'execution.
 """
 
+import contextvars
 import math
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..geocaches.models import Geocache
+
+
+# Profondeur d'imbrication des executions de plugins : >0 quand du code de
+# plugin appelle lui-meme execute_plugin (orchestrateurs type metasolver ou
+# analysis_web_page). Propagée dans les threads workers des wrappers via
+# contextvars.copy_context — voir _run_with_hard_timeout dans wrappers.py.
+plugin_execution_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    'geoapp_plugin_execution_depth', default=0
+)
 
 
 class TextHandlingError(ValueError):
