@@ -1299,8 +1299,8 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
 
 # Pattern du format DMS (degrés, minutes, secondes).
 _DETECT_DMS_REGEX = re.compile(
-    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*\s*'
-    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*'
+    r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*\s*'
+    r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)[\"\']*'
 )
 
 
@@ -1317,10 +1317,11 @@ def _iter_dms_coordinates(text: str) -> Iterator[Dict[str, Optional[str]]]:
         logger.debug('_iter_dms_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
 
-        # Convertir DMS en DDM
+        # Convertir DMS en DDM (la virgule décimale éventuelle est acceptée
+        # par le pattern : « 51' 24,5" » vaut 24.5 secondes)
         try:
-            lat_min_decimal = int(lat_min) + float(lat_sec) / 60
-            lon_min_decimal = int(lon_min) + float(lon_sec) / 60
+            lat_min_decimal = int(lat_min) + float(lat_sec.replace(',', '.')) / 60
+            lon_min_decimal = int(lon_min) + float(lon_sec.replace(',', '.')) / 60
             # Valider les bornes (degrés + minutes reconstituées), comme les autres
             # détecteurs. Rejette p.ex. secondes >= 60 (=> minutes >= 60) ou degrés
             # hors plage.
@@ -1823,9 +1824,9 @@ def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
 # DMS avec direction cardinale en suffixe (converti en DDM comme
 # _detect_dms_coordinates).
 _DETECT_DMS_SUFFIX_REGEX = re.compile(
-    r'(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NS])'
+    r'(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)\s*["″]?\s*([NS])'
     r'[\s,]+'
-    r'(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([EW])'
+    r'(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:[.,]\d+)?)\s*["″]?\s*([EW])'
 )
 
 
@@ -1839,8 +1840,8 @@ def _iter_dms_suffix_direction(text: str) -> Iterator[Dict[str, Optional[str]]]:
     for match in _DETECT_DMS_SUFFIX_REGEX.finditer(text):
         lat_deg, lat_min, lat_sec, lat_dir, lon_deg, lon_min, lon_sec, lon_dir = match.groups()
         try:
-            lat_min_dec = int(lat_min) + float(lat_sec) / 60.0
-            lon_min_dec = int(lon_min) + float(lon_sec) / 60.0
+            lat_min_dec = int(lat_min) + float(lat_sec.replace(',', '.')) / 60.0
+            lon_min_dec = int(lon_min) + float(lon_sec.replace(',', '.')) / 60.0
             if not _is_valid_degrees_minutes(int(lat_deg), lat_min_dec, int(lon_deg), lon_min_dec):
                 logger.debug("_iter_dms_suffix_direction: Bornes invalides, candidat suivant")
                 continue
@@ -2003,6 +2004,23 @@ _CARDINAL_WORD_LETTERS = {
 _GATE_DIGIT_REGEX = re.compile(r"\d")
 _GATE_ROMAN_LETTER_REGEX = re.compile(r"[NSEWnsew]\s+[IVXLCDM]", re.IGNORECASE)
 _GATE_CARDINAL_TOKENS = tuple(dict.fromkeys(_CARDINAL_WORDS.split("|")))
+
+# Ponctuation typographique -> ASCII, caractère pour caractère (la longueur est
+# préservée, les ``span`` restent valables sur le texte d'origine). Un
+# copier-coller depuis le web produit souvent des primes typographiques
+# (« N 48° 51′ 24″ ») et des signes moins Unicode (« −33.8688 ») que les
+# regex ne connaissent pas : sans normalisation, le DMS était lu comme des
+# millièmes de minute et le signe moins ignoré (hémisphère inversé).
+# NB : les tirets cadratin/demi-cadratin et le point médian ne sont PAS
+# convertis — ce ne sont pas des signes moins.
+_UNICODE_PUNCT_TRANSLATION = str.maketrans({
+    # Primes / apostrophes typographiques -> '
+    '′': "'", '’': "'", '‘': "'", 'ʼ': "'", '`': "'", '´': "'",
+    # Double primes / guillemets typographiques -> "
+    '″': '"', '“': '"', '”': '"', '«': '"', '»': '"',
+    # Signe moins Unicode -> tiret ASCII
+    '−': '-',
+})
 
 
 def _normalize_cardinal_letters(text: str, origin_coords: Optional[Dict[str, str]]) -> tuple:
@@ -2170,6 +2188,9 @@ def _prepare_detection_context(text: str, origin_coords) -> Optional[tuple]:
     if not gate_ok:
         logger.debug("_prepare_detection_context: Gatekeeper — aucun motif de coordonnée possible")
         return None
+
+    # Ponctuation typographique -> ASCII (longueur préservée)
+    text = text.translate(_UNICODE_PUNCT_TRANSLATION)
 
     # Accepte un dict {ddm_lat, ddm_lon} ou une chaîne DDM combinée (coordinatesRaw)
     origin_coords = _normalize_origin_coords(origin_coords)

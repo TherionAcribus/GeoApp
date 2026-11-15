@@ -78,6 +78,30 @@ class TestCharacterizationValidFormats:
                ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.435'",
                dec_lat=48.8567, dec_lon=2.29058333, min_conf=0.85)
 
+    def test_dms_unicode_primes(self):
+        # Primes typographiques (′ ″) : normalisées en ' " avant détection.
+        _check("N 48° 51′ 24.12″ E 002° 17′ 26.1″",
+               ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.435'",
+               dec_lat=48.8567, dec_lon=2.29058333, min_conf=0.85)
+
+    def test_dms_typographic_quotes(self):
+        # Guillemets/apostrophes typographiques (’ ”).
+        _check("N 48° 51’ 24.12” E 002° 17’ 26.1”",
+               ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.435'",
+               dec_lat=48.8567, dec_lon=2.29058333, min_conf=0.85)
+
+    def test_dms_comma_seconds(self):
+        # Secondes à virgule décimale : « 24,5" » vaut 24.5 secondes.
+        _check("N 48° 51' 24,12\" E 002° 17' 26,1\"",
+               ddm_lat="N 48° 51.402'", ddm_lon="E 002° 17.435'",
+               dec_lat=48.8567, dec_lon=2.29058333, min_conf=0.85)
+
+    def test_ddm_unicode_prime(self):
+        # La prime ′ en fin de DDM ne doit pas basculer le résultat.
+        _check("N 48° 51.234′ E 002° 17.567′",
+               ddm_lat="N 48° 51.234'", ddm_lon="E 002° 17.567'",
+               dec_lat=48.8539, dec_lon=2.29278333)
+
     def test_dmm_no_degree_symbol(self):
         _check("N 38 32.460 W 075 43.659",
                ddm_lat="N 38° 32.460'", ddm_lon="W 075° 43.659'",
@@ -125,6 +149,12 @@ class TestNewFormats:
     def test_decimal_pair_negative_space(self):
         # Sydney : latitude sud, longitude est
         _check("-33.8688 151.2093",
+               ddm_lat="S 33° 52.128'", ddm_lon="E 151° 12.558'",
+               dec_lat=-33.8688, dec_lon=151.2093, min_conf=0.7)
+
+    def test_decimal_pair_unicode_minus(self):
+        # Signe moins Unicode (U+2212) : doit conserver l'hémisphère sud.
+        _check("−33.8688, 151.2093",
                ddm_lat="S 33° 52.128'", ddm_lon="E 151° 12.558'",
                dec_lat=-33.8688, dec_lon=151.2093, min_conf=0.7)
 
