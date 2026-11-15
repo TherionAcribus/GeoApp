@@ -23,6 +23,16 @@ from ._common import (
 )
 from . import _common
 
+
+def _get_task_manager():
+    """Retourne l'instance TaskManager partagée (None si non initialisée)."""
+    try:
+        from ..tasks import get_task_manager
+        return get_task_manager()
+    except Exception:
+        return None
+
+
 # Stockage des taches batch en memoire (en production, utiliser Redis ou une base de donnees)
 # Rétention : purge après BATCH_TASK_RETENTION_SECONDS et cap à BATCH_TASK_MAX_FINISHED.
 BATCH_TASK_RETENTION_SECONDS = 3600
@@ -103,6 +113,10 @@ class BatchPluginTask:
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
         self.cancelled = False
+
+        # Ponts vers le TaskManager (injectés par work_fn dans /batch-execute)
+        self.cancel_check = None    # callable -> bool : annulation demandée côté pool
+        self.progress_hook = None   # callable(progress, message) : lève InterruptedError si annulé
         
         # Résultats par géocache
         self.results: List[Dict] = []
@@ -120,6 +134,21 @@ class BatchPluginTask:
                 'completed_at': None
             })
     
+    def _is_cancelled(self) -> bool:
+        """True si l'annulation a été demandée (flag local ou TaskManager)."""
+        if self.cancelled:
+            return True
+        return bool(self.cancel_check and self.cancel_check())
+
+    def _report_progress(self):
+        """Remonte la progression au TaskManager (peut lever InterruptedError)."""
+        if self.progress_hook is None:
+            return
+        done = len([r for r in self.results if r['status'] in ('completed', 'error')])
+        total = len(self.results)
+        pct = (done / total * 100) if total else 0
+        self.progress_hook(pct, f"{done}/{total} géocaches traitées")
+
     def execute(self):
         """
         Exécute la tâche batch selon le mode configuré.
@@ -142,10 +171,17 @@ class BatchPluginTask:
                 else:
                     self._execute_parallel()
             
-            if not self.cancelled:
+            if not self._is_cancelled():
                 self.status = 'completed'
                 logger.info(f"Batch task {self.task_id} completed successfully")
+            else:
+                self.status = 'cancelled'
             
+        except InterruptedError:
+            # Annulation remontée par le progress_hook du TaskManager
+            self.cancelled = True
+            self.status = 'cancelled'
+            raise
         except Exception as e:
             self.status = 'failed'
             logger.error(f"Batch task {self.task_id} failed: {str(e)}")
@@ -157,7 +193,7 @@ class BatchPluginTask:
         Exécution séquentielle des géocaches.
         """
         for i, geocache in enumerate(self.geocaches):
-            if self.cancelled:
+            if self._is_cancelled():
                 break
             
             result = self.results[i]
@@ -202,6 +238,8 @@ class BatchPluginTask:
                     db.session.remove()
                 except Exception:
                     pass
+            
+            self._report_progress()
     
     def _execute_parallel(self):
         """
@@ -211,7 +249,7 @@ class BatchPluginTask:
             geocache, result_index = geocache_data
             result = self.results[result_index]
             
-            if self.cancelled:
+            if self._is_cancelled():
                 return result
             
             result['status'] = 'executing'
@@ -279,7 +317,7 @@ class BatchPluginTask:
             
             # Traiter les résultats au fur et à mesure
             for future in as_completed(future_to_index):
-                if self.cancelled:
+                if self._is_cancelled():
                     break
                 try:
                     future.result()
@@ -290,6 +328,7 @@ class BatchPluginTask:
                         'error': str(e),
                         'completed_at': datetime.utcnow()
                     })
+                self._report_progress()
     
     def _prepare_inputs_for_geocache(self, geocache: Dict) -> Dict[str, Any]:
         """
@@ -673,10 +712,30 @@ def batch_execute_plugins():
         with _batch_tasks_lock:
             batch_tasks[task_id] = batch_task
         
-        # Démarrer l'exécution en arrière-plan
-        thread = threading.Thread(target=batch_task.execute)
-        thread.daemon = True
-        thread.start()
+        # Exécuter via le pool du TaskManager (queue, annulation, nettoyage unifiés)
+        def _run_batch(is_cancelled, update_progress):
+            batch_task.cancel_check = is_cancelled
+            batch_task.progress_hook = update_progress
+            batch_task.execute()
+            return batch_task.get_status()
+
+        task_manager = _get_task_manager()
+        if task_manager is not None:
+            task_manager.submit_custom(
+                plugin_name=plugin_name,
+                inputs={
+                    'geocache_ids': geocache_ids,
+                    'execution_mode': execution_mode,
+                    **inputs,
+                },
+                work_fn=_run_batch,
+                task_id=task_id,
+            )
+        else:
+            # Fallback si le TaskManager n'est pas initialisé (tests isolés)
+            thread = threading.Thread(target=batch_task.execute)
+            thread.daemon = True
+            thread.start()
         
         return jsonify({
             "task_id": task_id,
@@ -746,6 +805,18 @@ def cancel_batch_task(task_id):
         return jsonify({"error": "Task not found"}), 404
 
     task.cancel()
+
+    task_manager = _get_task_manager()
+    if task_manager is not None:
+        task_manager.cancel_task(task_id)
+        # Si la tâche était encore en file d'attente, son future a été annulé :
+        # execute() ne tournera jamais, on synchronise le statut batch.
+        if task.status == 'pending':
+            info = task_manager.get_task_status(task_id)
+            if info and info.get('status') == 'cancelled':
+                task.cancelled = True
+                task.status = 'cancelled'
+                task.completed_at = datetime.utcnow()
     
     return jsonify({"message": "Task cancellation requested"})
 

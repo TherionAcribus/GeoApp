@@ -10,6 +10,7 @@ Ces tests vérifient :
 """
 
 import pytest
+import threading
 import time
 from pathlib import Path
 
@@ -346,3 +347,113 @@ class TestTaskCleanup:
         
         # La tâche devrait toujours exister (en cours)
         assert task_manager.get_task_status(task_id) is not None
+
+
+class TestCustomTasks:
+    """Tests de submit_custom : exécution d'un callable arbitraire dans le pool."""
+
+    def test_submit_custom_executes_and_stores_result(self, task_manager):
+        """Un callable custom s'exécute dans le pool et son résultat est stocké."""
+        def work(is_cancelled, update_progress):
+            assert is_cancelled() is False
+            update_progress(50, "moitié")
+            return {"done": True}
+
+        task_id = task_manager.submit_custom(
+            plugin_name='fake_batch',
+            inputs={'geocache_ids': [1, 2]},
+            work_fn=work,
+        )
+
+        time.sleep(0.3)
+        status = task_manager.get_task_status(task_id)
+
+        assert status['plugin_name'] == 'fake_batch'
+        assert status['status'] == 'completed'
+        assert status['result'] == {"done": True}
+        assert status['progress'] == 100.0
+
+    def test_submit_custom_accepts_imposed_task_id(self, task_manager):
+        """task_id paramètre : l'ID imposé est réutilisé (partagé avec batch_tasks)."""
+        task_id = task_manager.submit_custom(
+            plugin_name='fake',
+            inputs={},
+            work_fn=lambda is_cancelled, update_progress: None,
+            task_id='my-fixed-id',
+        )
+        assert task_id == 'my-fixed-id'
+        time.sleep(0.2)
+        assert task_manager.get_task_status('my-fixed-id') is not None
+
+    def test_custom_task_reports_progress(self, task_manager):
+        """update_progress met à jour TaskInfo.progress et message."""
+        done = threading.Event()
+
+        def work(is_cancelled, update_progress):
+            update_progress(40, "40%")
+            done.wait(2)
+            return None
+
+        task_id = task_manager.submit_custom('p', {}, work)
+        time.sleep(0.3)
+
+        status = task_manager.get_task_status(task_id)
+        assert status['progress'] == 40.0
+        assert status['message'] == "40%"
+        assert status['status'] == 'running'
+
+        done.set()
+
+    def test_cancel_running_custom_task(self, task_manager):
+        """is_cancelled reflète cancel_task ; la tâche s'arrête et passe CANCELLED."""
+        started = threading.Event()
+
+        def work(is_cancelled, update_progress):
+            started.set()
+            for _ in range(100):
+                if is_cancelled():
+                    return "stopped"
+                time.sleep(0.01)
+            return "finished"
+
+        task_id = task_manager.submit_custom('p', {}, work)
+        assert started.wait(2)
+
+        assert task_manager.cancel_task(task_id) is True
+        time.sleep(0.5)
+
+        status = task_manager.get_task_status(task_id)
+        assert status['status'] == 'cancelled'
+
+    def test_progress_hook_raises_on_cancel(self, task_manager):
+        """update_progress lève InterruptedError si annulé -> CANCELLED."""
+        started = threading.Event()
+
+        def work(is_cancelled, update_progress):
+            started.set()
+            for _ in range(100):
+                update_progress(10, "tick")
+                time.sleep(0.01)
+            return "finished"
+
+        task_id = task_manager.submit_custom('p', {}, work)
+        assert started.wait(2)
+        time.sleep(0.05)
+
+        task_manager.cancel_task(task_id)
+        time.sleep(0.5)
+
+        status = task_manager.get_task_status(task_id)
+        assert status['status'] == 'cancelled'
+
+    def test_custom_task_failure_marked_failed(self, task_manager):
+        """Une exception dans work_fn -> statut FAILED avec l'erreur."""
+        def work(is_cancelled, update_progress):
+            raise ValueError("boom")
+
+        task_id = task_manager.submit_custom('p', {}, work)
+        time.sleep(0.3)
+
+        status = task_manager.get_task_status(task_id)
+        assert status['status'] == 'failed'
+        assert 'boom' in status['error']

@@ -302,6 +302,120 @@ class TaskManager:
             task_info.message = f"Erreur: {str(e)}"
             task_info.finished_at = datetime.now()
     
+    def submit_custom(
+        self,
+        plugin_name: str,
+        inputs: Dict[str, Any],
+        work_fn: Callable,
+        progress_callback: Optional[Callable] = None,
+        task_id: Optional[str] = None
+    ) -> str:
+        """
+        Soumet un callable arbitraire dans le pool (ex. exécution batch).
+
+        ``work_fn(is_cancelled, update_progress) -> result`` reçoit :
+          - ``is_cancelled()`` -> bool : True si l'annulation a été demandée
+          - ``update_progress(progress, message)`` : met à jour la progression,
+            lève ``InterruptedError`` si la tâche a été annulée
+
+        Args:
+            plugin_name (str): Nom du plugin associé (pour affichage)
+            inputs (dict): Paramètres de la tâche (pour affichage)
+            work_fn (callable): Travail à exécuter dans le pool
+            progress_callback (callable, optional): Callback externe de progression
+            task_id (str, optional): ID imposé (sinon généré)
+
+        Returns:
+            str: Identifiant de la tâche
+        """
+        task_id = task_id or str(uuid.uuid4())
+
+        task_info = TaskInfo(
+            task_id=task_id,
+            plugin_name=plugin_name,
+            inputs=inputs
+        )
+
+        with self._lock:
+            self.tasks[task_id] = task_info
+
+        self._ensure_executor()
+        task_info.future = self.executor.submit(
+            self._execute_custom,
+            task_id,
+            work_fn,
+            progress_callback
+        )
+
+        logger.info(f"Tâche custom {task_id} soumise ({plugin_name})")
+
+        return task_id
+
+    def _execute_custom(
+        self,
+        task_id: str,
+        work_fn: Callable,
+        progress_callback: Optional[Callable]
+    ):
+        """Exécute un callable arbitraire dans un thread du pool."""
+        task_info = self.tasks.get(task_id)
+        if not task_info:
+            logger.error(f"Tâche {task_id} introuvable")
+            return
+
+        try:
+            task_info.status = TaskStatus.RUNNING
+            task_info.started_at = datetime.now()
+            task_info.message = "Exécution en cours..."
+
+            if task_info.cancel_requested:
+                self._handle_cancellation(task_info)
+                return
+
+            def is_cancelled() -> bool:
+                return task_info.cancel_requested
+
+            def update_progress(progress: float, message: str = ""):
+                if task_info.cancel_requested:
+                    raise InterruptedError("Tâche annulée")
+
+                task_info.progress = min(100.0, max(0.0, progress))
+                if message:
+                    task_info.message = message
+
+                if progress_callback:
+                    progress_callback(task_id, progress, message)
+
+            result = work_fn(is_cancelled, update_progress)
+
+            if task_info.cancel_requested:
+                self._handle_cancellation(task_info)
+                return
+
+            task_info.status = TaskStatus.COMPLETED
+            task_info.progress = 100.0
+            task_info.message = "Terminée avec succès"
+            task_info.result = result
+            task_info.finished_at = datetime.now()
+
+            logger.info(
+                f"Tâche custom {task_id} terminée avec succès "
+                f"(durée: {task_info._calculate_duration_ms()}ms)"
+            )
+
+        except InterruptedError:
+            self._handle_cancellation(task_info)
+
+        except Exception as e:
+            logger.opt(exception=e).error(
+                f"Erreur lors de l'exécution de la tâche {task_id}: {e}"
+            )
+
+            task_info.status = TaskStatus.FAILED
+            task_info.error = str(e)
+            task_info.message = f"Erreur: {str(e)}"
+            task_info.finished_at = datetime.now()
+
     def _handle_cancellation(self, task_info: TaskInfo):
         """Gère l'annulation d'une tâche."""
         task_info.status = TaskStatus.CANCELLED
