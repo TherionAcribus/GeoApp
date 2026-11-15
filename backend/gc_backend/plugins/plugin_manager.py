@@ -52,7 +52,6 @@ class PluginManager:
         app: Instance de l'application Flask
         loaded_plugins (dict): Cache des plugins chargés en mémoire
         _schema (dict): Schéma JSON de validation
-        _plugin_cache (dict): Cache des métadonnées des plugins
         _loading_errors (dict): Erreurs de chargement par plugin
     """
     
@@ -68,7 +67,6 @@ class PluginManager:
         self.app = app
         self.loaded_plugins: Dict[str, Any] = {}
         self._schema: Optional[Dict] = None
-        self._plugin_cache: Dict[str, Dict] = {}
         self._loading_errors: Dict[str, str] = {}
         # Verrous de chargement par plugin : évitent la double-initialisation et
         # les races sur loaded_plugins quand plusieurs threads (metasolver, batch,

@@ -28,7 +28,7 @@ def client(app):
 
 @pytest.fixture
 def caesar_plugin(app):
-    plugins_dir = Path(__file__).parent.parent / 'plugins'
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
 
     with app.app_context():
         caesar = Plugin(
@@ -305,7 +305,7 @@ class TestScoringNumberRichness:
 
 class TestScoringIntegrationExecute:
     def test_execute_overwrites_confidence_and_keeps_plugin_confidence(self, client, caesar_plugin):
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip('Plugin Caesar non disponible')
 
@@ -340,7 +340,7 @@ class TestScoringIntegrationExecute:
         assert item['confidence'] == 1.0  # encode results keep their original confidence
 
     def test_execute_detect_mode_neutralizes_confidence(self, client, caesar_plugin):
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip('Plugin Caesar non disponible')
 

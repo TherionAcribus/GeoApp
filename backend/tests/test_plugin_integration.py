@@ -18,6 +18,9 @@ from gc_backend.plugins.models import Plugin
 from gc_backend import create_app
 from gc_backend.database import db
 
+# Les plugins réels vivent à la racine du dépôt (plugins/official, plugins/custom)
+PLUGINS_DIR = Path(__file__).resolve().parent.parent.parent / 'plugins'
+
 
 @pytest.fixture
 def app():
@@ -48,7 +51,7 @@ class TestPluginIntegration:
         5. Le format de sortie standardisé
         """
         # Chemin vers les plugins
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -103,7 +106,7 @@ class TestPluginIntegration:
     
     def test_bruteforce_mode(self, app):
         """Test du mode bruteforce du plugin Caesar."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -136,7 +139,7 @@ class TestPluginIntegration:
     
     def test_plugin_reload(self, app):
         """Test du rechargement d'un plugin."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -160,7 +163,7 @@ class TestPluginIntegration:
     
     def test_plugin_status(self, app):
         """Test de récupération du statut des plugins."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -182,7 +185,7 @@ class TestPluginIntegration:
     
     def test_list_plugins_filters(self, app):
         """Test des filtres de listage de plugins."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -204,7 +207,7 @@ class TestPluginIntegration:
     
     def test_plugin_execution_error_handling(self, app):
         """Test de la gestion d'erreur lors de l'exécution."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -221,7 +224,7 @@ class TestPluginIntegration:
     
     def test_lazy_loading(self, app):
         """Test que les plugins sont chargés de manière lazy."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -241,7 +244,7 @@ class TestPluginIntegration:
     
     def test_unload_plugin(self, app):
         """Test du déchargement d'un plugin."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -260,7 +263,7 @@ class TestPluginIntegration:
     
     def test_unload_all_plugins(self, app):
         """Test du déchargement de tous les plugins."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -286,7 +289,7 @@ class TestCaesarPluginFormats:
     
     def test_output_format_encode(self, app):
         """Vérifie le format de sortie en mode encode."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
@@ -328,7 +331,7 @@ class TestCaesarPluginFormats:
     
     def test_output_format_detect(self, app):
         """Vérifie le format de sortie en mode detect."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = PLUGINS_DIR
         
         if not plugins_dir.exists():
             pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")

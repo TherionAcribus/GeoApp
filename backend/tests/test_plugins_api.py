@@ -4,7 +4,6 @@ Tests pour les endpoints API des plugins.
 Ces tests vérifient :
 - Les routes de listage et informations
 - L'exécution synchrone de plugins
-- La génération d'interface HTML
 - Les routes de gestion (discover, status, reload)
 """
 
@@ -88,7 +87,7 @@ def caesar_plugin(app):
     Fixture qui crée et charge le plugin Caesar en DB.
     Nécessaire car TESTING=1 désactive la découverte automatique.
     """
-    plugins_dir = Path(__file__).parent.parent / 'plugins'
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
     
     with app.app_context():
         # Créer le plugin en DB
@@ -121,7 +120,7 @@ def pi_digits_plugin(app):
     Fixture qui crée et charge le plugin pi_digits en DB.
     Nécessaire car TESTING=1 désactive la découverte automatique.
     """
-    plugins_dir = Path(__file__).parent.parent / 'plugins'
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
 
     with app.app_context():
         plugin = Plugin.query.filter_by(name='pi_digits').first()
@@ -2911,7 +2910,7 @@ class TestPluginInfoAPI:
     def test_get_plugin_info_success(self, client, app, caesar_plugin):
         """Test GET /api/plugins/<name> - plugin existant."""
         # Vérifier si Caesar existe
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -2936,39 +2935,12 @@ class TestPluginInfoAPI:
         assert data['plugin_name'] == 'nonexistent_plugin'
 
 
-class TestPluginInterfaceAPI:
-    """Tests pour la génération d'interface HTML."""
-    
-    def test_get_plugin_interface_success(self, client, app, caesar_plugin):
-        """Test GET /api/plugins/<name>/interface - génération HTML."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
-        if not (plugins_dir / 'official' / 'caesar').exists():
-            pytest.skip("Plugin Caesar non disponible")
-        
-        response = client.get('/api/plugins/caesar/interface')
-        
-        assert response.status_code == 200
-        assert response.content_type.startswith('text/html')
-        
-        # Vérifier que l'HTML contient des éléments attendus
-        html = response.data.decode('utf-8')
-        assert 'caesar' in html.lower()
-        assert '<form' in html
-        assert 'input' in html or 'select' in html
-    
-    def test_get_plugin_interface_not_found(self, client, app):
-        """Test génération interface pour plugin inexistant."""
-        response = client.get('/api/plugins/nonexistent/interface')
-        
-        assert response.status_code == 404
-
-
 class TestPluginExecuteAPI:
     """Tests pour l'exécution synchrone de plugins."""
     
     def test_execute_plugin_success(self, client, app, caesar_plugin):
         """Test POST /api/plugins/<name>/execute - exécution réussie."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -3019,7 +2991,7 @@ class TestPluginExecuteAPI:
     
     def test_execute_plugin_bruteforce(self, client, app, caesar_plugin):
         """Test exécution en mode bruteforce."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -3089,7 +3061,7 @@ class TestPluginManagementAPI:
 
     def test_reload_plugin_success(self, client, app, caesar_plugin):
         """Test POST /api/plugins/<name>/reload - rechargement réussi."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -3127,7 +3099,7 @@ class TestPluginAPIIntegration:
     
     def test_full_workflow(self, client, app):
         """Test workflow complet : discover → list → info → execute."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -3426,7 +3398,7 @@ class TestPluginExecuteInputValidationAPI:
     """Validation serveur des inputs sur POST /api/plugins/<name>/execute."""
 
     def test_execute_rejects_non_dict_inputs(self, client, app, caesar_plugin):
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
 
@@ -3445,7 +3417,7 @@ class TestPluginExecuteInputValidationAPI:
         self, client, app, caesar_plugin
     ):
         """Inputs invalides → HTTP 200 avec error.code 'invalid_inputs'."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
 
@@ -3467,7 +3439,7 @@ class TestPluginExecuteInputValidationAPI:
     def test_execute_valid_inputs_still_executes(
         self, client, app, caesar_plugin
     ):
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
 

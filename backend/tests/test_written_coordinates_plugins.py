@@ -20,7 +20,7 @@ def app():
 
 
 def _create_manager(app):
-    plugins_dir = Path(__file__).parent.parent / 'plugins'
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
     if not plugins_dir.exists():
         pytest.skip(f"Répertoire plugins non trouvé: {plugins_dir}")
     manager = PluginManager(str(plugins_dir), app)

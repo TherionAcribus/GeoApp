@@ -4,7 +4,6 @@ Blueprint pour les endpoints API des plugins.
 Ce package expose les routes REST pour :
 - Lister les plugins disponibles
 - Recuperer les informations d'un plugin
-- Generer l'interface HTML d'un plugin
 - Executer un plugin (mode synchrone)
 - Executer des plugins en mode batch
 - Redeclencher la decouverte de plugins

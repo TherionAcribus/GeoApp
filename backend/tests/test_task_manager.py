@@ -44,7 +44,7 @@ def task_manager():
 @pytest.fixture
 def plugin_manager(app):
     """Crée une instance du PluginManager pour les tests."""
-    plugins_dir = Path(__file__).parent.parent / 'plugins'
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
     manager = PluginManager(str(plugins_dir), app)
     manager.discover_plugins()
     return manager
@@ -61,7 +61,7 @@ class TestTaskManagerBasics:
     
     def test_submit_task(self, task_manager, plugin_manager):
         """Test soumission d'une tâche."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -77,7 +77,7 @@ class TestTaskManagerBasics:
     
     def test_get_task_status(self, task_manager, plugin_manager):
         """Test récupération du statut d'une tâche."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -100,7 +100,7 @@ class TestTaskManagerBasics:
     
     def test_task_execution_success(self, task_manager, plugin_manager):
         """Test exécution réussie d'une tâche."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -133,7 +133,7 @@ class TestTaskCancellation:
     
     def test_cancel_queued_task(self, task_manager, plugin_manager):
         """Test annulation d'une tâche en attente."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -159,7 +159,7 @@ class TestTaskCancellation:
     
     def test_cancel_completed_task(self, task_manager, plugin_manager):
         """Test qu'on ne peut pas annuler une tâche terminée."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -190,7 +190,7 @@ class TestTaskListing:
     
     def test_list_all_tasks(self, task_manager, plugin_manager):
         """Test listage de toutes les tâches."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -208,7 +208,7 @@ class TestTaskListing:
     
     def test_list_tasks_by_status(self, task_manager, plugin_manager):
         """Test filtrage par statut."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -234,7 +234,7 @@ class TestTaskListing:
     
     def test_list_tasks_by_plugin_name(self, task_manager, plugin_manager):
         """Test filtrage par nom de plugin."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -255,7 +255,7 @@ class TestTaskStatistics:
     
     def test_get_statistics(self, task_manager, plugin_manager):
         """Test récupération des statistiques."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -282,7 +282,7 @@ class TestTaskStatistics:
     
     def test_queue_size(self, task_manager, plugin_manager):
         """Test calcul de la taille de la queue."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -305,7 +305,7 @@ class TestTaskCleanup:
     
     def test_cleanup_old_tasks(self, task_manager, plugin_manager):
         """Test nettoyage des vieilles tâches."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
@@ -330,7 +330,7 @@ class TestTaskCleanup:
     
     def test_cleanup_preserves_active_tasks(self, task_manager, plugin_manager):
         """Test que le nettoyage préserve les tâches actives."""
-        plugins_dir = Path(__file__).parent.parent / 'plugins'
+        plugins_dir = Path(__file__).resolve().parent.parent.parent / 'plugins'
         if not (plugins_dir / 'official' / 'caesar').exists():
             pytest.skip("Plugin Caesar non disponible")
         
