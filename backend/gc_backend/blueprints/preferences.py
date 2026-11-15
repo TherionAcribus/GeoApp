@@ -10,7 +10,7 @@ Expose :
 - GET /api/preferences/schema
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from loguru import logger
 
 from ..models import AppConfig
@@ -28,6 +28,23 @@ from ..utils.preferences import (
 )
 
 bp = Blueprint('preferences', __name__, url_prefix='/api/preferences')
+
+
+def _refresh_plugin_preferences(keys) -> None:
+    """Recharge les préférences runtime du PluginManager quand une clé
+    ``geoApp.plugins.*`` vient d'être modifiée (timeout, lazy mode...).
+    Ne doit jamais faire échouer la réponse preferences."""
+    if not any(key.startswith('geoApp.plugins.') for key in keys):
+        return
+
+    manager = getattr(current_app, 'plugin_manager', None)
+    if manager is None:
+        return
+
+    try:
+        manager.refresh_runtime_preferences()
+    except Exception as error:
+        logger.warning('Refresh des préférences plugins impossible: {}', error)
 
 
 @bp.get('')
@@ -90,6 +107,7 @@ def update_preference(key: str):
             logger.info('Préférence {} mise à jour -> <masquée>', key)
         else:
             logger.info('Préférence {} mise à jour -> {}', key, value)
+        _refresh_plugin_preferences([key])
         return jsonify({'key': key, 'value': value})
     except KeyError:
         return jsonify({'error': 'Préférence inconnue', 'key': key}), 404
@@ -104,6 +122,7 @@ def delete_preference(key: str):
     except KeyError:
         return jsonify({'error': 'Préférence inconnue', 'key': key}), 404
     logger.info('Préférence {} réinitialisée{}', key, '' if removed else ' (aucune valeur stockée)')
+    _refresh_plugin_preferences([key])
     return jsonify({'key': key, 'removed': removed})
 
 
@@ -121,6 +140,7 @@ def update_preferences_bulk():
     try:
         updated = set_preferences_bulk(payload['values'])
         logger.info('Préférences mises à jour en bulk: {}', ', '.join(updated.keys()))
+        _refresh_plugin_preferences(updated.keys())
         return jsonify({'updated': updated})
     except KeyError as error:
         return jsonify({'error': 'Préférence inconnue', 'message': str(error)}), 404

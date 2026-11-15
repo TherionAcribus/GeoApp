@@ -199,3 +199,47 @@ def test_delete_unknown_preference_returns_404(client):
     response = client.delete('/api/preferences/unknown.key')
     assert response.status_code == 404
 
+
+
+def test_put_plugin_preference_refreshes_manager(client, app):
+    """PUT /api/preferences/<clé plugins> recharge les préférences runtime
+    du PluginManager sans redémarrage."""
+    response = client.put(
+        '/api/preferences/geoApp.plugins.executor.timeoutSec',
+        json={'value': 15}
+    )
+    assert response.status_code == 200
+    assert app.plugin_manager.default_timeout == 15
+
+    response = client.delete('/api/preferences/geoApp.plugins.executor.timeoutSec')
+    assert response.status_code == 200
+    assert app.plugin_manager.default_timeout == 60
+
+
+def test_patch_bulk_plugin_preference_refreshes_manager(client, app):
+    """PATCH /api/preferences avec une clé plugins recharge le manager."""
+    response = client.patch(
+        '/api/preferences',
+        json={'values': {'geoApp.plugins.executor.allowLongRunning': True}}
+    )
+    assert response.status_code == 200
+    assert app.plugin_manager.allow_long_running is True
+
+
+def test_plugin_preference_refresh_failure_does_not_break_response(
+    client, app, monkeypatch
+):
+    """Un refresh du PluginManager qui échoue ne doit pas casser la réponse
+    de la route preferences."""
+    def boom():
+        raise RuntimeError('refresh impossible')
+
+    monkeypatch.setattr(
+        app.plugin_manager, 'refresh_runtime_preferences', boom
+    )
+
+    response = client.put(
+        '/api/preferences/geoApp.plugins.executor.timeoutSec',
+        json={'value': 15}
+    )
+    assert response.status_code == 200

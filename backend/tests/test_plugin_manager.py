@@ -955,3 +955,83 @@ class TestPluginManagerDuplicateNames:
 
         errors = manager.get_discovery_errors()
         assert not any('double' in error for error in errors.values())
+
+
+class TestPluginManagerRuntimePreferences:
+    """Tests de refresh_runtime_preferences : une préférence executor
+    modifiée doit se répercuter sur les wrappers déjà chargés."""
+
+    def test_refresh_runtime_preferences_updates_loaded_wrapper_timeout(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Changer timeoutSec / allowLongRunning met à jour le timeout du
+        wrapper chargé, sans rechargement."""
+        from gc_backend.utils.preferences import set_preference_value
+
+        data = valid_plugin_json.copy()
+        data['timeout_seconds'] = 120
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'test_plugin', data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class TestPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        wrapper = manager.get_plugin('test_plugin')
+        assert wrapper is not None
+        # Capé par le timeout par défaut (60)
+        assert wrapper.metadata.timeout_seconds == 60
+
+        with app.app_context():
+            set_preference_value('geoApp.plugins.executor.timeoutSec', 20)
+        manager.refresh_runtime_preferences()
+
+        assert manager.default_timeout == 20
+        assert manager.loaded_plugins['test_plugin'] is wrapper
+        assert wrapper.metadata.timeout_seconds == 20
+
+        with app.app_context():
+            set_preference_value('geoApp.plugins.executor.allowLongRunning', True)
+        manager.refresh_runtime_preferences()
+
+        assert wrapper.metadata.timeout_seconds == 120
+
+    def test_refresh_runtime_preferences_keeps_meta_plugins_without_watchdog(
+        self, app, temp_plugins_dir, valid_plugin_json
+    ):
+        """Les plugins meta restent à timeout 0 (pas de watchdog) avant et
+        après un changement de timeoutSec."""
+        from gc_backend.utils.preferences import set_preference_value
+
+        data = valid_plugin_json.copy()
+        data['name'] = 'meta_plugin'
+        data['kinds'] = ['meta']
+        data['timeout_seconds'] = 120
+        plugin_dir = create_test_plugin(
+            temp_plugins_dir, 'official', 'meta_plugin', data
+        )
+        (plugin_dir / 'main.py').write_text(
+            'class MetaPluginPlugin:\n'
+            '    def execute(self, inputs):\n'
+            '        return {"status": "ok", "results": []}\n',
+            encoding='utf-8',
+        )
+
+        manager = PluginManager(str(temp_plugins_dir), app)
+        manager.discover_plugins()
+
+        wrapper = manager.get_plugin('meta_plugin')
+        assert wrapper is not None
+        assert wrapper.metadata.timeout_seconds == 0
+
+        with app.app_context():
+            set_preference_value('geoApp.plugins.executor.timeoutSec', 20)
+        manager.refresh_runtime_preferences()
+
+        assert wrapper.metadata.timeout_seconds == 0

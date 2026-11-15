@@ -1193,3 +1193,51 @@ class PluginManager:
                 )
         except Exception as error:
             logger.warning("Impossible de charger les préférences plugins: {}", error)
+
+    def refresh_runtime_preferences(self) -> None:
+        """
+        Recharge les préférences runtime (lazy mode, timeout par défaut,
+        allow_long_running) et réapplique le nouveau timeout sur les
+        wrappers déjà chargés (le lazy mode ne sert qu'au préchargement
+        de démarrage : rien n'est préchargé ni déchargé ici).
+        """
+        if not self.app:
+            return
+
+        old_timeout = self.default_timeout
+        old_allow_long_running = self.allow_long_running
+        self._load_runtime_preferences()
+
+        if (
+            (self.default_timeout, self.allow_long_running)
+            == (old_timeout, old_allow_long_running)
+            or not self.loaded_plugins
+        ):
+            return
+
+        try:
+            with self.app.app_context():
+                records = {
+                    plugin.name: plugin
+                    for plugin in Plugin.query.filter(
+                        Plugin.name.in_(list(self.loaded_plugins.keys()))
+                    ).all()
+                }
+
+                updated = 0
+                for name, wrapper in list(self.loaded_plugins.items()):
+                    record = records.get(name)
+                    if record is None or not hasattr(wrapper, 'metadata'):
+                        continue
+                    wrapper.metadata.timeout_seconds = (
+                        self._get_timeout_from_metadata(record)
+                    )
+                    updated += 1
+
+            logger.info(
+                "Timeout réappliqué sur {} plugin(s) chargé(s)", updated
+            )
+        except Exception as error:
+            logger.warning(
+                "Impossible de réappliquer les timeouts plugins: {}", error
+            )
