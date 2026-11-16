@@ -135,11 +135,26 @@ async function testCalculatorToolsReachTheModel(): Promise<void> {
     assert.ok(ids.includes('aide_list_zones'));
 }
 
-// §3 : sous le profil guided par defaut, les tools destructeurs recoivent une
+// Par defaut (profil automation), les tools s'executent sans confirmation : le
+// flag confirmAlwaysAllow est retire, meme quand le tool en porte un a la source.
+async function testDefaultProfileRunsAideToolsWithoutConfirmation(): Promise<void> {
+    const { agent, captured } = createAgent({});
+
+    await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
+
+    const byId = new Map((captured.tools ?? []).map(t => [t.id, t]));
+    assert.equal(byId.get('aide_delete_zone')?.confirmAlwaysAllow, undefined);
+    assert.equal(byId.get('aide_refresh_geocache')?.confirmAlwaysAllow, undefined);
+    assert.equal(byId.get('aide_list_zones')?.confirmAlwaysAllow, undefined);
+}
+
+// Sous le profil guided (opt-in), les tools destructeurs recoivent une
 // confirmation ; le libelle specifique du tool est conserve (pas l'avertissement
 // generique). Les tools reseau/auth passent aussi par confirmation.
 async function testGuidedProfileConfirmsDestructiveAideTools(): Promise<void> {
-    const { agent, captured } = createAgent({});
+    const { agent, captured } = createAgent({
+        preferences: { 'geoApp.chat.behaviorProfile.default': 'guided' },
+    });
 
     await (agent as any).sendLlmRequest(createRequest(), [], [], undefined, { id: 'fake-lm' });
 
@@ -215,6 +230,7 @@ async function testSystemPromptContainsGuardrailAndPolicy(): Promise<void> {
 
 async function run(): Promise<void> {
     await testCalculatorToolsReachTheModel();
+    await testDefaultProfileRunsAideToolsWithoutConfirmation();
     await testGuidedProfileConfirmsDestructiveAideTools();
     await testOfflineProfileBlocksNetworkAideTools();
     await testToolOverrideCanDisableAideTool();

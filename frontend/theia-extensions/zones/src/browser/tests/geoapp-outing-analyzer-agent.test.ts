@@ -176,9 +176,9 @@ async function testMissingPromptFallsBackInsteadOfLosingInstructions(): Promise<
     const description = await (agent as any).getSystemMessageDescription(createContext());
 
     // La classe de base reprend la main : mieux vaut le prompt générique que pas de
-    // consigne du tout.
+    // consigne du tout. La variante résolue suit le prompt pack par defaut (automation).
     assert.notEqual(description, undefined);
-    assert.ok(description.text.includes('PROMPT CHAT geoapp-chat-system-guided'));
+    assert.ok(description.text.includes('PROMPT CHAT geoapp-chat-system-automation'));
 }
 
 async function run(): Promise<void> {

@@ -87,7 +87,8 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                     description: 'true uniquement apres que l utilisateur a accepte le diff presente. Optionnel.',
                 },
             }),
-            confirmAlwaysAllow: 'Remplacer les questions deja enregistrees pour cette EarthCache ?',
+            // Pas de confirmAlwaysAllow : les tools s'executent par defaut, une
+            // confirmation reste possible via ai-features.chat.toolConfirmation.
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {

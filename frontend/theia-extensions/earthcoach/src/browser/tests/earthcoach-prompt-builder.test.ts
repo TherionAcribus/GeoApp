@@ -264,8 +264,8 @@ function testNoteToolShape(): void {
     assert.equal(tools[0].id, EarthCoachNoteTools.SAVE_NOTE_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_save_note');
     assert.match(tools[0].description, /source=earthcoach/);
-    // Ecriture dans les notes: la confirmation precede l'autorisation durable.
-    assert.equal(tools[0].confirmAlwaysAllow, 'Enregistrer cette synthese EarthCoach dans les notes GeoApp ?');
+    // Les tools GeoApp s'executent par defaut : pas de confirmation embarquee.
+    assert.equal(tools[0].confirmAlwaysAllow, undefined);
 }
 
 class TestNoteTools extends EarthCoachNoteTools {
@@ -890,8 +890,8 @@ function testLoggingTaskToolShape(): void {
     assert.equal(tools[0].id, EarthCoachLoggingTaskTools.EXTRACT_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_extract_logging_tasks');
     assert.match(tools[0].description, /REMPLACE/);
-    // Extraction destructive: la confirmation precede l'autorisation durable.
-    assert.equal(tools[0].confirmAlwaysAllow, 'Remplacer les questions deja enregistrees pour cette EarthCache ?');
+    // Les tools GeoApp s'executent par defaut : pas de confirmation embarquee.
+    assert.equal(tools[0].confirmAlwaysAllow, undefined);
 }
 
 function testLoggingTaskInputBuilder(): void {

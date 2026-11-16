@@ -178,7 +178,7 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
         [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: {
             type: 'string',
             enum: BEHAVIOR_PROFILE_ENUM,
-            default: 'guided',
+            default: 'automation',
             description: "Profil comportemental par défaut : jusqu'où l'IA peut aller automatiquement (guided, safe, offline, automation, debug).",
         },
         [GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF]: behaviorWorkflowProfileProperty(

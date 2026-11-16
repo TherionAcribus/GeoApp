@@ -409,7 +409,7 @@ export function resolveGeoAppChatBehaviorProfileForWorkflow(
         return explicit;
     }
 
-    const defaultProfile = normalizeGeoAppChatBehaviorProfile(preferences[GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]) || 'guided';
+    const defaultProfile = normalizeGeoAppChatBehaviorProfile(preferences[GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]) || 'automation';
     const normalizedWorkflowKind = normalizeGeoAppChatWorkflowKind(workflowKind);
     if (!normalizedWorkflowKind || normalizedWorkflowKind === 'general') {
         return defaultProfile;

@@ -370,10 +370,13 @@ export class GeoAppChatPolicyService {
         return {
             ...entry.tool,
             id: entry.publicName,
-            // Quand le tool porte deja un libelle de confirmation explicite (les
-            // aide_* nomment l'action, ex. "Supprimer la zone ?"), on le conserve :
-            // il est plus informatif que l'avertissement generique de la policy.
-            confirmAlwaysAllow: confirm ? (entry.tool.confirmAlwaysAllow ?? warning) : entry.tool.confirmAlwaysAllow,
+            // confirmAlwaysAllow force une confirmation Theia meme quand le defaut
+            // global est always_allow : on ne le transmet que si la policy exige
+            // une confirmation, sinon le tool s'execute sans demander. Quand la
+            // confirmation est demandee, le libelle explicite du tool (les aide_*
+            // nomment l'action, ex. "Supprimer la zone ?") prime sur
+            // l'avertissement generique de la policy.
+            confirmAlwaysAllow: confirm ? (entry.tool.confirmAlwaysAllow ?? warning) : undefined,
         };
     }
 
@@ -436,7 +439,7 @@ export class GeoAppChatPolicyService {
 
     protected readBehaviorPreferences(): Record<string, unknown> {
         return {
-            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'guided'),
+            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'automation'),
             [GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF]: this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF, 'default'),
             [GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF]: this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF, 'default'),
             [GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF]: this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF, 'default'),

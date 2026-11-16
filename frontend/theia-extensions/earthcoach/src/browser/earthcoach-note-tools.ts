@@ -65,7 +65,8 @@ export class EarthCoachNoteTools implements FrontendApplicationContribution {
                     required: false,
                 },
             }),
-            confirmAlwaysAllow: 'Enregistrer cette synthese EarthCoach dans les notes GeoApp ?',
+            // Pas de confirmAlwaysAllow : les tools s'executent par defaut, une
+            // confirmation reste possible via ai-features.chat.toolConfirmation.
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
                 try {

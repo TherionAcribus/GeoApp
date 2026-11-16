@@ -81,11 +81,15 @@ function testCatalogMapsStaticAndDynamicTools(): void {
     assert.equal(dynamic?.dynamic, true);
 }
 
-function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
+// Par defaut le profil automation expose les tools sans confirmation : Theia
+// les execute directement, l'utilisateur peut toujours bloquer ou confirmer
+// un tool via les overrides de la vue Policy.
+function testDefaultProfileEnablesToolsWithoutConfirmation(): void {
     const { policyService } = createServices();
     const policy = policyService.resolvePolicy();
     const exposed = policyService.getManagedToolRequests(policy);
 
+    assert.equal(policy.behaviorProfile, 'automation');
     assert.deepEqual(names(exposed), [
         'calculate_final_coordinates',
         'coordinate_projection',
@@ -94,11 +98,7 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
         'save_found_coordinates',
         'search_answer_online',
     ]);
-    assert.equal(policy.confirmToolIds.has('geoapp.checkers.run'), true);
-    assert.equal(policy.confirmToolIds.has('geoapp.coordinates.save-found'), true);
-    assert.equal(policy.confirmToolIds.has('formula-solver.search-answer'), false);
-    assert.equal(policy.confirmToolIds.has('geoapp.plugins.workflow.run-step'), true);
-    assert.equal(policy.confirmToolIds.has('plugin.coordinate_projection'), false);
+    assert.equal(policy.confirmToolIds.size, 0);
     assert.equal(policy.skillPack, 'workflow');
     assert.deepEqual(policy.recommendedSkillNames, [
         GeoAppChatSkillNames.coordinates,
@@ -106,7 +106,8 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
         GeoAppChatSkillNames.formula,
         GeoAppChatSkillNames.research,
     ]);
-    assert.ok(exposed.find(request => request.name === 'run_checker')?.confirmAlwaysAllow);
+    assert.equal(exposed.find(request => request.name === 'run_checker')?.confirmAlwaysAllow, undefined);
+    assert.equal(exposed.find(request => request.name === 'run_geocache_workflow_step')?.confirmAlwaysAllow, undefined);
 }
 
 function testOfflineProfileRemovesNetworkAndHighRiskTools(): void {
@@ -228,14 +229,16 @@ function testToolScopesRestrictExposurePerAgent(): void {
     assert.ok(outingIds.includes('aide_calculate'));
 }
 
-// Quand la policy exige une confirmation et que le tool porte deja un libelle
-// explicite (les aide_* nomment l'action), on conserve ce libelle plutot que
-// l'avertissement generique.
+// Quand la policy exige une confirmation (ici via un override 'confirm') et que
+// le tool porte deja un libelle explicite (les aide_* nomment l'action), on
+// conserve ce libelle plutot que l'avertissement generique.
 function testConfirmationPrefersToolSpecificMessage(): void {
     const deleteZone = tool('aide_delete_zone', 'aide_delete_zone');
     (deleteZone as { confirmAlwaysAllow?: string }).confirmAlwaysAllow = 'Supprimer la zone ?';
 
-    const { policyService } = createServices({}, [deleteZone]);
+    const { policyService } = createServices({
+        'geoApp.chat.toolPolicy.overrides': { aide_delete_zone: 'confirm' },
+    }, [deleteZone]);
     const policy = policyService.resolvePolicy();
     const exposed = policyService.getManagedToolRequests(policy, 'aide');
 
@@ -297,7 +300,7 @@ async function testSystemPromptPreviewIncludesResolvedPromptAndPolicy(): Promise
 
 async function run(): Promise<void> {
     testCatalogMapsStaticAndDynamicTools();
-    testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools();
+    testDefaultProfileEnablesToolsWithoutConfirmation();
     testOfflineProfileRemovesNetworkAndHighRiskTools();
     testOverridesDisableAndForceConfirmationByRegistryId();
     testSkillPackAndOverrides();

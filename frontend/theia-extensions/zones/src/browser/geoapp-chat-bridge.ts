@@ -609,7 +609,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
     protected resolveRequestedBehaviorProfile(detail?: GeoAppOpenChatRequestDetail): GeoAppChatWorkflowBehaviorProfile {
         return resolveGeoAppChatBehaviorProfileForWorkflow(detail?.workflowKind, detail?.preferredBehaviorProfile, {
-            'geoApp.chat.behaviorProfile.default': this.preferenceService.get('geoApp.chat.behaviorProfile.default', 'guided'),
+            'geoApp.chat.behaviorProfile.default': this.preferenceService.get('geoApp.chat.behaviorProfile.default', 'automation'),
             'geoApp.chat.behaviorProfile.workflow.secretCode': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.secretCode', 'default'),
             'geoApp.chat.behaviorProfile.workflow.formula': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.formula', 'default'),
             'geoApp.chat.behaviorProfile.workflow.checker': this.preferenceService.get('geoApp.chat.behaviorProfile.workflow.checker', 'default'),

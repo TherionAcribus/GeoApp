@@ -79,7 +79,7 @@ function testResolveGeoAppChatProfileForWorkflow(): void {
 function testResolveGeoAppChatBehaviorProfileForWorkflow(): void {
     assert.equal(
         resolveGeoAppChatBehaviorProfileForWorkflow(undefined, undefined, {}),
-        'guided'
+        'automation'
     );
 
     assert.equal(

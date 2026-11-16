@@ -449,8 +449,8 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     protected getActivePresetId(): string | undefined {
         const behavior = normalizeGeoAppChatBehaviorProfile(
-            this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'guided')
-        ) || 'guided';
+            this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'automation')
+        ) || 'automation';
         // Comme resolvePolicy : un prompt pack "auto"/non reconnu suit le profil comportemental.
         const promptPack = normalizeGeoAppChatBehaviorProfile(
             this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, behavior)
@@ -1240,13 +1240,13 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             <h3>Profils comportement</h3>
                             <dl>
                                 <dt>guided</dt>
-                                <dd>Mode recommandé : aide active, confirmation sur les actions sensibles.</dd>
+                                <dd>Aide active, confirmation sur les actions sensibles.</dd>
                                 <dt>safe</dt>
                                 <dd>Mode prudent : moins d'automatisation, davantage de blocages.</dd>
                                 <dt>offline</dt>
                                 <dd>Mode local strict : exige un modèle vérifié local et évite réseau, auth, checkers et services externes.</dd>
                                 <dt>automation</dt>
-                                <dd>Mode rapide : exécute davantage d'étapes quand les données suffisent.</dd>
+                                <dd>Mode par défaut : exécute les tools sans confirmation et enchaîne les étapes quand les données suffisent.</dd>
                                 <dt>debug</dt>
                                 <dd>Mode diagnostic : expose plus d'informations pour comprendre le routage.</dd>
                             </dl>

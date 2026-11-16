@@ -27,7 +27,8 @@
           "toolbar.showToolbar": true,
           "files.enableTrash": false,
           "security.workspace.trust.enabled": false,
-          "ai-features.openAiOfficial.useResponseApi": true
+          "ai-features.openAiOfficial.useResponseApi": true,
+          "ai-features.chat.defaultToolConfirmation": "always_allow"
         },
         "reloadOnReconnect": true
       }
