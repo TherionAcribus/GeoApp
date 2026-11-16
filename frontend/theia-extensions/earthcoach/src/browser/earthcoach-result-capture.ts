@@ -62,6 +62,31 @@ export class EarthCoachResultCaptureService {
     }
 
     /**
+     * Le modele demande des precisions avant la capture (earthcoach_ask_user):
+     * la requete reste enregistree, la capture arrive a la reponse de
+     * l'utilisateur avec le meme request_id.
+     */
+    markAwaitingInput(requestId: string, geocacheId: number, questions: string[]): void {
+        const snapshot = this.requests.get(requestId);
+        if (!snapshot) {
+            throw new Error('Instantané EarthCoach introuvable pour cette demande de précisions.');
+        }
+        if (snapshot.geocacheId !== geocacheId) {
+            throw new Error('La demande de précisions ne correspond pas à la géocache préparée.');
+        }
+        const cleaned = questions.map(question => question.trim()).filter(Boolean).slice(0, 3);
+        if (!cleaned.length) {
+            throw new Error('Aucune question de précision fournie.');
+        }
+        snapshot.awaitingInput = cleaned;
+    }
+
+    isAwaitingInput(requestId: string | undefined): boolean {
+        const snapshot = requestId ? this.requests.get(requestId) : undefined;
+        return Boolean(snapshot?.awaitingInput?.length);
+    }
+
+    /**
      * Vrai quand un dossier prepare a enregistre ce requestId avant l'envoi:
      * c'est le critere de correlation de l'observateur de fin de reponse.
      */

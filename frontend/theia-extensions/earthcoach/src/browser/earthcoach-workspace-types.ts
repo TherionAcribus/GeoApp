@@ -115,6 +115,12 @@ export interface EarthCoachPreparedRequest {
     groups: EarthCoachWorkspaceGroup[];
     unavailableImages: Array<{ id: string; label?: string; reason: string }>;
     refine?: EarthCoachRefineTarget;
+    /**
+     * Questions de precision posees via earthcoach_ask_user : le modele attend
+     * la reponse de l'utilisateur avant de capturer. Etat pose a l'execution,
+     * pas une donnee preparee; conserve dans l'instantane comme trace.
+     */
+    awaitingInput?: string[];
 }
 
 /**

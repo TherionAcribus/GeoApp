@@ -7,6 +7,7 @@ import { EarthCoachResultProposal } from './earthcoach-workspace-types';
 @injectable()
 export class EarthCoachResultTools implements FrontendApplicationContribution {
     static readonly TOOL_ID = 'earthcoach.capture_result';
+    static readonly ASK_TOOL_ID = 'earthcoach.ask_user';
 
     @inject(ToolInvocationRegistry)
     protected readonly registry!: ToolInvocationRegistry;
@@ -15,15 +16,17 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
     protected readonly capture!: EarthCoachResultCaptureService;
 
     async onStart(): Promise<void> {
-        try {
-            await this.registry.registerTool(this.createTool());
-        } catch (error) {
-            console.warn('[EarthCoach] Could not register result capture tool', error);
+        for (const tool of this.buildAllTools()) {
+            try {
+                await this.registry.registerTool(tool);
+            } catch (error) {
+                console.warn(`[EarthCoach] Could not register ${tool.name}`, error);
+            }
         }
     }
 
     buildAllTools(): ToolRequest[] {
-        return [this.createTool()];
+        return [this.createTool(), this.createAskTool()];
     }
 
     protected createTool(): ToolRequest {
@@ -77,6 +80,48 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                     return `Résultat EarthCoach enregistré dans le dossier terrain (résultat ${result.id}).`;
                 } catch (error) {
                     return `Échec de l'enregistrement EarthCoach : ${error instanceof Error ? error.message : String(error)}`;
+                }
+            },
+        };
+    }
+
+    /**
+     * Tour de precision optionnel : quand une mesure de terrain essentielle
+     * manque, le modele pose 1 a 3 questions ciblees AVANT la capture et
+     * attend la reponse de l'utilisateur dans la meme session (le request_id
+     * du dossier reste enregistre). Pas une question de confort : reserve aux
+     * donnees qui feraient basculer la reponse.
+     */
+    protected createAskTool(): ToolRequest {
+        return {
+            id: EarthCoachResultTools.ASK_TOOL_ID,
+            name: 'earthcoach_ask_user',
+            description: 'Pose à l utilisateur 1 à 3 questions ciblées quand une donnée de terrain essentielle manque pour répondre. À utiliser AVANT earthcoach_capture_result, puis attendre la réponse dans la session avant de capturer.',
+            providerName: 'geoapp.earthcoach',
+            parameters: {
+                type: 'object',
+                properties: {
+                    request_id: { type: 'string', description: 'Identifiant immuable fourni dans le dossier terrain.' },
+                    geocache_id: { type: 'number', description: 'ID GeoApp fourni dans le dossier.' },
+                    questions: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: '1 à 3 questions ciblées, dans la langue utilisateur demandée.',
+                    },
+                },
+                required: ['request_id', 'geocache_id', 'questions'],
+                additionalProperties: false,
+            } as ToolRequestParameters,
+            handler: async (argString: string) => {
+                try {
+                    const args = JSON.parse(argString || '{}') as { request_id?: unknown; geocache_id?: unknown; questions?: unknown };
+                    const questions = Array.isArray(args.questions)
+                        ? args.questions.map(question => String(question)).filter(question => question.trim())
+                        : [];
+                    this.capture.markAwaitingInput(String(args.request_id || ''), Number(args.geocache_id), questions);
+                    return 'Questions transmises à l utilisateur. Attends sa réponse, puis appelle earthcoach_capture_result avec le même request_id.';
+                } catch (error) {
+                    return `Échec de la demande de précisions : ${error instanceof Error ? error.message : String(error)}`;
                 }
             },
         };

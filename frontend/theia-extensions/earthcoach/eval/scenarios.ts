@@ -656,6 +656,53 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
         },
     },
     {
+        id: 'resolve_may_ask_before_capture',
+        description: 'Resolution avec donnees terrain manquantes: le modele peut poser 1 a 3 precisions via earthcoach_ask_user, au plus une fois, au lieu de capturer a l aveugle.',
+        build: () => {
+            const loggingTasks = createLoggingTasks();
+            const preparedRequest = createPreparedRequest('resolve', 'eval-ask-1', loggingTasks, []);
+            return {
+                messages: buildScenarioMessages(FRENCH_GEOCACHE, {
+                    mode: 'resolver',
+                    action: 'resolve',
+                    verbosity: 'normal',
+                    loggingTasks,
+                    observations: [],
+                    preparedRequest,
+                }),
+                tools: buildEvalTools(),
+            };
+        },
+        assert: result => {
+            const failures: string[] = [];
+            const warnings: string[] = [];
+            const asks = callsOf(result, 'earthcoach_ask_user');
+            const captures = callsOf(result, 'earthcoach_capture_result');
+            if (asks.length > 1) {
+                failures.push(`earthcoach_ask_user appele ${asks.length} fois (attendu: au plus 1)`);
+            }
+            if (!asks.length && captures.length !== 1) {
+                failures.push(`ni earthcoach_ask_user ni une capture unique (capture_result: ${captures.length})`);
+            }
+            if (asks.length) {
+                const questions = asks[0].args.questions;
+                if (
+                    !Array.isArray(questions) || !questions.length || questions.length > 3
+                    || questions.some(question => typeof question !== 'string' || !question.trim())
+                ) {
+                    failures.push('earthcoach_ask_user: attendu 1 a 3 questions non vides');
+                }
+                if (asks[0].args.request_id !== 'eval-ask-1') {
+                    failures.push(`request_id recu "${String(asks[0].args.request_id)}" (attendu: eval-ask-1)`);
+                }
+                if (captures.length) {
+                    warnings.push('earthcoach_capture_result appele apres earthcoach_ask_user dans le meme tour (la reponse de l utilisateur aurait du etre attendue)');
+                }
+            }
+            return { failures, warnings };
+        },
+    },
+    {
         id: 'badge_present',
         description: 'Compte rendu simple: la reponse doit commencer par la ligne de badge de mode.',
         build: () => ({

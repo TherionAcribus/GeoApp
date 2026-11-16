@@ -49,9 +49,15 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
             const captured = this.capture.wasCaptured(event.requestId);
             await this.capture.attachMarkdown(event.requestId as string, visibleMarkdown, event.sessionId);
             if (!captured) {
-                // Le modele n'a jamais appele l'outil de capture: le
-                // dossier a le texte mais aucune proposition structuree.
-                this.messages.warn('Le dossier EarthCoach a reçu le texte Markdown, mais aucune proposition structurée : vous pouvez demander à l agent de relancer la capture.');
+                if (this.capture.isAwaitingInput(event.requestId)) {
+                    // Tour de precision: le modele pose des questions avant la
+                    // capture, ce n est pas un oubli de propositions.
+                    this.messages.info('EarthCoach attend vos précisions dans le chat pour finaliser le dossier.');
+                } else {
+                    // Le modele n'a jamais appele l'outil de capture: le
+                    // dossier a le texte mais aucune proposition structuree.
+                    this.messages.warn('Le dossier EarthCoach a reçu le texte Markdown, mais aucune proposition structurée : vous pouvez demander à l agent de relancer la capture.');
+                }
             }
         } catch (error) {
             console.warn('[EarthCoach] Unable to attach the response to its prepared request', error);

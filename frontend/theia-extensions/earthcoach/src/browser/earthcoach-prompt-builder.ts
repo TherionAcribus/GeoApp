@@ -685,7 +685,9 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
     // Le contrat des propositions (champs, answer vs missing, JSON invisible)
     // n'est pas repete ici: il vit dans le prompt systeme partage.
     lines.push('A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.');
-    if (prepared.action !== 'resolve') {
+    if (prepared.action === 'resolve') {
+        lines.push('Si une mesure de terrain essentielle fait defaut, tu peux d abord appeler earthcoach_ask_user (1 a 3 questions ciblees) et attendre la reponse de l utilisateur dans cette session avant la capture; sinon reponds avec ce que tu as.');
+    } else {
         lines.push('Pour cette analyse, fournis une proposition par question avec status et missing (ce qu il reste a relever sur le terrain), answer vide: le dossier en fait une liste de releves a faire.');
     }
     return lines;

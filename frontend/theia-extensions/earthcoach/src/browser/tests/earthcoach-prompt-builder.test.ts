@@ -823,6 +823,8 @@ function testCapturedResolutionIsNotDuplicatedInChat(): void {
     assert.doesNotMatch(prompt, /Reponse proposee:/);
     assert.match(prompt, /Traite toutes les 2 question\(s\)/);
     assert.match(prompt, /photo a joindre au log, ne bloque pas la reponse/);
+    // Le tour de precision optionnel est propose pour une resolution capturee.
+    assert.match(prompt, /earthcoach_ask_user \(1 a 3 questions ciblees\)/);
     // Images decrites une seule fois, libelle compris.
     assert.doesNotMatch(prompt, /Images transmises:/);
     assert.match(prompt, /image=9; origine=user_observation; libelle=Falaise/);
@@ -2014,9 +2016,35 @@ function testCropRectConversion(): void {
 
 function testResultCaptureToolShape(): void {
     const tools = new EarthCoachResultTools().buildAllTools();
-    assert.equal(tools.length, 1);
+    assert.equal(tools.length, 2);
     assert.equal(tools[0].name, 'earthcoach_capture_result');
     assert.match(tools[0].description, /request_id/);
+    assert.equal(tools[1].name, 'earthcoach_ask_user');
+    assert.match(tools[1].description, /AVANT earthcoach_capture_result/);
+}
+
+async function testAskUserMarksAwaitingInput(): Promise<void> {
+    // Le tour de precision marque la requete: l'observateur sait alors que
+    // l'absence de capture en fin de reponse n'est pas un oubli.
+    const service = new EarthCoachResultCaptureService();
+    service.register({
+        requestId: 'req-ask',
+        geocacheId: 7,
+        action: 'resolve',
+        preparedAt: '',
+        listing: { language: 'fr', fingerprint: 'x', reliableSeparation: true, html: '', text: '' },
+        observations: [],
+        loggingTasks: [],
+        images: [],
+        groups: [],
+        unavailableImages: [],
+    });
+    assert.equal(service.isAwaitingInput('req-ask'), false);
+    service.markAwaitingInput('req-ask', 7, ['Quelle epaisseur ?', 'Quelle couleur ?', '', '  ']);
+    assert.equal(service.isAwaitingInput('req-ask'), true);
+    assert.throws(() => service.markAwaitingInput('req-ask', 7, []), /Aucune question/);
+    assert.throws(() => service.markAwaitingInput('req-ask', 8, ['Q?']), /ne correspond pas/);
+    assert.throws(() => service.markAwaitingInput('req-inconnue', 7, ['Q?']), /introuvable/);
 }
 
 async function testResultCaptureAttachesMarkdownToItsOwnRequest(): Promise<void> {
@@ -2485,6 +2513,7 @@ async function run(): Promise<void> {
     testWorkspaceSelectionValidation();
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();
+    await testAskUserMarksAwaitingInput();
     await testResultCaptureAttachesMarkdownToItsOwnRequest();
     testCaptureHasRequest();
     await testCaptureMarksCapturedRequestIds();
