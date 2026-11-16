@@ -619,6 +619,27 @@ export interface GeoAppChatResponseEvent {
     requestId?: string;
     /** Texte complet de la réponse, tel qu'il s'affiche dans la conversation. */
     text: string;
+    /**
+     * Seulement le texte rédigé par le modèle : sans réflexion, appels d'outils
+     * ni encarts d'information, que `text` sérialise aussi.
+     */
+    markdown?: string;
+}
+
+/** Parties de réponse qui portent le texte rédigé par le modèle. */
+const AUTHORED_RESPONSE_KINDS = new Set(['markdownContent', 'text', 'code']);
+
+/**
+ * Texte rédigé d'une réponse de chat. `asDisplayString()` de Theia y mêle la
+ * réflexion et les appels d'outils (« Tool call: … ») : un observateur qui
+ * conserve la réponse ne doit pas les enregistrer.
+ */
+export function collectAuthoredResponseText(content: ReadonlyArray<{ kind: string; asString?(): string | undefined }>): string {
+    return content
+        .filter(part => AUTHORED_RESPONSE_KINDS.has(part.kind))
+        .map(part => part.asString?.() ?? '')
+        .filter(text => text.trim() !== '')
+        .join('\n\n');
 }
 
 export interface GeoAppChatResponseObserver {

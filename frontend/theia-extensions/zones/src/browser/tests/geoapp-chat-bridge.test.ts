@@ -2,6 +2,7 @@ import * as assert from 'assert/strict';
 import { ChatAgentLocation } from '@theia/ai-chat';
 import { DEFAULT_CHAT_AGENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { GEOAPP_OPEN_CHAT_REQUEST_EVENT, GeoAppChatBridge } from '../geoapp-chat-bridge';
+import { GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT } from '../geoapp-chat-shared';
 import {
     GeoAppChatFastAgentId,
     GeoAppChatLocalAgentId,
@@ -130,6 +131,7 @@ class FakeMessageService {
 
 class FakeWindowEventTarget {
     protected readonly listeners = new Map<string, EventListener[]>();
+    readonly dispatched: Array<{ type: string; detail?: unknown }> = [];
 
     addEventListener(type: string, listener: EventListener): void {
         const current = this.listeners.get(type) || [];
@@ -152,6 +154,10 @@ class FakeWindowEventTarget {
     listenerCount(type: string): number {
         return (this.listeners.get(type) || []).length;
     }
+
+    dispatchEvent(event: { type: string; detail?: unknown }): void {
+        this.dispatched.push({ type: event.type, detail: event.detail });
+    }
 }
 
 async function triggerOpenChat(
@@ -166,6 +172,7 @@ function createBridge(options?: {
     preferences?: Record<string, unknown>;
     readyAgentIds?: string[];
     modelIdsByAgent?: Record<string, string>;
+    aiModelResolutionService?: unknown;
 }) {
     const agents = options?.agents || [
         { id: GeoAppChatFastAgentId, name: 'GeoApp Chat (Fast)' },
@@ -187,7 +194,9 @@ function createBridge(options?: {
         chatAgentService as any,
         preferenceService as any,
         languageModelRegistry as any,
-        messages as any
+        messages as any,
+        [],
+        options?.aiModelResolutionService as any
     );
 
     return { bridge, chatService, chatAgentService, preferenceService, languageModelRegistry, messages };
@@ -846,6 +855,104 @@ async function testOfflineBehaviorForcesLocalAgent(): Promise<void> {
     assert.deepEqual(messages.errors, []);
 }
 
+/**
+ * Un modele qui refuse les images (OpenRouter repond « 404 No endpoints found
+ * that support image input ») ne doit plus faire echouer la requete entiere :
+ * le bridge degrade en texte seul, annonce les images comme non transmises et
+ * ne telecharge meme pas les fichiers.
+ */
+async function testImageInputUnsupportedModelSendsTextOnly(): Promise<void> {
+    await withFakeWindow(async fakeWindow => {
+        const earthCoachAgent = { id: 'earthcoach', name: '@EarthCoach' };
+        const { bridge, chatService, messages } = createBridge({
+            agents: [earthCoachAgent],
+            preferences: { 'geoApp.chat.defaultProfile': 'fast' },
+            readyAgentIds: ['earthcoach'],
+            aiModelResolutionService: {
+                checkImageInputSupport: async () => ({ capability: 'vision', required: true, status: 'unsupported' }),
+            },
+        });
+
+        const previousFetch = (globalThis as any).fetch;
+        let fetchCalls = 0;
+        (globalThis as any).fetch = () => {
+            fetchCalls++;
+            return Promise.reject(new Error('no network'));
+        };
+        try {
+            await triggerOpenChat(bridge, {
+                gcCode: 'GCIMG1',
+                prompt: 'Dossier avec images.',
+                workflowKind: 'general',
+                sessionKind: 'earthcoach',
+                preferredAgentId: 'earthcoach',
+                earthcoachRequestId: 'req-img',
+                imageContexts: [{ id: '12', url: 'http://x.invalid/12.jpg', origin: 'cache_listing', label: 'Affleurement' }],
+            });
+        } finally {
+            (globalThis as any).fetch = previousFetch;
+        }
+
+        assert.equal(fetchCalls, 0);
+        assert.equal(chatService.sentRequests.length, 1);
+        assert.match(chatService.sentRequests[0].text, /n ont pas pu etre transmises/);
+        assert.match(chatService.sentRequests[0].text, /n accepte pas les images/);
+        assert.equal(messages.warnings.length, 1);
+        assert.match(messages.warnings[0], /n'accepte pas les images/);
+        const transmitted = fakeWindow.dispatched.find(event => event.type === GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT);
+        assert.ok(transmitted);
+        assert.deepEqual((transmitted!.detail as any).transmittedIds, []);
+        assert.deepEqual((transmitted!.detail as any).failedIds, ['12']);
+    });
+}
+
+/**
+ * Capacite image confirmee : le chemin de preparation reste actif ; une image
+ * qui echoue au telechargement suit le repli habituel (annonce en echec, pas
+ * de variable image).
+ */
+async function testImageInputSupportedModelPreparesImages(): Promise<void> {
+    await withFakeWindow(async fakeWindow => {
+        const earthCoachAgent = { id: 'earthcoach', name: '@EarthCoach' };
+        const { bridge, chatService } = createBridge({
+            agents: [earthCoachAgent],
+            preferences: { 'geoApp.chat.defaultProfile': 'fast' },
+            readyAgentIds: ['earthcoach'],
+            aiModelResolutionService: {
+                checkImageInputSupport: async () => ({ capability: 'vision', required: true, status: 'supported' }),
+            },
+        });
+
+        const previousFetch = (globalThis as any).fetch;
+        let fetchCalls = 0;
+        (globalThis as any).fetch = () => {
+            fetchCalls++;
+            return Promise.resolve({ ok: false } as Response);
+        };
+        try {
+            await triggerOpenChat(bridge, {
+                gcCode: 'GCIMG2',
+                prompt: 'Dossier avec images.',
+                workflowKind: 'general',
+                sessionKind: 'earthcoach',
+                preferredAgentId: 'earthcoach',
+                earthcoachRequestId: 'req-img-2',
+                imageContexts: [{ id: '34', url: 'http://x.invalid/34.jpg', origin: 'cache_listing', label: 'Strates' }],
+            });
+        } finally {
+            (globalThis as any).fetch = previousFetch;
+        }
+
+        // 1 telechargement direct + 1 repli vers l'endpoint de stockage.
+        assert.equal(fetchCalls, 2);
+        assert.equal(chatService.sentRequests.length, 1);
+        assert.match(chatService.sentRequests[0].text, /n ont pas pu etre transmises/);
+        const transmitted = fakeWindow.dispatched.find(event => event.type === GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT);
+        assert.ok(transmitted);
+        assert.deepEqual((transmitted!.detail as any).failedIds, ['34']);
+    });
+}
+
 async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
@@ -866,6 +973,8 @@ async function run(): Promise<void> {
     await testLocalProfileRejectsMissingReadyModel();
     await testExplicitLocalAgentRejectsCloudAssignment();
     await testOfflineBehaviorForcesLocalAgent();
+    await testImageInputUnsupportedModelSendsTextOnly();
+    await testImageInputSupportedModelPreparesImages();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-bridge tests passed');
 }

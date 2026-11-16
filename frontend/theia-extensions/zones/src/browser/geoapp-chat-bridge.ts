@@ -21,6 +21,7 @@ import {
     GeoAppChatResponseObserver,
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
+    collectAuthoredResponseText,
     encodeGeoAppChatImage,
     GEOAPP_CHAT_IMAGE_MAX_DIMENSION,
     GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT,
@@ -39,6 +40,7 @@ import {
     GeoAppLocalModelPreferences,
     GEOAPP_LOCAL_MODEL_IDS_PREF,
 } from './geoapp-local-model-guard';
+import { GeoAppAiModelResolutionService } from './geoapp-ai-model-resolution-service';
 export { GEOAPP_OPEN_CHAT_REQUEST_EVENT } from './geoapp-chat-shared';
 
 interface GeoAppOpenChatRequestDetail {
@@ -90,6 +92,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         @inject(MessageService) protected readonly messages: MessageService,
         @multiInject(GeoAppChatResponseObserver) @optional()
         protected readonly responseObservers: GeoAppChatResponseObserver[] = [],
+        @inject(GeoAppAiModelResolutionService) @optional()
+        protected readonly aiModelResolutionService?: GeoAppAiModelResolutionService,
     ) {}
 
     onStart(): void {
@@ -118,30 +122,6 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
         try {
             const imageContexts = this.getImageContexts(detail);
-            const imagePreparation = await this.fetchImagesAsVariables(imageContexts, detail.imageQuality);
-            const imageVariables = imagePreparation.variables;
-            // Le dossier terrain corrige son instantane sur cette annonce: une
-            // image declaree prete au moment du "envoyer" peut encore echouer
-            // ici au decodage/reencodage, elle n'a alors jamais atteint le modele.
-            if (imageContexts.length) {
-                window.dispatchEvent(new CustomEvent(GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT, {
-                    detail: {
-                        requestId: detail.earthcoachRequestId,
-                        transmittedIds: imagePreparation.transmitted
-                            .map(context => context.id)
-                            .filter((id): id is string => Boolean(id)),
-                        failedIds: imagePreparation.failures
-                            .map(context => context.id)
-                            .filter((id): id is string => Boolean(id)),
-                        failedLabels: imagePreparation.failures.map(context => context.label || context.id || context.url),
-                    },
-                }));
-            }
-            if (imagePreparation.failures.length) {
-                const failedLabels = imagePreparation.failures.map(context => context.label || context.id || context.url).join(', ');
-                prompt = `${prompt}\n\nIMPORTANT: ces images n ont pas pu etre transmises et ne doivent jamais etre presentees comme examinees: ${failedLabels}.`;
-                this.messages.warn(`${imagePreparation.failures.length} image(s) n'ont pas pu être transmise(s) au modèle.`);
-            }
 
             // Un envoi de dossier EarthCoach est autocontenu : l'annonce et le
             // dossier sont retransmis a chaque envoi. Une session neuve evite
@@ -151,10 +131,58 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             const existingSession = detail.earthcoachRequestId?.trim()
                 ? undefined
                 : this.findExistingSession(detail, baseSessionTitle);
+            // L'agent est resolu avant de telecharger les images : un modele
+            // qui refuse les images rendrait leur preparation inutile, et la
+            // requete finirait rejetee par le fournisseur (OpenRouter renvoie
+            // « 404 No endpoints found that support image input ») au lieu de
+            // repondre en texte seul.
+            const pinnedAgent = existingSession && !this.hasExplicitAgentSelection(detail) && existingSession.pinnedAgent
+                ? existingSession.pinnedAgent
+                : await this.resolveDefaultChatAgent(detail);
+
+            let imageVariables: AIVariableResolutionRequest[] = [];
+            if (imageContexts.length) {
+                if (await this.isAgentImageInputUnsupported(pinnedAgent)) {
+                    const failedLabels = imageContexts.map(context => context.label || context.id || context.url);
+                    window.dispatchEvent(new CustomEvent(GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT, {
+                        detail: {
+                            requestId: detail.earthcoachRequestId,
+                            transmittedIds: [],
+                            failedIds: imageContexts
+                                .map(context => context.id)
+                                .filter((id): id is string => Boolean(id)),
+                            failedLabels,
+                        },
+                    }));
+                    prompt = `${prompt}\n\nIMPORTANT: ces images n ont pas pu etre transmises et ne doivent jamais etre presentees comme examinees: ${failedLabels.join(', ')}. Le modele attribue a cet agent n accepte pas les images.`;
+                    this.messages.warn('GeoApp Chat : le modèle attribué à cet agent n\'accepte pas les images ; la demande part en texte seul.');
+                } else {
+                    const imagePreparation = await this.fetchImagesAsVariables(imageContexts, detail.imageQuality);
+                    imageVariables = imagePreparation.variables;
+                    // Le dossier terrain corrige son instantane sur cette annonce: une
+                    // image declaree prete au moment du "envoyer" peut encore echouer
+                    // ici au decodage/reencodage, elle n'a alors jamais atteint le modele.
+                    window.dispatchEvent(new CustomEvent(GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT, {
+                        detail: {
+                            requestId: detail.earthcoachRequestId,
+                            transmittedIds: imagePreparation.transmitted
+                                .map(context => context.id)
+                                .filter((id): id is string => Boolean(id)),
+                            failedIds: imagePreparation.failures
+                                .map(context => context.id)
+                                .filter((id): id is string => Boolean(id)),
+                            failedLabels: imagePreparation.failures.map(context => context.label || context.id || context.url),
+                        },
+                    }));
+                    if (imagePreparation.failures.length) {
+                        const failedLabels = imagePreparation.failures.map(context => context.label || context.id || context.url).join(', ');
+                        prompt = `${prompt}\n\nIMPORTANT: ces images n ont pas pu etre transmises et ne doivent jamais etre presentees comme examinees: ${failedLabels}.`;
+                        this.messages.warn(`${imagePreparation.failures.length} image(s) n'ont pas pu être transmise(s) au modèle.`);
+                    }
+                }
+            }
+
             if (existingSession) {
-                const pinnedAgent = this.hasExplicitAgentSelection(detail) || !existingSession.pinnedAgent
-                    ? await this.resolveDefaultChatAgent(detail)
-                    : existingSession.pinnedAgent;
                 existingSession.pinnedAgent = pinnedAgent;
                 existingSession.title = this.buildDisplaySessionTitle(baseSessionTitle, pinnedAgent);
                 this.setSessionMetadata(existingSession, detail, baseSessionTitle, pinnedAgent);
@@ -170,7 +198,6 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                 return;
             }
 
-            const pinnedAgent = await this.resolveDefaultChatAgent(detail);
             const session = this.chatService.createSession(ChatAgentLocation.Panel, { focus: detail.focus !== false }, pinnedAgent);
             session.title = this.buildDisplaySessionTitle(baseSessionTitle, pinnedAgent);
             this.setSessionMetadata(session, detail, baseSessionTitle, pinnedAgent);
@@ -211,9 +238,10 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
         invocation.responseCompleted.then(response => {
             const text = response?.response?.asDisplayString?.() ?? '';
+            const markdown = collectAuthoredResponseText(response?.response?.content ?? []);
             for (const observer of this.responseObservers) {
                 try {
-                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, requestId, text });
+                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, requestId, text, markdown });
                     Promise.resolve(outcome).catch(error =>
                         console.error('[GeoAppChatBridge] Observateur de réponse en échec', error)
                     );
@@ -640,6 +668,24 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             });
         } catch {
             return undefined;
+        }
+    }
+
+    /**
+     * Vrai uniquement quand le modele resolu refuse explicitement les images :
+     * un doute (sonde indisponible, service absent) laisse la demande partir
+     * avec ses images plutot que de priver un modele qui les lirait peut-etre.
+     */
+    protected async isAgentImageInputUnsupported(agent: ChatAgent | undefined): Promise<boolean> {
+        if (!agent || !this.aiModelResolutionService) {
+            return false;
+        }
+        try {
+            const model = await this.selectAgentLanguageModel(agent);
+            const check = await this.aiModelResolutionService.checkImageInputSupport(model);
+            return check?.status === 'unsupported';
+        } catch {
+            return false;
         }
     }
 

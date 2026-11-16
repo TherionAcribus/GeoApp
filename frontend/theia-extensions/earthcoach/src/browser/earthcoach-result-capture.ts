@@ -162,7 +162,7 @@ export class EarthCoachResultCaptureService {
             requestId: payload.request_id,
             action: payload.action,
             contextSnapshot: snapshot,
-            proposals: payload.proposals || [],
+            proposals: (payload.proposals || []).map(normalizeCapturedProposal),
             markdown: options.markdown,
             sessionId: options.sessionId,
         });
@@ -180,6 +180,35 @@ export class EarthCoachResultCaptureService {
     }
 }
 
+/**
+ * Masque ce qui n'est pas la synthese: bloc ```earthcoach-result perdu,
+ * et la reflexion et les appels d'outils que d'anciennes versions
+ * enregistraient avec le texte (serialisation `asDisplayString` de Theia).
+ */
 export function stripEarthCoachResultBlocks(markdown: string): string {
-    return (markdown || '').replace(/```earthcoach-result\s*\n[\s\S]*?\n?```/gi, '').trim();
+    return (markdown || '')
+        .replace(/```earthcoach-result\s*\n[\s\S]*?\n?```/gi, '')
+        .replace(/<Thinking>[\s\S]*?<\/Thinking>/g, '')
+        .replace(/^Tool call: [a-z0-9_]+\(.*\)\s*$/gim, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+/** Libelles que le modele ajoute en tete de `missing`, deja titre « Elements a completer ». */
+const MISSING_LABEL_PATTERN = /^[ \t]*(?:to complete|still needed|missing|[àa] compl[ée]ter|reste [àa] (?:faire|relever)|zu erg[äa]nzen|por completar|da completare|aan te vullen|a completar)[ \t]*:[ \t]*/gim;
+
+/** Retire de `missing` le libelle redondant, ligne par ligne. */
+export function normalizeCapturedProposal(proposal: EarthCoachResultProposal): EarthCoachResultProposal {
+    if (!proposal.missing) {
+        return proposal;
+    }
+    return { ...proposal, missing: proposal.missing.replace(MISSING_LABEL_PATTERN, '').trim() || null };
+}
+
+/**
+ * Le prompt systeme impose la ligne de badge en tete de chaque reponse: elle
+ * n'a pas sa place dans le message final copie pour le proprietaire.
+ */
+export function stripEarthCoachModeBadge(markdown: string): string {
+    return (markdown || '').replace(/^\s*\*\*Mode EarthCoach :[^\n]*(?:\n|$)/, '').trim();
 }

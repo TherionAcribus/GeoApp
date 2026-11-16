@@ -101,7 +101,7 @@ Le modele recoit chaque image reduite a environ 1 568 pixels sur le plus grand c
 
 EarthCoach n'analyse qu'une seule version linguistique du listing et ne compare jamais les traductions. GeoApp recherche les attributs HTML de langue et les titres comme « Francais », « English » ou « Deutsch », puis applique cet ordre : langue preferee, francais, anglais, premiere version complete.
 
-Vous pouvez changer la langue dans le dossier. Le choix reste memorise tant que le listing ne change pas. Si la separation n'est pas assez fiable, GeoApp utilise la description complete et l'indique avant l'envoi.
+Vous pouvez changer la langue dans le dossier. Le choix reste memorise tant que le listing ne change pas. Un listing redige dans une seule langue est reconnu automatiquement et affiche sous cette langue. Si le listing melange plusieurs langues sans separation exploitable, GeoApp utilise la description complete et l'indique avant l'envoi.
 
 ### Propositions revisables
 
@@ -111,7 +111,11 @@ La reponse candidate ne doit contenir que la reponse factuelle. Les mesures, pho
 
 Chaque proposition est numerotee (**Q1**, **Q2**...) ; une alerte signale les questions pour lesquelles le modele n'a rien propose. Les corrections sont enregistrees automatiquement, et **Revenir a la version IA** annule celles d'une question.
 
-Vous pouvez reporter une proposition dans la question existante, ou toutes les reponses pretes d'un coup avec **Reporter les N reponses pretes**. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Le bouton **Generer la reponse finale avec mes corrections** sauvegarde les modifications, les renvoie explicitement au chat et redige un message dans la langue choisie. Si des informations manquent encore, le resultat reste un brouillon avec des marqueurs a completer. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
+Vous pouvez reporter une proposition dans la question existante, ou toutes les reponses pretes d'un coup avec **Reporter les N reponses pretes**. Une question n'est marquee comme repondue qu'apres cette validation et seulement si la proposition est complete. Le bouton **Generer la reponse finale avec mes corrections** sauvegarde les modifications, les renvoie explicitement au chat et redige le message destine au proprietaire.
+
+Deux langues sont distinguees. **Votre langue**, choisie en tete du dossier, sert a tout ce qui vous est adresse : echanges, questions de precision, traduction des questions, reponses candidates et elements a completer. Vous relisez et corrigez donc tout dans votre langue. Le message au proprietaire a sa propre langue, choisie a cote du bouton de generation. En **Automatique**, il est redige dans votre langue si le listing la propose, et en anglais sinon. Vous pouvez aussi imposer une langue. Vos reponses corrigees sont alors traduites fidelement.
+
+ Si des informations manquent encore, le resultat reste un brouillon avec des marqueurs a completer. Une synthese peut aussi etre copiee dans les notes locales. Aucune de ces actions ne cree ni ne publie un log.
 
 Dans la conversation, EarthCoach se limite a une synthese courte (bilan et prochaines mesures) : le detail question par question est dans le dossier. Une **analyse** produit, en plus de son compte rendu, une liste **A relever sur le terrain** par question.
 

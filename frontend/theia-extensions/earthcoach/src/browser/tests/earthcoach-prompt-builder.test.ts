@@ -58,9 +58,16 @@ import { formatFrenchGeologySummary, formatGeologySummary } from '../earthcoach-
 import { EarthCoachElevationTools, readElevationPoints } from '../earthcoach-elevation-tools';
 import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
-import { selectEarthCoachDescription } from '../earthcoach-description-selector';
+import {
+    detectListingLanguage,
+    listingAuthoredLanguages,
+    resolveFinalAnswerLanguage,
+    selectEarthCoachDescription,
+} from '../earthcoach-description-selector';
 import {
     EarthCoachResultCaptureService,
+    normalizeCapturedProposal,
+    stripEarthCoachModeBadge,
     stripEarthCoachResultBlocks,
 } from '../earthcoach-result-capture';
 import {
@@ -82,7 +89,7 @@ import {
     revertProposalPatch,
     validateEarthCoachSelection,
 } from '../earthcoach-workspace-logic';
-import { EarthCoachPreparedRequest } from '../earthcoach-workspace-types';
+import { EarthCoachPreparedRequest, EarthCoachResultProposal } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -205,6 +212,10 @@ function testSystemPromptResponseLanguage(): void {
     const germanPrompt = buildEarthCoachSystemPrompt('coach', 'detailed', 'de');
     assert.match(germanPrompt, /Reponds en allemand/);
     assert.doesNotMatch(germanPrompt, /Reponds en francais/);
+
+    // Les propositions a relire suivent la langue de l'utilisateur, pas celle du listing.
+    assert.match(germanPrompt, /propositions de reponse\) est en allemand, meme si le listing est dans une autre langue/);
+    assert.match(germanPrompt, /message final destine au proprietaire/);
 
     const unknownPrompt = buildEarthCoachSystemPrompt('coach', 'compact', 'xx');
     assert.match(unknownPrompt, /Reponds en francais/);
@@ -805,6 +816,7 @@ function testCapturedResolutionIsNotDuplicatedInChat(): void {
         preparedRequest: preparedRequestFixture('resolve', [{ id: '9', origin: 'user_observation', label: 'Falaise', fileUri: '/9.jpg' }]),
     });
     assert.match(prompt, /passe uniquement par earthcoach_capture_result/);
+    assert.match(prompt, /Langue de l utilisateur: francais\. Redige dans cette langue .*question_translation, answer et missing/);
     assert.match(prompt, /ne recopie pas les reponses question par question/);
     assert.doesNotMatch(prompt, /Reponse proposee:/);
     assert.match(prompt, /Traite toutes les 2 question\(s\)/);
@@ -1594,14 +1606,92 @@ function testFinalAnswerPromptUsesEditedProposalsWithoutJson(): void {
         answer: 'J’ai identifié du calcaire et du marbre.',
         missing: 'Comparer encore la surface du conglomérat.',
         confidence: 'medium',
-    }], 'Français');
+    }], { user: 'fr', final: 'en' });
 
-    assert.match(prompt, /Langue demandee: Français/);
+    assert.match(prompt, /Langue de l utilisateur: francais/);
+    assert.match(prompt, /Langue du message au proprietaire: anglais\. Traduis fidelement/);
     assert.match(prompt, /Quelles pierres pouvez-vous trouver/);
     assert.match(prompt, /J’ai identifié du calcaire et du marbre/);
     assert.match(prompt, /Comparer encore la surface du conglomérat/);
     assert.match(prompt, /source prioritaire/);
     assert.doesNotMatch(prompt, /```|request_id|\{"/);
+}
+
+function testFinalAnswerLanguageFollowsOwner(): void {
+    const proposal: EarthCoachResultProposal = { question: 'Welche Steine?', status: 'ready', answer: 'Du calcaire.' };
+    // Meme langue que le poseur: pas de traduction demandee.
+    const same = buildEarthCoachFinalAnswerPrompt([proposal], { user: 'fr', final: 'fr' });
+    assert.match(same, /Langue du message au proprietaire: francais\./);
+    assert.doesNotMatch(same, /Traduis/);
+    // Langue du listing inconnue: le modele applique la regle sur les questions originales.
+    const unknown = buildEarthCoachFinalAnswerPrompt([proposal], { user: 'fr' });
+    assert.match(unknown, /si les questions originales sont en francais, redige-le en francais; sinon redige-le en anglais/);
+}
+
+function testResolveFinalAnswerLanguage(): void {
+    const paragraph = (language: string) => `${language} ${'description geologique complete et question terrain. '.repeat(5)}`;
+    const bilingual = selectEarthCoachDescription({
+        id: 1,
+        name: 'Bilingue',
+        description_html: `<section lang='de'>${paragraph('Deutsch')}</section><section lang='en'>${paragraph('English')}</section>`,
+    }, 'fr');
+    assert.deepEqual(listingAuthoredLanguages(bilingual), ['de', 'en']);
+    // Le poseur ne propose pas le francais: message en anglais.
+    assert.equal(resolveFinalAnswerLanguage('fr', listingAuthoredLanguages(bilingual)), 'en');
+    // Le poseur propose la langue de l'utilisateur: on la garde.
+    assert.equal(resolveFinalAnswerLanguage('de', listingAuthoredLanguages(bilingual)), 'de');
+
+    // Description complete: son libelle vient des preferences, la langue reste inconnue.
+    const full = selectEarthCoachDescription({ id: 2, name: 'Simple', description_html: '<p>Une seule langue.</p>' }, 'fr');
+    assert.equal(listingAuthoredLanguages(full), undefined);
+    assert.equal(resolveFinalAnswerLanguage('fr', listingAuthoredLanguages(full)), undefined);
+}
+
+function testStripEarthCoachModeBadge(): void {
+    const response = '**Mode EarthCoach : resolution** — synthese fondee sur tes donnees (dis "reviens en coach" pour changer).\n\nHello,\nhere are my answers.';
+    assert.equal(stripEarthCoachModeBadge(response), 'Hello,\nhere are my answers.');
+    assert.equal(stripEarthCoachModeBadge('Hello **Mode EarthCoach : x**'), 'Hello **Mode EarthCoach : x**');
+}
+
+const KRKA_LISTING = 'Krka National Park is located in central Dalmatia. The river flows through a canyon of limestone, and the waterfalls are formed by travertine barriers. To log this cache, answer the questions: the date of declaration of the national park, the name of the biggest waterfall, and what kind of material the underlay is mostly made of. Send your answers with a photo of you at the map.';
+
+function testDetectListingLanguage(): void {
+    assert.equal(detectListingLanguage(KRKA_LISTING), 'en');
+    assert.equal(detectListingLanguage('Le site est une ancienne carrière de calcaire. Les strates sont bien visibles dans la falaise et nous vous demandons de relever leur épaisseur. Pour valider cette cache, envoyez vos réponses avec une photo de vous sur le site, mais pas des strates.'), 'fr');
+    assert.equal(detectListingLanguage('Die Wasserfälle sind aus Kalktuff entstanden. Der Fluss hat sich in den Kalkstein eingeschnitten und es ist nicht einfach, die Schichten zu erkennen. Bitte sende die Antworten mit einem Foto von dir und der Karte, die auch im Park zu sehen ist.'), 'de');
+    // Deux langues sans separation exploitable: les deux sont annoncees.
+    assert.equal(detectListingLanguage(`${KRKA_LISTING} Le parc est situé en Dalmatie et les cascades sont formées par des barrières de travertin. Pour valider cette cache, envoyez vos réponses avec une photo, mais pas des cascades.`), 'en+fr');
+    assert.equal(detectListingLanguage('Krka, 1985.'), undefined);
+}
+
+function testMonolingualListingIsLabelledByDetection(): void {
+    // Un listing anglais sans versions separees etait annonce "Francais"
+    // (preference) et "separation pas assez fiable".
+    const selection = selectEarthCoachDescription({ id: 2058, name: 'Krka', description_html: `<p>${KRKA_LISTING}</p>` }, 'fr');
+    assert.equal(selection.selectedLanguage, 'en');
+    assert.equal(selection.selected.label, 'English');
+    assert.equal(selection.reliable, true);
+    assert.equal(selection.notice, undefined);
+    assert.deepEqual(listingAuthoredLanguages(selection), ['en']);
+    assert.equal(resolveFinalAnswerLanguage('fr', listingAuthoredLanguages(selection)), 'en');
+
+    const override = selectEarthCoachDescription({ id: 2058, name: 'Krka', description_override_html: `<p>${KRKA_LISTING}</p>` }, 'fr');
+    assert.equal(override.selectedLanguage, 'en');
+    // Texte de l'utilisateur: il ne dit rien de la langue du poseur.
+    assert.equal(listingAuthoredLanguages(override), undefined);
+}
+
+function testStripChatTraceFromResultMarkdown(): void {
+    const stored = '<Thinking>Clarifying tasks\n\nI need the geology tool.</Thinking>\n\nTool call: earthcoach_geology_at_point({"lat":43.8,"lon":15.96})\n\nTool call: earthcoach_capture_result({"proposals":[]})\n\nSynthese utile.';
+    assert.equal(stripEarthCoachResultBlocks(stored), 'Synthese utile.');
+}
+
+function testNormalizeCapturedProposalMissing(): void {
+    const normalize = (missing: string) => normalizeCapturedProposal({ question: 'q', status: 'partial', missing }).missing;
+    assert.equal(normalize('To complete: provide the declaration date.'), 'provide the declaration date.');
+    assert.equal(normalize('À compléter : mesurer la hauteur.\nA completer: photographier.'), 'mesurer la hauteur.\nphotographier.');
+    assert.equal(normalize('Mesurer la hauteur de chute.'), 'Mesurer la hauteur de chute.');
+    assert.equal(normalize('To complete:'), null);
 }
 
 function testWorkspaceSelectionValidation(): void {
@@ -2279,6 +2369,13 @@ async function run(): Promise<void> {
     testResolvePromptKeepsAllEvidenceRegardlessOfVerbosity();
     testStripEarthCoachResultBlocks();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();
+    testFinalAnswerLanguageFollowsOwner();
+    testResolveFinalAnswerLanguage();
+    testStripEarthCoachModeBadge();
+    testDetectListingLanguage();
+    testMonolingualListingIsLabelledByDetection();
+    testStripChatTraceFromResultMarkdown();
+    testNormalizeCapturedProposalMissing();
     testWorkspaceSelectionValidation();
     await testOwnerImageFallsBackToBackendStorage();
     testResultCaptureToolShape();

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import markdownit from '@theia/core/shared/markdown-it';
 import DOMPurify from '@theia/core/shared/dompurify';
+import { EARTHCOACH_LANGUAGE_OPTIONS, labelFor } from './earthcoach-description-selector';
 import { stripEarthCoachResultBlocks } from './earthcoach-result-capture';
 import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
@@ -60,6 +61,7 @@ export interface EarthCoachResultCardHandlers {
     onGenerateFinal(resultId: number): void;
     onSaveNote(result: EarthCoachResult): void;
     onCopyFinal(finalAnswer: string): void;
+    onFinalLanguageChange(choice: string): void;
 }
 
 export interface EarthCoachResultCardProps {
@@ -72,6 +74,10 @@ export interface EarthCoachResultCardProps {
     images: GeoImage[];
     observations: UserObservation[];
     loggingTasks: LoggingTask[];
+    /** `auto` ou un code de langue imposé pour le message au propriétaire. */
+    finalLanguageChoice: string;
+    /** Langue retenue en automatique, si le listing permet de la déduire. */
+    autoFinalLanguage?: string;
     handlers: EarthCoachResultCardHandlers;
 }
 
@@ -143,7 +149,14 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 {props.generatingFinal ? 'Préparation…' : (result.final_answer ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
             </button>
             <button className='theia-button secondary' onClick={() => handlers.onSaveNote(result)}>Enregistrer la synthèse dans les notes</button>
-            <span className='ecw-muted'>Langue : celle choisie en haut du dossier.</span>
+            <label>Langue du message <select className='theia-select' value={props.finalLanguageChoice}
+                title='Automatique : votre langue si le listing la propose, sinon l’anglais'
+                onChange={event => handlers.onFinalLanguageChange(event.currentTarget.value)}>
+                <option value='auto'>{props.autoFinalLanguage
+                    ? `Automatique — ${labelFor(props.autoFinalLanguage)}`
+                    : 'Automatique — la vôtre si c’est celle du poseur, sinon English'}</option>
+                {EARTHCOACH_LANGUAGE_OPTIONS.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+            </select></label>
         </div>
         {result.final_answer && <div className='ecw-proposal'>
             <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>

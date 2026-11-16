@@ -15,7 +15,12 @@ import {
     rememberPreparedGeoAppChatImage,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
-import { selectEarthCoachDescription } from './earthcoach-description-selector';
+import {
+    EARTHCOACH_LANGUAGE_OPTIONS,
+    listingAuthoredLanguages,
+    resolveFinalAnswerLanguage,
+    selectEarthCoachDescription,
+} from './earthcoach-description-selector';
 import {
     dispatchEarthCoachDataUpdated,
     EarthCoachRefreshScheduler,
@@ -84,15 +89,7 @@ const GROUP_ROLES: Array<{ value: EarthCoachGroupRole; label: string }> = [
     { value: 'other', label: 'Autre' },
 ];
 
-const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
-    { value: 'fr', label: 'Français' },
-    { value: 'en', label: 'English' },
-    { value: 'de', label: 'Deutsch' },
-    { value: 'es', label: 'Español' },
-    { value: 'it', label: 'Italiano' },
-    { value: 'nl', label: 'Nederlands' },
-    { value: 'pt', label: 'Português' },
-];
+const RESPONSE_LANGUAGES = EARTHCOACH_LANGUAGE_OPTIONS;
 
 /** Les petits details des photos (grain, strates, fossiles) doivent rester lisibles par le modele. */
 const EARTHCOACH_IMAGE_QUALITY: GeoAppChatImageQuality = 'high';
@@ -180,6 +177,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected sending = false;
     protected generatingFinalResultId?: number;
     protected responseLanguage = 'fr';
+    /** Langue du message au propriétaire : `auto` ou un code de langue imposé. */
+    protected finalLanguageChoice = 'auto';
     protected confirmWithoutPhoto = false;
     protected unavailable: Array<{ id: string; label?: string; reason: string }> = [];
     protected saveTimer?: number;
@@ -225,6 +224,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         onGenerateFinal: resultId => { void this.generateFinalAnswer(resultId); },
         onSaveNote: result => { void this.saveResultAsNote(result); },
         onCopyFinal: finalAnswer => { void this.copyFinalAnswer(finalAnswer); },
+        onFinalLanguageChange: choice => {
+            this.finalLanguageChoice = choice;
+            this.update();
+        },
     };
 
     @inject(EarthCoachWorkspaceService)
@@ -717,8 +720,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         this.update();
     }
 
-    protected responseLanguageLabel(): string {
-        return RESPONSE_LANGUAGES.find(candidate => candidate.value === this.responseLanguage)?.label || this.responseLanguage;
+    /** Langue déduite du listing ; `undefined` si le listing n'est pas séparé en versions. */
+    protected autoFinalLanguage(): string | undefined {
+        return this.description
+            ? resolveFinalAnswerLanguage(this.responseLanguage, listingAuthoredLanguages(this.description))
+            : undefined;
     }
 
     protected imageLimit(): number {
@@ -1009,7 +1015,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 gcCode: geocache.gc_code,
                 geocacheName: geocache.name,
                 sessionTitle: `EARTHCOACH FINAL - ${label}`,
-                prompt: buildEarthCoachFinalAnswerPrompt(saved.proposals, this.responseLanguageLabel()),
+                prompt: buildEarthCoachFinalAnswerPrompt(saved.proposals, {
+                    user: this.responseLanguage,
+                    final: this.finalLanguageChoice === 'auto' ? this.autoFinalLanguage() : this.finalLanguageChoice,
+                }),
                 focus: true,
                 workflowKind: 'general',
                 preferredProfile: 'strong',
@@ -1627,6 +1636,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         const images = this.context?.images || [];
         const observations = this.context?.observations || [];
         const loggingTasks = this.context?.loggingTasks || [];
+        const autoFinalLanguage = this.autoFinalLanguage();
         return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map(result =>
             <EarthCoachResultCard
                 key={result.id}
@@ -1638,6 +1648,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 images={images}
                 observations={observations}
                 loggingTasks={loggingTasks}
+                finalLanguageChoice={this.finalLanguageChoice}
+                autoFinalLanguage={autoFinalLanguage}
                 handlers={this.resultHandlers}
             />
         )}</section>;
@@ -1695,7 +1707,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             <section className='ecw-panel'><div className='ecw-row'><label>Version du listing <select className='theia-select' value={this.description?.selectedLanguage || ''} onChange={event => {
                 this.rebuildDescription(event.currentTarget.value); this.update();
             }}>{(this.description?.versions || []).map(candidate => <option key={candidate.language} value={candidate.language}>{candidate.label}</option>)}</select></label>
-                <label>Langue des questions et réponses <select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
+                <label>Votre langue (échanges et propositions) <select className='theia-select' value={this.responseLanguage} onChange={event => this.setResponseLanguage(event.currentTarget.value)}>
                     {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
                 </select></label>
                 <span className='ecw-muted'>{this.description?.reliable ? 'Une seule version sera analysée.' : 'Description complète utilisée.'}</span></div></section>

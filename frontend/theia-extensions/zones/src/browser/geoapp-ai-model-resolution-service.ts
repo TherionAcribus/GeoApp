@@ -36,7 +36,7 @@ export const GEOAPP_AI_TASKS: GeoAppAiTaskDescriptor[] = [
     { id: 'chat-fast', label: 'GeoApp Chat (Fast)', agentId: 'geoapp-chat-fast', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
     { id: 'chat-strong', label: 'GeoApp Chat (Strong)', agentId: 'geoapp-chat-strong', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
     { id: 'chat-web', label: 'GeoApp Chat (Web)', agentId: 'geoapp-chat-web', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model', optionalCapabilities: ['web'] },
-    { id: 'earthcoach', label: 'EarthCoach', agentId: 'earthcoach', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
+    { id: 'earthcoach', label: 'EarthCoach', agentId: 'earthcoach', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model', optionalCapabilities: ['vision'] },
     { id: 'aide', label: '@Aide', agentId: 'geoapp-doc-aide', purpose: 'chat', kind: 'chat', executionPath: 'theia-language-model' },
     { id: 'formula-local', label: 'Formula Solver (Local)', agentId: 'geoapp-formula-solver-local', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', requiresLocalModel: true, optionalCapabilities: ['structured-output'] },
     { id: 'formula-fast', label: 'Formula Solver (Fast)', agentId: 'geoapp-formula-solver-fast', purpose: 'formula-solving', kind: 'internal', executionPath: 'theia-language-model', optionalCapabilities: ['structured-output'] },
@@ -53,6 +53,17 @@ export const GEOAPP_AI_TASKS: GeoAppAiTaskDescriptor[] = [
 ];
 
 const GEOAPP_MODEL_CAPABILITIES_PREF = 'geoApp.ai.modelCapabilities';
+
+// Tache de convenance pour sonder la seule capacite image d'un modele deja
+// resolu, hors affectation de tache : le bridge chat l'utilise avant de
+// joindre des images a une requete.
+const IMAGE_INPUT_PROBE_TASK: GeoAppAiTaskDescriptor = {
+    id: 'image-input-probe',
+    label: 'Sondage de capacité image',
+    kind: 'internal',
+    executionPath: 'theia-language-model',
+    requiredCapabilities: ['vision'],
+};
 
 type GeoAppModelCapabilityOverrides = Record<string, Partial<Record<GeoAppAiModelCapability, boolean>>>;
 
@@ -606,6 +617,33 @@ export class GeoAppAiModelResolutionService {
             diagnostics,
             capabilityChecks,
         };
+    }
+
+    /**
+     * Capacité image d'un modèle déjà résolu, hors cadre d'une tâche déclarée.
+     *
+     * Le bridge chat s'en sert avant de joindre des variables image à une
+     * requête : certains fournisseurs rejettent alors la requête entière
+     * (OpenRouter répond « 404 No endpoints found that support image input »).
+     * Un statut 'unknown' signifie que la sonde n'a rien pu vérifier ; l'appelant
+     * laisse alors les images partir plutôt que de priver un modèle qui les
+     * lirait peut-être.
+     */
+    async checkImageInputSupport(model: LanguageModel | undefined): Promise<GeoAppAiCapabilityCheck | undefined> {
+        if (!model) {
+            return undefined;
+        }
+        const backingPreference = OPENROUTER_SLOT_PREFS[model.id];
+        const backingModel = backingPreference
+            ? this.preferenceService.get<string>(backingPreference, '')
+            : undefined;
+        const checks = await this.inspectModelCapabilities(IMAGE_INPUT_PROBE_TASK, {
+            identifiers: [model.id, this.readModelProperty(model, 'model'), backingModel],
+            provider: this.inferProvider(model.id, model.vendor),
+            baseUrl: this.readModelProperty(model, 'url'),
+            rawModel: model,
+        });
+        return checks.find(check => check.capability === 'vision');
     }
 
     protected baseResolution(

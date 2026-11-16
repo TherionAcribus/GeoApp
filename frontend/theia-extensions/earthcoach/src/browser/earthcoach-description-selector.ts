@@ -63,8 +63,89 @@ export function fingerprintDescription(value: string): string {
     return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}-${value.length}`;
 }
 
-function labelFor(language: string): string {
+/** Langues proposees pour les echanges et pour le message au proprietaire. */
+export const EARTHCOACH_LANGUAGE_OPTIONS: Array<{ value: string; label: string }> =
+    Object.entries(LANGUAGE_LABELS).map(([value, label]) => ({ value, label }));
+
+/** Code de langue d'une description complete que la detection n'a pas su attribuer. */
+const UNKNOWN_LANGUAGE = 'full';
+
+export function labelFor(language: string): string {
+    if (language === UNKNOWN_LANGUAGE) {
+        return 'Langue non détectée';
+    }
+    if (language.includes('+')) {
+        return language.split('+').map(labelFor).join(' + ');
+    }
     return LANGUAGE_LABELS[language] || language.toUpperCase();
+}
+
+/**
+ * Mots-outils frequents et propres a chaque langue: les mots partages
+ * (`de`, `en`, `la`, `is`...) gonfleraient la langue concurrente.
+ */
+const LANGUAGE_STOPWORDS: Record<string, Set<string>> = {
+    fr: new Set(['le', 'les', 'des', 'est', 'et', 'une', 'dans', 'qui', 'pour', 'pas', 'sur', 'sont', 'avec', 'cette', 'du', 'au', 'aux', 'nous', 'vous', 'ces', 'mais', 'être', 'était', 'peut', 'été']),
+    en: new Set(['the', 'and', 'of', 'to', 'are', 'with', 'this', 'that', 'which', 'from', 'you', 'your', 'was', 'were', 'have', 'has', 'be', 'it', 'on', 'at', 'by', 'will', 'can', 'there', 'these']),
+    de: new Set(['der', 'die', 'das', 'und', 'ist', 'nicht', 'mit', 'ein', 'eine', 'von', 'zu', 'den', 'dem', 'sich', 'auf', 'auch', 'wird', 'sind', 'im', 'für', 'aus', 'bei', 'wie', 'werden', 'ich']),
+    es: new Set(['el', 'los', 'las', 'y', 'muy', 'está', 'más', 'pero', 'también', 'sus', 'hay', 'ser', 'fue', 'desde', 'entre', 'sobre', 'cuando', 'puede', 'donde', 'usted', 'estos']),
+    it: new Set(['gli', 'della', 'delle', 'dei', 'degli', 'che', 'è', 'sono', 'nel', 'nella', 'alla', 'anche', 'questo', 'questa', 'molto', 'più', 'di', 'ed', 'perché', 'essere', 'dalla', 'una']),
+    nl: new Set(['het', 'een', 'van', 'niet', 'op', 'met', 'voor', 'zijn', 'dat', 'worden', 'ook', 'aan', 'bij', 'naar', 'wordt', 'deze', 'er', 'maar', 'uit', 'kan', 'hier', 'dit']),
+    pt: new Set(['os', 'não', 'uma', 'em', 'ao', 'é', 'são', 'mais', 'também', 'pelo', 'pela', 'você', 'muito', 'foi', 'isso', 'nos', 'seu', 'sua', 'dos', 'das', 'até']),
+};
+
+/** En dessous, le texte est trop court pour trancher. */
+const MIN_STOPWORD_HITS = 8;
+/** Une seconde langue au-dela de cette part de la premiere signale un listing bilingue. */
+const SECOND_LANGUAGE_RATIO = 0.35;
+
+/**
+ * Langue(s) d'un texte de listing par comptage de mots-outils: une langue
+ * (`fr`), deux langues melangees sans separation exploitable (`fr+en`), ou
+ * `undefined` si le texte est trop court.
+ */
+export function detectListingLanguage(text: string): string | undefined {
+    const counts = new Map<string, number>();
+    for (const word of (text || '').toLowerCase().match(/\p{L}+/gu) || []) {
+        for (const [language, stopwords] of Object.entries(LANGUAGE_STOPWORDS)) {
+            if (stopwords.has(word)) {
+                counts.set(language, (counts.get(language) || 0) + 1);
+            }
+        }
+    }
+    const ranked = Array.from(counts.entries()).sort((left, right) => right[1] - left[1]);
+    if (!ranked.length || ranked[0][1] < MIN_STOPWORD_HITS) {
+        return undefined;
+    }
+    const [first, second] = ranked;
+    return second && second[1] >= first[1] * SECOND_LANGUAGE_RATIO ? `${first[0]}+${second[0]}` : first[0];
+}
+
+/**
+ * Langues redigees par le proprietaire: versions separees, ou langue(s)
+ * detectee(s) dans la description complete. Une description surchargee est
+ * le texte de l'utilisateur et ne dit rien du poseur.
+ */
+export function listingAuthoredLanguages(selection: EarthCoachDescriptionSelection): string[] | undefined {
+    if (selection.versions.some(candidate => candidate.source === 'override')) {
+        return undefined;
+    }
+    const languages = selection.versions
+        .flatMap(candidate => candidate.language.split('+'))
+        .filter(language => language !== UNKNOWN_LANGUAGE);
+    return languages.length ? languages : undefined;
+}
+
+/**
+ * Langue du message final au proprietaire: celle de l'utilisateur si le
+ * listing la propose (le poseur la pratique), l'anglais sinon. `undefined`
+ * quand la langue du listing est inconnue: le modele la deduit des questions.
+ */
+export function resolveFinalAnswerLanguage(userLanguage: string, listingLanguages?: string[]): string | undefined {
+    if (!listingLanguages?.length) {
+        return undefined;
+    }
+    return listingLanguages.includes(userLanguage) ? userLanguage : 'en';
 }
 
 function version(language: string, html: string, source: EarthCoachDescriptionVersion['source']): EarthCoachDescriptionVersion {
@@ -176,7 +257,8 @@ export function selectEarthCoachDescription(
     const manual = previousFingerprint === fingerprint ? normalizeLanguage(manualLanguage) : undefined;
 
     if (overrideHtml) {
-        const language = manual || preferred || 'fr';
+        const detected = detectListingLanguage(htmlToPlainText(overrideHtml));
+        const language = manual || (detected && !detected.includes('+') ? detected : undefined) || preferred || 'fr';
         const selected = version(language, overrideHtml, 'override');
         return {
             fingerprint,
@@ -205,14 +287,19 @@ export function selectEarthCoachDescription(
         };
     }
 
-    const fallbackLanguage = manual || preferred || 'full';
-    const selected = version(fallbackLanguage, effectiveHtml, 'full');
+    // Sans versions separees, la langue est detectee dans le texte: le
+    // libelle ne doit pas venir des preferences (un listing anglais affiche
+    // et annonce au modele comme "Francais").
+    const detected = detectListingLanguage(htmlToPlainText(effectiveHtml)) || UNKNOWN_LANGUAGE;
+    const selected = version(detected, effectiveHtml, 'full');
+    // Un listing dans une seule langue n'a rien a separer.
+    const monolingual = detected !== UNKNOWN_LANGUAGE && !detected.includes('+');
     return {
         fingerprint,
-        selectedLanguage: fallbackLanguage,
+        selectedLanguage: detected,
         selected,
         versions: [selected],
-        reliable: false,
-        notice: 'La séparation des langues n’est pas assez fiable : la description complète sera utilisée.',
+        reliable: monolingual,
+        notice: monolingual ? undefined : 'La séparation des langues n’est pas assez fiable : la description complète sera utilisée.',
     };
 }

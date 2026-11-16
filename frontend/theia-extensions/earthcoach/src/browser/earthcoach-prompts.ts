@@ -62,7 +62,7 @@ export const SHARED_RULES = [
     '- Quand le dossier fournit un request_id, appelle ~earthcoach_capture_result a la fin avec des propositions structurees et le meme identifiant.',
     '- N affiche jamais le JSON de capture dans la conversation: le tool suffit.',
     '- Ne recopie pas non plus le detail des propositions dans la conversation: le dossier terrain les affiche; une synthese courte suffit.',
-    '- Dans une proposition, answer contient uniquement une reponse factuelle; les actions, mesures ou informations encore necessaires vont dans missing.',
+    '- Dans une proposition, answer contient uniquement une reponse factuelle; les actions, mesures ou informations encore necessaires vont dans missing, sans libelle en tete (pas de "A completer :" ni "To complete:").',
     '- Une proposition ne constitue jamais un log et ne doit jamais etre publiee automatiquement.',
     '',
     'Changement de mode:',
@@ -151,11 +151,25 @@ const RESPONSE_LANGUAGE_NAMES: Record<string, string> = {
     pt: 'portugais',
 };
 
+/** Nom de langue donne au modele, francais en repli. */
+export function earthCoachLanguageName(language?: string): string {
+    return RESPONSE_LANGUAGE_NAMES[language || ''] || 'francais';
+}
+
+/**
+ * La langue de l'utilisateur couvre tout ce qui lui est adresse, y compris les
+ * propositions qu'il doit relire: seul le message au proprietaire en change.
+ */
+function buildLanguageScopeRule(responseLanguage: string): string {
+    const language = earthCoachLanguageName(responseLanguage);
+    return `Tout ce que tu adresses a l utilisateur (explications, raisonnements, questions de precision, traductions et propositions de reponse) est en ${language}, meme si le listing est dans une autre langue. Seule exception: le message final destine au proprietaire de la cache, dont la langue est fixee par la demande de generation.`;
+}
+
 function buildResponseStyleRule(verbosity: EarthCoachVerbosity, responseLanguage = 'fr'): string {
     // La consigne systeme doit suivre la langue choisie dans l'UI: imposer le
     // francais ici contredisait la demande passee dans le prompt utilisateur,
     // qui a une priorite moindre.
-    const language = RESPONSE_LANGUAGE_NAMES[responseLanguage] || 'francais';
+    const language = earthCoachLanguageName(responseLanguage);
     if (verbosity === 'detailed') {
         return `Reponds en ${language}, avec le niveau de detail utile, sans inventer de terrain.`;
     }
@@ -181,6 +195,7 @@ export function buildEarthCoachModeAndStyle(
         mode === 'resolver' ? buildResolverRules(badge) : buildCoachRules(badge),
         '',
         buildResponseStyleRule(verbosity, responseLanguage),
+        buildLanguageScopeRule(responseLanguage),
     ].join('\n');
 }
 

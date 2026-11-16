@@ -4,7 +4,12 @@ import {
     GeoAppChatResponseEvent,
     GeoAppChatResponseObserver,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
-import { EarthCoachResultCaptureService, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
+import { EarthCoachResultCaptureService, stripEarthCoachModeBadge, stripEarthCoachResultBlocks } from './earthcoach-result-capture';
+
+/** Texte redige seul: la reflexion et les appels d'outils n'ont pas leur place dans le dossier. */
+function authoredText(event: GeoAppChatResponseEvent): string {
+    return event.markdown ?? event.text ?? '';
+}
 
 @injectable()
 export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
@@ -22,7 +27,7 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
             try {
                 await this.capture.attachFinalAnswer(
                     event.requestId as string,
-                    stripEarthCoachResultBlocks(event.text || '')
+                    stripEarthCoachModeBadge(stripEarthCoachResultBlocks(authoredText(event)))
                 );
             } catch (error) {
                 console.warn('[EarthCoach] Unable to attach the final answer to its result', error);
@@ -36,7 +41,7 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         if (!this.capture.hasRequest(event.requestId)) {
             return;
         }
-        const visibleMarkdown = stripEarthCoachResultBlocks(event.text || '');
+        const visibleMarkdown = stripEarthCoachResultBlocks(authoredText(event));
         try {
             // hasRequest() a deja garanti un requestId defini. wasCaptured est
             // lu avant attachMarkdown: l'attachement appelle lui-meme

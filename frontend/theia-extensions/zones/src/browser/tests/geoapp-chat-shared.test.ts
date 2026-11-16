@@ -1,5 +1,6 @@
 import * as assert from 'assert/strict';
 import {
+    collectAuthoredResponseText,
     buildGeoAppBaseSessionTitle,
     buildGeoAppOpenChatRequestDetail,
     buildGeoAppChatDisplaySessionTitle,
@@ -340,7 +341,22 @@ function testDispatchGeoAppOpenChatRequest(): void {
     });
 }
 
+function testCollectAuthoredResponseText(): void {
+    // La reflexion et les appels d'outils ne font pas partie du texte redige.
+    const part = (kind: string, text: string) => ({ kind, asString: () => text });
+    const text = collectAuthoredResponseText([
+        part('thinking', '{"type":"thinking"}'),
+        part('toolCall', 'Tool call: earthcoach_capture_result({})'),
+        part('markdownContent', 'Synthese.'),
+        part('code', '```json\n{}\n```'),
+        part('informational', 'Info'),
+        part('markdownContent', '   '),
+    ]);
+    assert.equal(text, 'Synthese.\n\n```json\n{}\n```');
+}
+
 function run(): void {
+    testCollectAuthoredResponseText();
     testResolveGeoAppChatProfileForWorkflow();
     testResolveGeoAppChatBehaviorProfileForWorkflow();
     testBuildGeoAppChatPrompt();
