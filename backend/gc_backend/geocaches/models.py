@@ -477,6 +477,9 @@ class GeocacheLoggingTask(db.Model):
     __tablename__ = 'geocache_logging_task'
 
     STATUSES = ('todo', 'field', 'answered')
+    # `photo` : consigne photo a joindre au log (« photo de vous avec le
+    # panneau »). Ce n'est pas une question : elle n'appelle aucune reponse.
+    KINDS = ('question', 'photo')
 
     id = db.Column(db.Integer, primary_key=True)
     geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True)
@@ -486,6 +489,7 @@ class GeocacheLoggingTask(db.Model):
     answer = db.Column(db.Text)
     status = db.Column(db.String(20), nullable=False, default='todo')
     requires_photo = db.Column(db.Boolean, nullable=False, default=False)
+    kind = db.Column(db.String(16), nullable=False, default='question', server_default='question')
     observation_id = db.Column(
         db.Integer,
         db.ForeignKey('user_observation.id', ondelete='SET NULL'),
@@ -509,6 +513,7 @@ class GeocacheLoggingTask(db.Model):
             'answer': self.answer,
             'status': self.status,
             'requires_photo': bool(self.requires_photo),
+            'kind': self.kind or 'question',
             'observation_id': self.observation_id,
             'source': self.source,
             'created_at': self.created_at.isoformat() if self.created_at else None,
@@ -694,6 +699,7 @@ class EarthCoachResult(db.Model):
                 'id': int(match.group(1)),
                 'position': item.get('position'),
                 'question': item.get('question'),
+                'kind': item.get('kind') or 'question',
             })
         return summary
 

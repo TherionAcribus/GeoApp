@@ -871,6 +871,17 @@ def test_logging_tasks_carry_photo_and_answer_state():
     assert serialized[1]['answered'] is True
 
 
+def test_photo_instruction_requires_camera_without_being_a_question():
+    from gc_backend.services.outing_analysis_service import _serialize_logging_tasks
+
+    photo = _task(question='Photo de vous avec le panneau', position=2)
+    photo.kind = 'photo'
+    geocache = SimpleNamespace(logging_tasks=[_task(), photo])
+
+    serialized = _serialize_logging_tasks(geocache)
+    assert serialized[1]['requires_photo'] is True
+
+
 def test_logging_tasks_are_capped():
     from gc_backend.services.outing_analysis_service import (
         MAX_LOGGING_TASKS, _serialize_logging_tasks,

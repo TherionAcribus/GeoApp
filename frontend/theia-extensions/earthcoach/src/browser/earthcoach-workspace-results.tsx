@@ -78,6 +78,8 @@ export interface EarthCoachResultCardProps {
     finalLanguageChoice: string;
     /** Langue retenue en automatique, si le listing permet de la déduire. */
     autoFinalLanguage?: string;
+    /** Photos à joindre au log, déjà jointes en une ligne (prop primitive pour `React.memo`). */
+    photoReminder?: string;
     handlers: EarthCoachResultCardHandlers;
 }
 
@@ -158,6 +160,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 {EARTHCOACH_LANGUAGE_OPTIONS.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
             </select></label>
         </div>
+        {props.photoReminder && <div className='ecw-muted'>📷 Pense à joindre au log : {props.photoReminder}</div>}
         {result.final_answer && <div className='ecw-proposal'>
             <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
             <pre>{result.final_answer}</pre>

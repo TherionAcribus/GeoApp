@@ -502,7 +502,9 @@ def _serialize_logging_tasks(geocache: Geocache) -> list[dict]:
             'question': question,
             'guidance': guidance or None,
             'status': task.status,
-            'requires_photo': bool(task.requires_photo),
+            # Une consigne photo (« photo de vous avec le panneau ») reste dans
+            # la checklist : elle n'est pas une question mais exige l'appareil.
+            'requires_photo': bool(task.requires_photo) or getattr(task, 'kind', None) == 'photo',
             'answered': bool(_clean_whitespace(task.answer)),
         })
     return tasks
@@ -733,7 +735,7 @@ def _build_geocache_entry(
         'waypoints': _serialize_waypoints(geocache),
         'waypoints_count': len(geocache.waypoints or []),
         'logging_tasks': logging_tasks,
-        'logging_tasks_count': len(geocache.logging_tasks or []),
+        'logging_tasks_count': sum(1 for task in (geocache.logging_tasks or []) if getattr(task, 'kind', None) != 'photo'),
         'logging_tasks_photo_required': any(task['requires_photo'] for task in logging_tasks),
         'health': health,
         'recent_logs': _serialize_recent_logs(prepared_logs, recent_logs_count),

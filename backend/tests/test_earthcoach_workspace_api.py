@@ -589,4 +589,4 @@ def test_result_list_omits_heavy_snapshot_but_keeps_tasks(client, seeded):
     listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
     result = next(item for item in listed if item['request_id'] == 'request-light')
     assert 'context_snapshot' not in result
-    assert result['snapshot_tasks'] == [{'id': seeded['task_id'], 'position': 1, 'question': 'Q1'}]
+    assert result['snapshot_tasks'] == [{'id': seeded['task_id'], 'position': 1, 'question': 'Q1', 'kind': 'question'}]

@@ -68,6 +68,7 @@ import {
     EarthCoachResultCaptureService,
     normalizeCapturedProposal,
     stripEarthCoachModeBadge,
+    withoutPhotoInstructionProposals,
     stripEarthCoachResultBlocks,
 } from '../earthcoach-result-capture';
 import {
@@ -80,6 +81,7 @@ import {
 import {
     applicableProposalIndexes,
     buildEarthCoachCoverage,
+    buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
     findUncoveredSnapshotTasks,
@@ -759,7 +761,7 @@ function testPromptIncludesLoggingTasks(): void {
     assert.match(prompt, /Questions du proprietaire \(logging tasks\)/);
     assert.match(prompt, /Q1 \[task_id=1; a traiter\]: Quelle est la couleur dominante/);
     assert.match(prompt, /A observer: Observer la roche en place/);
-    assert.match(prompt, /Q2 \[task_id=2; repondu; photo exigee pour le log; observation liee=observation-3\]/);
+    assert.match(prompt, /Q2 \[task_id=2; repondu; photo a joindre au log, ne bloque pas la reponse; observation liee=observation-3\]/);
     assert.doesNotMatch(prompt, /photo requise/);
     assert.match(prompt, /Reponse brouillon: Environ 4 metres./);
 }
@@ -820,7 +822,7 @@ function testCapturedResolutionIsNotDuplicatedInChat(): void {
     assert.match(prompt, /ne recopie pas les reponses question par question/);
     assert.doesNotMatch(prompt, /Reponse proposee:/);
     assert.match(prompt, /Traite toutes les 2 question\(s\)/);
-    assert.match(prompt, /photo exigee pour le log/);
+    assert.match(prompt, /photo a joindre au log, ne bloque pas la reponse/);
     // Images decrites une seule fois, libelle compris.
     assert.doesNotMatch(prompt, /Images transmises:/);
     assert.match(prompt, /image=9; origine=user_observation; libelle=Falaise/);
@@ -893,7 +895,7 @@ function testFieldChecklistPrefersLoggingTasks(): void {
     const questions = checklist.sections.find(section => section.title === 'Questions du listing');
     assert.ok(questions);
     assert.ok(questions!.items.some(item => item.startsWith('Q1: Quelle est la couleur dominante')));
-    assert.ok(questions!.items.some(item => item.includes('photo requise')));
+    assert.ok(questions!.items.some(item => item.includes('photo a joindre au log')));
 }
 
 function testLoggingTaskToolShape(): void {
@@ -1007,6 +1009,7 @@ function testLoggingTaskReplacementDiff(): void {
             answer: '12 cm',
             status: 'answered',
             requires_photo: true,
+            kind: 'photo',
             observation_id: 9,
             source: 'manual',
         }),
@@ -1016,6 +1019,7 @@ function testLoggingTaskReplacementDiff(): void {
             answer: '12 cm',
             status: 'answered',
             requires_photo: true,
+            kind: 'photo',
             observation_id: 9,
             position: 2,
             source: 'manual',
@@ -1468,8 +1472,54 @@ function testPromptMarksTasksRequiringPhoto(): void {
         observations: [],
         images: [],
     });
-    assert.match(prompt, /photo exigee pour le log/);
-    assert.match(prompt, /image utilisateur probante/);
+    assert.match(prompt, /photo a joindre au log, ne bloque pas la reponse/);
+    // La photo part avec le log: elle ne bloque plus l'etat « Prete ».
+    assert.match(prompt, /peut etre prete des que sa reponse texte l est/);
+    assert.doesNotMatch(prompt, /image utilisateur probante/);
+}
+
+function testPhotoInstructionsAreNotQuestions(): void {
+    const tasks: LoggingTask[] = [
+        { id: 'logging-task-1', geocacheId: '1', position: 1, question: 'Quelle roche affleure ?', status: 'todo', requiresPhoto: false },
+        { id: 'logging-task-2', geocacheId: '1', position: 2, question: 'Photo de vous avec la carte du parc.', status: 'todo', requiresPhoto: true, kind: 'photo' },
+    ];
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        loggingTasks: tasks,
+        observations: [],
+        images: [],
+    });
+    // Seule la vraie question est a traiter; la consigne est listee a part.
+    assert.match(prompt, /Traite toutes les 1 question\(s\)/);
+    assert.doesNotMatch(prompt, /Q2 \[/);
+    assert.match(prompt, /Consignes photo a joindre au log \(pas des questions[^\n]*\n- Photo de vous avec la carte du parc\./);
+
+    assert.deepEqual(buildPhotoReminders([...tasks, { id: 'logging-task-3', geocacheId: '1', position: 3, question: 'Mesurez la strate.', status: 'todo', requiresPhoto: true }]), [
+        'Photo de vous avec la carte du parc.',
+        'Photo demandée avec Q3 : Mesurez la strate.',
+    ]);
+
+    // Le message final annonce la photo jointe, sans la decrire.
+    const final = buildEarthCoachFinalAnswerPrompt([{ question: 'q', status: 'ready', answer: 'a' }], { user: 'fr', final: 'en' }, ['Photo de vous avec la carte du parc.']);
+    assert.match(final, /\(Photo de vous avec la carte du parc\.\): termine le message par une phrase courte indiquant que la photo demandee est jointe au log/);
+    const withoutPhoto = buildEarthCoachFinalAnswerPrompt([{ question: 'q', status: 'ready', answer: 'a' }], { user: 'fr', final: 'en' });
+    assert.doesNotMatch(withoutPhoto, /jointe au log/);
+
+    // Extraction: le type est conserve, une valeur inconnue redevient une question.
+    assert.deepEqual(normalizeExtractionTasks([
+        { question: 'Photo avec le panneau', kind: 'photo' },
+        { question: 'Quelle roche ?', kind: 'dessin' },
+    ]).map(task => task.kind), ['photo', 'question']);
+
+    // Une proposition qui vise une consigne photo est ecartee a la capture.
+    const kept = withoutPhotoInstructionProposals([
+        { task_id: 1, question: 'Quelle roche affleure ?', status: 'ready', answer: 'Calcaire' },
+        { task_id: 2, question: 'Photo de vous avec la carte du parc.', status: 'missing' },
+        { question: 'Sans id', status: 'partial' },
+    ], tasks);
+    assert.deepEqual(kept.map(proposal => proposal.question), ['Quelle roche affleure ?', 'Sans id']);
 }
 
 function testMultilingualDescriptionSelection(): void {
@@ -1801,6 +1851,7 @@ function testCoverageMatrix(): void {
         { id: 'logging-task-1', geocacheId: '1', position: 1, question: 'Q sans obs', status: 'todo', requiresPhoto: false },
         { id: 'logging-task-2', geocacheId: '1', position: 2, question: 'Q prete', status: 'todo', requiresPhoto: true, observationId: 'observation-10' },
         { id: 'logging-task-4', geocacheId: '1', position: 4, question: 'Q repondue', status: 'answered', requiresPhoto: false },
+        { id: 'logging-task-5', geocacheId: '1', position: 5, question: 'Photo avec le panneau', status: 'todo', requiresPhoto: true, kind: 'photo' },
     ];
     const observations: UserObservation[] = [
         { id: 'observation-10', cacheId: '1', userId: 'u', note: 'Strates   inclinees vers le nord', createdAt: '', source: 'structured', images: [] },
@@ -1818,7 +1869,9 @@ function testCoverageMatrix(): void {
     ];
     const rows = buildEarthCoachCoverage(tasks, observations, images, contexts);
     assert.deepEqual(rows.map(row => row.position), [1, 2, 3, 4]);
-    assert.deepEqual(rows.map(row => row.state), ['needs_field', 'ready_to_resolve', 'needs_photo', 'answered']);
+    // La consigne photo n'est pas une ligne de couverture, et une photo
+    // absente ne rend plus une question « a completer ».
+    assert.deepEqual(rows.map(row => row.state), ['needs_field', 'ready_to_resolve', 'ready_to_resolve', 'answered']);
     assert.equal(rows[1].taskId, 2);
     assert.equal(rows[1].observationExcerpt, 'Strates inclinees vers le nord');
     assert.equal(rows[1].hasPersonalPhoto, true);
@@ -2370,6 +2423,7 @@ async function run(): Promise<void> {
     testStripEarthCoachResultBlocks();
     testFinalAnswerPromptUsesEditedProposalsWithoutJson();
     testFinalAnswerLanguageFollowsOwner();
+    testPhotoInstructionsAreNotQuestions();
     testResolveFinalAnswerLanguage();
     testStripEarthCoachModeBadge();
     testDetectListingLanguage();

@@ -15,7 +15,7 @@ import {
     isUpdateForGeocache,
     subscribeEarthCoachDataUpdates,
 } from './earthcoach-events';
-import { EarthCoachObserveTaskCommandId, EarthCoachOpenCommandId, LoggingTaskStatus, UserObservation } from './earthcoach-types';
+import { EarthCoachObserveTaskCommandId, EarthCoachOpenCommandId, LoggingTaskKind, LoggingTaskStatus, UserObservation } from './earthcoach-types';
 import {
     buildLoggingTaskInput,
     createLoggingTaskDraft,
@@ -112,6 +112,18 @@ function LoggingTaskForm(props: LoggingTaskFormProps): React.ReactElement {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
                 <label style={{ display: 'grid', gap: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Type</span>
+                    <select
+                        className='theia-select'
+                        value={props.draft.kind}
+                        title='Une consigne photo accompagne le log : elle n appelle aucune réponse'
+                        onChange={event => setDraft({ kind: event.currentTarget.value as LoggingTaskKind })}
+                    >
+                        <option value='question'>Question</option>
+                        <option value='photo'>Consigne photo (à joindre au log)</option>
+                    </select>
+                </label>
+                <label style={{ display: 'grid', gap: 4 }}>
                     <span style={{ fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Statut</span>
                     <select
                         className='theia-select'
@@ -138,25 +150,27 @@ function LoggingTaskForm(props: LoggingTaskFormProps): React.ReactElement {
                 </label>
             </div>
 
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                    type='checkbox'
-                    checked={props.draft.requiresPhoto}
-                    onChange={event => setDraft({ requiresPhoto: event.currentTarget.checked })}
-                />
-                <span style={{ fontSize: 13 }}>Photo requise pour cette question</span>
-            </label>
+            {props.draft.kind !== 'photo' ? <>
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                        type='checkbox'
+                        checked={props.draft.requiresPhoto}
+                        onChange={event => setDraft({ requiresPhoto: event.currentTarget.checked })}
+                    />
+                    <span style={{ fontSize: 13 }}>Photo à joindre au log en plus de la réponse</span>
+                </label>
 
-            <label style={{ display: 'grid', gap: 4 }}>
-                <span style={{ fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Reponse brouillon (optionnel)</span>
-                <textarea
-                    className='theia-input'
-                    rows={3}
-                    value={props.draft.answer}
-                    onChange={event => setDraft({ answer: event.currentTarget.value })}
-                    style={{ resize: 'vertical', minHeight: 60 }}
-                />
-            </label>
+                <label style={{ display: 'grid', gap: 4 }}>
+                    <span style={{ fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Reponse brouillon (optionnel)</span>
+                    <textarea
+                        className='theia-input'
+                        rows={3}
+                        value={props.draft.answer}
+                        onChange={event => setDraft({ answer: event.currentTarget.value })}
+                        style={{ resize: 'vertical', minHeight: 60 }}
+                    />
+                </label>
+            </> : undefined}
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 {props.onCancel ? (
@@ -185,9 +199,10 @@ interface LoggingTaskCardProps {
 // creation ne re-rend pas les cartes de questions existantes.
 const LoggingTaskCard = React.memo(function LoggingTaskCard(props: LoggingTaskCardProps): React.ReactElement {
     const task = props.task;
+    const isPhoto = task.kind === 'photo';
     const badges = [
-        getLoggingTaskStatusLabel(task.status),
-        task.requires_photo ? 'photo requise' : undefined,
+        isPhoto ? 'consigne photo · à joindre au log' : getLoggingTaskStatusLabel(task.status),
+        !isPhoto && task.requires_photo ? 'photo à joindre au log' : undefined,
         getObservationLabel(props.observationOptions, task.observation_id),
         task.source === 'extracted' ? 'extrait IA' : undefined,
     ].filter(Boolean) as string[];
@@ -205,7 +220,7 @@ const LoggingTaskCard = React.memo(function LoggingTaskCard(props: LoggingTaskCa
             <header style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                 <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                        <strong style={{ fontSize: 13 }}>Q{task.position}</strong>
+                        <strong style={{ fontSize: 13 }}>{isPhoto ? '📷' : `Q${task.position}`}</strong>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             {badges.map(badge => (
                                 <span
@@ -234,14 +249,14 @@ const LoggingTaskCard = React.memo(function LoggingTaskCard(props: LoggingTaskCa
                     ) : undefined}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button
+                    {!isPhoto && <button
                         className='theia-button secondary'
                         type='button'
                         onClick={() => { void props.onObserve(task); }}
                         title='Creer une observation terrain liee a cette question'
                     >
                         Observer
-                    </button>
+                    </button>}
                     <button className='theia-button secondary' type='button' onClick={() => props.onEdit(task)}>
                         Modifier
                     </button>

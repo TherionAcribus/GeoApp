@@ -10,6 +10,13 @@ import {
 } from './earthcoach-types';
 import { EarthCoachResultProposal } from './earthcoach-workspace-types';
 import { earthCoachLanguageName } from './earthcoach-prompts';
+import { answerableLoggingTasks, photoLoggingTasks } from './earthcoach-logging-tasks';
+
+/**
+ * La photo part avec le log: une consigne photo n'est pas une question, et
+ * une photo demandee en plus d'une reponse ne la rend pas incomplete.
+ */
+const PHOTO_INSTRUCTION_RULE = 'Une demande de photo a joindre au log (photo de soi sur le site, avec un panneau, avec son GPS...) n est pas une question: ne cree aucune proposition pour elle, ne la compte jamais comme manquante et n en parle pas dans la synthese. Une question qui demande aussi une photo peut etre prete des que sa reponse texte l est: la photo part avec le log.';
 
 interface EarthCoachPromptLimits {
     description: number;
@@ -491,13 +498,15 @@ function buildLoggingTasksBlock(
             '- Ne les extrais pas automatiquement. Signale que l extraction doit etre declenchee explicitement par l utilisateur.',
         ];
     }
-    const ordered = [...loggingTasks].sort((left, right) => left.position - right.position);
+    const sorted = [...loggingTasks].sort((left, right) => left.position - right.position);
+    const ordered = answerableLoggingTasks(sorted);
+    const photos = photoLoggingTasks(sorted);
     const lines = ['Questions du proprietaire (logging tasks):'];
     for (const task of ordered.slice(0, limits.loggingTasks)) {
         const flags = [
             `task_id=${task.id.replace(/^logging-task-/, '')}`,
             LOGGING_TASK_STATUS_LABELS[task.status],
-            task.requiresPhoto ? 'photo exigee pour le log' : undefined,
+            task.requiresPhoto ? 'photo a joindre au log, ne bloque pas la reponse' : undefined,
             task.observationId ? `observation liee=${task.observationId}` : undefined,
         ].filter(Boolean).join('; ');
         lines.push(`- Q${task.position} [${flags}]: ${truncateText(task.question.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
@@ -511,16 +520,25 @@ function buildLoggingTasksBlock(
     if (ordered.length > limits.loggingTasks) {
         lines.push(`- ... ${ordered.length - limits.loggingTasks} question(s) supplementaire(s) non incluses.`);
     }
+    if (photos.length) {
+        // Affichees a part dans le dossier (« A joindre au log »): les
+        // traiter comme des questions rendait chaque resolution incomplete.
+        lines.push('Consignes photo a joindre au log (pas des questions: aucune proposition, jamais comptees comme manquantes, le dossier les rappelle deja):');
+        for (const task of photos) {
+            lines.push(`- ${truncateText(task.question.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
+        }
+    }
     return lines;
 }
 
 function buildResolverTemplateInstruction(loggingTasks: LoggingTask[], captured: boolean): string[] {
-    const coverage = loggingTasks.length
-        ? `Traite toutes les ${loggingTasks.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`
+    const questions = answerableLoggingTasks(loggingTasks);
+    const coverage = questions.length
+        ? `Traite toutes les ${questions.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`
         : 'Aucune logging task structuree n est fournie: ne pretends pas couvrir toutes les questions et propose une extraction explicite separee.';
     const guardrails = [
         'Ne fusionne jamais plusieurs questions. Ne fabrique aucune mesure ou observation manquante: laisse explicitement "a completer".',
-        'Une question marquee "photo exigee pour le log" ne peut etre prete que si une image utilisateur probante figure dans le dossier; sinon signale la photo a prendre dans "A completer".',
+        PHOTO_INSTRUCTION_RULE,
     ];
     if (captured) {
         // Le detail part dans earthcoach_capture_result et s'affiche dans le
@@ -667,8 +685,14 @@ function buildFinalLanguageInstruction(userLanguage: string, finalLanguage?: str
 
 export function buildEarthCoachFinalAnswerPrompt(
     proposals: EarthCoachResultProposal[],
-    languages: { user: string; final?: string }
+    languages: { user: string; final?: string },
+    photoInstructions: string[] = []
 ): string {
+    // La photo est jointe au log par l'utilisateur: le message se contente de
+    // l'annoncer, sans la decrire ni pretendre a son contenu.
+    const photoLine = photoInstructions.length
+        ? [`Le proprietaire demande une photo jointe au log (${photoInstructions.map(text => text.replace(/\s+/g, ' ').trim()).join(' / ')}): termine le message par une phrase courte indiquant que la photo demandee est jointe au log, sans la decrire.`]
+        : [];
     const lines = [
         '--- GENERATION DE LA REPONSE FINALE EARTHCOACH ---',
         `Langue de l utilisateur: ${earthCoachLanguageName(languages.user)}; les reponses corrigees ci-dessous sont redigees dans cette langue.`,
@@ -680,6 +704,7 @@ export function buildEarthCoachFinalAnswerPrompt(
         'Si des elements restent a completer, produis un brouillon explicite avec des marqueurs [A completer: ...] et indique qu il n est pas encore pret a envoyer.',
         'Ne publie aucun log et n affiche aucun JSON technique.',
         'N appelle pas earthcoach_capture_result : le texte produit est directement rattache au dossier.',
+        ...photoLine,
         '',
         '--- REPONSES VALIDEES OU CORRIGEES DANS LE DOSSIER ---',
     ];

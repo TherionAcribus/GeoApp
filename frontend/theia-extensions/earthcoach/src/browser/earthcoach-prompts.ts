@@ -57,6 +57,7 @@ export const SHARED_RULES = [
     '- Ce tool remplace les questions deja enregistrees: ne l utilise jamais sans demande explicite.',
     '- N y mets jamais de reponse fabriquee; il sert a structurer les questions, pas a les resoudre.',
     '- Une analyse ou une resolution ne declenche jamais cette extraction automatiquement.',
+    '- Une consigne photo a joindre au log (photo de soi sur le site, avec un panneau...) n est pas une question: elle s enregistre avec kind="photo" et n appelle aucune proposition de reponse.',
     '',
     'Resultats revisables:',
     '- Quand le dossier fournit un request_id, appelle ~earthcoach_capture_result a la fin avec des propositions structurees et le meme identifiant.',

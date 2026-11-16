@@ -294,6 +294,23 @@ def init_db(app):
             db.session.rollback()
 
         try:
+            logger.info('Running lightweight SQLite migrations for geocache_logging_task columns...')
+            existing_cols = set()
+            res = db.session.execute(text("PRAGMA table_info('geocache_logging_task')"))
+            for row in res:
+                existing_cols.add(row[1])
+
+            # Les consignes photo (« photo de vous avec le panneau ») se
+            # distinguent des questions : les taches existantes sont des questions.
+            if existing_cols and 'kind' not in existing_cols:
+                logger.info('Adding missing column geocache_logging_task.kind (VARCHAR(16))')
+                db.session.execute(text("ALTER TABLE geocache_logging_task ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'question'"))
+                db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (geocache_logging_task): %s', error)
+            db.session.rollback()
+
+        try:
             default_zone = Zone.query.filter_by(name='default').first()
             if default_zone is None:
                 default_zone = Zone(name='default', description='Default zone')

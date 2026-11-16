@@ -23,6 +23,17 @@ _STATUSES = {
 }
 
 
+_KINDS = {
+    'question': 'question',
+    'photo': 'photo',
+}
+
+
+def _normalize_kind(value: object) -> str | None:
+    raw = str(value or 'question').strip() or 'question'
+    return _KINDS.get(_normalize_ascii(raw))
+
+
 def _normalize_ascii(value: str) -> str:
     return (
         unicodedata.normalize('NFKD', value)
@@ -137,6 +148,10 @@ def create_logging_task(geocache_id: int):
         if status is None:
             return jsonify({'error': 'status must be one of: todo, field, answered'}), 400
 
+        kind = _normalize_kind(data.get('kind'))
+        if kind is None:
+            return jsonify({'error': 'kind must be one of: question, photo'}), 400
+
         observation = _load_observation(geocache_id, data.get('observation_id'))
         position = _optional_int(data.get('position'), 'position')
 
@@ -148,6 +163,7 @@ def create_logging_task(geocache_id: int):
             answer=_optional_text(data.get('answer')),
             status=status,
             requires_photo=_coerce_bool(data.get('requires_photo')),
+            kind=kind,
             observation_id=observation.id if observation else None,
             source=(_optional_text(data.get('source')) or 'manual'),
         )
@@ -208,6 +224,9 @@ def replace_logging_tasks(geocache_id: int):
                 return jsonify({'error': 'status must be one of: todo, field, answered'}), 400
             if item.get('status') in (None, '') and previous and previous.status:
                 status = previous.status
+            kind = _normalize_kind(item.get('kind'))
+            if kind is None:
+                return jsonify({'error': 'kind must be one of: question, photo'}), 400
             answer = _optional_text(item.get('answer'))
             if answer is None and previous:
                 answer = previous.answer
@@ -225,6 +244,7 @@ def replace_logging_tasks(geocache_id: int):
                 answer=answer,
                 status=status,
                 requires_photo=_coerce_bool(item.get('requires_photo')),
+                kind=kind,
                 observation_id=observation_id,
                 source=(_optional_text(item.get('source')) or default_source),
             ))
@@ -284,6 +304,12 @@ def update_logging_task(task_id: int):
 
         if 'requires_photo' in data:
             task.requires_photo = _coerce_bool(data.get('requires_photo'))
+
+        if 'kind' in data:
+            kind = _normalize_kind(data.get('kind'))
+            if kind is None:
+                return jsonify({'error': 'kind must be one of: question, photo'}), 400
+            task.kind = kind
 
         if 'position' in data:
             position = _optional_int(data.get('position'), 'position')

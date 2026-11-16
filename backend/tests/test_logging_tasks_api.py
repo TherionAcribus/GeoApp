@@ -282,3 +282,25 @@ def test_delete_logging_task(client, app, seed_data):
 
     with app.app_context():
         assert GeocacheLoggingTask.query.get(task_id) is None
+
+
+def test_photo_instruction_kind_round_trip(client, seed_data):
+    # Une consigne photo n'est pas une question : son type survit a
+    # l'extraction et a la modification, et une question reste par defaut.
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': [
+            {'question': 'Quelle roche affleure ?'},
+            {'question': 'Joindre une photo de vous avec le panneau.', 'kind': 'photo'},
+        ]},
+    )
+    assert response.status_code == 200
+    tasks = json.loads(response.data)['logging_tasks']
+    assert [task['kind'] for task in tasks] == ['question', 'photo']
+
+    update = client.put(f"/api/logging-tasks/{tasks[0]['id']}", json={'kind': 'photo'})
+    assert update.status_code == 200
+    assert json.loads(update.data)['logging_task']['kind'] == 'photo'
+
+    rejected = client.put(f"/api/logging-tasks/{tasks[0]['id']}", json={'kind': 'dessin'})
+    assert rejected.status_code == 400

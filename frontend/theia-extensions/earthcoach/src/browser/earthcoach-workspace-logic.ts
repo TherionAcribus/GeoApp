@@ -5,6 +5,7 @@ import {
     EarthCoachWorkspaceGroup,
     EarthCoachWorkspaceImageContext,
 } from './earthcoach-workspace-types';
+import { answerableLoggingTasks, photoLoggingTasks } from './earthcoach-logging-tasks';
 
 export interface EarthCoachPreparedImages<P = void> {
     available: GeoImage[];
@@ -138,7 +139,9 @@ export function trailingNumericId(value: string | number | null | undefined): nu
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-export type EarthCoachCoverageState = 'answered' | 'ready_to_resolve' | 'needs_field' | 'needs_photo';
+// Pas d'etat « photo manquante » : la photo part avec le log, elle ne rend
+// jamais une question incomplete (voir `buildPhotoReminders`).
+export type EarthCoachCoverageState = 'answered' | 'ready_to_resolve' | 'needs_field';
 
 export interface EarthCoachCoverageRow {
     taskId: number;
@@ -184,7 +187,7 @@ export function buildEarthCoachCoverage(
             .map(image => trailingNumericId(image.id))
             .filter((id): id is number => id !== undefined)
     );
-    return [...loggingTasks]
+    return answerableLoggingTasks([...loggingTasks])
         .sort((left, right) => left.position - right.position)
         .map(task => {
             const observationId = trailingNumericId(task.observationId);
@@ -198,8 +201,6 @@ export function buildEarthCoachCoverage(
                 state = 'answered';
             } else if (observationId === undefined) {
                 state = 'needs_field';
-            } else if (task.requiresPhoto && !hasPersonalPhoto) {
-                state = 'needs_photo';
             } else {
                 state = 'ready_to_resolve';
             }
@@ -250,8 +251,22 @@ export function findUncoveredSnapshotTasks(
         proposals.map(proposal => trailingNumericId(proposal.task_id)).filter((id): id is number => id !== undefined)
     );
     return snapshotTasks
-        .filter(task => !covered.has(task.id))
+        .filter(task => task.kind !== 'photo' && !covered.has(task.id))
         .sort((left, right) => (left.position ?? 0) - (right.position ?? 0));
+}
+
+/**
+ * Photos a joindre au log : consignes photo, puis questions qui demandent
+ * aussi une photo. Rappel affiche a part, jamais une question a completer.
+ */
+export function buildPhotoReminders(loggingTasks: LoggingTask[]): string[] {
+    const sorted = [...loggingTasks].sort((left, right) => left.position - right.position);
+    return [
+        ...photoLoggingTasks(sorted).map(task => task.question.trim()),
+        ...answerableLoggingTasks(sorted)
+            .filter(task => task.requiresPhoto)
+            .map(task => `Photo demandée avec Q${task.position} : ${task.question.trim()}`),
+    ];
 }
 
 /** Meme regle que le backend (`/apply`) : prete, une reponse, rien a completer, une question cible. */

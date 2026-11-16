@@ -2,6 +2,7 @@ import { Emitter, Event } from '@theia/core';
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal } from './earthcoach-workspace-types';
 import { EarthCoachWorkspaceService } from './earthcoach-workspace-service';
+import { LoggingTask } from './earthcoach-types';
 
 export interface EarthCoachCapturePayload {
     request_id: string;
@@ -162,7 +163,8 @@ export class EarthCoachResultCaptureService {
             requestId: payload.request_id,
             action: payload.action,
             contextSnapshot: snapshot,
-            proposals: (payload.proposals || []).map(normalizeCapturedProposal),
+            proposals: withoutPhotoInstructionProposals(payload.proposals || [], snapshot.loggingTasks)
+                .map(normalizeCapturedProposal),
             markdown: options.markdown,
             sessionId: options.sessionId,
         });
@@ -192,6 +194,23 @@ export function stripEarthCoachResultBlocks(markdown: string): string {
         .replace(/^Tool call: [a-z0-9_]+\(.*\)\s*$/gim, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+}
+
+/**
+ * Une consigne photo n'est pas une question : une proposition qui la vise
+ * (le modele en produit parfois malgre la consigne) ressortirait « Manquante ».
+ */
+export function withoutPhotoInstructionProposals(
+    proposals: EarthCoachResultProposal[],
+    loggingTasks: LoggingTask[]
+): EarthCoachResultProposal[] {
+    const photoTaskIds = new Set(loggingTasks
+        .filter(task => task.kind === 'photo')
+        .map(task => String(task.id).replace(/^logging-task-/, '')));
+    if (!photoTaskIds.size) {
+        return proposals;
+    }
+    return proposals.filter(proposal => proposal.task_id === undefined || proposal.task_id === null || !photoTaskIds.has(String(proposal.task_id)));
 }
 
 /** Libelles que le modele ajoute en tete de `missing`, deja titre « Elements a completer ». */

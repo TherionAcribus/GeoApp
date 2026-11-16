@@ -69,6 +69,12 @@ export interface UserObservation {
 
 export type LoggingTaskStatus = 'todo' | 'field' | 'answered';
 
+/**
+ * `photo` : consigne photo a joindre au log (« photo de vous avec le
+ * panneau »). Ce n'est pas une question : aucune reponse a proposer.
+ */
+export type LoggingTaskKind = 'question' | 'photo';
+
 export interface LoggingTask {
     id: string;
     geocacheId: string;
@@ -78,6 +84,8 @@ export interface LoggingTask {
     answer?: string;
     status: LoggingTaskStatus;
     requiresPhoto: boolean;
+    /** Absent : question. */
+    kind?: LoggingTaskKind;
     observationId?: string;
     source?: string;
 }

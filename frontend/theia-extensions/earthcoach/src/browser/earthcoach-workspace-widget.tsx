@@ -67,6 +67,7 @@ import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
 import {
     applicableProposalIndexes,
     buildEarthCoachCoverage,
+    buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
     EarthCoachCoverageRow,
@@ -76,6 +77,7 @@ import {
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
 import { EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
+import { answerableLoggingTasks } from './earthcoach-logging-tasks';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
 
@@ -137,7 +139,6 @@ const COVERAGE_LABELS: Record<EarthCoachCoverageState, string> = {
     answered: 'Répondue',
     ready_to_resolve: 'Prête à résoudre',
     needs_field: 'Observation à faire',
-    needs_photo: 'Photo à ajouter',
 };
 
 /** Mode recadrage de l'apercu : rectangle en cours de trace, en pixels de l'element img. */
@@ -1018,7 +1019,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 prompt: buildEarthCoachFinalAnswerPrompt(saved.proposals, {
                     user: this.responseLanguage,
                     final: this.finalLanguageChoice === 'auto' ? this.autoFinalLanguage() : this.finalLanguageChoice,
-                }),
+                }, buildPhotoReminders(this.context.loggingTasks)),
                 focus: true,
                 workflowKind: 'general',
                 preferredProfile: 'strong',
@@ -1552,18 +1553,14 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         const validation = validateEarthCoachSelection(allSelected, this.workspace?.groups || [], limit, this.confirmWithoutPhoto);
         const incompleteGroupIndex = validation.incompleteGroupIndex;
         const withoutObservation = coverage.filter(row => row.state === 'needs_field').length;
-        const withoutPhoto = coverage.filter(row => row.state === 'needs_photo').length;
-        const coverageWarning = [
-            withoutObservation > 0 ? `${withoutObservation} question(s) sans observation` : undefined,
-            withoutPhoto > 0 ? `${withoutPhoto} question(s) dont la photo exigée manque` : undefined,
-        ].filter(Boolean).join(' · ');
+        const coverageWarning = withoutObservation > 0 ? `${withoutObservation} question(s) sans observation` : '';
         return <section className='ecw-panel ecw-summary'>
             <h3>Vérification avant envoi</h3>
             {(this.context?.loadErrors || []).length ? <div className='ecw-warning'>Chargement incomplet : {(this.context?.loadErrors || []).join(', ')}. L’envoi est déconseillé tant que ces données ne sont pas disponibles.</div> : undefined}
             {this.description?.notice && <div className='ecw-warning'>{this.description.notice}</div>}
             <div className='ecw-summary-grid'>
                 <span>Listing : <strong>{this.description?.selected.label}</strong></span>
-                <span>Questions : <strong>{this.context?.loggingTasks.length || 0}</strong></span>
+                <span>Questions : <strong>{answerableLoggingTasks(this.context?.loggingTasks || []).length}</strong></span>
                 <span>Observations : <strong>{this.context?.observations.length || 0}</strong></span>
                 <span>Photos personnelles : <strong>{personal}</strong></span>
                 <span>Images listing : <strong>{listing}</strong></span>
@@ -1618,14 +1615,34 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                     <td title={row.guidance ? `À observer : ${row.guidance}` : undefined}>{row.question}</td>
                     <td><span className={`ecw-badge ecw-badge-${row.state}`}>{COVERAGE_LABELS[row.state]}</span></td>
                     <td>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
-                    <td>{row.requiresPhoto ? (row.hasPersonalPhoto ? 'Exigée · présente' : 'Exigée · absente') : <span className='ecw-muted'>—</span>}</td>
-                    <td>{(row.state === 'needs_field' || row.state === 'needs_photo') &&
+                    <td>{row.requiresPhoto ? 'À joindre au log' : <span className='ecw-muted'>—</span>}</td>
+                    <td>{row.state === 'needs_field' &&
                         <button className='theia-button secondary' onClick={() => this.observeTask(row)}>Observer</button>}</td>
                 </tr>)}</tbody>
             </table></div> : <div className='ecw-row'>
                 <p className='ecw-muted ecw-grow'>Aucune question enregistrée : la résolution devra les déduire du listing. Extrayez-les pour suivre leur couverture.</p>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: context.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </div>}
+        </section>;
+    }
+
+    /**
+     * Photos demandées par le poseur : elles partent avec le log et ne sont
+     * jamais des questions à compléter, d'où un rappel à part.
+     */
+    protected renderPhotoReminder(): React.ReactNode {
+        const reminders = buildPhotoReminders(this.context?.loggingTasks || []);
+        if (!reminders.length) {
+            return undefined;
+        }
+        const personal = (this.context?.images || []).filter(image => image.origin === 'user_observation').length;
+        return <section className='ecw-panel ecw-photo-reminder'>
+            <strong>📷 À joindre au log</strong>
+            <ul>{reminders.map((text, index) => <li key={index}>{text}</li>)}</ul>
+            <span className='ecw-muted'>
+                {personal ? `${personal} photo(s) personnelle(s) dans le dossier.` : 'Aucune photo personnelle dans le dossier : à prendre sur place.'}
+                {' '}Ce ne sont pas des questions : ces photos accompagnent le log.
+            </span>
         </section>;
     }
 
@@ -1637,6 +1654,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         const observations = this.context?.observations || [];
         const loggingTasks = this.context?.loggingTasks || [];
         const autoFinalLanguage = this.autoFinalLanguage();
+        const photoReminder = buildPhotoReminders(loggingTasks).join(' · ');
         return <section className='ecw-panel ecw-results'><h3>Propositions EarthCoach</h3>{this.results.map(result =>
             <EarthCoachResultCard
                 key={result.id}
@@ -1650,6 +1668,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 loggingTasks={loggingTasks}
                 finalLanguageChoice={this.finalLanguageChoice}
                 autoFinalLanguage={autoFinalLanguage}
+                photoReminder={photoReminder}
                 handlers={this.resultHandlers}
             />
         )}</section>;
@@ -1683,7 +1702,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 .ecw-preview{overflow:hidden}.ecw-preview img{width:100%;height:auto;max-height:55vh;object-fit:contain;background:#111;border-radius:6px}.ecw-inspector label{display:grid;min-width:0;gap:5px}.ecw-inspector .theia-input,.ecw-inspector .theia-select{min-width:0;width:100%;max-width:100%}.ecw-check{display:flex!important;grid-template-columns:auto 1fr;align-items:center}
                 .ecw-groups,.ecw-results{grid-column:1/-1}.ecw-group{border:1px dashed var(--theia-panel-border);border-radius:6px;padding:9px;display:grid;gap:8px}.ecw-group-members{display:flex;gap:8px;flex-wrap:wrap}
                 .ecw-member{display:grid;grid-template-columns:48px minmax(0,1fr) auto auto;gap:6px;align-items:center;min-width:0;max-width:100%}.ecw-member img{width:48px;height:42px;object-fit:cover;border-radius:4px}.ecw-member span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-                .ecw-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.ecw-muted{color:var(--theia-descriptionForeground);font-size:12px}.ecw-warning,.ecw-error,.ecw-review{padding:9px;border-radius:5px}.ecw-warning{background:var(--theia-inputValidation-warningBackground);border:1px solid var(--theia-inputValidation-warningBorder)}.ecw-error{background:var(--theia-inputValidation-errorBackground);border:1px solid var(--theia-inputValidation-errorBorder)}.ecw-review{background:var(--theia-list-activeSelectionBackground)}
+                .ecw-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px}.ecw-muted{color:var(--theia-descriptionForeground);font-size:12px}.ecw-warning,.ecw-error,.ecw-review{padding:9px;border-radius:5px}.ecw-warning{background:var(--theia-inputValidation-warningBackground);border:1px solid var(--theia-inputValidation-warningBorder)}.ecw-error{background:var(--theia-inputValidation-errorBackground);border:1px solid var(--theia-inputValidation-errorBorder)}.ecw-review{background:var(--theia-list-activeSelectionBackground)}.ecw-photo-reminder{border-left:3px solid var(--theia-focusBorder)}.ecw-photo-reminder ul{margin:4px 0;padding-left:20px}
                 .ecw-confirm{font-weight:600;display:flex;align-items:center;gap:8px}.ecw-actions{position:sticky;bottom:0;padding:8px;background:var(--theia-sideBar-background);justify-content:flex-end;border-top:1px solid var(--theia-panel-border)}
                 .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:9px;padding:12px;margin:10px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-proposal label,.ecw-final-answer label{display:grid;gap:5px}.ecw-question{display:grid;gap:5px}.ecw-translation{padding:7px 9px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}.ecw-translation span{font-weight:600}.ecw-final-answer{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--theia-panel-border)}.ecw-loading{padding:24px}
                 .ecw-preview-stage{position:relative}.ecw-crop-layer{position:absolute;inset:0;cursor:crosshair;touch-action:none}.ecw-crop-rect{position:absolute;border:2px solid var(--theia-focusBorder);background:color-mix(in srgb,var(--theia-focusBorder) 18%,transparent);pointer-events:none}
@@ -1711,6 +1730,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                     {RESPONSE_LANGUAGES.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
                 </select></label>
                 <span className='ecw-muted'>{this.description?.reliable ? 'Une seule version sera analysée.' : 'Description complète utilisée.'}</span></div></section>
+            {this.renderPhotoReminder()}
             <div className='ecw-main'>{this.renderGallery()}{this.renderPreview()}{this.renderInspector()}</div>
             {this.renderGroups()}
             <section className='ecw-panel'><h3>Commentaire général</h3><textarea className='theia-input' rows={4} value={this.workspace.general_comment || ''} onChange={event => this.mutate(workspace => { workspace.general_comment = event.currentTarget.value; })} placeholder='Contexte global utile au modèle, conditions terrain, objectif de comparaison…' /></section>

@@ -1,4 +1,4 @@
-import { LoggingTaskStatus } from './earthcoach-types';
+import { LoggingTask, LoggingTaskKind, LoggingTaskStatus } from './earthcoach-types';
 
 export interface LoggingTaskDto {
     id: number;
@@ -9,6 +9,7 @@ export interface LoggingTaskDto {
     answer?: string | null;
     status?: string | null;
     requires_photo?: boolean;
+    kind?: string | null;
     observation_id?: number | null;
     source?: string | null;
 }
@@ -28,6 +29,7 @@ export interface LoggingTaskInput {
     answer?: string | null;
     status?: LoggingTaskStatus;
     requires_photo?: boolean;
+    kind?: LoggingTaskKind;
     observation_id?: number | null;
     position?: number | null;
     /** Provenance conservee lors d'une restauration (manual/extracted). */
@@ -40,6 +42,7 @@ export interface LoggingTaskDraft {
     answer: string;
     status: LoggingTaskStatus;
     requiresPhoto: boolean;
+    kind: LoggingTaskKind;
     observationId: string;
 }
 
@@ -56,6 +59,20 @@ export function getLoggingTaskStatusLabel(status?: LoggingTaskStatus | string | 
 
 export function normalizeLoggingTaskStatus(value?: string | null): LoggingTaskStatus {
     return value === 'field' || value === 'answered' ? value : 'todo';
+}
+
+export function normalizeLoggingTaskKind(value?: string | null): LoggingTaskKind {
+    return value === 'photo' ? 'photo' : 'question';
+}
+
+/** Questions a resoudre, sans les consignes photo a joindre au log. */
+export function answerableLoggingTasks<T extends Pick<LoggingTask, 'kind'>>(tasks: T[]): T[] {
+    return tasks.filter(task => task.kind !== 'photo');
+}
+
+/** Consignes photo a joindre au log. */
+export function photoLoggingTasks<T extends Pick<LoggingTask, 'kind'>>(tasks: T[]): T[] {
+    return tasks.filter(task => task.kind === 'photo');
 }
 
 function trimToUndefined(value: string): string | null {
@@ -79,6 +96,7 @@ export function createLoggingTaskDraft(): LoggingTaskDraft {
         answer: '',
         status: 'todo',
         requiresPhoto: false,
+        kind: 'question',
         observationId: '',
     };
 }
@@ -90,6 +108,7 @@ export function createLoggingTaskDraftFromDto(task: LoggingTaskDto): LoggingTask
         answer: task.answer || '',
         status: normalizeLoggingTaskStatus(task.status),
         requiresPhoto: Boolean(task.requires_photo),
+        kind: normalizeLoggingTaskKind(task.kind),
         observationId: task.observation_id != null ? String(task.observation_id) : '',
     };
 }
@@ -101,6 +120,7 @@ export function buildLoggingTaskInput(draft: LoggingTaskDraft): LoggingTaskInput
         answer: trimToUndefined(draft.answer),
         status: draft.status,
         requires_photo: draft.requiresPhoto,
+        kind: draft.kind,
         observation_id: parseOptionalObservationId(draft.observationId),
     };
 }
@@ -190,6 +210,7 @@ export function loggingTaskRestoreInput(task: LoggingTaskDto): LoggingTaskInput 
         answer: task.answer ?? null,
         status: normalizeLoggingTaskStatus(task.status),
         requires_photo: Boolean(task.requires_photo),
+        kind: normalizeLoggingTaskKind(task.kind),
         observation_id: task.observation_id ?? null,
         position: task.position ?? null,
         source: task.source ?? null,
@@ -246,6 +267,7 @@ export function normalizeExtractionTasks(raw: unknown): LoggingTaskInput[] {
             guidance: typeof record.guidance === 'string' ? trimToUndefined(record.guidance) : null,
             status: 'todo',
             requires_photo: coerceBool(record.requires_photo),
+            kind: normalizeLoggingTaskKind(typeof record.kind === 'string' ? record.kind : undefined),
             position: Number.isInteger(positionValue) && positionValue > 0 ? positionValue : index + 1,
         });
     });

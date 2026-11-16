@@ -6,7 +6,7 @@ import {
     LoggingTaskStatus,
     UserObservation,
 } from './earthcoach-types';
-import { LoggingTaskDto } from './earthcoach-logging-tasks';
+import { LoggingTaskDto, normalizeLoggingTaskKind } from './earthcoach-logging-tasks';
 import { EarthCoachWorkspace } from './earthcoach-workspace-types';
 
 /**
@@ -172,6 +172,7 @@ export function mapLoggingTask(geocacheId: number, task: LoggingTaskDto, index: 
         answer: task.answer?.trim() || undefined,
         status: normalizeLoggingTaskStatus(task.status),
         requiresPhoto: Boolean(task.requires_photo),
+        kind: normalizeLoggingTaskKind(task.kind),
         observationId: task.observation_id != null ? `observation-${task.observation_id}` : undefined,
         source: task.source?.trim() || undefined,
     };

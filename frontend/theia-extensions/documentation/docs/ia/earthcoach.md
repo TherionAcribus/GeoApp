@@ -83,7 +83,9 @@ Il permet de :
 - regrouper des images qui doivent etre traitees ensemble, avec un role comme **originale**, **masquee**, **detail**, **avant** ou **apres** ;
 - recadrer un detail d'une photo en pleine resolution (voir plus bas) ;
 - ajouter un commentaire general pour l'ensemble du dossier ;
-- suivre la **couverture des questions** : pour chaque question, son etat (**Prete a resoudre**, **Observation a faire**, **Photo a ajouter**, **Repondue**), l'observation liee et la photo exigee. Le bouton **Observer** ouvre directement une observation liee a la question.
+- suivre la **couverture des questions** : pour chaque question, son etat (**Prete a resoudre**, **Observation a faire**, **Repondue**), l'observation liee et une eventuelle photo a joindre au log. Le bouton **Observer** ouvre directement une observation liee a la question.
+
+Les photos demandees par le proprietaire (« photo de vous avec le panneau ») ne sont pas des questions : elles accompagnent le log. Elles apparaissent dans un bandeau **A joindre au log** en tete du dossier, qui indique aussi combien de photos personnelles vous avez deja. Elles ne rendent jamais une resolution incomplete, et le message final indique simplement que la photo demandee est jointe au log.
 
 Lors de la premiere ouverture, seules les photos personnelles deja liees a une observation sont selectionnees. Les images du listing et les photos personnelles non classees restent non selectionnees. Une selection vide reste vide : EarthCoach n'ajoute aucune image automatiquement.
 
@@ -154,7 +156,8 @@ Chaque question peut contenir :
 - le texte de la question ;
 - une consigne d'observation (ce qu'il faut observer ou mesurer) ;
 - un statut : a traiter, a observer sur le terrain ou repondu ;
-- l'indication d'une photo requise ;
+- son type : **Question**, ou **Consigne photo** (une photo a joindre au log, sans reponse a rediger). L'extraction IA classe ces consignes automatiquement ;
+- pour une question, l'indication d'une photo a joindre au log en plus de la reponse ;
 - un brouillon de reponse ;
 - une observation terrain liee.
 

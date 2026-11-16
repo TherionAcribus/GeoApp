@@ -375,7 +375,8 @@ Chaque logging task porte :
 - `guidance` : ce qu'il faut observer ou mesurer pour y repondre (optionnel) ;
 - `answer` : brouillon de reponse (optionnel) ;
 - `status` : `todo`, `field` (a observer sur place) ou `answered` ;
-- `requires_photo` : la question exige-t-elle une photo ;
+- `requires_photo` : une photo est a joindre au log en plus de la reponse (elle ne bloque jamais l'etat « Prete ») ;
+- `kind` : `question` (defaut) ou `photo`. Une consigne photo (« photo de vous avec le panneau ») n'est pas une question : elle n'appelle aucune reponse. La colonne est ajoutee par la migration `add_logging_task_kind` et par la mise a niveau SQLite de `database.py` ; les taches existantes restent des questions ;
 - `observation_id` : observation `UserObservation` qui justifie la reponse (FK `ON DELETE SET NULL`) ;
 - `source` : `manual` ou `extracted`.
 
@@ -465,7 +466,8 @@ Avec un dossier prepare (`preparedRequest`) :
 
 ### Couverture et resultats
 
-- `buildEarthCoachCoverage` : une ligne par question, etat `answered` / `ready_to_resolve` / `needs_field` / `needs_photo`. Une photo compte si elle est personnelle et liee a l'observation de la question (par l'observation elle-meme ou par le contexte d'image du dossier). Bouton **Observer** -> `earthcoach.observeTask`.
+- `buildEarthCoachCoverage` : une ligne par question (consignes photo exclues), etat `answered` / `ready_to_resolve` / `needs_field`. L'ancien etat `needs_photo` a ete supprime : la photo part avec le log et ne rend jamais une question incomplete. Bouton **Observer** -> `earthcoach.observeTask`.
+- **Photos a joindre au log.** `buildPhotoReminders` liste les consignes photo, puis les questions qui demandent aussi une photo. La liste alimente le bandeau « A joindre au log » en tete du dossier (avec le nombre de photos personnelles du dossier), le rappel sous le bouton de reponse finale, et le prompt de reponse finale : le message se termine par une phrase courte annoncant la photo jointe. Le prompt de resolution liste les consignes photo a part (`PHOTO_INSTRUCTION_RULE` : aucune proposition, jamais comptees comme manquantes, pas de mention dans la synthese), et `withoutPhotoInstructionProposals` ecarte a la capture une proposition qui viserait une consigne. L'extraction (`earthcoach_extract_logging_tasks`) classe ces consignes en `kind="photo"`. L'analyse de sortie ne les compte pas comme questions mais en deduit qu'il faut l'appareil photo.
 - `EarthCoachResultCard` (`React.memo`, callbacks stables `resultHandlers`) : contenu rendu seulement une fois deplie ; saisir un commentaire ne redessine pas les resultats.
 - Propositions numerotees via `resolveProposalPosition` (`snapshot_tasks`, repli sur les questions courantes) ; `findUncoveredSnapshotTasks` signale les questions sans proposition.
 - Report unitaire ou groupe (`applicableProposalIndexes`, meme regle que le backend), suivi de l'evenement `earthcoach-logging-tasks-updated` pour rafraichir le widget Questions et la couverture.

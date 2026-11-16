@@ -1,4 +1,5 @@
 import { EarthCoachContext } from './earthcoach-context-service';
+import { answerableLoggingTasks, photoLoggingTasks } from './earthcoach-logging-tasks';
 
 export interface EarthCoachFieldChecklistSection {
     title: string;
@@ -74,7 +75,10 @@ export function buildEarthCoachFieldChecklist(context: EarthCoachContext): Earth
         'Echelle de vos photos : objet, main, carnet ou repere stable.',
     ]);
 
+    const allTasks = [...(context.loggingTasks || [])].sort((left, right) => left.position - right.position);
     const photograph = unique([
+        // Consignes du poseur en tete : ce sont les photos a joindre au log.
+        ...photoLoggingTasks(allTasks).map(task => `Pour le log : ${truncate(task.question.replace(/\s+/g, ' '), 220)}`),
         'Vue generale du site pour replacer l observation dans le paysage.',
         'Gros plan de la roche, texture, strate, fossile ou mineral pertinent.',
         'Photo avec echelle si une taille ou epaisseur doit etre estimee.',
@@ -82,11 +86,11 @@ export function buildEarthCoachFieldChecklist(context: EarthCoachContext): Earth
         userImageCount > 0 ? 'Verifier que vos photos utilisateur sont bien separees des images du listing.' : '',
     ]);
 
-    const loggingTasks = [...(context.loggingTasks || [])].sort((left, right) => left.position - right.position);
+    const loggingTasks = answerableLoggingTasks(allTasks);
     const questionsSection = loggingTasks.length
         ? loggingTasks.map(task => {
             const flags = [
-                task.requiresPhoto ? 'photo requise' : '',
+                task.requiresPhoto ? 'photo a joindre au log' : '',
                 task.status === 'answered' ? 'deja repondu' : '',
             ].filter(Boolean).join(', ');
             return `Q${task.position}: ${truncate(task.question.replace(/\s+/g, ' '), 220)}${flags ? ` (${flags})` : ''}`;

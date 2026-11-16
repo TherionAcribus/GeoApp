@@ -48,6 +48,8 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                 'Cette operation REMPLACE toutes les questions deja enregistrees pour la cache:',
                 'ne l utilise que si l utilisateur demande explicitement d extraire ou de rafraichir les questions.',
                 'Liste les questions dans l ordre du listing; n invente aucune question et ne fabrique aucune reponse.',
+                'Une demande de photo a joindre au log (ex: photo de vous avec le panneau, photo de votre GPS sur le site) n est pas une question:',
+                'enregistre-la avec kind="photo". Une question qui demande une reponse et en plus une photo garde kind="question" et requires_photo=true.',
                 'Si la reponse contient requires_confirmation, montre le resume du diff a l utilisateur',
                 'et ne reapplique qu apres son accord explicite, en repassant confirmed=true.',
             ].join(' '),
@@ -75,7 +77,12 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                             },
                             requires_photo: {
                                 type: 'boolean',
-                                description: 'true si la question exige une photo. Optionnel.',
+                                description: 'true si une question a reponse demande aussi une photo pour le log. Optionnel.',
+                            },
+                            kind: {
+                                type: 'string',
+                                enum: ['question', 'photo'],
+                                description: 'question (defaut) ou photo pour une consigne photo a joindre au log, sans reponse a rediger.',
                             },
                         },
                         required: ['question'],
@@ -141,6 +148,7 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
                             position: task.position,
                             question: task.question,
                             requires_photo: task.requires_photo,
+                            kind: task.kind,
                         })),
                     });
                 } catch (error: any) {

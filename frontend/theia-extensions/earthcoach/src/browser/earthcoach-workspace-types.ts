@@ -115,6 +115,8 @@ export interface EarthCoachSnapshotTask {
     id: number;
     position?: number | null;
     question?: string | null;
+    /** Absent des resultats anterieurs a la distinction des consignes photo. */
+    kind?: string | null;
 }
 
 export interface EarthCoachResult {
