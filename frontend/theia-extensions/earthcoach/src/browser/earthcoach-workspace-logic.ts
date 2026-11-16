@@ -344,7 +344,7 @@ export function containedImageBox(
 }
 
 const PROPOSAL_FIELDS: Array<keyof EarthCoachResultProposal> = [
-    'task_id', 'question', 'question_translation', 'status', 'answer', 'evidence_ids', 'confidence', 'missing',
+    'task_id', 'question', 'question_type', 'question_translation', 'status', 'answer', 'reasoning', 'basis', 'evidence_ids', 'confidence', 'missing',
 ];
 
 function normalizedField(proposal: EarthCoachResultProposal, field: keyof EarthCoachResultProposal): string {

@@ -461,6 +461,7 @@ Dans l'apercu, **Recadrer un detail** active un calque de trace (pointer events)
 Avec un dossier prepare (`preparedRequest`) :
 
 - le detail par question passe **uniquement** par `earthcoach_capture_result` ; le chat ne contient qu'une synthese courte (bilan pretes / partielles / manquantes, points bloquants, prochaines mesures). Sans dossier (chat libre), le gabarit texte question par question reste en vigueur ;
+- chaque proposition declare `question_type` (`knowledge` / `photo` / `field`), `reasoning` (une ou deux phrases) et `basis` (`observation` / `photo` / `listing` / `geology` / `tool`), affiches dans la carte de resultat. Le contrat impose une reponse candidate partout : `answer` est toujours rempli pour `knowledge` et `photo`, une estimation explicite est attendue pour `field` quand le dossier permet de l'argumenter ; `missing` ne recoit que ce qui confirmerait ou preciserait la reponse et ne dispense jamais de repondre. `status` suit : `ready` des que la reponse est exploitable, `partial` quand une verification la renforcerait, `missing` seulement sans reponse plausible. Le backend normalise les nouveaux champs dans `_normalize_proposal` (enums invalides retires, champs absents non ajoutes) ;
 - les images ne sont decrites qu'une fois, dans « Contextes exacts des images transmises » (libelle compris) ; un dossier sans image l'annonce explicitement ;
 - une **analyse** enregistre une proposition par question avec `status` et `missing` (reponse vide) : le dossier l'affiche comme liste « A relever sur le terrain ».
 

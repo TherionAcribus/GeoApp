@@ -27,6 +27,20 @@ const STATUS_LABELS: Record<EarthCoachResultProposal['status'], string> = {
     missing: 'Manquante',
 };
 
+const QUESTION_TYPE_LABELS: Record<string, string> = {
+    knowledge: 'Connaissance',
+    photo: 'Photo',
+    field: 'Terrain',
+};
+
+const BASIS_LABELS: Record<string, string> = {
+    observation: 'observation',
+    photo: 'photo',
+    listing: 'listing',
+    geology: 'géologie',
+    tool: 'outil',
+};
+
 // html: false — la reponse du modele est rendue, jamais son HTML brut.
 const markdown = markdownit({ html: false, linkify: true, breaks: true });
 
@@ -114,17 +128,22 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
             const position = resolveProposalPosition(proposal, result.snapshot_tasks, props.loggingTasks);
             const ai = result.ai_proposals?.[proposalIndex];
             const edited = proposalDiffersFromAi(proposal, ai);
+            const founded = [
+                ...(proposal.basis || []).map(basis => BASIS_LABELS[basis] || basis),
+                ...(proposal.evidence_ids || []).map(id => describeEarthCoachEvidence(id, props.images, props.observations)),
+            ];
+            const meta = [
+                proposal.question_type ? QUESTION_TYPE_LABELS[proposal.question_type] || proposal.question_type : '',
+                proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : '',
+                founded.length ? `Fondée sur : ${founded.join(', ')}` : '',
+            ].filter(Boolean).join(' · ');
             return <div key={`${result.id}-${proposalIndex}`} className='ecw-proposal'>
                 <div className='ecw-question'><strong>{questionLabel(position, proposal.question)}</strong>
                     {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
                         <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
                 </div>
-                {(proposal.confidence || Boolean(proposal.evidence_ids?.length)) && <div className='ecw-muted ecw-evidence'>
-                    {proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : ''}
-                    {proposal.evidence_ids?.length
-                        ? `${proposal.confidence ? ' · ' : ''}Fondée sur : ${proposal.evidence_ids.map(id => describeEarthCoachEvidence(id, props.images, props.observations)).join(', ')}`
-                        : ''}
-                </div>}
+                {meta && <div className='ecw-muted ecw-evidence'>{meta}</div>}
+                {proposal.reasoning?.trim() && <div className='ecw-muted'>{proposal.reasoning}</div>}
                 <label>État<select className='theia-select' value={proposal.status}
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { status: event.currentTarget.value as EarthCoachResultProposal['status'] })}>
                     <option value='ready'>Prête</option><option value='partial'>Partielle</option><option value='missing'>Manquante</option>

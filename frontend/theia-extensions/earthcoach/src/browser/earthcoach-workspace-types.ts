@@ -100,12 +100,26 @@ export interface EarthCoachPreparedRequest {
     unavailableImages: Array<{ id: string; label?: string; reason: string }>;
 }
 
+/**
+ * Ce dont depend la reponse: `knowledge` = listing ou connaissance
+ * geologique, `photo` = lisible sur les images transmises, `field` = releve
+ * sur place impossible a deduire. L'interdit d'inventer ne vise que `field`.
+ */
+export type EarthCoachQuestionType = 'knowledge' | 'photo' | 'field';
+
+/** Sur quoi repose la reponse candidate. */
+export type EarthCoachAnswerBasis = 'observation' | 'photo' | 'listing' | 'geology' | 'tool';
+
 export interface EarthCoachResultProposal {
     task_id?: number;
     question: string;
+    question_type?: EarthCoachQuestionType;
     question_translation?: string;
     status: 'ready' | 'partial' | 'missing';
     answer?: string;
+    /** Raisonnement qui justifie la reponse, une ou deux phrases. */
+    reasoning?: string;
+    basis?: EarthCoachAnswerBasis[];
     evidence_ids?: string[];
     confidence?: 'high' | 'medium' | 'low';
     missing?: string | null;

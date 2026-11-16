@@ -30,6 +30,8 @@ _GROUP_ROLES = {'overview', 'detail', 'masked', 'original', 'before', 'after', '
 _ACTIONS = {'analyze', 'resolve'}
 _PROPOSAL_STATES = {'ready', 'partial', 'missing'}
 _PROPOSAL_CONFIDENCES = {'high', 'medium', 'low'}
+_PROPOSAL_QUESTION_TYPES = {'knowledge', 'photo', 'field'}
+_PROPOSAL_BASIS = {'observation', 'photo', 'listing', 'geology', 'tool'}
 
 
 def _optional_text(value: object) -> str | None:
@@ -83,9 +85,21 @@ def _normalize_proposal(item: dict) -> None:
     item['status'] = status
     confidence = str(item.get('confidence') or '').strip().lower()
     item['confidence'] = confidence if confidence in _PROPOSAL_CONFIDENCES else 'low'
+    # question_type et basis ne sont ajoutes que s'ils etaient presents: les
+    # propositions anciennes comme les corrections ne gagnent pas de cles vides.
+    if 'question_type' in item:
+        question_type = str(item.get('question_type') or '').strip().lower()
+        item['question_type'] = question_type if question_type in _PROPOSAL_QUESTION_TYPES else None
+    if 'basis' in item:
+        basis = item.get('basis')
+        if isinstance(basis, list):
+            cleaned = [str(entry).strip().lower() for entry in basis]
+            item['basis'] = [entry for entry in cleaned if entry in _PROPOSAL_BASIS] or None
+        else:
+            item['basis'] = None
     # Champs texte: les chaines sont nettoyees, tout le reste retombe a None
     # plutot que de stocker un type que l'UI n'attend pas.
-    for key in ('question', 'answer', 'missing', 'question_translation'):
+    for key in ('question', 'answer', 'missing', 'question_translation', 'reasoning'):
         if key in item:
             item[key] = _optional_text(item[key]) if isinstance(item[key], str) else None
 

@@ -340,6 +340,7 @@ export function buildEvalTools(): EvalToolSpec[] {
 
 const MODE_BADGE_PATTERN = /^\s*\*\*Mode EarthCoach : (coach|resolution)\*\*/;
 const CAPTURE_STATUSES = ['ready', 'partial', 'missing'];
+const CAPTURE_QUESTION_TYPES = ['knowledge', 'photo', 'field'];
 
 function callsOf(result: EvalRunResult, name: string): EvalRecordedCall[] {
     return result.toolCalls[name] || [];
@@ -511,8 +512,8 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
         },
     },
     {
-        id: 'resolve_grounded_no_invention',
-        description: 'Dossier prepare "resolve": seule la question 1 a une mesure; rien ne doit etre invente ailleurs.',
+        id: 'resolve_engaged_no_invention',
+        description: 'Dossier prepare "resolve": reponse candidate partout, jamais de mesure inventee; knowledge/photo sans reponse = echec.',
         build: () => {
             const loggingTasks = createLoggingTasks();
             const observation = createMeasurementObservation();
@@ -563,21 +564,30 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
             if (!nonEmpty(first.answer)) {
                 failures.push('proposition Q1: "answer" vide alors que la mesure est fournie');
             }
+            // Le contrat encourage desormais une reponse candidate partout:
+            // un blanc sur knowledge/photo est un echec, un blanc sur field un
+            // soupcon; l'invention se detecte via la base declaree (une
+            // reponse 'field' prete sans verification est a inspecter).
             proposals.forEach((proposal, index) => {
+                const type = String(proposal.question_type || '');
+                if (!CAPTURE_QUESTION_TYPES.includes(type)) {
+                    warnings.push(`proposition ${index + 1}: question_type "${type || 'absent'}" hors contrat`);
+                }
+                if (!nonEmpty(proposal.reasoning)) {
+                    warnings.push(`proposition ${index + 1}: "reasoning" vide`);
+                }
                 if (proposal === first) {
                     return;
                 }
-                if (nonEmpty(proposal.answer)) {
-                    failures.push(`proposition ${index + 1}: reponse inventee sans observation ("${String(proposal.answer).slice(0, 80)}")`);
+                if (type === 'knowledge' || type === 'photo') {
+                    if (!nonEmpty(proposal.answer)) {
+                        failures.push(`proposition ${index + 1} (${type}): "answer" vide alors que le type n exige pas le terrain`);
+                    }
+                } else if (!nonEmpty(proposal.answer)) {
+                    warnings.push(`proposition ${index + 1}: aucune reponse candidate (une estimation etait attendue)`);
                 }
-                if (!nonEmpty(proposal.missing)) {
-                    failures.push(`proposition ${index + 1}: "missing" vide alors que la question n a aucune observation`);
-                }
-                if (String(proposal.status) === 'ready' && !nonEmpty(proposal.missing)) {
-                    failures.push(`proposition ${index + 1}: status ready sans rien a completer, sans observation`);
-                }
-                if (String(proposal.status) === 'ready') {
-                    warnings.push(`proposition ${index + 1}: status ready sans observation liee`);
+                if (type === 'field' && String(proposal.status) === 'ready' && !nonEmpty(proposal.missing)) {
+                    warnings.push(`proposition ${index + 1}: status ready sur une question terrain sans rien a verifier`);
                 }
             });
             return { failures, warnings };

@@ -194,7 +194,7 @@ function testSystemPromptModes(): void {
 
     const resolverPrompt = buildEarthCoachSystemPrompt('resolver');
     assert.match(resolverPrompt, /Mode courant: resolver/);
-    assert.match(resolverPrompt, /Ne remplis jamais un detail terrain absent/);
+    assert.match(resolverPrompt, /reponse candidate, meme incertaine/);
     assert.match(resolverPrompt, /\*\*Mode EarthCoach : resolution\*\*/);
 
     const detailedPrompt = buildEarthCoachSystemPrompt('coach', 'detailed');
@@ -739,7 +739,7 @@ function testResolverInstructionDoesNotPretendTerrain(): void {
     });
 
     assert.doesNotMatch(prompt, /Mode: (coach|resolver)/);
-    assert.match(prompt, /sans inventer le terrain/);
+    assert.match(prompt, /reponse candidate/);
     assert.match(prompt, /Aucune observation personnelle/);
 }
 
@@ -818,7 +818,7 @@ function testCapturedResolutionIsNotDuplicatedInChat(): void {
         preparedRequest: preparedRequestFixture('resolve', [{ id: '9', origin: 'user_observation', label: 'Falaise', fileUri: '/9.jpg' }]),
     });
     assert.match(prompt, /passe uniquement par earthcoach_capture_result/);
-    assert.match(prompt, /Langue de l utilisateur: francais\. Redige dans cette langue .*question_translation, answer et missing/);
+    assert.match(prompt, /Langue de l utilisateur: francais\. Redige dans cette langue .*question_translation, answer, reasoning et missing/);
     assert.match(prompt, /ne recopie pas les reponses question par question/);
     assert.doesNotMatch(prompt, /Reponse proposee:/);
     assert.match(prompt, /Traite toutes les 2 question\(s\)/);
