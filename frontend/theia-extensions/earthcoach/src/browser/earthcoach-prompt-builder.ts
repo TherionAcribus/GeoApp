@@ -661,6 +661,27 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
     if (prepared.unavailableImages.length) {
         lines.push(`Images non transmises (ne jamais affirmer les avoir examinees): ${prepared.unavailableImages.map(image => `${image.id}:${image.reason}`).join('; ')}`);
     }
+    if (prepared.refine) {
+        const previous = prepared.refine.previous;
+        const fields = [
+            `question=${previous.question || 'reprendre la question ci-dessus'}`,
+            `status=${previous.status}`,
+            `answer=${previous.answer || 'aucune'}`,
+            `missing=${previous.missing || 'aucun'}`,
+            `confidence=${previous.confidence || 'inconnue'}`,
+        ];
+        if (previous.reasoning) {
+            fields.push(`raisonnement=${previous.reasoning}`);
+        }
+        lines.push(
+            '--- REPRISE CIBLEE D UNE QUESTION ---',
+            'Cette demande ne reprend qu une seule question: capture exactement une proposition, pour cette question seulement (meme task_id).',
+            prepared.refine.focus === 'contest'
+                ? 'Consigne: reexamine la question de facon critique. Si une reponse differente est mieux fondee, propose-la avec sa justification; sinon confirme la reponse precedente en durcissant son raisonnement.'
+                : 'Consigne: approfondis cette question. Appuie-toi sur les outils (geologie, altitude, references externes, calculs) et sur les images transmises pour produire une proposition plus complete et mieux justifiee.',
+            `Proposition precedente a depasser: ${fields.join('; ')}`
+        );
+    }
     // Le contrat des propositions (champs, answer vs missing, JSON invisible)
     // n'est pas repete ici: il vit dans le prompt systeme partage.
     lines.push('A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.');
@@ -819,6 +840,12 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         ...(input.preparedRequest ? [] : [...buildImagesBlock(input.images, limits), '']),
         ...buildObservationsBlock(input.observations, limits, input.gcPersonalNote),
         ...(loggingTasksBlock.length ? ['', ...loggingTasksBlock] : []),
+        ...(input.siteContext ? [
+            '',
+            '--- CONTEXTE GEOGRAPHIQUE PRE-COLLECTE (outils, donnees cartographiques) ---',
+            input.siteContext,
+            'Ces donnees generales fondent une reponse `knowledge` et peuvent etre citees en `basis` (geology ou tool); ce ne sont pas des observations terrain.',
+        ] : []),
         ...(input.preparedRequest ? ['', ...buildPreparedRequestBlock(input)] : []),
         '',
         // Pas de ligne "Mode:" figee dans l'historique: earthcoach_set_mode

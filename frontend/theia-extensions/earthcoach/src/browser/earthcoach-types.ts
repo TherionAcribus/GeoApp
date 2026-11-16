@@ -135,6 +135,8 @@ export interface EarthCoachPromptInput {
     loggingTasks?: LoggingTask[];
     gcPersonalNote?: string | null;
     images: GeoImage[];
+    /** Geologie et altitude du site, recuperees en code avant l'envoi. */
+    siteContext?: string;
     preparedRequest?: EarthCoachPreparedRequest;
 }
 

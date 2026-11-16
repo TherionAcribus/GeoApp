@@ -828,6 +828,58 @@ function testCapturedResolutionIsNotDuplicatedInChat(): void {
     assert.match(prompt, /image=9; origine=user_observation; libelle=Falaise/);
 }
 
+function testSiteContextBlockIsInjected(): void {
+    // Geologie / altitude collectees en code: le bloc est identifie comme
+    // donnee cartographique, jamais comme observation terrain.
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+        siteContext: 'Geologie du site (BRGM, carte 1/50 000):\nCalcaire du Jurassique',
+        preparedRequest: preparedRequestFixture('resolve'),
+    });
+    assert.match(prompt, /CONTEXTE GEOGRAPHIQUE PRE-COLLECTE/);
+    assert.match(prompt, /Calcaire du Jurassique/);
+    assert.match(prompt, /ne sont pas des observations terrain/);
+}
+
+function testRefineRequestPrompt(): void {
+    // Reprise ciblee: une seule proposition attendue, consigne et proposition
+    // precedente rappellees au modele.
+    const refine: EarthCoachPreparedRequest = {
+        ...preparedRequestFixture('resolve'),
+        refine: {
+            resultId: 7,
+            focus: 'contest',
+            previous: {
+                task_id: 3,
+                question: 'Quelle roche ?',
+                status: 'partial',
+                answer: 'Granite',
+                missing: 'Confirmer le grain',
+                confidence: 'medium',
+                reasoning: 'Couleur claire',
+            },
+        },
+    };
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: createLoggingTasks().slice(0, 1),
+        images: [],
+        preparedRequest: refine,
+    });
+    assert.match(prompt, /REPRISE CIBLEE D UNE QUESTION/);
+    assert.match(prompt, /capture exactement une proposition/);
+    assert.match(prompt, /reexamine la question de facon critique/);
+    assert.match(prompt, /answer=Granite; missing=Confirmer le grain; confidence=medium; raisonnement=Couleur claire/);
+}
+
 function testPreparedRequestWithoutImagesSaysSo(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
@@ -2499,6 +2551,8 @@ async function run(): Promise<void> {
     testContainedImageBox();
     testRevertToAiVersion();
     testCapturedResolutionIsNotDuplicatedInChat();
+    testSiteContextBlockIsInjected();
+    testRefineRequestPrompt();
     testPreparedRequestWithoutImagesSaysSo();
     await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console

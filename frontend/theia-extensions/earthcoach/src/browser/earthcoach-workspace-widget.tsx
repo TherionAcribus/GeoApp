@@ -38,9 +38,14 @@ import {
     EARTHCOACH_RESPONSE_LANGUAGE_PREF,
     EARTHCOACH_RESPONSE_VERBOSITY_PREF,
 } from './earthcoach-preferences';
+import { EarthCoachElevationService } from './earthcoach-elevation-service';
+import { formatElevationSummary } from './earthcoach-elevation';
+import { EarthCoachGeologyService } from './earthcoach-geology-service';
+import { formatFrenchGeologySummary, formatGeologySummary } from './earthcoach-geology';
 import { buildEarthCoachFinalAnswerPrompt, buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
 import {
     EarthCoachAgentId,
+    EarthCoachGeocacheData,
     EarthCoachObserveTaskCommandId,
     EarthCoachOpenCommandId,
     EarthCoachVerbosity,
@@ -51,6 +56,7 @@ import {
     EarthCoachGroupRole,
     EarthCoachPreparedImage,
     EarthCoachPreparedRequest,
+    EarthCoachRefineFocus,
     EarthCoachResult,
     EarthCoachResultProposal,
     EarthCoachSaveState,
@@ -74,6 +80,7 @@ import {
     EarthCoachCoverageState,
     EarthCoachRect,
     prepareEarthCoachImagesForTransmission,
+    trailingNumericId,
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
 import { EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
@@ -220,6 +227,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         },
         onUpdateProposal: (resultId, proposalIndex, patch) => this.updateProposal(resultId, proposalIndex, patch),
         onMoveAnswerToMissing: (resultId, proposalIndex) => this.moveAnswerToMissing(resultId, proposalIndex),
+        onRefineProposal: (resultId, proposalIndex, focus) => { void this.refineProposal(resultId, proposalIndex, focus); },
         onApply: (resultId, proposalIndex) => { void this.applyProposal(resultId, proposalIndex); },
         onApplyAll: resultId => { void this.applyAllReadyProposals(resultId); },
         onGenerateFinal: resultId => { void this.generateFinalAnswer(resultId); },
@@ -257,6 +265,12 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
 
     @inject(EarthCoachResultCaptureService)
     protected readonly resultCapture!: EarthCoachResultCaptureService;
+
+    @inject(EarthCoachGeologyService)
+    protected readonly geologyService!: EarthCoachGeologyService;
+
+    @inject(EarthCoachElevationService)
+    protected readonly elevationService!: EarthCoachElevationService;
 
     @postConstruct()
     protected init(): void {
@@ -771,6 +785,40 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         });
     }
 
+    /**
+     * Geologie et altitude du site, collectees en code avant l'envoi plutot
+     * que laissees a l'initiative du modele. L'API BRGM est interrogee
+     * d'abord: couverte (France metropolitaine), sa notice fait foi; sinon
+     * Macrostrat prend le relais. Toute indisponibilite est ignoree, la
+     * resolution part quand meme avec le reste du dossier.
+     */
+    protected async buildSiteContext(geocache: EarthCoachGeocacheData): Promise<string | undefined> {
+        const lat = geocache.latitude;
+        const lon = geocache.longitude;
+        if (lat == null || lon == null) {
+            return undefined;
+        }
+        const sections: string[] = [];
+        try {
+            const french = await this.geologyService.frenchGeologyAtPoint(lat, lon);
+            if (french.covered) {
+                sections.push(`Geologie du site (BRGM, carte 1/50 000):\n${formatFrenchGeologySummary(french)}`);
+            } else {
+                const world = await this.geologyService.geologyAtPoint(lat, lon);
+                sections.push(`Geologie du site (Macrostrat):\n${formatGeologySummary(world)}`);
+            }
+        } catch (error) {
+            console.warn('EarthCoach: contexte geologique indisponible', error);
+        }
+        try {
+            const elevation = await this.elevationService.elevationAtPoints([{ lat, lon }]);
+            sections.push(`Altitude du site:\n${formatElevationSummary(elevation)}`);
+        } catch (error) {
+            console.warn('EarthCoach: altitude indisponible', error);
+        }
+        return sections.length ? sections.join('\n\n') : undefined;
+    }
+
     protected async send(action: EarthCoachSendAction): Promise<void> {
         if (!this.context || !this.workspace || !this.description || this.sending) {
             return;
@@ -798,7 +846,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         this.unavailable = [];
         this.update();
         try {
-            const checked = await this.prepareAvailableImages(selected);
+            const [checked, siteContext] = await Promise.all([
+                this.prepareAvailableImages(selected),
+                this.buildSiteContext(this.context.geocacheData),
+            ]);
             const available = this.removeIncompleteGroupsAfterFailures(checked.available, checked.failures);
             this.unavailable = checked.failures;
             if (!available.some(image => image.origin === 'user_observation') && !this.confirmWithoutPhoto) {
@@ -834,6 +885,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                     text: this.description.selected.text,
                 },
                 generalComment: this.workspace.general_comment || undefined,
+                siteContext,
                 observations: this.context.observations,
                 loggingTasks: this.context.loggingTasks,
                 images: preparedImages,
@@ -868,6 +920,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 loggingTasks: this.context.loggingTasks,
                 gcPersonalNote: this.context.gcPersonalNote,
                 images: promptImages,
+                siteContext,
                 preparedRequest: snapshot,
             });
             const label = geocache.gc_code || geocache.name;
@@ -985,6 +1038,143 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
             missing: previousMissing ? `${previousMissing}\n${answer}` : answer,
             status: 'partial',
         });
+    }
+
+    /**
+     * Approfondir / Contester : reprend une seule question du resultat. La
+     * proposition recapturee fusionne dans le resultat existant (pas de
+     * resultat supplementaire); la session est neuve, comme tout dossier
+     * prepare, mais centree sur la question et sa proposition precedente.
+     */
+    protected async refineProposal(resultId: number, proposalIndex: number, focus: EarthCoachRefineFocus): Promise<void> {
+        const result = this.results.find(item => item.id === resultId);
+        if (!this.context || !this.workspace || !this.description || !result || this.sending) {
+            return;
+        }
+        // Des corrections en attente d'ecriture (debounce 1 s) ecraseraient la
+        // proposition fusionnee a leur retour: on les enregistre d'abord.
+        const saved = await this.flushResultSave(resultId);
+        const proposal = saved?.proposals[proposalIndex];
+        if (!saved || !proposal) {
+            return;
+        }
+        this.sending = true;
+        this.unavailable = [];
+        this.update();
+        try {
+            const taskNumericId = trailingNumericId(proposal.task_id);
+            const task = taskNumericId !== undefined
+                ? this.context.loggingTasks.find(item => trailingNumericId(item.id) === taskNumericId)
+                : undefined;
+            const focusTasks = task ? [task] : [];
+            // Images: celles liees a l'observation de la question si elle en a
+            // une, sinon la selection courante du dossier (question photo non
+            // liee: le modele garde tout le materiel sous la main).
+            const observationId = task?.observationId ? trailingNumericId(task.observationId) : undefined;
+            const candidates = observationId !== undefined
+                ? this.selectedImages().filter(image => {
+                    const id = imageId(image);
+                    return id !== undefined && this.contextFor(id)?.observation_id === observationId;
+                })
+                : this.selectedImages();
+            const [checked, siteContext] = await Promise.all([
+                this.prepareAvailableImages(candidates),
+                this.buildSiteContext(this.context.geocacheData),
+            ]);
+            const available = this.removeIncompleteGroupsAfterFailures(checked.available, checked.failures);
+            this.unavailable = checked.failures;
+            const availableIds = new Set(available.map(image => imageId(image)).filter((id): id is number => id !== undefined));
+            const preparedImages: EarthCoachPreparedImage[] = available.map(image => {
+                const id = imageId(image)!;
+                const item = this.contextFor(id);
+                return {
+                    id: image.id,
+                    origin: image.origin,
+                    label: image.label,
+                    fileUri: image.fileUri,
+                    comment: item?.comment || undefined,
+                    waypointId: item?.waypoint_id || undefined,
+                    observationId: item?.observation_id || undefined,
+                };
+            });
+            const snapshot: EarthCoachPreparedRequest = {
+                requestId: newRequestId(),
+                geocacheId: this.context.geocacheData.id,
+                action: 'resolve',
+                preparedAt: new Date().toISOString(),
+                responseLanguage: this.responseLanguage,
+                listing: {
+                    language: this.description.selectedLanguage,
+                    fingerprint: this.description.fingerprint,
+                    reliableSeparation: this.description.reliable,
+                    html: this.description.selected.html,
+                    text: this.description.selected.text,
+                },
+                generalComment: this.workspace.general_comment || undefined,
+                siteContext,
+                observations: this.context.observations,
+                loggingTasks: focusTasks,
+                images: preparedImages,
+                groups: this.workspace.groups
+                    .map(group => ({
+                        ...group,
+                        members: group.members.filter(member => availableIds.has(member.image_id)),
+                    }))
+                    .filter(group => group.members.length > 0),
+                unavailableImages: checked.failures,
+                refine: { resultId: result.id, focus, previous: proposal },
+            };
+            this.resultCapture.register(snapshot);
+            const promptImages = available.map(image => ({
+                ...image,
+                description: this.contextFor(imageId(image)!)?.comment || image.description,
+            }));
+            const geocache = {
+                ...this.context.geocacheData,
+                description_html: this.description.selected.html,
+                description_raw: this.description.selected.text,
+                description_override_html: undefined,
+                description_override_raw: undefined,
+            };
+            const verbosity = this.readVerbosity();
+            const prompt = buildEarthCoachPrompt({
+                geocache,
+                mode: 'resolver',
+                action: 'resolve',
+                verbosity,
+                observations: this.context.observations,
+                loggingTasks: focusTasks,
+                gcPersonalNote: this.context.gcPersonalNote,
+                images: promptImages,
+                siteContext,
+                preparedRequest: snapshot,
+            });
+            const label = geocache.gc_code || geocache.name;
+            dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
+                geocacheId: geocache.id,
+                gcCode: geocache.gc_code,
+                geocacheName: geocache.name,
+                sessionTitle: `EARTHCOACH ${focus === 'contest' ? 'CONTESTATION' : 'APPROFONDISSEMENT'} Q${task?.position ?? '?'} - ${label}`,
+                prompt,
+                focus: true,
+                workflowKind: 'general',
+                preferredProfile: 'strong',
+                preferredAgentId: EarthCoachAgentId,
+                earthcoachMode: 'resolver',
+                earthcoachVerbosity: verbosity,
+                earthcoachResponseLanguage: this.responseLanguage,
+                earthcoachRequestId: snapshot.requestId,
+                sessionKind: 'earthcoach',
+                imageContexts: promptImages.map(toImageContext),
+                imageQuality: EARTHCOACH_IMAGE_QUALITY,
+            }));
+            if (checked.failures.length) {
+                this.messages.warn(`${checked.failures.length} image(s) indisponible(s) ont été explicitement retirées de l’envoi.`);
+            }
+        } finally {
+            this.sending = false;
+            this.update();
+        }
     }
 
     protected async generateFinalAnswer(resultId: number): Promise<void> {
@@ -1663,6 +1853,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
                 dirty={this.dirtyResults.has(result.id)}
                 finalBusy={this.generatingFinalResultId !== undefined}
                 generatingFinal={this.generatingFinalResultId === result.id}
+                refineBusy={this.sending}
                 images={images}
                 observations={observations}
                 loggingTasks={loggingTasks}

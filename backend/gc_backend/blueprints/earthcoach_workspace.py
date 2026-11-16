@@ -121,6 +121,28 @@ def _validate_proposals(value: object, *, normalize: bool = False) -> list[dict]
     return value
 
 
+def _proposal_task_id(item: dict) -> int | None:
+    """task_id numerique d'une proposition; tolere les formes 'logging-task-5'."""
+    match = re.search(r'(\d+)$', str(item.get('task_id') or ''))
+    return int(match.group(1)) if match else None
+
+
+def _proposal_index(items: list, proposal: dict) -> int:
+    """Index de la proposition de meme question dans `items` : par task_id
+    d'abord, par texte de question ensuite, -1 si aucune ne correspond."""
+    task_id = _proposal_task_id(proposal)
+    question_key = _question_key(str(proposal.get('question') or ''))
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        if task_id is not None:
+            if _proposal_task_id(item) == task_id:
+                return index
+        elif question_key and _question_key(str(item.get('question') or '')) == question_key:
+            return index
+    return -1
+
+
 def _snapshot_task(snapshot: object, task_id: int) -> dict | None:
     """Retrouve la tache telle qu'elle etait quand le resultat a ete genere.
     Les taches du dossier portent des ids 'logging-task-N'."""
@@ -599,5 +621,53 @@ def apply_result(result_id: int):
         return jsonify({'error': str(error)}), 400
     except Exception as error:  # pragma: no cover
         logger.error('Error applying EarthCoach result %s: %s', result_id, error)
+        db.session.rollback()
+        raise
+
+
+@bp.post('/api/earthcoach-results/<int:result_id>/proposals')
+def merge_result_proposal(result_id: int):
+    """Reprise ciblee (approfondir / contester) : la nouvelle proposition
+    remplace celle de la meme question dans le resultat existant - version IA
+    et version corrigee - sans creer de resultat supplementaire. Le texte
+    visible de la reponse s'ajoute au Markdown du resultat."""
+    try:
+        result = EarthCoachResult.query.get(result_id)
+        if not result:
+            return jsonify({'error': 'EarthCoach result not found'}), 404
+        data = request.get_json(silent=True) or {}
+        proposal_data = data.get('proposal')
+        markdown_append = _optional_text(data.get('markdown_append'))
+        if proposal_data is None and not markdown_append:
+            return jsonify({'error': 'proposal or markdown_append is required'}), 400
+        if proposal_data is not None:
+            if not isinstance(proposal_data, dict):
+                return jsonify({'error': 'proposal must be an object'}), 400
+            proposal = _validate_proposals([proposal_data], normalize=True)[0]
+
+            def _merge(items: list) -> list:
+                items = list(items)
+                index = _proposal_index(items, proposal)
+                if index >= 0:
+                    items[index] = proposal
+                else:
+                    items.append(proposal)
+                return items
+
+            result.proposals = _merge(result.proposals or [])
+            # La version corrigee existe deja: la reprise remplace la meme
+            # question la-bas aussi, sans toucher aux autres corrections.
+            if result.edited_proposals:
+                result.edited_proposals = _merge(result.edited_proposals)
+        if markdown_append:
+            existing = (result.markdown or '').rstrip()
+            result.markdown = f'{existing}\n\n---\n\n{markdown_append}' if existing else markdown_append
+        db.session.commit()
+        return jsonify({'result': result.to_dict()})
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    except Exception as error:  # pragma: no cover
+        logger.error('Error merging EarthCoach proposal %s: %s', result_id, error)
         db.session.rollback()
         raise

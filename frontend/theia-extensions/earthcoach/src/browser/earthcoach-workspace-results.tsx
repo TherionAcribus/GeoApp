@@ -13,7 +13,7 @@ import {
     revertProposalPatch,
     trailingNumericId,
 } from './earthcoach-workspace-logic';
-import { EarthCoachResult, EarthCoachResultProposal } from './earthcoach-workspace-types';
+import { EarthCoachRefineFocus, EarthCoachResult, EarthCoachResultProposal } from './earthcoach-workspace-types';
 
 const CONFIDENCE_LABELS: Record<string, string> = {
     high: 'haute',
@@ -70,6 +70,7 @@ export interface EarthCoachResultCardHandlers {
     onToggle(resultId: number, open: boolean): void;
     onUpdateProposal(resultId: number, proposalIndex: number, patch: Partial<EarthCoachResultProposal>): void;
     onMoveAnswerToMissing(resultId: number, proposalIndex: number): void;
+    onRefineProposal(resultId: number, proposalIndex: number, focus: EarthCoachRefineFocus): void;
     onApply(resultId: number, proposalIndex: number): void;
     onApplyAll(resultId: number): void;
     onGenerateFinal(resultId: number): void;
@@ -85,6 +86,8 @@ export interface EarthCoachResultCardProps {
     /** Une generation de reponse finale est en cours (tous resultats confondus). */
     finalBusy: boolean;
     generatingFinal: boolean;
+    /** Une reprise ciblee (approfondir / contester) est en preparation. */
+    refineBusy: boolean;
     images: GeoImage[];
     observations: UserObservation[];
     loggingTasks: LoggingTask[];
@@ -154,6 +157,12 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                     placeholder='Ex. mesurer l’épaisseur sur place'
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
                 <div className='ecw-row'>
+                    <button className='theia-button secondary' disabled={props.refineBusy}
+                        title='Relance une résolution ciblée sur cette seule question, avec les outils à disposition'
+                        onClick={() => handlers.onRefineProposal(result.id, proposalIndex, 'deepen')}>Approfondir</button>
+                    <button className='theia-button secondary' disabled={props.refineBusy}
+                        title='Demande au modèle de réexaminer cette question de façon critique'
+                        onClick={() => handlers.onRefineProposal(result.id, proposalIndex, 'contest')}>Contester</button>
                     <button className='theia-button secondary' disabled={!proposal.answer?.trim()}
                         onClick={() => handlers.onMoveAnswerToMissing(result.id, proposalIndex)}>Déplacer la réponse vers « À compléter »</button>
                     {edited && ai && <button className='theia-button secondary' title='Annule vos corrections sur cette question'

@@ -590,3 +590,66 @@ def test_result_list_omits_heavy_snapshot_but_keeps_tasks(client, seeded):
     result = next(item for item in listed if item['request_id'] == 'request-light')
     assert 'context_snapshot' not in result
     assert result['snapshot_tasks'] == [{'id': seeded['task_id'], 'position': 1, 'question': 'Q1', 'kind': 'question'}]
+
+
+def test_merge_result_proposal_replaces_same_question(client, seeded):
+    # Reprise ciblee (approfondir / contester): la proposition recapturee
+    # remplace celle de la meme question, version IA et version corrigee.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-merge',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [
+                {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'partial', 'answer': 'Réponse IA'},
+                {'task_id': 999, 'question': 'Q2', 'status': 'ready', 'answer': 'Autre'},
+            ],
+            'markdown': 'Synthèse initiale',
+        },
+    )
+    assert create.status_code == 201
+    result = create.get_json()['result']
+
+    client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'proposals': [
+            {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'ready', 'answer': 'Corrigée'},
+            {'task_id': 999, 'question': 'Q2', 'status': 'ready', 'answer': 'Autre corrigée'},
+        ]},
+    )
+
+    merged = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal': {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'ready', 'answer': 'Reprise approfondie'}},
+    )
+    assert merged.status_code == 200
+    body = merged.get_json()['result']
+    assert body['id'] == result['id']
+    assert len(body['proposals']) == 2
+    assert body['proposals'][0]['answer'] == 'Reprise approfondie'
+    assert body['proposals'][1]['answer'] == 'Autre corrigée'
+    assert body['ai_proposals'][0]['answer'] == 'Reprise approfondie'
+
+    # Le texte visible de la reponse s'ajoute au Markdown, separe par un trait.
+    appended = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'markdown_append': 'Texte visible de la reprise'},
+    )
+    assert appended.status_code == 200
+    markdown = appended.get_json()['result']['markdown']
+    assert markdown.startswith('Synthèse initiale')
+    assert '---' in markdown
+    assert markdown.endswith('Texte visible de la reprise')
+
+    # Question inconnue: la proposition s'ajoute au lieu d'ecraser.
+    extra = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal': {'question': 'Q inédite', 'status': 'missing', 'answer': None}},
+    )
+    assert extra.status_code == 200
+    assert len(extra.get_json()['result']['proposals']) == 3
+
+    # Sans contenu, la fusion n'a pas de sens.
+    empty = client.post(f"/api/earthcoach-results/{result['id']}/proposals", json={})
+    assert empty.status_code == 400

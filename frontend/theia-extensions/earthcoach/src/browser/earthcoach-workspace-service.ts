@@ -105,6 +105,26 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
+    /**
+     * Reprise ciblee (approfondir / contester): la proposition recapturee
+     * remplace celle de la meme question dans le resultat existant, et le
+     * texte visible de la reponse s ajoute au Markdown du resultat.
+     */
+    async mergeResultProposal(resultId: number, input: {
+        proposal?: EarthCoachResultProposal;
+        markdownAppend?: string;
+    }): Promise<EarthCoachResult> {
+        const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
+            `/api/earthcoach-results/${resultId}/proposals`,
+            this.apiClient.createJsonInit('POST', {
+                proposal: input.proposal,
+                markdown_append: input.markdownAppend,
+            }),
+            'Erreur lors de la fusion de la proposition EarthCoach'
+        );
+        return response.result;
+    }
+
     async updateResult(resultId: number, proposals: EarthCoachResultProposal[]): Promise<EarthCoachResult> {
         const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
             `/api/earthcoach-results/${resultId}`,

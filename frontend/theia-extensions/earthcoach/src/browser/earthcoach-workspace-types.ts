@@ -79,6 +79,20 @@ export interface EarthCoachPreparedImage {
     observationId?: number;
 }
 
+export type EarthCoachRefineFocus = 'deepen' | 'contest';
+
+/**
+ * Reprise ciblee d'une seule question : la capture ne cree pas de resultat,
+ * elle remplace la proposition de cette question dans le resultat existant.
+ */
+export interface EarthCoachRefineTarget {
+    /** Resultat auquel rattacher la proposition recapturee. */
+    resultId: number;
+    focus: EarthCoachRefineFocus;
+    /** Proposition precedente a depasser, reprise dans le prompt. */
+    previous: EarthCoachResultProposal;
+}
+
 export interface EarthCoachPreparedRequest {
     requestId: string;
     geocacheId: number;
@@ -93,11 +107,14 @@ export interface EarthCoachPreparedRequest {
         text: string;
     };
     generalComment?: string;
+    /** Geologie et altitude du site, recuperees en code avant l'envoi. */
+    siteContext?: string;
     observations: UserObservation[];
     loggingTasks: LoggingTask[];
     images: EarthCoachPreparedImage[];
     groups: EarthCoachWorkspaceGroup[];
     unavailableImages: Array<{ id: string; label?: string; reason: string }>;
+    refine?: EarthCoachRefineTarget;
 }
 
 /**

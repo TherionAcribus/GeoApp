@@ -158,16 +158,25 @@ export class EarthCoachResultCaptureService {
         if (payload.action !== expectedAction) {
             throw new Error('La réponse EarthCoach ne correspond pas à l action préparée.');
         }
-        const result = await this.workspaceService.captureResult({
-            geocacheId: payload.geocache_id,
-            requestId: payload.request_id,
-            action: payload.action,
-            contextSnapshot: snapshot,
-            proposals: withoutPhotoInstructionProposals(payload.proposals || [], snapshot.loggingTasks)
-                .map(normalizeCapturedProposal),
-            markdown: options.markdown,
-            sessionId: options.sessionId,
-        });
+        const proposals = withoutPhotoInstructionProposals(payload.proposals || [], snapshot.loggingTasks)
+            .map(normalizeCapturedProposal);
+        // Reprise ciblee (approfondir / contester): pas de nouveau resultat, la
+        // proposition recapturee remplace celle de la meme question dans le
+        // resultat existant; le texte visible s y ajoute en Markdown.
+        const result = snapshot.refine
+            ? await this.workspaceService.mergeResultProposal(snapshot.refine.resultId, {
+                proposal: proposals[0],
+                markdownAppend: options.markdown,
+            })
+            : await this.workspaceService.captureResult({
+                geocacheId: payload.geocache_id,
+                requestId: payload.request_id,
+                action: payload.action,
+                contextSnapshot: snapshot,
+                proposals,
+                markdown: options.markdown,
+                sessionId: options.sessionId,
+            });
         // Suivi borne comme les autres maps: il distingue en fin de reponse
         // un dossier avec propositions d'un dossier qui n'a recu que le texte.
         this.capturedRequestIds.add(payload.request_id);

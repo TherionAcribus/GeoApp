@@ -594,6 +594,68 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
         },
     },
     {
+        id: 'resolve_refine_contest_single_question',
+        description: 'Reprise ciblee "contester": exactement une proposition recapturee, pour la question visee seulement.',
+        build: () => {
+            const task = createLoggingTasks()[2];
+            const preparedRequest = {
+                ...createPreparedRequest('resolve', 'eval-refine-1', [task], []),
+                refine: {
+                    resultId: 42,
+                    focus: 'contest' as const,
+                    previous: {
+                        task_id: 3,
+                        question: task.question,
+                        status: 'partial' as const,
+                        answer: 'Environ 12 metres, d apres les strates.',
+                        missing: 'Verifier la hauteur sur place.',
+                        confidence: 'low' as const,
+                        reasoning: 'Estimation au pas.',
+                    },
+                },
+            };
+            return {
+                messages: buildScenarioMessages(FRENCH_GEOCACHE, {
+                    mode: 'resolver',
+                    action: 'resolve',
+                    verbosity: 'normal',
+                    loggingTasks: [task],
+                    observations: [],
+                    preparedRequest,
+                }),
+                tools: buildEvalTools(),
+            };
+        },
+        assert: result => {
+            const failures: string[] = [];
+            const warnings: string[] = [];
+            const calls = callsOf(result, 'earthcoach_capture_result');
+            if (calls.length !== 1) {
+                failures.push(`earthcoach_capture_result appele ${calls.length} fois (attendu: 1)`);
+                return { failures, warnings };
+            }
+            if (calls[0].args.request_id !== 'eval-refine-1') {
+                failures.push(`request_id recu "${String(calls[0].args.request_id)}" (attendu: eval-refine-1)`);
+            }
+            const proposals = proposalsOf(calls[0]);
+            if (proposals.length !== 1) {
+                failures.push(`${proposals.length} proposition(s) capturee(s) (attendu: exactement 1 pour la reprise ciblee)`);
+                return { failures, warnings };
+            }
+            const proposal = proposals[0];
+            if (Number(proposal.task_id) !== 3 && !String(proposal.question || '').includes('hauteur')) {
+                failures.push('la proposition recapturee ne vise pas la question reprise (task_id=3)');
+            }
+            if (!nonEmpty(proposal.answer)) {
+                failures.push('la reprise ciblee n a produit aucune reponse candidate');
+            }
+            if (!nonEmpty(proposal.reasoning)) {
+                warnings.push('la proposition recapturee n a pas de raisonnement');
+            }
+            return { failures, warnings };
+        },
+    },
+    {
         id: 'badge_present',
         description: 'Compte rendu simple: la reponse doit commencer par la ligne de badge de mode.',
         build: () => ({
