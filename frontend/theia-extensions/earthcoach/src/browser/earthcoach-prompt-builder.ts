@@ -725,6 +725,8 @@ export function buildEarthCoachFinalAnswerPrompt(
         buildFinalLanguageInstruction(languages.user, languages.final),
         'Les propositions ci-dessous ont ete relues et modifiees par l utilisateur dans le dossier terrain.',
         'Elles sont la source prioritaire pour cette generation: ne reviens pas aux anciennes propositions de la conversation.',
+        'Tu rediges a la place de l utilisateur, qui etait sur place: ecris a la premiere personne, comme le geocacheur qui a visite le site.',
+        'Ne mentionne jamais les photos, images ou donnees qui t ont ete fournies ("sur la photo", "d apres l image transmise", "d apres l observation fournie"): les reponses se formulent comme des constatations faites sur place.',
         'Redige un message clair, naturel et directement exploitable pour repondre au proprietaire de l EarthCache.',
         'Respecte l ordre des questions. N invente aucune observation et ne transforme pas une action restant a faire en fait accompli.',
         'Si des elements restent a completer, produis un brouillon explicite avec des marqueurs [A completer: ...] et indique qu il n est pas encore pret a envoyer.',

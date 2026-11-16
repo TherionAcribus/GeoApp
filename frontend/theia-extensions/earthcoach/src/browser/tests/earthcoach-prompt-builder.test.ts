@@ -1561,6 +1561,11 @@ function testPhotoInstructionsAreNotQuestions(): void {
     const withoutPhoto = buildEarthCoachFinalAnswerPrompt([{ question: 'q', status: 'ready', answer: 'a' }], { user: 'fr', final: 'en' });
     assert.doesNotMatch(withoutPhoto, /jointe au log/);
 
+    // Le message final se redige a la place de l'utilisateur, sur place:
+    // aucune reference aux photos ou donnees fournies au modele.
+    assert.match(final, /a la place de l utilisateur, qui etait sur place/);
+    assert.match(final, /Ne mentionne jamais les photos, images ou donnees qui t ont ete fournies/);
+
     // Extraction: le type est conserve, une valeur inconnue redevient une question.
     assert.deepEqual(normalizeExtractionTasks([
         { question: 'Photo avec le panneau', kind: 'photo' },
