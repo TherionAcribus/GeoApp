@@ -304,6 +304,12 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     /** Langue du message au propriétaire : `auto` ou un code de langue imposé. */
     protected finalLanguageChoice = 'auto';
     protected confirmWithoutPhoto = false;
+    /** Envoi suspendu faute de questions enregistrées : extraire d'abord, ou continuer sans. */
+    protected questionsPrompt?: EarthCoachSendAction;
+    /** Extraction lancée depuis le dossier : cet envoi part dès que les questions sont enregistrées. */
+    protected awaitingExtraction?: EarthCoachSendAction;
+    /** Choix « continuer sans questions », valable pour la cache affichée. */
+    protected proceedWithoutQuestions = false;
     protected unavailable: Array<{ id: string; label?: string; reason: string }> = [];
     protected saveTimer?: number;
     protected savePromise?: Promise<void>;
@@ -453,7 +459,13 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             ],
             detail => {
                 if (isUpdateForGeocache(detail, this.context?.geocacheData.id)) {
-                    this.contextRefreshScheduler.request();
+                    // Un envoi attend l'extraction : on recharge tout de suite,
+                    // même si le dossier est caché derrière le chat.
+                    if (this.awaitingExtraction) {
+                        void this.refreshContextData();
+                    } else {
+                        this.contextRefreshScheduler.request();
+                    }
                 }
             }
         ));
@@ -634,6 +646,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         if (changed) {
             // La confirmation « sans photo » vaut pour une cache, pas pour la suivante.
             this.confirmWithoutPhoto = false;
+            this.proceedWithoutQuestions = false;
+            this.questionsPrompt = undefined;
+            this.awaitingExtraction = undefined;
             this.crop = undefined;
         }
         this.title.label = `Dossier terrain — ${context.geocacheData.gc_code || context.geocacheData.name}`;
@@ -714,9 +729,42 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.context = fresh;
             this.rebuildDescription();
             this.update();
+            this.continueAfterExtraction();
         } catch (error) {
             console.warn('[EarthCoach] Unable to refresh workspace context', error);
         }
+    }
+
+    /**
+     * Lance l'extraction des questions dans le chat. Avec `then`, l'envoi
+     * demandé repart de lui-même dès que l'outil a enregistré les questions.
+     */
+    protected async extractQuestions(then?: EarthCoachSendAction): Promise<void> {
+        const geocacheData = this.context?.geocacheData;
+        if (!geocacheData) {
+            return;
+        }
+        this.questionsPrompt = undefined;
+        this.awaitingExtraction = then;
+        this.update();
+        try {
+            await this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData, action: 'extract_logging_tasks' });
+        } catch (error) {
+            this.awaitingExtraction = undefined;
+            this.messages.error(error instanceof Error ? error.message : String(error));
+            this.update();
+        }
+    }
+
+    protected continueAfterExtraction(): void {
+        const action = this.awaitingExtraction;
+        if (!action || !this.context?.loggingTasks.length) {
+            return;
+        }
+        this.awaitingExtraction = undefined;
+        const count = answerableLoggingTasks(this.context.loggingTasks).length;
+        this.messages.info(`${count} question(s) enregistrée(s) : ${action === 'resolve' ? 'la résolution' : 'l’analyse'} part maintenant.`);
+        void this.send(action);
     }
 
     protected rebuildDescription(manualLanguage?: string): void {
@@ -1108,6 +1156,19 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         if (!this.context || !this.workspace || !this.description || this.sending) {
             return;
         }
+        // Sans questions enregistrées, EarthCoach les déduit du listing : rien
+        // à suivre par question ni à reporter. On propose d'extraire d'abord.
+        // Des consignes photo seules suffisent : l'extraction a déjà eu lieu.
+        if (!this.context.loggingTasks.length && !this.proceedWithoutQuestions) {
+            if (this.awaitingExtraction) {
+                this.awaitingExtraction = action;
+            } else {
+                this.questionsPrompt = action;
+            }
+            this.update();
+            return;
+        }
+        this.questionsPrompt = undefined;
         if (!(await this.flushSave())) {
             this.messages.error('Le dossier doit être enregistré avant l’envoi.');
             return;
@@ -2355,6 +2416,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 <button className='theia-button' onClick={() => this.setGroupIncluded(incompleteGroupIndex, true)}>Inclure tout le groupe</button>
                 <button className='theia-button secondary' onClick={() => this.setGroupIncluded(incompleteGroupIndex, false)}>Retirer le groupe</button>
             </div>}
+            {this.renderQuestionsPrompt()}
             {personal === 0 && <label className='ecw-confirm'><input type='checkbox' checked={this.confirmWithoutPhoto} onChange={event => {
                 this.confirmWithoutPhoto = event.currentTarget.checked;
                 this.update();
@@ -2366,6 +2428,34 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 <button className='theia-button' disabled={this.sending || !validation.valid} onClick={() => void this.send('resolve')}>{this.sending ? 'Préparation…' : 'Résoudre avec mon dossier'}</button>
             </div>
         </section>;
+    }
+
+    protected renderQuestionsPrompt(): React.ReactNode {
+        const waiting = this.awaitingExtraction;
+        if (waiting) {
+            return <div className='ecw-review ecw-row'>
+                <span className='ecw-spinner' aria-hidden='true' />
+                <span className='ecw-grow'>Extraction des questions en cours dans le chat : {waiting === 'resolve' ? 'la résolution' : 'l’analyse'} partira dès qu’elles seront enregistrées.</span>
+                <button className='theia-button secondary' onClick={() => { this.awaitingExtraction = undefined; this.update(); }}>Annuler</button>
+            </div>;
+        }
+        const action = this.questionsPrompt;
+        if (!action) {
+            return undefined;
+        }
+        const verb = action === 'resolve' ? 'résoudre' : 'analyser';
+        return <div className='ecw-warning'>
+            <strong>Aucune question enregistrée pour cette cache.</strong> EarthCoach peut les déduire du listing, mais le tableau des questions ne suivra rien et aucune réponse ne pourra être reportée.
+            <div className='ecw-row'>
+                <button className='theia-button' onClick={() => void this.extractQuestions(action)}>Extraire les questions puis {verb}</button>
+                <button className='theia-button secondary' onClick={() => {
+                    this.proceedWithoutQuestions = true;
+                    this.questionsPrompt = undefined;
+                    void this.send(action);
+                }}>Continuer sans questions</button>
+                <button className='theia-button secondary' onClick={() => { this.questionsPrompt = undefined; this.update(); }}>Annuler</button>
+            </div>
+        </div>;
     }
 
     protected observeTask(row: EarthCoachCoverageRow): void {
@@ -2412,6 +2502,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 </div>}
             </> : <div className='ecw-row'>
                 <p className='ecw-muted ecw-grow'>Aucune question enregistrée : la résolution devra les déduire du listing. Extrayez-les pour suivre leur couverture et reporter les réponses.</p>
+                <button className='theia-button' disabled={this.awaitingExtraction !== undefined}
+                    onClick={() => void this.extractQuestions()}>Extraire les questions</button>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: context.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </div>}
         </section>;
