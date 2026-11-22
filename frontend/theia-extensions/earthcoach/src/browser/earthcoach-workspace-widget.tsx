@@ -2426,12 +2426,12 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         const proposalDiffers = row.state === 'answered' && row.canApply;
         return <tr key={row.taskId}>
             <td>Q{row.position}</td>
-            <td title={row.guidance ? `À observer : ${row.guidance}` : undefined}>
+            <td className='ecw-q-question' title={row.guidance ? `À observer : ${row.guidance}` : undefined}>
                 {row.question}{row.requiresPhoto && <span className='ecw-muted' title='Photo à joindre au log'> 📷</span>}
             </td>
-            <td>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
-            <td><span className={QUESTION_STATE_CLASSES[row.questionState]}>{QUESTION_STATE_LABELS[row.questionState]}</span></td>
-            <td>{shown ? excerpt(shown) : <span className='ecw-muted'>—</span>}
+            <td data-label='Observation'>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
+            <td data-label='État'><span className={QUESTION_STATE_CLASSES[row.questionState]}>{QUESTION_STATE_LABELS[row.questionState]}</span></td>
+            <td className='ecw-q-answer' data-label='Réponse'>{shown ? excerpt(shown) : <span className='ecw-muted'>—</span>}
                 {proposalDiffers && <div className='ecw-muted'>EarthCoach propose : {excerpt(proposal?.answer, 80)}</div>}</td>
             <td><div className='ecw-cell-actions'>
                 {row.state === 'needs_field' &&
@@ -2446,23 +2446,32 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         </tr>;
     }
 
-    /** Déplie le résultat et amène la proposition à l'écran, le temps que React l'ait rendue. */
+    /**
+     * Déplie le résultat et amène la proposition à l'écran. Un résultat replié
+     * n'a pas encore de contenu : la mise à jour Lumino puis le rendu React
+     * arrivent quelques images plus tard, d'où l'attente bornée dans le temps.
+     * La recherche reste dans ce widget : plusieurs dossiers peuvent être ouverts.
+     */
     protected revealProposal(resultId: number, proposalIndex: number): void {
         if (!this.expandedResults.has(resultId)) {
             this.expandedResults = new Set([...this.expandedResults, resultId]);
             this.update();
         }
-        const id = earthCoachProposalDomId(resultId, proposalIndex);
-        let attempts = 0;
+        const selector = `#${earthCoachProposalDomId(resultId, proposalIndex)}`;
+        const deadline = Date.now() + 2000;
         const reveal = () => {
-            const element = this.node.ownerDocument.getElementById(id);
+            const element = this.node.querySelector<HTMLElement>(selector);
             if (!element) {
-                if (++attempts < 20) {
+                if (Date.now() < deadline) {
                     window.requestAnimationFrame(reveal);
                 }
                 return;
             }
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+            element.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'center' });
+            // Le clavier suit le regard : Tab repart de la proposition, pas du bouton « Voir ».
+            element.tabIndex = -1;
+            element.focus({ preventScroll: true });
             element.classList.add('ecw-flash');
             window.setTimeout(() => element.classList.remove('ecw-flash'), 1600);
         };
@@ -2564,7 +2573,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             onDragLeave={event => this.onFileDragLeave(event)}
             onDrop={event => this.onFileDrop(event)}>
             <style>{`
-                .ecw-root{height:100%;overflow:auto;padding:12px;box-sizing:border-box;background:var(--theia-editor-background);display:grid;grid-auto-rows:max-content;align-content:start;gap:12px}
+                .ecw-root{container-type:inline-size;height:100%;overflow:auto;padding:12px;box-sizing:border-box;background:var(--theia-editor-background);display:grid;grid-auto-rows:max-content;align-content:start;gap:12px}
                 .ecw-root *{box-sizing:border-box}.ecw-root img{display:block;max-width:100%}
                 .ecw-head,.ecw-row,.ecw-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ecw-grow{flex:1}.ecw-head h2,.ecw-panel h3{margin:0}
                 .ecw-main{display:grid;grid-template-columns:minmax(250px,1fr) minmax(300px,1.4fr) minmax(260px,1fr);gap:12px;min-height:430px}
@@ -2582,7 +2591,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 .ecw-confirm{font-weight:600;display:flex;align-items:center;gap:8px}.ecw-actions{position:sticky;bottom:0;padding:8px;background:var(--theia-sideBar-background);justify-content:flex-end;border-top:1px solid var(--theia-panel-border)}
                 .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:9px;padding:12px;margin:10px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-proposal label,.ecw-final-answer label{display:grid;gap:5px}.ecw-question{display:grid;gap:5px}.ecw-translation{padding:7px 9px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}.ecw-translation span{font-weight:600}.ecw-final-answer{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--theia-panel-border)}.ecw-loading{padding:24px}
                 .ecw-preview-stage{position:relative}.ecw-crop-layer{position:absolute;inset:0;cursor:crosshair;touch-action:none}.ecw-crop-rect{position:absolute;border:2px solid var(--theia-focusBorder);background:color-mix(in srgb,var(--theia-focusBorder) 18%,transparent);pointer-events:none}
-                .ecw-coverage-scroll{overflow-x:auto}.ecw-coverage{width:100%;border-collapse:collapse;font-size:12px}.ecw-coverage th,.ecw-coverage td{padding:5px 6px;border-bottom:1px solid var(--theia-panel-border);text-align:left;vertical-align:top}.ecw-coverage td:first-child{white-space:nowrap;font-weight:600}.ecw-cell-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+                .ecw-coverage-scroll{overflow-x:auto}.ecw-coverage{width:100%;border-collapse:collapse;font-size:12px}.ecw-coverage th,.ecw-coverage td{padding:5px 6px;border-bottom:1px solid var(--theia-panel-border);text-align:left;vertical-align:top}.ecw-coverage td:first-child{white-space:nowrap;font-weight:600}.ecw-cell-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}.ecw-q-question{min-width:160px}.ecw-q-answer{min-width:180px}
+                @container (max-width:640px){.ecw-coverage thead{display:none}.ecw-coverage,.ecw-coverage tbody{display:block}.ecw-coverage tr{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;padding:8px 0;border-bottom:1px solid var(--theia-panel-border)}.ecw-coverage td{border:0;padding:0;min-width:0}.ecw-coverage td:not(:first-child){grid-column:2}.ecw-coverage td[data-label]::before{content:attr(data-label) ' : ';color:var(--theia-descriptionForeground);font-size:11px}.ecw-cell-actions{justify-content:flex-start}}
                 .ecw-flash{outline:2px solid var(--theia-focusBorder);outline-offset:2px;transition:outline-color 1.5s}
                 .ecw-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;white-space:nowrap;border:1px solid var(--theia-panel-border)}.ecw-badge-ready_to_resolve,.ecw-badge-answered,.ecw-badge-ready{background:var(--theia-inputValidation-infoBackground);border-color:var(--theia-inputValidation-infoBorder)}.ecw-badge-needs_field,.ecw-badge-needs_photo,.ecw-badge-partial,.ecw-badge-missing{background:var(--theia-inputValidation-warningBackground);border-color:var(--theia-inputValidation-warningBorder)}
                 .ecw-proposal-ready,.ecw-status-ready{--ecw-status:var(--theia-charts-green,#4caf50)}.ecw-proposal-partial,.ecw-status-partial{--ecw-status:var(--theia-charts-orange,#e69500)}.ecw-proposal-missing,.ecw-status-missing{--ecw-status:var(--theia-charts-red,#f14c4c)}
