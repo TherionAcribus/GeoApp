@@ -671,6 +671,9 @@ class EarthCoachResult(db.Model):
     # Reponse finale generee depuis les propositions relues : rattachee au
     # resultat source pour rester visible et copiable dans le dossier.
     final_answer = db.Column(db.Text)
+    # Traduction du message final dans la langue de l'utilisateur, pour le
+    # relire avant envoi quand le message part dans une autre langue.
+    final_answer_control = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -718,6 +721,7 @@ class EarthCoachResult(db.Model):
             'proposals_edited': self.edited_proposals is not None,
             'markdown': self.markdown,
             'final_answer': self.final_answer,
+            'final_answer_control': self.final_answer_control,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

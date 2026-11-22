@@ -307,8 +307,17 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
         </div>
         {props.photoReminder && <div className='ecw-muted'>📷 Pense à joindre au log : {props.photoReminder}</div>}
         {result.final_answer && <div className='ecw-proposal'>
-            <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
-            <pre>{result.final_answer}</pre>
+            <div className={result.final_answer_control ? 'ecw-final-pair' : undefined}>
+                <div className='ecw-final-part'>
+                    <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
+                    <pre>{result.final_answer}</pre>
+                </div>
+                {result.final_answer_control && <div className='ecw-final-part ecw-final-control'>
+                    <div className='ecw-question'><strong>Version de contrôle dans votre langue</strong>
+                        <span className='ecw-muted'>Pour relire avant envoi — elle n’est pas copiée.</span></div>
+                    <pre>{result.final_answer_control}</pre>
+                </div>}
+            </div>
             <div className='ecw-row'>
                 <button className='theia-button' onClick={() => handlers.onCopyFinal(result.final_answer as string)}>Copier la réponse</button>
             </div>

@@ -44,6 +44,7 @@ import {
     buildEarthCoachPrompt,
     DESCRIPTION_GAP_MARKER,
     selectEarthCoachImagesForChat,
+    splitFinalAnswer,
     toImageContext,
 } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
@@ -963,6 +964,30 @@ function testProposalNumberAndLocation(): void {
     });
     assert.match(withSiblings, /Autres questions du dossier et leurs reponses actuelles/);
     assert.match(withSiblings, /- Q3 Station 1: Which weathering\? -> ready: Chimique/);
+}
+
+function testFinalAnswerControlVersion(): void {
+    const proposals: EarthCoachResultProposal[] = [{ question: 'Which rock?', status: 'ready', answer: 'Du granite' }];
+    // Langue imposee differente : la version de controle est demandee.
+    const english = buildEarthCoachFinalAnswerPrompt(proposals, { user: 'fr', final: 'en' });
+    assert.match(english, /Version de controle: ajoute apres le message une ligne contenant exactement "=== VERSION DE CONTROLE ===", puis la traduction fidele et complete du message en francais/);
+    // Meme langue : rien a controler.
+    const french = buildEarthCoachFinalAnswerPrompt(proposals, { user: 'fr', final: 'fr' });
+    assert.doesNotMatch(french, /VERSION DE CONTROLE/);
+    // Langue laissee au modele : controle conditionnel.
+    const auto = buildEarthCoachFinalAnswerPrompt(proposals, { user: 'fr' });
+    assert.match(auto, /si le message n est pas en francais, ajoute apres le message/);
+
+    // Separation du message et de la traduction de controle.
+    assert.deepEqual(
+        splitFinalAnswer('Hello owner,\nI saw granite.\n\n=== VERSION DE CONTROLE ===\nBonjour,\nJ ai vu du granite.'),
+        { message: 'Hello owner,\nI saw granite.', control: 'Bonjour,\nJ ai vu du granite.' }
+    );
+    // Variantes de mise en forme du marqueur par le modele.
+    assert.equal(splitFinalAnswer('Hi.\n**=== VERSION DE CONTRÔLE ===**\nSalut.').control, 'Salut.');
+    assert.deepEqual(splitFinalAnswer('Bonjour, message en francais.'), { message: 'Bonjour, message en francais.' });
+    // Marqueur sans message avant : le texte n est pas perdu.
+    assert.deepEqual(splitFinalAnswer('=== VERSION DE CONTROLE ===\nSalut.'), { message: 'Salut.' });
 }
 
 function testPreparedRequestWithoutImagesSaysSo(): void {
@@ -2672,6 +2697,7 @@ async function run(): Promise<void> {
     testRefineRequestPrompt();
     testRefineReplyPrompt();
     testProposalNumberAndLocation();
+    testFinalAnswerControlVersion();
     testPreparedRequestWithoutImagesSaysSo();
     await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console

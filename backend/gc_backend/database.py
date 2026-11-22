@@ -289,6 +289,11 @@ def init_db(app):
                 logger.info('Adding missing column earthcoach_result.final_answer (TEXT)')
                 db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN final_answer TEXT'))
                 db.session.commit()
+            # Version de controle du message final, dans la langue de l'utilisateur.
+            if existing_cols and 'final_answer_control' not in existing_cols:
+                logger.info('Adding missing column earthcoach_result.final_answer_control (TEXT)')
+                db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN final_answer_control TEXT'))
+                db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (earthcoach_result): %s', error)
             db.session.rollback()

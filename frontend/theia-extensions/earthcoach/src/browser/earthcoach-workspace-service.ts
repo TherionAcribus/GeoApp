@@ -137,10 +137,10 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
-    async saveFinalAnswer(resultId: number, finalAnswer: string): Promise<EarthCoachResult> {
+    async saveFinalAnswer(resultId: number, finalAnswer: string, control?: string): Promise<EarthCoachResult> {
         const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
             `/api/earthcoach-results/${resultId}`,
-            this.apiClient.createJsonInit('PATCH', { final_answer: finalAnswer }),
+            this.apiClient.createJsonInit('PATCH', { final_answer: finalAnswer, final_answer_control: control || null }),
             'Erreur lors de l enregistrement de la réponse finale EarthCoach'
         );
         return response.result;

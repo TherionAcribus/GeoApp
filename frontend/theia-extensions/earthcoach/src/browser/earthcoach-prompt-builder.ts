@@ -742,6 +742,41 @@ function refineInstruction(refine: EarthCoachRefineTarget): string {
  * (listing non separe en versions), le modele la deduit des questions
  * originales avec la meme regle que `resolveFinalAnswerLanguage`.
  */
+/** Ligne qui separe le message a envoyer de sa traduction de controle. */
+export const FINAL_CONTROL_MARKER = '=== VERSION DE CONTROLE ===';
+
+const FINAL_CONTROL_PATTERN = /^[\s*_`#>]*=+\s*VERSION DE CONTR[OÔ]LE\s*=+[\s*_`]*$/im;
+
+/**
+ * Separe le message au proprietaire de sa traduction de controle. Sans
+ * marqueur (message deja dans la langue de l'utilisateur), tout est message.
+ */
+export function splitFinalAnswer(text: string): { message: string; control?: string } {
+    const match = FINAL_CONTROL_PATTERN.exec(text);
+    if (!match) {
+        return { message: text.trim() };
+    }
+    const message = text.slice(0, match.index).trim();
+    const control = text.slice(match.index + match[0].length).trim();
+    // Un marqueur en tete sans message avant : on ne perd pas le texte.
+    return message ? { message, control: control || undefined } : { message: control };
+}
+
+/**
+ * Quand le message ne part pas dans la langue de l'utilisateur, il en recoit
+ * une traduction de controle a relire avant envoi, separee par un marqueur.
+ */
+function buildFinalControlInstruction(userLanguage: string, finalLanguage?: string): string[] {
+    if (finalLanguage && finalLanguage === userLanguage) {
+        return [];
+    }
+    const user = earthCoachLanguageName(userLanguage);
+    const control = `ajoute apres le message une ligne contenant exactement "${FINAL_CONTROL_MARKER}", puis la traduction fidele et complete du message en ${user}, sans rien ajouter ni commenter: elle sert seulement a l utilisateur pour relire avant envoi.`;
+    return finalLanguage
+        ? [`Version de controle: ${control}`]
+        : [`Version de controle: si le message n est pas en ${user}, ${control} S il est en ${user}, n ajoute rien.`];
+}
+
 function buildFinalLanguageInstruction(userLanguage: string, finalLanguage?: string): string {
     const user = earthCoachLanguageName(userLanguage);
     if (!finalLanguage) {
@@ -767,6 +802,7 @@ export function buildEarthCoachFinalAnswerPrompt(
         '--- GENERATION DE LA REPONSE FINALE EARTHCOACH ---',
         `Langue de l utilisateur: ${earthCoachLanguageName(languages.user)}; les reponses corrigees ci-dessous sont redigees dans cette langue.`,
         buildFinalLanguageInstruction(languages.user, languages.final),
+        ...buildFinalControlInstruction(languages.user, languages.final),
         'Les propositions ci-dessous ont ete relues et modifiees par l utilisateur dans le dossier terrain.',
         'Elles sont la source prioritaire pour cette generation: ne reviens pas aux anciennes propositions de la conversation.',
         'Tu rediges a la place de l utilisateur, qui etait sur place: ecris a la premiere personne, comme le geocacheur qui a visite le site.',

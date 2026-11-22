@@ -191,6 +191,8 @@ export interface EarthCoachResult {
     markdown?: string | null;
     /** Reponse finale generee depuis les propositions relues, rattachee a ce resultat. */
     final_answer?: string | null;
+    /** Traduction de controle du message final dans la langue de l'utilisateur (jamais envoyee). */
+    final_answer_control?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
 }

@@ -3,6 +3,7 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal } from './earthcoach-workspace-types';
 import { EarthCoachWorkspaceService } from './earthcoach-workspace-service';
 import { LoggingTask } from './earthcoach-types';
+import { splitFinalAnswer } from './earthcoach-prompt-builder';
 
 export interface EarthCoachCapturePayload {
     request_id: string;
@@ -115,7 +116,8 @@ export class EarthCoachResultCaptureService {
         if (!markdown.trim()) {
             throw new Error('Réponse finale EarthCoach vide : rien à enregistrer.');
         }
-        const result = await this.workspaceService.saveFinalAnswer(target.resultId, markdown);
+        const { message, control } = splitFinalAnswer(markdown);
+        const result = await this.workspaceService.saveFinalAnswer(target.resultId, message, control);
         this.capturedEmitter.fire(result);
         return result;
     }

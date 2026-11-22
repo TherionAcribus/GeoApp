@@ -472,6 +472,27 @@ def test_result_patch_rejects_invalid_status(client, seeded):
     assert update.status_code == 400
 
 
+def test_result_patch_stores_final_answer_control(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-control', 'action': 'resolve', 'context_snapshot': {}, 'proposals': []},
+    )
+    result = create.get_json()['result']
+    assert result['final_answer_control'] is None
+    update = client.patch(
+        f"/api/earthcoach-results/{result['id']}",
+        json={'final_answer': 'Hello owner.', 'final_answer_control': 'Bonjour proprietaire.'},
+    )
+    body = update.get_json()['result']
+    assert body['final_answer'] == 'Hello owner.'
+    assert body['final_answer_control'] == 'Bonjour proprietaire.'
+    # Un message regenere sans controle efface l'ancien controle, perime.
+    update = client.patch(f"/api/earthcoach-results/{result['id']}", json={'final_answer': 'Bonjour.'})
+    body = update.get_json()['result']
+    assert body['final_answer'] == 'Bonjour.'
+    assert body['final_answer_control'] is None
+
+
 def test_result_patch_stores_final_answer(client, seeded):
     # La reponse finale generee revient dans le dossier : elle est stockee sur
     # le resultat source et survit a une recapture ulterieure.

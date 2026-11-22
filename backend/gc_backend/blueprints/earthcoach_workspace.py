@@ -581,6 +581,11 @@ def update_result(result_id: int):
         result.markdown = _optional_text(data.get('markdown'))
     if 'final_answer' in data:
         result.final_answer = _optional_text(data.get('final_answer'))
+        # Un nouveau message sans version de controle rend l'ancienne perimee.
+        if 'final_answer_control' not in data:
+            result.final_answer_control = None
+    if 'final_answer_control' in data:
+        result.final_answer_control = _optional_text(data.get('final_answer_control'))
     db.session.commit()
     return jsonify({'result': result.to_dict()})
 
