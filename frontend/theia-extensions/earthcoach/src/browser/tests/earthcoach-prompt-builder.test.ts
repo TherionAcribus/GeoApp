@@ -197,6 +197,11 @@ function testSystemPromptModes(): void {
     const resolverPrompt = buildEarthCoachSystemPrompt('resolver');
     assert.match(resolverPrompt, /Mode courant: resolver/);
     assert.match(resolverPrompt, /reponse candidate, meme incertaine/);
+    // Le listing est epuise avant de renvoyer au terrain, et une confirmation
+    // de confort ne rend pas une reponse partielle.
+    assert.match(resolverPrompt, /Exploiter le listing avant de renvoyer au terrain/);
+    assert.match(resolverPrompt, /n est pas fabriquer une observation/);
+    assert.match(resolverPrompt, /ne justifie ni partial ni une ligne dans missing/);
     assert.match(resolverPrompt, /\*\*Mode EarthCoach : resolution\*\*/);
 
     const detailedPrompt = buildEarthCoachSystemPrompt('coach', 'detailed');
@@ -935,6 +940,29 @@ function testProposalNumberAndLocation(): void {
         preparedRequest: { ...preparedRequestFixture('resolve'), refine: { resultId: 1, proposalIndex: 1, focus: 'deepen', previous: free } },
     });
     assert.match(prompt, /question_number=4; location=Station 2; question=Which weathering\?/);
+    assert.doesNotMatch(prompt, /Autres questions du dossier/);
+
+    // Les autres propositions sont rappelees pour les deductions croisees.
+    const withSiblings = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: [],
+        images: [],
+        preparedRequest: {
+            ...preparedRequestFixture('resolve'),
+            refine: {
+                resultId: 1,
+                proposalIndex: 1,
+                focus: 'reply',
+                previous: free,
+                siblings: [{ question_number: 3, location: 'Station 1', question: 'Which weathering?', status: 'ready', answer: 'Chimique' }],
+            },
+        },
+    });
+    assert.match(withSiblings, /Autres questions du dossier et leurs reponses actuelles/);
+    assert.match(withSiblings, /- Q3 Station 1: Which weathering\? -> ready: Chimique/);
 }
 
 function testPreparedRequestWithoutImagesSaysSo(): void {

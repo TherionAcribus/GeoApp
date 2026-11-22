@@ -537,6 +537,7 @@ function buildResolverTemplateInstruction(loggingTasks: LoggingTask[], captured:
         ? `Traite toutes les ${questions.length} question(s) effectivement listees ci-dessus, dans l ordre de leur numero.`
         : 'Aucune logging task structuree n est fournie: ne pretends pas couvrir toutes les questions et propose une extraction explicite separee.';
     const guardrails = [
+        'Avant de classer une question en field ou de la laisser partielle, relis le titre de la cache, le listing (descriptions des stations, legendes) et les autres questions: le listing decrit le plus souvent ce que le visiteur doit observer, et une question peut donner la reponse d une autre.',
         'Ne fusionne jamais plusieurs questions. Ne fabrique jamais une mesure precise (chiffre, couleur relevee, comptage): une estimation explicite est attendue, un chiffre invente est interdit.',
         PHOTO_INSTRUCTION_RULE,
     ];
@@ -559,12 +560,12 @@ function buildResolverTemplateInstruction(loggingTasks: LoggingTask[], captured:
         '--- GABARIT DE RESOLUTION ---',
         'Structure ta reponse question par question. Pour chaque question du proprietaire, fournis exactement ces champs:',
         '- Question: rappel court de la question.',
-        '- Type: knowledge (listing ou connaissance geologique) / photo (lisible sur les images transmises) / field (releve sur place impossible a deduire).',
+        '- Type: knowledge (titre, listing, autre question ou connaissance geologique) / photo (lisible sur les images transmises) / field = releve propre a la visite (mesure, comptage, detail personnel) que ni le titre, ni le listing, ni les autres questions, ni les photos ne permettent de deduire.',
         '- Reponse proposee: la meilleure reponse possible avec les donnees fournies; une estimation explicite est acceptable, jamais un blanc gratuit.',
         '- Raisonnement: une ou deux phrases sur comment tu y arrives.',
         '- Fondee sur: l observation (id ou date), l image, le listing, la carte geologique ou le resultat d outil qui justifie la reponse.',
         '- Confiance: elevee / moyenne / faible, selon la qualite des preuves disponibles.',
-        '- A completer: uniquement ce qui confirmerait ou preciserait la reponse sur place.',
+        '- A completer: uniquement une donnee propre a la visite qui manque encore; rien quand la reponse tient sur le listing ou les photos.',
         ...guardrails,
         coverage,
     ];
@@ -686,6 +687,19 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
             refineInstruction(prepared.refine),
             `Proposition precedente a depasser: ${fields.join('; ')}`
         );
+        // La reprise ne transmet qu'une question : sans les autres, le modele
+        // ne peut plus faire les deductions croisees entre questions.
+        const siblings = prepared.refine.siblings || [];
+        if (siblings.length) {
+            lines.push('Autres questions du dossier et leurs reponses actuelles (contexte pour les deductions croisees, a ne pas recapturer):');
+            for (const sibling of siblings) {
+                const label = [
+                    sibling.question_number ? `Q${sibling.question_number}` : '',
+                    sibling.location || '',
+                ].filter(Boolean).join(' ');
+                lines.push(`- ${label ? `${label}: ` : ''}${sibling.question} -> ${sibling.status}: ${sibling.answer?.trim() || 'aucune reponse'}`);
+            }
+        }
         if (prepared.refine.focus === 'reply') {
             const reply = prepared.refine.userReply?.trim();
             const photos = prepared.refine.userImageIds || [];
@@ -891,7 +905,7 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         ...buildVerbosityInstruction(verbosity, input.mode),
         '',
         input.mode === 'resolver'
-            ? 'Rappel: chaque question attend une reponse candidate; ne fabrique jamais une mesure precise ou une observation de terrain, mais une estimation honnete et argumentee vaut toujours mieux qu un blanc.'
+            ? 'Rappel: chaque question attend une reponse candidate, cherchee d abord dans le titre, le listing et les autres questions; ne fabrique jamais une mesure precise ou une observation de terrain, mais une estimation honnete et argumentee vaut toujours mieux qu un blanc.'
             : 'Rappel: ne jamais inventer une observation terrain. Si une reponse depend du terrain, indique exactement quoi verifier.',
     ].filter((value): value is string => value !== undefined);
 

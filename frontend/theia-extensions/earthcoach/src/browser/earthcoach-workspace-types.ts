@@ -97,6 +97,8 @@ export interface EarthCoachRefineTarget {
     proposalIndex?: number;
     /** Proposition precedente a depasser, reprise dans le prompt. */
     previous: EarthCoachResultProposal;
+    /** Les autres propositions du resultat, pour les deductions croisees entre questions. */
+    siblings?: EarthCoachResultProposal[];
     /** Reponse libre de l'utilisateur (focus `reply`). */
     userReply?: string;
     /** Photos ajoutees avec cette reponse, a examiner en priorite (focus `reply`). */

@@ -171,6 +171,30 @@ const ENGLISH_GEOCACHE: EarthCoachGeocacheData = {
 };
 
 /** Les six questions du listing FR, ids logging-task-1..6 comme en production. */
+/**
+ * Deux stations posent la meme question d observation mot pour mot; le
+ * listing decrit ce que le visiteur doit voir a chacune.
+ */
+const STATIONS_LISTING_HTML = [
+    '<h2>Les pierres qui s alterent</h2>',
+    '<p><strong>Station 1 - Le mur du cimetiere.</strong> Le granite y est desagrege en arene: les grains de quartz et de feldspath se detachent sous le doigt. C est une alteration chimique, par hydrolyse des feldspaths.</p>',
+    '<p><strong>Station 2 - La facade de l eglise.</strong> Le calcaire est couvert de taches noires et de croutes rugueuses formees par des lichens et des cyanobacteries: c est une alteration biologique.</p>',
+    '<h3>Questions</h3>',
+    '<ol>',
+    '<li>Station 1: Which type of weathering do you see here? Describe visible features.</li>',
+    '<li>Station 2: Which type of weathering do you see here? Describe visible features.</li>',
+    '<li>Station 2: mesurez la largeur de la fissure principale, en cm.</li>',
+    '</ol>',
+].join('\n');
+
+const STATIONS_GEOCACHE: EarthCoachGeocacheData = {
+    ...FRENCH_GEOCACHE,
+    id: 3,
+    gc_code: 'GC0STAT',
+    name: 'Les pierres qui s alterent',
+    description_html: STATIONS_LISTING_HTML,
+};
+
 function createLoggingTasks(): LoggingTask[] {
     const items: Array<{ question: string; guidance?: string; requiresPhoto?: boolean }> = [
         {
@@ -698,6 +722,76 @@ export const EVAL_SCENARIOS: EvalScenario[] = [
                 if (captures.length) {
                     warnings.push('earthcoach_capture_result appele apres earthcoach_ask_user dans le meme tour (la reponse de l utilisateur aurait du etre attendue)');
                 }
+            }
+            return { failures, warnings };
+        },
+    },
+    {
+        id: 'resolve_observation_from_listing',
+        description: 'Questions d observation sans photo ni question enregistree: la reponse decrite par le listing est donnee (pas renvoyee au terrain), et deux stations homonymes restent distinctes.',
+        build: () => {
+            const preparedRequest: EarthCoachPreparedRequest = {
+                ...createPreparedRequest('resolve', 'eval-resolve-listing', [], []),
+                geocacheId: STATIONS_GEOCACHE.id,
+                listing: { language: 'fr', fingerprint: 'eval-fingerprint-stations', reliableSeparation: true, html: STATIONS_LISTING_HTML, text: '' },
+            };
+            return {
+                messages: buildScenarioMessages(STATIONS_GEOCACHE, {
+                    mode: 'resolver',
+                    action: 'resolve',
+                    verbosity: 'normal',
+                    loggingTasks: [],
+                    observations: [],
+                    preparedRequest,
+                }),
+                tools: buildEvalTools(),
+            };
+        },
+        assert: result => {
+            const failures: string[] = [];
+            const warnings: string[] = [];
+            const calls = callsOf(result, 'earthcoach_capture_result');
+            if (calls.length !== 1) {
+                failures.push(`earthcoach_capture_result appele ${calls.length} fois (attendu: 1)`);
+                return { failures, warnings };
+            }
+            const proposals = proposalsOf(calls[0]);
+            if (proposals.length !== 3) {
+                warnings.push(`proposals.length === ${proposals.length} (attendu: 3)`);
+            }
+            const weathering = proposals.filter(proposal => fold(String(proposal.question || '')).includes('weathering'));
+            if (weathering.length !== 2) {
+                failures.push(`${weathering.length} proposition(s) "weathering" (attendu: 2, une par station)`);
+                return { failures, warnings };
+            }
+            const locations = weathering.map(proposal => fold(String(proposal.location || '')));
+            if (!locations[0] || !locations[1] || locations[0] === locations[1]) {
+                failures.push(`stations non distinguees par location: "${locations.join('" / "')}"`);
+            }
+            const station2 = weathering.find(proposal => fold(String(proposal.location || '')).includes('2')) || weathering[1];
+            const station1 = weathering.find(proposal => proposal !== station2) || weathering[0];
+            const expectations: Array<[Record<string, unknown>, string, RegExp]> = [
+                [station1, 'station 1', /chimi|hydrolyse|chemical/],
+                [station2, 'station 2', /biolog/],
+            ];
+            for (const [proposal, label, expected] of expectations) {
+                if (!nonEmpty(proposal.answer)) {
+                    failures.push(`${label}: "answer" vide alors que le listing decrit l alteration`);
+                    continue;
+                }
+                if (!expected.test(fold(proposal.answer))) {
+                    failures.push(`${label}: la reponse ne reprend pas l alteration decrite par le listing (${expected})`);
+                }
+                if (String(proposal.status) !== 'ready') {
+                    warnings.push(`${label}: status "${String(proposal.status)}" alors que le listing repond (attendu: ready)`);
+                }
+                if (String(proposal.question_type) === 'field') {
+                    warnings.push(`${label}: classee field alors que le listing repond`);
+                }
+            }
+            const measure = proposals.find(proposal => fold(String(proposal.question || '')).includes('fissure'));
+            if (measure && String(measure.status) === 'ready') {
+                failures.push('mesure de la fissure "ready" sans aucune donnee: mesure inventee');
             }
             return { failures, warnings };
         },

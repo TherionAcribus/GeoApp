@@ -1316,6 +1316,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                     proposalIndex,
                     focus,
                     previous: proposal,
+                    siblings: saved.proposals.filter((_, index) => index !== proposalIndex),
                     userReply: reply?.text.trim() || undefined,
                     userImageIds: replyImageIds.length ? replyImageIds.map(String) : undefined,
                 },
