@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ApplicationShell, Message } from '@theia/core/lib/browser';
+import { ApplicationShell, Message, StatefulWidget } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService, MessageService } from '@theia/core/lib/common';
 import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
@@ -165,8 +165,13 @@ function statusLabel(state: EarthCoachSaveState): string {
     }
 }
 
+interface SerializedWorkspaceState {
+    geocacheId: number;
+    label?: string;
+}
+
 @injectable()
-export class EarthCoachWorkspaceWidget extends ReactWidget {
+export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'earthcoach.workspace.widget';
 
     protected context?: EarthCoachContext;
@@ -202,6 +207,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
     protected crop?: CropDraft;
     protected cropping = false;
     protected readonly previewImageRef = React.createRef<HTMLImageElement>();
+    /** Géocache en cours de rechargement après un redémarrage (avant que le contexte n'arrive). */
+    protected restoringGeocacheId?: number;
     /** Numéro de la dernière demande de rafraîchissement des données terrain. */
     protected contextRefreshToken = 0;
     /**
@@ -357,6 +364,62 @@ export class EarthCoachWorkspaceWidget extends ReactWidget {
         this.node.removeEventListener('dragover', this.preventFileDropNavigation);
         this.node.removeEventListener('drop', this.preventFileDropNavigation);
         super.onBeforeDetach(msg);
+    }
+
+    getGeocacheId(): number | undefined {
+        return this.context?.geocacheData.id ?? this.restoringGeocacheId;
+    }
+
+    storeState(): object | undefined {
+        const geocacheId = this.getGeocacheId();
+        if (geocacheId === undefined) {
+            return undefined;
+        }
+        const state: SerializedWorkspaceState = { geocacheId, label: this.title.label };
+        return state;
+    }
+
+    /**
+     * Au redemarrage, Theia recree l'onglet sans contexte: on recollecte celui
+     * de la geocache memorisee. Le dossier et les resultats etant en base, rien
+     * d'autre n'est a restaurer.
+     */
+    restoreState(oldState: object): void {
+        const state = oldState as Partial<SerializedWorkspaceState> | undefined;
+        if (!state || typeof state.geocacheId !== 'number' || this.context) {
+            return;
+        }
+        if (typeof state.label === 'string' && state.label) {
+            this.title.label = state.label;
+        }
+        void this.restoreContext(state.geocacheId);
+    }
+
+    protected async restoreContext(geocacheId: number): Promise<void> {
+        this.restoringGeocacheId = geocacheId;
+        this.loading = true;
+        this.update();
+        try {
+            const context = await this.contextService.collectContext({ geocacheId });
+            // Une ouverture explicite a pu fournir un contexte entre temps.
+            if (this.context || this.isDisposed) {
+                return;
+            }
+            if (!context) {
+                throw new Error(`Géocache ${geocacheId} introuvable.`);
+            }
+            this.loading = false;
+            this.setContext(context);
+        } catch (error) {
+            if (!this.context) {
+                this.loading = false;
+                this.saveError = `Impossible de recharger le dossier terrain : ${error instanceof Error ? error.message : String(error)}`;
+                this.saveState = 'error';
+                this.update();
+            }
+        } finally {
+            this.restoringGeocacheId = undefined;
+        }
     }
 
     setContext(context: EarthCoachContext, options: EarthCoachWorkspaceOpenOptions = {}): void {

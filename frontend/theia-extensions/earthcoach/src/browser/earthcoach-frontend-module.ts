@@ -89,7 +89,14 @@ export default new ContainerModule(bind => {
     bind(EarthCoachWorkspaceWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: EarthCoachWorkspaceWidget.ID,
-        createWidget: () => ctx.container.get(EarthCoachWorkspaceWidget),
+        // L'identifiant d'onglet doit survivre au redemarrage (restauration du layout).
+        createWidget: (options?: { instanceId?: number }) => {
+            const widget = ctx.container.get(EarthCoachWorkspaceWidget);
+            if (options?.instanceId) {
+                widget.id = `${EarthCoachWorkspaceWidget.ID}#${options.instanceId}`;
+            }
+            return widget;
+        },
     })).inSingletonScope();
 
     bind(EarthCoachAgent).toSelf().inSingletonScope();

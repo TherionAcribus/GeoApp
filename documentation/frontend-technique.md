@@ -165,8 +165,14 @@ Les managers centralisent la creation et la reutilisation d'onglets :
 | `GeocacheImageEditorTabsManager` | Ouvre les editeurs d'image. |
 | `GeocacheLogEditorTabsManager` | Ouvre les editeurs de log. |
 | `AlphabetTabsManager` | Ouvre les viewers d'alphabets. |
+| `EarthCoachWorkspaceTabsManager` | Ouvre/reprend le Dossier terrain EarthCoach d'une geocache. |
 
 Quand un widget doit etre restaurable, il implemente `StatefulWidget`.
+La factory doit alors reappliquer `instanceId` a l'id du widget, et le manager
+doit retrouver les onglets restaures (via `WidgetManager.getWidgets`) et choisir
+un `instanceId` libre : sinon `getOrCreateWidget` renvoie l'onglet restaure.
+Exemple : le Dossier terrain EarthCoach memorise son `geocacheId` et recollecte
+son contexte au redemarrage (le dossier et les resultats sont en base).
 
 ## 7. Extension Zones
 

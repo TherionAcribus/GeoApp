@@ -5,14 +5,8 @@ import { EarthCoachContext } from './earthcoach-context-service';
 import { EarthCoachWorkspaceWidget } from './earthcoach-workspace-widget';
 import { EarthCoachWorkspaceOpenOptions } from './earthcoach-workspace-types';
 
-interface WorkspaceTabEntry {
-    widget: EarthCoachWorkspaceWidget;
-    geocacheId: number;
-}
-
 @injectable()
 export class EarthCoachWorkspaceTabsManager {
-    protected readonly tabs: WorkspaceTabEntry[] = [];
     protected nextId = 1;
 
     constructor(
@@ -21,21 +15,22 @@ export class EarthCoachWorkspaceTabsManager {
     ) { }
 
     async open(context: EarthCoachContext, options: EarthCoachWorkspaceOpenOptions = {}): Promise<EarthCoachWorkspaceWidget> {
-        this.cleanup();
-        const existing = this.tabs.find(entry => entry.geocacheId === context.geocacheData.id && !entry.widget.isDisposed);
+        const openWidgets = this.openWidgets();
+        // Les onglets restaures au redemarrage ne sont pas passes par `open`:
+        // on les retrouve aupres du WidgetManager plutot que dans une liste interne.
+        const existing = openWidgets.find(widget => widget.getGeocacheId() === context.geocacheData.id);
         if (existing) {
-            existing.widget.setContext(context, options);
-            this.attach(existing.widget);
-            return existing.widget;
+            existing.setContext(context, options);
+            this.attach(existing);
+            return existing;
         }
-        const instanceId = this.nextId++;
+        const instanceId = this.allocateInstanceId(openWidgets);
         const widget = await this.widgetManager.getOrCreateWidget<EarthCoachWorkspaceWidget>(
             EarthCoachWorkspaceWidget.ID,
             { instanceId }
         );
         widget.id = `${EarthCoachWorkspaceWidget.ID}#${instanceId}`;
         widget.setContext(context, options);
-        this.tabs.push({ widget, geocacheId: context.geocacheData.id });
         this.attach(widget);
         return widget;
     }
@@ -47,11 +42,24 @@ export class EarthCoachWorkspaceTabsManager {
         this.shell.activateWidget(widget.id);
     }
 
-    protected cleanup(): void {
-        for (let index = this.tabs.length - 1; index >= 0; index -= 1) {
-            if (this.tabs[index].widget.isDisposed) {
-                this.tabs.splice(index, 1);
+    protected openWidgets(): EarthCoachWorkspaceWidget[] {
+        return this.widgetManager.getWidgets(EarthCoachWorkspaceWidget.ID).filter(
+            (widget): widget is EarthCoachWorkspaceWidget => widget instanceof EarthCoachWorkspaceWidget && !widget.isDisposed
+        );
+    }
+
+    /**
+     * Un identifiant deja pris par un onglet restaure ferait renvoyer ce meme
+     * onglet par `getOrCreateWidget` (cle factory + options).
+     */
+    protected allocateInstanceId(openWidgets: EarthCoachWorkspaceWidget[]): number {
+        const prefix = `${EarthCoachWorkspaceWidget.ID}#`;
+        for (const widget of openWidgets) {
+            const num = widget.id.startsWith(prefix) ? parseInt(widget.id.substring(prefix.length), 10) : NaN;
+            if (!isNaN(num) && num >= this.nextId) {
+                this.nextId = num + 1;
             }
         }
+        return this.nextId++;
     }
 }
