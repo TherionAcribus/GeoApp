@@ -7,6 +7,7 @@ import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
     applicableProposalIndexes,
     findUncoveredSnapshotTasks,
+    isFinalAnswerEdited,
     proposalApplyBlocker,
     proposalDiffersFromAi,
     proposalNumber,
@@ -86,6 +87,11 @@ export interface EarthCoachResultCardHandlers {
     onGenerateFinal(resultId: number): void;
     onSaveNote(result: EarthCoachResult): void;
     onCopyFinal(finalAnswer: string): void;
+    /** Copie le message puis ouvre le centre de messages Geocaching.com adressé au propriétaire. */
+    onCopyFinalAndMessage(finalAnswer: string): void;
+    /** Retouche du message final : gardée en brouillon par le widget, enregistrée après une pause. */
+    onFinalAnswerChange(resultId: number, text: string): void;
+    onRevertFinal(resultId: number): void;
     onFinalLanguageChange(choice: string): void;
 }
 
@@ -109,6 +115,8 @@ export interface EarthCoachResultCardProps {
     photoReminder?: string;
     /** Brouillons de réponse par index de proposition (référence stable tant qu'ils ne changent pas). */
     replyDrafts: ReadonlyMap<number, EarthCoachProposalReply>;
+    /** Retouche du message final pas encore enregistrée. */
+    finalDraft?: string;
     handlers: EarthCoachResultCardHandlers;
 }
 
@@ -302,7 +310,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
         })}
         <div className='ecw-final-answer'>
             <button className='theia-button' disabled={props.finalBusy} onClick={() => handlers.onGenerateFinal(result.id)}>
-                {props.generatingFinal ? 'Préparation…' : (result.final_answer ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
+                {props.generatingFinal ? 'Préparation…' : (result.final_answer || result.final_answer_generated ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
             </button>
             <button className='theia-button secondary' onClick={() => handlers.onSaveNote(result)}>Enregistrer la synthèse dans les notes</button>
             <label>Langue du message <select className='theia-select' value={props.finalLanguageChoice}
@@ -315,23 +323,49 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
             </select></label>
         </div>
         {props.photoReminder && <div className='ecw-muted'>📷 Pense à joindre au log : {props.photoReminder}</div>}
-        {result.final_answer && <div className='ecw-proposal'>
-            <div className={result.final_answer_control ? 'ecw-final-pair' : undefined}>
-                <div className='ecw-final-part'>
-                    <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong></div>
-                    <pre>{result.final_answer}</pre>
-                </div>
-                {result.final_answer_control && <div className='ecw-final-part ecw-final-control'>
-                    <div className='ecw-question'><strong>Version de contrôle dans votre langue</strong>
-                        <span className='ecw-muted'>Pour relire avant envoi — elle n’est pas copiée.</span></div>
-                    <pre>{result.final_answer_control}</pre>
-                </div>}
-            </div>
-            <div className='ecw-row'>
-                <button className='theia-button' onClick={() => handlers.onCopyFinal(result.final_answer as string)}>Copier la réponse</button>
-            </div>
-        </div>}
+        <FinalAnswer {...props} />
     </>;
+}
+
+/**
+ * Message au propriétaire, modifiable sur place : plus besoin de le copier
+ * ailleurs pour corriger une phrase. Le message généré reste la référence.
+ */
+function FinalAnswer(props: EarthCoachResultCardProps): React.ReactElement | null {
+    const { result, handlers } = props;
+    if (!result.final_answer && !result.final_answer_generated && props.finalDraft === undefined) {
+        return null;
+    }
+    const message = props.finalDraft ?? result.final_answer ?? '';
+    const edited = isFinalAnswerEdited(message, result.final_answer_generated);
+    const rows = Math.min(24, Math.max(6, message.split('\n').length + 1));
+    const canSend = message.trim().length > 0;
+    return <div className='ecw-proposal'>
+        <div className={result.final_answer_control ? 'ecw-final-pair' : undefined}>
+            <div className='ecw-final-part'>
+                <div className='ecw-question'><strong>Réponse finale prête à envoyer</strong>
+                    <span className='ecw-muted'>{edited ? 'Retouchée par vous.' : 'Vous pouvez la retoucher directement ici.'}</span></div>
+                <textarea className='theia-input ecw-final-text' rows={rows} value={message}
+                    aria-label='Réponse finale au propriétaire'
+                    onChange={event => handlers.onFinalAnswerChange(result.id, event.currentTarget.value)} />
+            </div>
+            {result.final_answer_control && <div className='ecw-final-part ecw-final-control'>
+                <div className='ecw-question'><strong>Version de contrôle dans votre langue</strong>
+                    <span className='ecw-muted'>{edited
+                        ? 'Traduit le message généré : vos retouches n’y figurent pas.'
+                        : 'Pour relire avant envoi — elle n’est pas copiée.'}</span></div>
+                <pre>{result.final_answer_control}</pre>
+            </div>}
+        </div>
+        <div className='ecw-row'>
+            <button className='theia-button' disabled={!canSend}
+                title='Copie le message, puis ouvre la messagerie Geocaching.com adressée au propriétaire : il ne reste qu’à coller'
+                onClick={() => handlers.onCopyFinalAndMessage(message)}>Copier et écrire au propriétaire</button>
+            <button className='theia-button secondary' disabled={!canSend} onClick={() => handlers.onCopyFinal(message)}>Copier la réponse</button>
+            {edited && <button className='theia-button secondary' title='Annule vos retouches du message'
+                onClick={() => handlers.onRevertFinal(result.id)}>Revenir au message généré</button>}
+        </div>
+    </div>;
 }
 
 function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {

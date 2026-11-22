@@ -674,6 +674,9 @@ class EarthCoachResult(db.Model):
     # Traduction du message final dans la langue de l'utilisateur, pour le
     # relire avant envoi quand le message part dans une autre langue.
     final_answer_control = db.Column(db.Text)
+    # Message tel que le modele l'a genere : `final_answer` peut ensuite etre
+    # retouche a la main, la version de controle ne traduit que celui-ci.
+    final_answer_generated = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -722,6 +725,7 @@ class EarthCoachResult(db.Model):
             'markdown': self.markdown,
             'final_answer': self.final_answer,
             'final_answer_control': self.final_answer_control,
+            'final_answer_generated': self.final_answer_generated,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

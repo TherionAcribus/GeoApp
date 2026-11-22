@@ -97,6 +97,8 @@ export interface EarthCoachGeocacheData {
     type?: string;
     size?: string;
     owner?: string;
+    /** GUID Geocaching du proprietaire, seule cle du centre de messages ; absent des imports anciens. */
+    owner_guid?: string | null;
     difficulty?: number;
     terrain?: number;
     latitude?: number;

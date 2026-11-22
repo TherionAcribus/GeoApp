@@ -87,6 +87,7 @@ import {
     computeEarthCoachCropRect,
     containedImageBox,
     findUncoveredSnapshotTasks,
+    isFinalAnswerEdited,
     mergeProposalEdits,
     prepareEarthCoachImagesForTransmission,
     proposalApplyBlocker,
@@ -2489,6 +2490,16 @@ function testProposalEditsBookkeeping(): void {
     assert.equal(applied[0].status, 'ready');
 }
 
+function testFinalAnswerEditDetection(): void {
+    assert.equal(isFinalAnswerEdited('Hello owner', 'Hello owner'), false);
+    // Les espaces de bord laisses par la saisie ne font pas une retouche.
+    assert.equal(isFinalAnswerEdited('Hello owner\n', ' Hello owner'), false);
+    assert.equal(isFinalAnswerEdited('Hello dear owner', 'Hello owner'), true);
+    assert.equal(isFinalAnswerEdited('', 'Hello owner'), true);
+    // Sans message genere connu (anciens resultats), rien a comparer.
+    assert.equal(isFinalAnswerEdited('Hello', null), false);
+}
+
 function testProposalApplyBlockerExplainsWhy(): void {
     assert.equal(proposalApplyBlocker({ task_id: 1, question: 'Q', status: 'ready', answer: 'x' }), undefined);
     assert.match(proposalApplyBlocker({ task_id: 1, question: 'Q', status: 'partial', answer: 'x' }) || '', /prête/);
@@ -2810,6 +2821,7 @@ async function run(): Promise<void> {
     testPendingEditsSurviveCapture();
     testProposalEditsBookkeeping();
     testProposalApplyBlockerExplainsWhy();
+    testFinalAnswerEditDetection();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

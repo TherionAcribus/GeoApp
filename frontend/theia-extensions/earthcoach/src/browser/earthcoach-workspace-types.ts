@@ -193,6 +193,8 @@ export interface EarthCoachResult {
     final_answer?: string | null;
     /** Traduction de controle du message final dans la langue de l'utilisateur (jamais envoyee). */
     final_answer_control?: string | null;
+    /** Message tel que le modele l'a genere ; `final_answer` peut avoir ete retouche depuis. */
+    final_answer_generated?: string | null;
     created_at?: string | null;
     updated_at?: string | null;
 }

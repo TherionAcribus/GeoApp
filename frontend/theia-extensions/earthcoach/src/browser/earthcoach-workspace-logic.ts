@@ -408,6 +408,11 @@ export function revertProposalPatch(ai: EarthCoachResultProposal): Partial<Earth
     return patch;
 }
 
+/** Le message final differe de celui que le modele a genere (espaces de bord ignores). */
+export function isFinalAnswerEdited(message: string | null | undefined, generated: string | null | undefined): boolean {
+    return Boolean(generated?.trim()) && (message || '').trim() !== (generated || '').trim();
+}
+
 /** Corrections pas encore enregistrees, par index de proposition. */
 export type EarthCoachProposalEdits = ReadonlyMap<number, Partial<EarthCoachResultProposal>>;
 

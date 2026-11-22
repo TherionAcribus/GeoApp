@@ -146,6 +146,16 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
+    /** Retouche manuelle : le message genere et sa version de controle restent la reference. */
+    async saveEditedFinalAnswer(resultId: number, finalAnswer: string): Promise<EarthCoachResult> {
+        const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
+            `/api/earthcoach-results/${resultId}`,
+            this.apiClient.createJsonInit('PATCH', { final_answer: finalAnswer, final_answer_edited: true }),
+            'Erreur lors de l enregistrement de la réponse finale retouchée'
+        );
+        return response.result;
+    }
+
     async applyResultProposal(resultId: number, proposalIndex: number): Promise<void> {
         await this.applyResultProposals(resultId, [proposalIndex]);
     }

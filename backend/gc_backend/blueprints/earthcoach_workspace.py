@@ -580,10 +580,20 @@ def update_result(result_id: int):
     if 'markdown' in data:
         result.markdown = _optional_text(data.get('markdown'))
     if 'final_answer' in data:
+        previous = result.final_answer
         result.final_answer = _optional_text(data.get('final_answer'))
-        # Un nouveau message sans version de controle rend l'ancienne perimee.
-        if 'final_answer_control' not in data:
-            result.final_answer_control = None
+        if data.get('final_answer_edited'):
+            # Retouche a la main : le message genere et sa version de controle
+            # restent tels quels, l'interface signale l'ecart. Un resultat
+            # anterieur a cette colonne prend son message d'avant comme reference.
+            if result.final_answer_generated is None:
+                result.final_answer_generated = previous
+        else:
+            # Nouvelle generation : elle devient la reference, et un message
+            # sans version de controle rend l'ancienne perimee.
+            result.final_answer_generated = result.final_answer
+            if 'final_answer_control' not in data:
+                result.final_answer_control = None
     if 'final_answer_control' in data:
         result.final_answer_control = _optional_text(data.get('final_answer_control'))
     db.session.commit()

@@ -493,6 +493,44 @@ def test_result_patch_stores_final_answer_control(client, seeded):
     assert body['final_answer_control'] is None
 
 
+def test_result_patch_keeps_generated_final_answer_on_manual_edit(client, seeded):
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={'request_id': 'request-final-edit', 'action': 'resolve', 'context_snapshot': {}, 'proposals': []},
+    )
+    result_id = create.get_json()['result']['id']
+    generated = client.patch(
+        f"/api/earthcoach-results/{result_id}",
+        json={'final_answer': 'Hello owner', 'final_answer_control': 'Bonjour'},
+    ).get_json()['result']
+    assert generated['final_answer_generated'] == 'Hello owner'
+
+    # Retouche : le message change, la reference et la version de controle restent.
+    edited = client.patch(
+        f"/api/earthcoach-results/{result_id}",
+        json={'final_answer': 'Hello dear owner', 'final_answer_edited': True},
+    ).get_json()['result']
+    assert edited['final_answer'] == 'Hello dear owner'
+    assert edited['final_answer_generated'] == 'Hello owner'
+    assert edited['final_answer_control'] == 'Bonjour'
+
+    # Message vide : la reference survit, on peut y revenir.
+    emptied = client.patch(
+        f"/api/earthcoach-results/{result_id}",
+        json={'final_answer': '', 'final_answer_edited': True},
+    ).get_json()['result']
+    assert emptied['final_answer'] is None
+    assert emptied['final_answer_generated'] == 'Hello owner'
+
+    # Une nouvelle generation remplace la reference.
+    regenerated = client.patch(
+        f"/api/earthcoach-results/{result_id}",
+        json={'final_answer': 'Hi again'},
+    ).get_json()['result']
+    assert regenerated['final_answer_generated'] == 'Hi again'
+    assert regenerated['final_answer_control'] is None
+
+
 def test_result_patch_stores_final_answer(client, seeded):
     # La reponse finale generee revient dans le dossier : elle est stockee sur
     # le resultat source et survit a une recapture ulterieure.
