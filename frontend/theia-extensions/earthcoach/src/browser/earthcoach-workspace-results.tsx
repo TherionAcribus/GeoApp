@@ -104,6 +104,38 @@ function questionLabel(position: number | undefined, question: string): string {
     return position !== undefined ? `Q${position} · ${question}` : question;
 }
 
+const STATUS_ORDER: Array<EarthCoachResultProposal['status']> = ['ready', 'partial', 'missing'];
+
+/** Pastille d'état : la couleur suffit à repérer d'un coup d'œil ce qui attend l'utilisateur. */
+function StatusPill(props: { status: EarthCoachResultProposal['status']; children?: React.ReactNode }): React.ReactElement {
+    return <span className={`ecw-status ecw-status-${props.status}`}>
+        {props.children ?? STATUS_LABELS[props.status] ?? props.status}
+    </span>;
+}
+
+function countAwaiting(proposals: EarthCoachResultProposal[]): number {
+    return proposals.filter(proposal => proposal.status !== 'ready').length;
+}
+
+/** Bilan en tête de résolution : « 3 prêtes · 1 partielle · 2 manquantes ». */
+function StatusSummary(props: { proposals: EarthCoachResultProposal[] }): React.ReactElement | null {
+    const counts = STATUS_ORDER
+        .map(status => ({ status, count: props.proposals.filter(proposal => proposal.status === status).length }))
+        .filter(item => item.count > 0);
+    if (!counts.length) {
+        return null;
+    }
+    const awaiting = countAwaiting(props.proposals);
+    return <div className='ecw-status-summary'>
+        {counts.map(({ status, count }) => <StatusPill key={status} status={status}>
+            {count} {STATUS_LABELS[status].toLowerCase()}{count > 1 ? 's' : ''}
+        </StatusPill>)}
+        <span className='ecw-muted'>{awaiting
+            ? `${awaiting} question${awaiting > 1 ? 's attendent' : ' attend'} votre réponse`
+            : 'Toutes les réponses sont prêtes'}</span>
+    </div>;
+}
+
 function ResultMarkdown(props: { markdown?: string | null }): React.ReactElement | null {
     const html = React.useMemo(
         () => (props.markdown ? renderEarthCoachMarkdown(stripEarthCoachResultBlocks(props.markdown)) : ''),
@@ -117,6 +149,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
     const uncovered = findUncoveredSnapshotTasks(result.proposals, result.snapshot_tasks);
     const applicable = applicableProposalIndexes(result.proposals);
     return <>
+        <StatusSummary proposals={result.proposals} />
         <ResultMarkdown markdown={result.markdown} />
         {uncovered.length > 0 && <div className='ecw-warning'>
             Aucune proposition pour {uncovered.map(task => `Q${task.position ?? '?'}`).join(', ')} : relancez la résolution ou complétez à la main.
@@ -140,8 +173,14 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : '',
                 founded.length ? `Fondée sur : ${founded.join(', ')}` : '',
             ].filter(Boolean).join(' · ');
-            return <div key={`${result.id}-${proposalIndex}`} className='ecw-proposal'>
-                <div className='ecw-question'><strong>{questionLabel(position, proposal.question)}</strong>
+            return <div key={`${result.id}-${proposalIndex}`} className={`ecw-proposal ecw-proposal-${proposal.status}`}>
+                <div className='ecw-question'>
+                    <div className='ecw-question-head'>
+                        <strong>{questionLabel(position, proposal.question)}</strong>
+                        <StatusPill status={proposal.status}>
+                            {STATUS_LABELS[proposal.status] || proposal.status}{proposal.status !== 'ready' ? ' · votre réponse attendue' : ''}
+                        </StatusPill>
+                    </div>
                     {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
                         <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
                 </div>
@@ -153,7 +192,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 </select></label>
                 <label>Réponse candidate — uniquement ce qui répond à la question<textarea className='theia-input' rows={4} value={proposal.answer || ''}
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { answer: event.currentTarget.value })} /></label>
-                <label>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''}
+                <label className='ecw-missing-field'>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''}
                     placeholder='Ex. mesurer l’épaisseur sur place'
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
                 <div className='ecw-row'>
@@ -211,7 +250,7 @@ function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {
         {todo.length > 0 && <div className='ecw-todo'>
             <strong>À relever sur le terrain</strong>
             <ul>{todo.map(({ proposal, position }, index) => <li key={index}>
-                <span className={`ecw-badge ecw-badge-${proposal.status}`}>{STATUS_LABELS[proposal.status] || proposal.status}</span>{' '}
+                <StatusPill status={proposal.status} />{' '}
                 <strong>{questionLabel(position, proposal.question)}</strong>
                 {proposal.missing?.trim() ? <div className='ecw-muted'>{proposal.missing}</div> : undefined}
             </li>)}</ul>
@@ -225,6 +264,7 @@ function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {
 
 export const EarthCoachResultCard = React.memo(function EarthCoachResultCard(props: EarthCoachResultCardProps): React.ReactElement {
     const { result, handlers } = props;
+    const awaiting = result.action === 'resolve' ? countAwaiting(result.proposals) : 0;
     return <details open={props.expanded} onToggle={event => {
         const open = event.currentTarget.open;
         if (open !== props.expanded) {
@@ -232,7 +272,10 @@ export const EarthCoachResultCard = React.memo(function EarthCoachResultCard(pro
         }
     }}>
         <summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}
-            {result.proposals_edited ? ' · corrigé' : ''}{props.dirty ? ' · modifications en cours…' : ''}</summary>
+            {result.proposals_edited ? ' · corrigé' : ''}{props.dirty ? ' · modifications en cours…' : ''}
+            {awaiting > 0 && <>{' '}<StatusPill status={result.proposals.some(proposal => proposal.status === 'missing') ? 'missing' : 'partial'}>
+                {awaiting} en attente
+            </StatusPill></>}</summary>
         {/* Contenu rendu seulement une fois deplie : les anciens resultats ne coutent rien. */}
         {props.expanded && (result.action === 'resolve' ? <ResolutionBody {...props} /> : <AnalysisBody {...props} />)}
     </details>;
