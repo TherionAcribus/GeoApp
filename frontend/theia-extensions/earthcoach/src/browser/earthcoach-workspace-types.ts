@@ -79,7 +79,8 @@ export interface EarthCoachPreparedImage {
     observationId?: number;
 }
 
-export type EarthCoachRefineFocus = 'deepen' | 'contest';
+/** `reply` : l'utilisateur repond a ce qui restait a completer (texte et/ou photos). */
+export type EarthCoachRefineFocus = 'deepen' | 'contest' | 'reply';
 
 /**
  * Reprise ciblee d'une seule question : la capture ne cree pas de resultat,
@@ -91,6 +92,10 @@ export interface EarthCoachRefineTarget {
     focus: EarthCoachRefineFocus;
     /** Proposition precedente a depasser, reprise dans le prompt. */
     previous: EarthCoachResultProposal;
+    /** Reponse libre de l'utilisateur (focus `reply`). */
+    userReply?: string;
+    /** Photos ajoutees avec cette reponse, a examiner en priorite (focus `reply`). */
+    userImageIds?: string[];
 }
 
 export interface EarthCoachPreparedRequest {

@@ -8,7 +8,7 @@ import {
     LoggingTask,
     UserObservation,
 } from './earthcoach-types';
-import { EarthCoachResultProposal } from './earthcoach-workspace-types';
+import { EarthCoachRefineTarget, EarthCoachResultProposal } from './earthcoach-workspace-types';
 import { earthCoachLanguageName } from './earthcoach-prompts';
 import { answerableLoggingTasks, photoLoggingTasks } from './earthcoach-logging-tasks';
 
@@ -676,21 +676,44 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
         lines.push(
             '--- REPRISE CIBLEE D UNE QUESTION ---',
             'Cette demande ne reprend qu une seule question: capture exactement une proposition, pour cette question seulement (meme task_id).',
-            prepared.refine.focus === 'contest'
-                ? 'Consigne: reexamine la question de facon critique. Si une reponse differente est mieux fondee, propose-la avec sa justification; sinon confirme la reponse precedente en durcissant son raisonnement.'
-                : 'Consigne: approfondis cette question. Appuie-toi sur les outils (geologie, altitude, references externes, calculs) et sur les images transmises pour produire une proposition plus complete et mieux justifiee.',
+            refineInstruction(prepared.refine),
             `Proposition precedente a depasser: ${fields.join('; ')}`
         );
+        if (prepared.refine.focus === 'reply') {
+            const reply = prepared.refine.userReply?.trim();
+            const photos = prepared.refine.userImageIds || [];
+            lines.push(`Reponse de l utilisateur: ${reply ? `« ${reply} »` : 'aucun texte'}`);
+            lines.push(photos.length
+                ? `Nouvelles photos jointes a cette reponse (a examiner en priorite): ${photos.map(id => `image=${id}`).join(', ')}`
+                : 'Aucune nouvelle photo jointe a cette reponse.');
+        }
     }
     // Le contrat des propositions (champs, answer vs missing, JSON invisible)
     // n'est pas repete ici: il vit dans le prompt systeme partage.
     lines.push('A la fin, appelle earthcoach_capture_result avec request_id, geocache_id, action et les propositions structurees.');
     if (prepared.action === 'resolve') {
-        lines.push('Si une mesure de terrain essentielle fait defaut, tu peux d abord appeler earthcoach_ask_user (1 a 3 questions ciblees) et attendre la reponse de l utilisateur dans cette session avant la capture; sinon reponds avec ce que tu as.');
+        // Une reponse de l'utilisateur ne doit pas relancer un tour de questions.
+        if (prepared.refine?.focus !== 'reply') {
+            lines.push('Si une mesure de terrain essentielle fait defaut, tu peux d abord appeler earthcoach_ask_user (1 a 3 questions ciblees) et attendre la reponse de l utilisateur dans cette session avant la capture; sinon reponds avec ce que tu as.');
+        }
     } else {
         lines.push('Pour cette analyse, fournis une proposition par question avec status et missing (ce qu il reste a relever sur le terrain), answer vide: le dossier en fait une liste de releves a faire.');
     }
     return lines;
+}
+
+function refineInstruction(refine: EarthCoachRefineTarget): string {
+    switch (refine.focus) {
+        case 'contest':
+            return 'Consigne: reexamine la question de facon critique. Si une reponse differente est mieux fondee, propose-la avec sa justification; sinon confirme la reponse precedente en durcissant son raisonnement.';
+        case 'reply':
+            return 'Consigne: l utilisateur repond a ce qui restait a completer (texte et/ou nouvelles photos). Integre sa reponse a la proposition. '
+                + 'S il apporte l information ou une photo exploitable, complete la reponse et vide missing si plus rien ne manque. '
+                + 'S il indique ne pas pouvoir fournir mieux, ne redemande pas la meme chose: finalise avec ce qui est disponible (status ready si la reponse reste defendable, en signalant l incertitude dans reasoning), sinon garde partial avec un missing reformule et realiste. '
+                + 'N appelle pas earthcoach_ask_user: l utilisateur vient deja de repondre.';
+        default:
+            return 'Consigne: approfondis cette question. Appuie-toi sur les outils (geologie, altitude, references externes, calculs) et sur les images transmises pour produire une proposition plus complete et mieux justifiee.';
+    }
 }
 
 /**

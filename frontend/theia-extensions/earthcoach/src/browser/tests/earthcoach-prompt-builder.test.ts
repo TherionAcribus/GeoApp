@@ -882,6 +882,35 @@ function testRefineRequestPrompt(): void {
     assert.match(prompt, /answer=Granite; missing=Confirmer le grain; confidence=medium; raisonnement=Couleur claire/);
 }
 
+function testRefineReplyPrompt(): void {
+    // Reponse de l'utilisateur: son texte et ses nouvelles photos sont
+    // transmis, et le modele ne doit pas relancer un tour de questions.
+    const reply: EarthCoachPreparedRequest = {
+        ...preparedRequestFixture('resolve'),
+        refine: {
+            resultId: 7,
+            focus: 'reply',
+            previous: { task_id: 3, question: 'Quel fossile ?', status: 'partial', answer: 'Coquille', missing: 'Photo plus nette' },
+            userReply: 'Je n ai pas de meilleure photo',
+            userImageIds: ['42'],
+        },
+    };
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: createLoggingTasks().slice(0, 1),
+        images: [],
+        preparedRequest: reply,
+    });
+    assert.match(prompt, /REPRISE CIBLEE D UNE QUESTION/);
+    assert.match(prompt, /l utilisateur repond a ce qui restait a completer/);
+    assert.match(prompt, /Reponse de l utilisateur: « Je n ai pas de meilleure photo »/);
+    assert.match(prompt, /a examiner en priorite\): image=42/);
+    assert.doesNotMatch(prompt, /tu peux d abord appeler earthcoach_ask_user/);
+}
+
 function testPreparedRequestWithoutImagesSaysSo(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
@@ -2587,6 +2616,7 @@ async function run(): Promise<void> {
     testCapturedResolutionIsNotDuplicatedInChat();
     testSiteContextBlockIsInjected();
     testRefineRequestPrompt();
+    testRefineReplyPrompt();
     testPreparedRequestWithoutImagesSaysSo();
     await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console

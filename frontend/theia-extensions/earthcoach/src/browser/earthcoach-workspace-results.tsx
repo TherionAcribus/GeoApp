@@ -66,11 +66,19 @@ export function describeEarthCoachEvidence(id: string, images: GeoImage[], obser
  * Callbacks du widget. L'objet est cree une fois : sa reference stable garde
  * `React.memo` efficace (saisir un commentaire ne redessine pas les resultats).
  */
+/** Reponse de l'utilisateur a une proposition : precision libre et/ou nouvelles photos. */
+export interface EarthCoachProposalReply {
+    text: string;
+    files: File[];
+}
+
 export interface EarthCoachResultCardHandlers {
     onToggle(resultId: number, open: boolean): void;
     onUpdateProposal(resultId: number, proposalIndex: number, patch: Partial<EarthCoachResultProposal>): void;
     onMoveAnswerToMissing(resultId: number, proposalIndex: number): void;
     onRefineProposal(resultId: number, proposalIndex: number, focus: EarthCoachRefineFocus): void;
+    /** Resout `true` quand la reponse est partie dans le chat (le brouillon peut etre vide). */
+    onReplyProposal(resultId: number, proposalIndex: number, reply: EarthCoachProposalReply): Promise<boolean>;
     onApply(resultId: number, proposalIndex: number): void;
     onApplyAll(resultId: number): void;
     onGenerateFinal(resultId: number): void;
@@ -136,6 +144,63 @@ function StatusSummary(props: { proposals: EarthCoachResultProposal[] }): React.
     </div>;
 }
 
+/**
+ * Dialogue sur une question : l'utilisateur precise ce qu'il a (ou n'a pas)
+ * et peut joindre des photos. EarthCoach reprend alors cette seule question.
+ * Ouvert d'office quand le modele attend quelque chose, replie sinon.
+ */
+function ProposalReply(props: {
+    status: EarthCoachResultProposal['status'];
+    busy: boolean;
+    onSend(reply: EarthCoachProposalReply): Promise<boolean>;
+}): React.ReactElement {
+    const awaiting = props.status !== 'ready';
+    const [open, setOpen] = React.useState(awaiting);
+    const [text, setText] = React.useState('');
+    const [files, setFiles] = React.useState<File[]>([]);
+    const inputRef = React.useRef<HTMLInputElement>(null);
+    if (!open) {
+        return <div className='ecw-row'>
+            <button className='theia-button secondary' onClick={() => setOpen(true)}>Répondre à EarthCoach…</button>
+        </div>;
+    }
+    const canSend = !props.busy && (text.trim().length > 0 || files.length > 0);
+    const send = async () => {
+        if (await props.onSend({ text, files })) {
+            setText('');
+            setFiles([]);
+        }
+    };
+    return <div className='ecw-reply'>
+        <label>Votre réponse à EarthCoach
+            <textarea className='theia-input' rows={2} value={text}
+                placeholder='Ex. : je n’ai pas de meilleure photo — ou décrivez ce que vous avez observé sur place'
+                onChange={event => setText(event.currentTarget.value)} />
+        </label>
+        {files.length > 0 && <div className='ecw-reply-files'>
+            {files.map((file, index) => <span key={`${file.name}-${index}`} className='ecw-reply-file'>
+                📷 {file.name}
+                <button className='ecw-reply-remove' title='Retirer cette photo'
+                    onClick={() => setFiles(files.filter((_, position) => position !== index))}>×</button>
+            </span>)}
+        </div>}
+        <div className='ecw-row'>
+            <input ref={inputRef} type='file' accept='image/*' multiple hidden
+                onChange={event => {
+                    const picked = Array.from(event.currentTarget.files || []);
+                    event.currentTarget.value = '';
+                    setFiles([...files, ...picked]);
+                }} />
+            <button className='theia-button secondary' disabled={props.busy} onClick={() => inputRef.current?.click()}>Joindre une photo</button>
+            {!awaiting && <button className='theia-button secondary' onClick={() => setOpen(false)}>Annuler</button>}
+            <span className='ecw-grow' />
+            <button className='theia-button' disabled={!canSend}
+                title='La photo est ajoutée au dossier et rattachée à cette question, puis EarthCoach reprend la question avec votre réponse'
+                onClick={() => { void send(); }}>{props.busy ? 'Envoi…' : 'Envoyer à EarthCoach'}</button>
+        </div>
+    </div>;
+}
+
 function ResultMarkdown(props: { markdown?: string | null }): React.ReactElement | null {
     const html = React.useMemo(
         () => (props.markdown ? renderEarthCoachMarkdown(stripEarthCoachResultBlocks(props.markdown)) : ''),
@@ -195,6 +260,8 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 <label className='ecw-missing-field'>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''}
                     placeholder='Ex. mesurer l’épaisseur sur place'
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
+                <ProposalReply status={proposal.status} busy={props.refineBusy}
+                    onSend={reply => handlers.onReplyProposal(result.id, proposalIndex, reply)} />
                 <div className='ecw-row'>
                     <button className='theia-button secondary' disabled={props.refineBusy}
                         title='Relance une résolution ciblée sur cette seule question, avec les outils à disposition'

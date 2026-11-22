@@ -83,7 +83,7 @@ import {
     trailingNumericId,
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
-import { EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
+import { EarthCoachProposalReply, EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
 import { answerableLoggingTasks } from './earthcoach-logging-tasks';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
@@ -170,6 +170,12 @@ interface SerializedWorkspaceState {
     label?: string;
 }
 
+const REFINE_SESSION_LABELS: Record<EarthCoachRefineFocus, string> = {
+    deepen: 'APPROFONDISSEMENT',
+    contest: 'CONTESTATION',
+    reply: 'REPONSE',
+};
+
 @injectable()
 export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'earthcoach.workspace.widget';
@@ -235,6 +241,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         onUpdateProposal: (resultId, proposalIndex, patch) => this.updateProposal(resultId, proposalIndex, patch),
         onMoveAnswerToMissing: (resultId, proposalIndex) => this.moveAnswerToMissing(resultId, proposalIndex),
         onRefineProposal: (resultId, proposalIndex, focus) => { void this.refineProposal(resultId, proposalIndex, focus); },
+        onReplyProposal: (resultId, proposalIndex, reply) => this.refineProposal(resultId, proposalIndex, 'reply', reply),
         onApply: (resultId, proposalIndex) => { void this.applyProposal(resultId, proposalIndex); },
         onApplyAll: resultId => { void this.applyAllReadyProposals(resultId); },
         onGenerateFinal: resultId => { void this.generateFinalAnswer(resultId); },
@@ -1109,37 +1116,64 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
      * resultat supplementaire); la session est neuve, comme tout dossier
      * prepare, mais centree sur la question et sa proposition precedente.
      */
-    protected async refineProposal(resultId: number, proposalIndex: number, focus: EarthCoachRefineFocus): Promise<void> {
+    /**
+     * Reprise ciblee d'une question. Avec `reply`, l'utilisateur repond a ce
+     * qui restait a completer : ses photos sont d'abord ajoutees au dossier et
+     * rattachees a la question, puis transmises en priorite. Renvoie `true`
+     * quand la demande est partie dans le chat.
+     */
+    protected async refineProposal(
+        resultId: number,
+        proposalIndex: number,
+        focus: EarthCoachRefineFocus,
+        reply?: EarthCoachProposalReply
+    ): Promise<boolean> {
         const result = this.results.find(item => item.id === resultId);
         if (!this.context || !this.workspace || !this.description || !result || this.sending) {
-            return;
+            return false;
         }
         // Des corrections en attente d'ecriture (debounce 1 s) ecraseraient la
         // proposition fusionnee a leur retour: on les enregistre d'abord.
         const saved = await this.flushResultSave(resultId);
         const proposal = saved?.proposals[proposalIndex];
         if (!saved || !proposal) {
-            return;
+            return false;
         }
         this.sending = true;
         this.unavailable = [];
         this.update();
         try {
             const taskNumericId = trailingNumericId(proposal.task_id);
-            const task = taskNumericId !== undefined
-                ? this.context.loggingTasks.find(item => trailingNumericId(item.id) === taskNumericId)
+            const findTask = () => taskNumericId !== undefined
+                ? this.context?.loggingTasks.find(item => trailingNumericId(item.id) === taskNumericId)
                 : undefined;
+            const taskObservation = findTask()?.observationId;
+            const observationId = taskObservation ? trailingNumericId(taskObservation) : undefined;
+            const replyImageIds = reply?.files.length
+                ? await this.addReplyPhotos(reply.files, observationId)
+                : [];
+            // L'ajout de photos recharge le contexte : on relit la question.
+            if (!this.context || !this.workspace || !this.description) {
+                return false;
+            }
+            const task = findTask();
             const focusTasks = task ? [task] : [];
             // Images: celles liees a l'observation de la question si elle en a
             // une, sinon la selection courante du dossier (question photo non
-            // liee: le modele garde tout le materiel sous la main).
-            const observationId = task?.observationId ? trailingNumericId(task.observationId) : undefined;
-            const candidates = observationId !== undefined
-                ? this.selectedImages().filter(image => {
-                    const id = imageId(image);
-                    return id !== undefined && this.contextFor(id)?.observation_id === observationId;
-                })
-                : this.selectedImages();
+            // liee: le modele garde tout le materiel sous la main). Les photos
+            // jointes a une reponse partent dans tous les cas.
+            const replyIds = new Set(replyImageIds);
+            const candidates = this.selectedImages().filter(image => {
+                const id = imageId(image);
+                return id !== undefined
+                    && (replyIds.has(id) || observationId === undefined || this.contextFor(id)?.observation_id === observationId);
+            });
+            for (const id of replyIds) {
+                const image = this.imageFor(id);
+                if (image && !candidates.includes(image)) {
+                    candidates.push(image);
+                }
+            }
             const [checked, siteContext] = await Promise.all([
                 this.prepareAvailableImages(candidates),
                 this.buildSiteContext(this.context.geocacheData),
@@ -1185,7 +1219,13 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                     }))
                     .filter(group => group.members.length > 0),
                 unavailableImages: checked.failures,
-                refine: { resultId: result.id, focus, previous: proposal },
+                refine: {
+                    resultId: result.id,
+                    focus,
+                    previous: proposal,
+                    userReply: reply?.text.trim() || undefined,
+                    userImageIds: replyImageIds.length ? replyImageIds.map(String) : undefined,
+                },
             };
             this.resultCapture.register(snapshot);
             const promptImages = available.map(image => ({
@@ -1217,7 +1257,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
                 geocacheName: geocache.name,
-                sessionTitle: `EARTHCOACH ${focus === 'contest' ? 'CONTESTATION' : 'APPROFONDISSEMENT'} Q${task?.position ?? '?'} - ${label}`,
+                sessionTitle: `EARTHCOACH ${REFINE_SESSION_LABELS[focus]} Q${task?.position ?? '?'} - ${label}`,
                 prompt,
                 focus: true,
                 workflowKind: 'general',
@@ -1234,10 +1274,51 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             if (checked.failures.length) {
                 this.messages.warn(`${checked.failures.length} image(s) indisponible(s) ont été explicitement retirées de l’envoi.`);
             }
+            return true;
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+            return false;
         } finally {
             this.sending = false;
             this.update();
         }
+    }
+
+    /**
+     * Ajoute au dossier les photos jointes a une reponse, les coche pour
+     * l'envoi et les rattache a l'observation de la question : les reprises
+     * suivantes de cette question les retrouveront.
+     */
+    protected async addReplyPhotos(files: File[], observationId?: number): Promise<number[]> {
+        if (!this.context) {
+            return [];
+        }
+        const images = files.filter(isImageFile);
+        if (images.length < files.length) {
+            this.messages.warn(`${files.length - images.length} fichier(s) ignoré(s) : ce ne sont pas des images.`);
+        }
+        if (!images.length) {
+            return [];
+        }
+        if (!(await this.flushSave())) {
+            throw new Error('Le dossier doit être enregistré avant d ajouter des photos.');
+        }
+        const geocacheId = this.context.geocacheData.id;
+        const uploaded = await this.workspaceService.uploadImages(geocacheId, images);
+        await this.reloadAfterImageChange(geocacheId);
+        const ids = uploaded.map(item => item.id).filter((id): id is number => typeof id === 'number');
+        this.mutate(workspace => {
+            for (const target of workspace.image_contexts) {
+                if (ids.includes(target.image_id)) {
+                    target.included = true;
+                    if (observationId !== undefined && target.observation_id == null) {
+                        target.observation_id = observationId;
+                    }
+                }
+            }
+        });
+        await this.flushSave();
+        return ids;
     }
 
     protected async generateFinalAnswer(resultId: number): Promise<void> {
@@ -1967,6 +2048,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 .ecw-question-head{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
                 .ecw-status{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid color-mix(in srgb,var(--ecw-status) 55%,transparent);background:color-mix(in srgb,var(--ecw-status) 14%,transparent)}.ecw-status::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--ecw-status);flex:none}
                 .ecw-status-summary{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+                .ecw-reply{display:grid;gap:8px;padding:9px;border:1px dashed var(--ecw-status,var(--theia-panel-border));border-radius:6px;background:var(--theia-editor-background)}.ecw-reply label{display:grid;gap:5px;font-weight:600}.ecw-reply-files{display:flex;gap:6px;flex-wrap:wrap}.ecw-reply-file{display:inline-flex;align-items:center;gap:4px;padding:1px 4px 1px 8px;border:1px solid var(--theia-panel-border);border-radius:10px;font-size:12px}.ecw-reply-remove{border:0;background:none;color:inherit;cursor:pointer;padding:0 4px}
                 .ecw-proposal-partial .ecw-missing-field textarea,.ecw-proposal-missing .ecw-missing-field textarea{border:1px solid var(--ecw-status)}
                 .ecw-over-limit{color:var(--theia-errorForeground)}.ecw-markdown{line-height:1.45;min-width:0;overflow-wrap:anywhere}.ecw-markdown p{margin:.4em 0}.ecw-markdown pre{white-space:pre-wrap}.ecw-todo{padding:9px;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-todo ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px}
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
