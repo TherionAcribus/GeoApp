@@ -83,9 +83,11 @@ import {
     applicableProposalIndexes,
     applyProposalEdits,
     buildEarthCoachCoverage,
+    buildEarthCoachQuestionBoard,
     buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
+    currentResolution,
     findUncoveredSnapshotTasks,
     findCarriedCorrections,
     isFinalAnswerEdited,
@@ -2469,6 +2471,54 @@ function testCarriedCorrections(): void {
     assert.equal(findCarriedCorrections(otherTask, [otherTask, older]).size, 0);
 }
 
+function testQuestionBoard(): void {
+    const tasks = [
+        { id: 'logging-task-1', geocacheId: '1', position: 1, question: 'Épaisseur ?', status: 'todo', requiresPhoto: false, observationId: 'observation-4' },
+        { id: 'logging-task-2', geocacheId: '1', position: 2, question: 'Couleur ?', status: 'answered', answer: 'Gris', requiresPhoto: false },
+        { id: 'logging-task-3', geocacheId: '1', position: 3, question: 'Fossiles ?', status: 'todo', requiresPhoto: true },
+        { id: 'logging-task-4', geocacheId: '1', position: 4, question: 'Pendage ?', status: 'todo', requiresPhoto: false },
+    ] as LoggingTask[];
+    const observations = [{ id: 'observation-4', note: 'Banc de 12 cm', images: [], source: 'structured' }] as unknown as UserObservation[];
+    const coverage = buildEarthCoachCoverage(tasks, observations, [], []);
+    assert.equal(coverage[1].answer, 'Gris');
+
+    // Sans resolution : l'etat de couverture seul.
+    const empty = buildEarthCoachQuestionBoard(coverage, undefined, tasks);
+    assert.deepEqual(empty.rows.map(row => row.questionState), ['ready_to_resolve', 'answered', 'needs_field', 'needs_field']);
+    assert.deepEqual(empty.unmatched, []);
+
+    const result = resultFixture(5, [
+        { task_id: 1, question: 'Épaisseur ?', status: 'ready', answer: '12 cm' },
+        { task_id: 2, question: 'Couleur ?', status: 'ready', answer: 'Gris bleuté' },
+        // Sans task_id : rattachee par son numero.
+        { question_number: 3, question: 'Fossiles ?', status: 'partial', answer: 'Peut-être', missing: 'Regarder la base' },
+        // Question absente (consigne photo, question supprimee).
+        { task_id: 99, question: 'Photo avec le panneau', status: 'missing' },
+        // Doublon d'une question deja servie.
+        { task_id: 1, question: 'Épaisseur ?', status: 'missing' },
+    ]);
+    const board = buildEarthCoachQuestionBoard(coverage, result, tasks);
+    assert.deepEqual(board.rows.map(row => [row.questionState, row.proposalIndex, row.canApply]), [
+        ['proposal_ready', 0, true],
+        // Repondue, mais EarthCoach propose autre chose : reporter remplacerait.
+        ['answered', 1, true],
+        // Rattachee par numero, pas reportable sans task_id.
+        ['proposal_partial', 2, false],
+        ['needs_field', undefined, false],
+    ]);
+    assert.deepEqual(board.unmatched, [3, 4]);
+
+    // Repondue avec la meme reponse : rien a reporter.
+    const same = buildEarthCoachQuestionBoard(coverage, resultFixture(6, [{ task_id: 2, question: 'Couleur ?', status: 'ready', answer: ' Gris ' }]), tasks);
+    assert.equal(same.rows[1].canApply, false);
+
+    // Resultat courant : la reference, sinon la resolution la plus recente (jamais une analyse).
+    const analysis = resultFixture(9, [], { action: 'analyze' });
+    assert.equal(currentResolution([analysis, resultFixture(8, []), resultFixture(7, [], { is_reference: true })])?.id, 7);
+    assert.equal(currentResolution([analysis, resultFixture(8, []), resultFixture(7, [])])?.id, 8);
+    assert.equal(currentResolution([analysis]), undefined);
+}
+
 function testSortEarthCoachResults(): void {
     const results = [resultFixture(3, []), resultFixture(2, [], { is_reference: true }), resultFixture(1, [])];
     assert.deepEqual(sortEarthCoachResults(results).map(result => result.id), [2, 3, 1]);
@@ -2969,6 +3019,7 @@ async function run(): Promise<void> {
     await testObserverTracksAndSkipsInterruptedResponses();
     testCarriedCorrections();
     testSortEarthCoachResults();
+    testQuestionBoard();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

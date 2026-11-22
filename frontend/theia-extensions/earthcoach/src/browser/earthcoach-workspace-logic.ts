@@ -150,6 +150,8 @@ export interface EarthCoachCoverageRow {
     question: string;
     guidance?: string;
     status: LoggingTask['status'];
+    /** Réponse enregistrée dans la question (reportée ou saisie). */
+    answer?: string;
     observationId?: number;
     observationExcerpt?: string;
     requiresPhoto: boolean;
@@ -211,6 +213,7 @@ export function buildEarthCoachCoverage(
                 question: task.question,
                 guidance: task.guidance,
                 status: task.status,
+                answer: task.answer?.trim() || undefined,
                 observationId,
                 observationExcerpt: observation ? compactExcerpt(observation.note) : undefined,
                 requiresPhoto: task.requiresPhoto,
@@ -569,4 +572,78 @@ export function findCarriedCorrections(target: EarthCoachResult, results: EarthC
         }
     });
     return carried;
+}
+
+/**
+ * État d'une question dans le tableau unique : la couverture avant envoi
+ * (`needs_field`, `ready_to_resolve`), puis la proposition d'EarthCoach, puis
+ * la réponse enregistrée (`answered`).
+ */
+export type EarthCoachQuestionState =
+    | 'answered'
+    | 'proposal_ready'
+    | 'proposal_partial'
+    | 'proposal_missing'
+    | 'ready_to_resolve'
+    | 'needs_field';
+
+export interface EarthCoachQuestionRow extends EarthCoachCoverageRow {
+    questionState: EarthCoachQuestionState;
+    proposal?: EarthCoachResultProposal;
+    proposalIndex?: number;
+    /** Reporter a un sens : proposition reportable et différente de la réponse enregistrée. */
+    canApply: boolean;
+}
+
+export interface EarthCoachQuestionBoard {
+    rows: EarthCoachQuestionRow[];
+    /** Index des propositions qui ne correspondent à aucune question enregistrée. */
+    unmatched: number[];
+}
+
+/**
+ * Une ligne par question enregistrée, avec la proposition du résultat courant
+ * (référence, sinon la résolution la plus récente). Rapprochement par
+ * `task_id` ; une proposition sans `task_id` se rattache par son numéro. Une
+ * proposition qui vise une question absente (consigne photo, question
+ * supprimée) reste à part.
+ */
+export function buildEarthCoachQuestionBoard(
+    coverage: EarthCoachCoverageRow[],
+    result: EarthCoachResult | undefined,
+    loggingTasks: LoggingTask[]
+): EarthCoachQuestionBoard {
+    const matched = new Map<number, number>();
+    const unmatched: number[] = [];
+    (result?.proposals || []).forEach((proposal, index) => {
+        const taskId = trailingNumericId(proposal.task_id);
+        const row = taskId !== undefined
+            ? coverage.find(item => item.taskId === taskId)
+            : coverage.find(item => item.position === proposalNumber(proposal, result?.snapshot_tasks, loggingTasks));
+        if (row && !matched.has(row.taskId)) {
+            matched.set(row.taskId, index);
+        } else {
+            unmatched.push(index);
+        }
+    });
+    const rows = coverage.map(row => {
+        const proposalIndex = matched.get(row.taskId);
+        const proposal = proposalIndex !== undefined ? result?.proposals[proposalIndex] : undefined;
+        const reportable = Boolean(proposal) && isProposalApplicable(proposal!);
+        let questionState: EarthCoachQuestionState = row.state;
+        if (row.state === 'answered') {
+            questionState = 'answered';
+        } else if (proposal) {
+            questionState = `proposal_${proposal.status}` as EarthCoachQuestionState;
+        }
+        const differs = (proposal?.answer || '').trim() !== (row.answer || '').trim();
+        return { ...row, questionState, proposal, proposalIndex, canApply: reportable && (row.state !== 'answered' || differs) };
+    });
+    return { rows, unmatched };
+}
+
+/** Résultat qui alimente le tableau des questions : la référence, sinon la résolution la plus récente. */
+export function currentResolution(results: EarthCoachResult[]): EarthCoachResult | undefined {
+    return results.find(result => result.action === 'resolve' && result.is_reference)
+        ?? results.find(result => result.action === 'resolve');
 }

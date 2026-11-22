@@ -78,13 +78,16 @@ import {
     applicableProposalIndexes,
     applyProposalEdits,
     buildEarthCoachCoverage,
+    buildEarthCoachQuestionBoard,
     buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
+    currentResolution,
     findCarriedCorrections,
     EarthCoachCarriedCorrection,
     EarthCoachCoverageRow,
-    EarthCoachCoverageState,
+    EarthCoachQuestionRow,
+    EarthCoachQuestionState,
     EarthCoachProposalEdits,
     EarthCoachRect,
     mergeProposalEdits,
@@ -97,7 +100,12 @@ import {
     trailingNumericId,
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
-import { EarthCoachProposalReply, EarthCoachResultCard, EarthCoachResultCardHandlers } from './earthcoach-workspace-results';
+import {
+    EarthCoachProposalReply,
+    EarthCoachResultCard,
+    EarthCoachResultCardHandlers,
+    earthCoachProposalDomId,
+} from './earthcoach-workspace-results';
 import { answerableLoggingTasks } from './earthcoach-logging-tasks';
 
 type ImageFilter = 'all' | 'personal' | 'listing' | 'waypoint' | 'unclassified' | 'selected';
@@ -156,11 +164,29 @@ function isImageFile(file: File): boolean {
     return /\.(avif|bmp|gif|hei[cf]|jpe?g|png|svg|tiff?|webp)$/i.test(file.name);
 }
 
-const COVERAGE_LABELS: Record<EarthCoachCoverageState, string> = {
+const QUESTION_STATE_LABELS: Record<EarthCoachQuestionState, string> = {
     answered: 'Répondue',
+    proposal_ready: 'Réponse prête',
+    proposal_partial: 'Partielle',
+    proposal_missing: 'Manquante',
     ready_to_resolve: 'Prête à résoudre',
     needs_field: 'Observation à faire',
 };
+
+/** Couleur de l'état : celles des propositions pour leurs états, celles de la couverture sinon. */
+const QUESTION_STATE_CLASSES: Record<EarthCoachQuestionState, string> = {
+    answered: 'ecw-badge ecw-badge-answered',
+    proposal_ready: 'ecw-status ecw-status-ready',
+    proposal_partial: 'ecw-status ecw-status-partial',
+    proposal_missing: 'ecw-status ecw-status-missing',
+    ready_to_resolve: 'ecw-badge ecw-badge-ready_to_resolve',
+    needs_field: 'ecw-badge ecw-badge-needs_field',
+};
+
+function excerpt(value: string | null | undefined, max = 140): string {
+    const compact = (value || '').replace(/\s+/g, ' ').trim();
+    return compact.length > max ? `${compact.slice(0, max)}…` : compact;
+}
 
 /** Mode recadrage de l'apercu : rectangle en cours de trace, en pixels de l'element img. */
 interface CropDraft {
@@ -2353,31 +2379,94 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         });
     }
 
-    protected renderCoverage(coverage: EarthCoachCoverageRow[]): React.ReactNode {
+    /**
+     * Tableau unique des questions : ce qui est observé, ce qu'EarthCoach
+     * propose (résultat de référence, sinon la dernière résolution) et ce qui
+     * est enregistré. Le détail d'une proposition reste dans sa carte de
+     * résultat, à un clic (« Voir »).
+     */
+    protected renderQuestions(coverage: EarthCoachCoverageRow[]): React.ReactNode {
         const context = this.context;
         if (!context) {
             return undefined;
         }
+        const resolution = currentResolution(this.results);
+        const board = buildEarthCoachQuestionBoard(coverage, resolution, context.loggingTasks);
         const covered = coverage.filter(row => row.state === 'ready_to_resolve' || row.state === 'answered').length;
+        const answered = coverage.filter(row => row.state === 'answered').length;
+        const source = resolution
+            ? `d’après ${resolution.is_reference ? 'la résolution de référence' : 'la dernière résolution'}${resolution.created_at ? ` du ${new Date(resolution.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}` : ''}`
+            : 'aucune résolution pour l’instant';
         return <section className='ecw-panel'>
-            <div className='ecw-row'><h3>Couverture des questions</h3><span className='ecw-grow' />
-                <strong>{context.observations.length} observation(s) · {covered}/{coverage.length} question(s) couverte(s)</strong></div>
-            {coverage.length ? <div className='ecw-coverage-scroll'><table className='ecw-coverage'>
-                <thead><tr><th>Q</th><th>Question</th><th>État</th><th>Observation liée</th><th>Photo</th><th /></tr></thead>
-                <tbody>{coverage.map(row => <tr key={row.taskId}>
-                    <td>Q{row.position}</td>
-                    <td title={row.guidance ? `À observer : ${row.guidance}` : undefined}>{row.question}</td>
-                    <td><span className={`ecw-badge ecw-badge-${row.state}`}>{COVERAGE_LABELS[row.state]}</span></td>
-                    <td>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
-                    <td>{row.requiresPhoto ? 'À joindre au log' : <span className='ecw-muted'>—</span>}</td>
-                    <td>{row.state === 'needs_field' &&
-                        <button className='theia-button secondary' onClick={() => this.observeTask(row)}>Observer</button>}</td>
-                </tr>)}</tbody>
-            </table></div> : <div className='ecw-row'>
-                <p className='ecw-muted ecw-grow'>Aucune question enregistrée : la résolution devra les déduire du listing. Extrayez-les pour suivre leur couverture.</p>
+            <div className='ecw-row'><h3>Questions</h3><span className='ecw-grow' />
+                <strong>{covered}/{coverage.length} couverte(s) · {answered}/{coverage.length} répondue(s)</strong></div>
+            {coverage.length ? <>
+                <span className='ecw-muted'>Observations liées et réponses d’EarthCoach, {source}.</span>
+                <div className='ecw-coverage-scroll'><table className='ecw-coverage'>
+                    <thead><tr><th>Q</th><th>Question</th><th>Observation liée</th><th>État</th><th>Réponse</th><th /></tr></thead>
+                    <tbody>{board.rows.map(row => this.renderQuestionRow(row, resolution?.id))}</tbody>
+                </table></div>
+                {resolution && board.unmatched.length > 0 && <div className='ecw-row'>
+                    <span className='ecw-muted ecw-grow'>{board.unmatched.length} proposition(s) de ce résultat ne correspondent à aucune question enregistrée.</span>
+                    <button className='theia-button secondary' onClick={() => this.revealProposal(resolution.id, board.unmatched[0])}>Voir</button>
+                </div>}
+            </> : <div className='ecw-row'>
+                <p className='ecw-muted ecw-grow'>Aucune question enregistrée : la résolution devra les déduire du listing. Extrayez-les pour suivre leur couverture et reporter les réponses.</p>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: context.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </div>}
         </section>;
+    }
+
+    protected renderQuestionRow(row: EarthCoachQuestionRow, resultId: number | undefined): React.ReactNode {
+        const proposal = row.proposal;
+        // La réponse enregistrée fait foi ; sinon celle proposée, ou ce qu'il manque.
+        const shown = row.state === 'answered'
+            ? row.answer
+            : proposal?.answer?.trim() || (proposal?.missing?.trim() ? `À compléter : ${proposal.missing}` : undefined);
+        const proposalDiffers = row.state === 'answered' && row.canApply;
+        return <tr key={row.taskId}>
+            <td>Q{row.position}</td>
+            <td title={row.guidance ? `À observer : ${row.guidance}` : undefined}>
+                {row.question}{row.requiresPhoto && <span className='ecw-muted' title='Photo à joindre au log'> 📷</span>}
+            </td>
+            <td>{row.observationExcerpt || <span className='ecw-muted'>—</span>}</td>
+            <td><span className={QUESTION_STATE_CLASSES[row.questionState]}>{QUESTION_STATE_LABELS[row.questionState]}</span></td>
+            <td>{shown ? excerpt(shown) : <span className='ecw-muted'>—</span>}
+                {proposalDiffers && <div className='ecw-muted'>EarthCoach propose : {excerpt(proposal?.answer, 80)}</div>}</td>
+            <td><div className='ecw-cell-actions'>
+                {row.state === 'needs_field' &&
+                    <button className='theia-button secondary' onClick={() => this.observeTask(row)}>Observer</button>}
+                {resultId !== undefined && row.proposalIndex !== undefined &&
+                    <button className='theia-button secondary' title='Ouvre la proposition détaillée dans son résultat'
+                        onClick={() => this.revealProposal(resultId, row.proposalIndex!)}>Voir</button>}
+                {resultId !== undefined && row.canApply && row.proposalIndex !== undefined &&
+                    <button className='theia-button' title={proposalDiffers ? 'Remplace la réponse enregistrée par celle d’EarthCoach' : 'Enregistre cette réponse dans la question'}
+                        onClick={() => void this.applyProposal(resultId, row.proposalIndex!)}>Reporter</button>}
+            </div></td>
+        </tr>;
+    }
+
+    /** Déplie le résultat et amène la proposition à l'écran, le temps que React l'ait rendue. */
+    protected revealProposal(resultId: number, proposalIndex: number): void {
+        if (!this.expandedResults.has(resultId)) {
+            this.expandedResults = new Set([...this.expandedResults, resultId]);
+            this.update();
+        }
+        const id = earthCoachProposalDomId(resultId, proposalIndex);
+        let attempts = 0;
+        const reveal = () => {
+            const element = this.node.ownerDocument.getElementById(id);
+            if (!element) {
+                if (++attempts < 20) {
+                    window.requestAnimationFrame(reveal);
+                }
+                return;
+            }
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            element.classList.add('ecw-flash');
+            window.setTimeout(() => element.classList.remove('ecw-flash'), 1600);
+        };
+        window.requestAnimationFrame(reveal);
     }
 
     /**
@@ -2493,7 +2582,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 .ecw-confirm{font-weight:600;display:flex;align-items:center;gap:8px}.ecw-actions{position:sticky;bottom:0;padding:8px;background:var(--theia-sideBar-background);justify-content:flex-end;border-top:1px solid var(--theia-panel-border)}
                 .ecw-results details{border-top:1px solid var(--theia-panel-border);padding-top:8px}.ecw-results pre{white-space:pre-wrap}.ecw-proposal{display:grid;gap:9px;padding:12px;margin:10px 0;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-proposal label,.ecw-final-answer label{display:grid;gap:5px}.ecw-question{display:grid;gap:5px}.ecw-translation{padding:7px 9px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}.ecw-translation span{font-weight:600}.ecw-final-answer{display:flex;align-items:end;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--theia-panel-border)}.ecw-loading{padding:24px}
                 .ecw-preview-stage{position:relative}.ecw-crop-layer{position:absolute;inset:0;cursor:crosshair;touch-action:none}.ecw-crop-rect{position:absolute;border:2px solid var(--theia-focusBorder);background:color-mix(in srgb,var(--theia-focusBorder) 18%,transparent);pointer-events:none}
-                .ecw-coverage-scroll{overflow-x:auto}.ecw-coverage{width:100%;border-collapse:collapse;font-size:12px}.ecw-coverage th,.ecw-coverage td{padding:5px 6px;border-bottom:1px solid var(--theia-panel-border);text-align:left;vertical-align:top}.ecw-coverage td:first-child{white-space:nowrap;font-weight:600}
+                .ecw-coverage-scroll{overflow-x:auto}.ecw-coverage{width:100%;border-collapse:collapse;font-size:12px}.ecw-coverage th,.ecw-coverage td{padding:5px 6px;border-bottom:1px solid var(--theia-panel-border);text-align:left;vertical-align:top}.ecw-coverage td:first-child{white-space:nowrap;font-weight:600}.ecw-cell-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+                .ecw-flash{outline:2px solid var(--theia-focusBorder);outline-offset:2px;transition:outline-color 1.5s}
                 .ecw-badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;white-space:nowrap;border:1px solid var(--theia-panel-border)}.ecw-badge-ready_to_resolve,.ecw-badge-answered,.ecw-badge-ready{background:var(--theia-inputValidation-infoBackground);border-color:var(--theia-inputValidation-infoBorder)}.ecw-badge-needs_field,.ecw-badge-needs_photo,.ecw-badge-partial,.ecw-badge-missing{background:var(--theia-inputValidation-warningBackground);border-color:var(--theia-inputValidation-warningBorder)}
                 .ecw-proposal-ready,.ecw-status-ready{--ecw-status:var(--theia-charts-green,#4caf50)}.ecw-proposal-partial,.ecw-status-partial{--ecw-status:var(--theia-charts-orange,#e69500)}.ecw-proposal-missing,.ecw-status-missing{--ecw-status:var(--theia-charts-red,#f14c4c)}
                 .ecw-proposal[class*='ecw-proposal-']{border-left:4px solid var(--ecw-status)}.ecw-proposal-partial,.ecw-proposal-missing{background:color-mix(in srgb,var(--ecw-status) 6%,transparent)}
@@ -2534,7 +2624,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             <div className='ecw-main'>{this.renderGallery()}{this.renderPreview()}{this.renderInspector()}</div>
             {this.renderGroups()}
             <section className='ecw-panel'><h3>Commentaire général</h3><textarea className='theia-input' rows={4} value={this.workspace.general_comment || ''} onChange={event => this.mutate(workspace => { workspace.general_comment = event.currentTarget.value; })} placeholder='Contexte global utile au modèle, conditions terrain, objectif de comparaison…' /></section>
-            {this.renderCoverage(coverage)}
+            {this.renderQuestions(coverage)}
             {this.renderSummary(coverage)}
             {this.renderResults()}
         </div>;

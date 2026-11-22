@@ -128,6 +128,11 @@ export interface EarthCoachResultCardProps {
     handlers: EarthCoachResultCardHandlers;
 }
 
+/** Ancre d'une proposition : le tableau des questions y renvoie (« Voir »). */
+export function earthCoachProposalDomId(resultId: number, proposalIndex: number): string {
+    return `ecw-proposal-${resultId}-${proposalIndex}`;
+}
+
 /** Numero et lieu en tete : deux stations peuvent poser la meme question mot pour mot. */
 function QuestionTitle(props: { number?: number; proposal: EarthCoachResultProposal }): React.ReactElement {
     const location = props.proposal.location?.trim();
@@ -325,7 +330,8 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 proposal.confidence ? `Confiance ${CONFIDENCE_LABELS[proposal.confidence] || proposal.confidence}` : '',
                 founded.length ? `Fondée sur : ${founded.join(', ')}` : '',
             ].filter(Boolean).join(' · ');
-            return <div key={`${result.id}-${proposalIndex}`} className={`ecw-proposal ecw-proposal-${proposal.status}`}>
+            return <div key={`${result.id}-${proposalIndex}`} id={earthCoachProposalDomId(result.id, proposalIndex)}
+                className={`ecw-proposal ecw-proposal-${proposal.status}`}>
                 <div className='ecw-question'>
                     <div className='ecw-question-head'>
                         <QuestionTitle number={position} proposal={proposal} />
