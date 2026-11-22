@@ -295,12 +295,26 @@ export function buildPhotoReminders(loggingTasks: LoggingTask[]): string[] {
     ];
 }
 
-/** Meme regle que le backend (`/apply`) : prete, une reponse, rien a completer, une question cible. */
+/**
+ * Pourquoi une proposition ne peut pas etre reportee, `undefined` si elle le
+ * peut. Meme regle que le backend (`/apply`) : prete, une reponse, rien a
+ * completer, une question enregistree pour la recevoir.
+ */
+export function proposalApplyBlocker(proposal: EarthCoachResultProposal): string | undefined {
+    if (proposal.status !== 'ready' || !proposal.answer?.trim()) {
+        return 'Seule une réponse prête peut être reportée.';
+    }
+    if (proposal.missing?.trim()) {
+        return 'Il reste des éléments à compléter : videz ce champ une fois la réponse complète.';
+    }
+    if (trailingNumericId(proposal.task_id) === undefined) {
+        return 'Aucune question enregistrée ne correspond : enregistrez les questions (« Gérer les questions ») puis relancez la résolution.';
+    }
+    return undefined;
+}
+
 export function isProposalApplicable(proposal: EarthCoachResultProposal): boolean {
-    return proposal.status === 'ready'
-        && Boolean(proposal.answer?.trim())
-        && !proposal.missing?.trim()
-        && trailingNumericId(proposal.task_id) !== undefined;
+    return proposalApplyBlocker(proposal) === undefined;
 }
 
 export function applicableProposalIndexes(proposals: EarthCoachResultProposal[]): number[] {
@@ -392,4 +406,85 @@ export function revertProposalPatch(ai: EarthCoachResultProposal): Partial<Earth
         (patch as Record<string, unknown>)[field] = ai[field];
     }
     return patch;
+}
+
+/** Corrections pas encore enregistrees, par index de proposition. */
+export type EarthCoachProposalEdits = ReadonlyMap<number, Partial<EarthCoachResultProposal>>;
+
+/** Cumule deux lots de corrections ; `newer` l'emporte champ par champ. */
+export function mergeProposalEdits(
+    older?: EarthCoachProposalEdits,
+    newer?: EarthCoachProposalEdits
+): Map<number, Partial<EarthCoachResultProposal>> {
+    const merged = new Map<number, Partial<EarthCoachResultProposal>>();
+    for (const edits of [older, newer]) {
+        for (const [index, patch] of edits || []) {
+            merged.set(index, { ...merged.get(index), ...patch });
+        }
+    }
+    return merged;
+}
+
+export function applyProposalEdits(
+    proposals: EarthCoachResultProposal[],
+    edits?: EarthCoachProposalEdits
+): EarthCoachResultProposal[] {
+    if (!edits?.size) {
+        return proposals;
+    }
+    return proposals.map((proposal, index) => {
+        const patch = edits.get(index);
+        return patch ? { ...proposal, ...patch } : proposal;
+    });
+}
+
+/**
+ * Retire les corrections qu'une ecriture vient d'enregistrer. Un champ
+ * modifie pendant l'ecriture garde sa nouvelle valeur en attente.
+ */
+export function subtractProposalEdits(
+    pending: EarthCoachProposalEdits | undefined,
+    written: EarthCoachProposalEdits
+): Map<number, Partial<EarthCoachResultProposal>> {
+    const remaining = new Map<number, Partial<EarthCoachResultProposal>>();
+    for (const [index, patch] of pending || []) {
+        const sent = (written.get(index) || {}) as Record<string, unknown>;
+        const kept = Object.fromEntries(Object.entries(patch).filter(([field, value]) =>
+            !(field in sent) || JSON.stringify(sent[field]) !== JSON.stringify(value)
+        ));
+        if (Object.keys(kept).length) {
+            remaining.set(index, kept);
+        }
+    }
+    return remaining;
+}
+
+/**
+ * Reapplique les corrections en attente sur une nouvelle version serveur
+ * (capture, reprise fusionnee, reponse finale). Une question qui a change
+ * hors des champs corriges a ete reprise par EarthCoach : la reprise
+ * demandee l'emporte et la correction est abandonnee (`dropped`). Un ecart
+ * limite aux champs corriges n'est que l'echo de notre propre ecriture.
+ */
+export function rebaseProposalEdits(
+    incoming: EarthCoachResultProposal[],
+    base: EarthCoachResultProposal[] | undefined,
+    edits: EarthCoachProposalEdits | undefined
+): { proposals: EarthCoachResultProposal[]; kept: Map<number, Partial<EarthCoachResultProposal>>; dropped: number[] } {
+    const kept = new Map<number, Partial<EarthCoachResultProposal>>();
+    const dropped: number[] = [];
+    for (const [index, patch] of edits || []) {
+        const next = incoming[index];
+        const previous = base?.[index];
+        const edited = new Set(Object.keys(patch));
+        const replaced = !next || (previous !== undefined && PROPOSAL_FIELDS.some(field =>
+            !edited.has(field) && normalizedField(next, field) !== normalizedField(previous, field)
+        ));
+        if (replaced) {
+            dropped.push(index);
+        } else {
+            kept.set(index, patch);
+        }
+    }
+    return { proposals: applyProposalEdits(incoming, kept), kept, dropped };
 }

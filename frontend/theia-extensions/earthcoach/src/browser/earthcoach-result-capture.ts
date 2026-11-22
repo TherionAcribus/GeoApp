@@ -4,6 +4,12 @@ import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal }
 import { EarthCoachWorkspaceService } from './earthcoach-workspace-service';
 import { LoggingTask } from './earthcoach-types';
 import { splitFinalAnswer } from './earthcoach-prompt-builder';
+import {
+    EarthCoachRequestTicket,
+    EarthCoachRequestTickets,
+    photoInstructionTaskIds,
+    ticketFromPreparedRequest,
+} from './earthcoach-request-tickets';
 
 export interface EarthCoachCapturePayload {
     request_id: string;
@@ -12,19 +18,17 @@ export interface EarthCoachCapturePayload {
     proposals?: EarthCoachResultProposal[];
 }
 
-interface EarthCoachFinalRequest {
-    resultId: number;
-    geocacheId: number;
-}
-
 @injectable()
 export class EarthCoachResultCaptureService {
     protected readonly requests = new Map<string, EarthCoachPreparedRequest>();
-    /** Requetes de generation de la reponse finale, correlees au resultat source. */
-    protected readonly finalRequests = new Map<string, EarthCoachFinalRequest>();
-    /** Requetes dont une capture a effectivement produit des propositions. */
+    /** Requetes dont l'outil de capture a ete appele explicitement par le modele. */
     protected readonly capturedRequestIds = new Set<string>();
     protected readonly capturedEmitter = new Emitter<EarthCoachResult>();
+    /**
+     * Copie legere de chaque requete dans le stockage local : un redemarrage
+     * ou un 21e envoi chasse l'instantane, la capture doit rester possible.
+     */
+    protected tickets = new EarthCoachRequestTickets();
 
     @inject(EarthCoachWorkspaceService)
     protected readonly workspaceService!: EarthCoachWorkspaceService;
@@ -35,6 +39,7 @@ export class EarthCoachResultCaptureService {
 
     register(request: EarthCoachPreparedRequest): void {
         this.requests.set(request.requestId, request);
+        this.tickets.put(ticketFromPreparedRequest(request));
         if (this.requests.size > 20) {
             const oldest = this.requests.keys().next().value;
             if (oldest) {
@@ -49,17 +54,28 @@ export class EarthCoachResultCaptureService {
      * avec le dispatch revient dans l'evenement de fin de reponse.
      */
     registerFinalRequest(requestId: string, resultId: number, geocacheId: number): void {
-        this.finalRequests.set(requestId, { resultId, geocacheId });
-        if (this.finalRequests.size > 20) {
-            const oldest = this.finalRequests.keys().next().value;
-            if (oldest) {
-                this.finalRequests.delete(oldest);
-            }
-        }
+        this.tickets.put({
+            requestId,
+            geocacheId,
+            action: 'resolve',
+            photoTaskIds: [],
+            finalResultId: resultId,
+            createdAt: Date.now(),
+        });
     }
 
     isFinalRequest(requestId: string | undefined): boolean {
-        return Boolean(requestId) && this.finalRequests.has(requestId as string);
+        return this.tickets.get(requestId)?.finalResultId !== undefined;
+    }
+
+    /** Requete de dossier (pas de reponse finale) : instantane en memoire, sinon son ticket. */
+    protected requestTicket(requestId: string | undefined): EarthCoachRequestTicket | undefined {
+        const snapshot = requestId ? this.requests.get(requestId) : undefined;
+        if (snapshot) {
+            return { ...ticketFromPreparedRequest(snapshot), awaitingInput: this.tickets.get(requestId)?.awaitingInput };
+        }
+        const ticket = this.tickets.get(requestId);
+        return ticket && ticket.finalResultId === undefined ? ticket : undefined;
     }
 
     /**
@@ -68,23 +84,38 @@ export class EarthCoachResultCaptureService {
      * l'utilisateur avec le meme request_id.
      */
     markAwaitingInput(requestId: string, geocacheId: number, questions: string[]): void {
-        const snapshot = this.requests.get(requestId);
-        if (!snapshot) {
+        const ticket = this.requestTicket(requestId);
+        if (!ticket) {
             throw new Error('Instantané EarthCoach introuvable pour cette demande de précisions.');
         }
-        if (snapshot.geocacheId !== geocacheId) {
+        if (ticket.geocacheId !== geocacheId) {
             throw new Error('La demande de précisions ne correspond pas à la géocache préparée.');
         }
         const cleaned = questions.map(question => question.trim()).filter(Boolean).slice(0, 3);
         if (!cleaned.length) {
             throw new Error('Aucune question de précision fournie.');
         }
-        snapshot.awaitingInput = cleaned;
+        const snapshot = this.requests.get(requestId);
+        if (snapshot) {
+            snapshot.awaitingInput = cleaned;
+        }
+        this.tickets.update(requestId, { awaitingInput: true });
+    }
+
+    /**
+     * L'utilisateur a repondu : ce tour-ci doit capturer. S'il ne le fait pas,
+     * l'observateur doit avertir au lieu de croire a une nouvelle attente.
+     */
+    clearAwaitingInput(requestId: string): void {
+        const snapshot = this.requests.get(requestId);
+        if (snapshot) {
+            snapshot.awaitingInput = undefined;
+        }
+        this.tickets.update(requestId, { awaitingInput: undefined });
     }
 
     isAwaitingInput(requestId: string | undefined): boolean {
-        const snapshot = requestId ? this.requests.get(requestId) : undefined;
-        return Boolean(snapshot?.awaitingInput?.length);
+        return Boolean(this.requestTicket(requestId)?.awaitingInput);
     }
 
     /**
@@ -92,13 +123,13 @@ export class EarthCoachResultCaptureService {
      * c'est le critere de correlation de l'observateur de fin de reponse.
      */
     hasRequest(requestId: string | undefined): boolean {
-        return Boolean(requestId) && this.requests.has(requestId as string);
+        return this.requestTicket(requestId) !== undefined;
     }
 
     /**
-     * Vrai quand l'outil de capture a deja enregistre des propositions pour
-     * cette requete : un attachement Markdown seul, sans capture prealable,
-     * laisserait le dossier sans propositions.
+     * Vrai quand l'outil de capture a ete appele pour cette requete : le
+     * Markdown de fin de reponse, attache seul, laisserait le dossier sans
+     * propositions.
      */
     wasCaptured(requestId: string | undefined): boolean {
         return Boolean(requestId) && this.capturedRequestIds.has(requestId as string);
@@ -109,15 +140,15 @@ export class EarthCoachResultCaptureService {
      * copiable dans le dossier au lieu de ne vivre que dans la session de chat.
      */
     async attachFinalAnswer(requestId: string, markdown: string): Promise<EarthCoachResult> {
-        const target = this.finalRequests.get(requestId);
-        if (!target) {
+        const resultId = this.tickets.get(requestId)?.finalResultId;
+        if (resultId === undefined) {
             throw new Error('Requête de réponse finale EarthCoach introuvable.');
         }
         if (!markdown.trim()) {
             throw new Error('Réponse finale EarthCoach vide : rien à enregistrer.');
         }
         const { message, control } = splitFinalAnswer(markdown);
-        const result = await this.workspaceService.saveFinalAnswer(target.resultId, message, control);
+        const result = await this.workspaceService.saveFinalAnswer(resultId, message, control);
         this.capturedEmitter.fire(result);
         return result;
     }
@@ -126,19 +157,20 @@ export class EarthCoachResultCaptureService {
      * Attache le Markdown de fin de reponse a la requete qui l'a produite.
      * Correlation stricte par `requestId` : avec plusieurs dossiers envoyes en
      * parallele, attacher "la derniere" requete melangeait les resultats.
+     * Ce n'est pas une capture : `wasCaptured` reste faux.
      */
     async attachMarkdown(requestId: string, markdown: string, sessionId?: string): Promise<EarthCoachResult> {
-        const snapshot = this.requests.get(requestId);
-        if (!snapshot) {
+        const ticket = this.requestTicket(requestId);
+        if (!ticket) {
             throw new Error('Instantané EarthCoach introuvable pour cette réponse.');
         }
         if (!markdown.trim()) {
             throw new Error('Réponse EarthCoach vide : rien à attacher.');
         }
-        return this.capture({
-            request_id: snapshot.requestId,
-            geocache_id: snapshot.geocacheId,
-            action: snapshot.action === 'resolve' ? 'resolve' : 'analyze',
+        return this.store({
+            request_id: requestId,
+            geocache_id: ticket.geocacheId,
+            action: ticket.action,
             proposals: [],
         }, { markdown, sessionId });
     }
@@ -173,38 +205,9 @@ export class EarthCoachResultCaptureService {
         return true;
     }
 
-    async capture(payload: EarthCoachCapturePayload, options: { markdown?: string; sessionId?: string } = {}): Promise<EarthCoachResult> {
-        const snapshot = this.requests.get(payload.request_id);
-        if (!snapshot) {
-            throw new Error('Instantané EarthCoach introuvable pour cette réponse.');
-        }
-        if (snapshot.geocacheId !== payload.geocache_id) {
-            throw new Error('La réponse EarthCoach ne correspond pas à la géocache préparée.');
-        }
-        const expectedAction = snapshot.action === 'resolve' ? 'resolve' : 'analyze';
-        if (payload.action !== expectedAction) {
-            throw new Error('La réponse EarthCoach ne correspond pas à l action préparée.');
-        }
-        const proposals = withoutPhotoInstructionProposals(payload.proposals || [], snapshot.loggingTasks)
-            .map(normalizeCapturedProposal);
-        // Reprise ciblee (approfondir / contester): pas de nouveau resultat, la
-        // proposition recapturee remplace celle de la meme question dans le
-        // resultat existant; le texte visible s y ajoute en Markdown.
-        const result = snapshot.refine
-            ? await this.workspaceService.mergeResultProposal(snapshot.refine.resultId, {
-                proposal: proposals[0],
-                proposalIndex: snapshot.refine.proposalIndex,
-                markdownAppend: options.markdown,
-            })
-            : await this.workspaceService.captureResult({
-                geocacheId: payload.geocache_id,
-                requestId: payload.request_id,
-                action: payload.action,
-                contextSnapshot: snapshot,
-                proposals,
-                markdown: options.markdown,
-                sessionId: options.sessionId,
-            });
+    /** Appel de l'outil `earthcoach_capture_result` par le modele. */
+    async capture(payload: EarthCoachCapturePayload): Promise<EarthCoachResult> {
+        const result = await this.store(payload, {});
         // Suivi borne comme les autres maps: il distingue en fin de reponse
         // un dossier avec propositions d'un dossier qui n'a recu que le texte.
         this.capturedRequestIds.add(payload.request_id);
@@ -214,6 +217,43 @@ export class EarthCoachResultCaptureService {
                 this.capturedRequestIds.delete(oldest);
             }
         }
+        return result;
+    }
+
+    protected async store(payload: EarthCoachCapturePayload, options: { markdown?: string; sessionId?: string }): Promise<EarthCoachResult> {
+        const snapshot = this.requests.get(payload.request_id);
+        const ticket = this.requestTicket(payload.request_id);
+        if (!ticket) {
+            throw new Error('Instantané EarthCoach introuvable pour cette réponse.');
+        }
+        if (ticket.geocacheId !== payload.geocache_id) {
+            throw new Error('La réponse EarthCoach ne correspond pas à la géocache préparée.');
+        }
+        if (payload.action !== ticket.action) {
+            throw new Error('La réponse EarthCoach ne correspond pas à l action préparée.');
+        }
+        const proposals = withoutPhotoTaskProposals(payload.proposals || [], ticket.photoTaskIds)
+            .map(normalizeCapturedProposal);
+        // Reprise ciblee (approfondir / contester): pas de nouveau resultat, la
+        // proposition recapturee remplace celle de la meme question dans le
+        // resultat existant; le texte visible s y ajoute en Markdown.
+        const result = ticket.refine
+            ? await this.workspaceService.mergeResultProposal(ticket.refine.resultId, {
+                proposal: proposals[0],
+                proposalIndex: ticket.refine.proposalIndex,
+                markdownAppend: options.markdown,
+            })
+            // Sans instantane (redemarrage), le backend complete le resultat
+            // deja cree pour ce request_id ; a defaut, il part sans contexte.
+            : await this.workspaceService.captureResult({
+                geocacheId: payload.geocache_id,
+                requestId: payload.request_id,
+                action: payload.action,
+                contextSnapshot: snapshot || {},
+                proposals,
+                markdown: options.markdown,
+                sessionId: options.sessionId,
+            });
         this.capturedEmitter.fire(result);
         return result;
     }
@@ -241,13 +281,15 @@ export function withoutPhotoInstructionProposals(
     proposals: EarthCoachResultProposal[],
     loggingTasks: LoggingTask[]
 ): EarthCoachResultProposal[] {
-    const photoTaskIds = new Set(loggingTasks
-        .filter(task => task.kind === 'photo')
-        .map(task => String(task.id).replace(/^logging-task-/, '')));
-    if (!photoTaskIds.size) {
+    return withoutPhotoTaskProposals(proposals, photoInstructionTaskIds(loggingTasks));
+}
+
+export function withoutPhotoTaskProposals(proposals: EarthCoachResultProposal[], photoTaskIds: string[]): EarthCoachResultProposal[] {
+    if (!photoTaskIds.length) {
         return proposals;
     }
-    return proposals.filter(proposal => proposal.task_id === undefined || proposal.task_id === null || !photoTaskIds.has(String(proposal.task_id)));
+    const ids = new Set(photoTaskIds);
+    return proposals.filter(proposal => proposal.task_id === undefined || proposal.task_id === null || !ids.has(String(proposal.task_id)));
 }
 
 /** Libelles que le modele ajoute en tete de `missing`, deja titre « Elements a completer ». */

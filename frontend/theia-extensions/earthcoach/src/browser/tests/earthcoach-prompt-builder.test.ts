@@ -81,19 +81,25 @@ import {
 } from '../earthcoach-tool-utils';
 import {
     applicableProposalIndexes,
+    applyProposalEdits,
     buildEarthCoachCoverage,
     buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
     findUncoveredSnapshotTasks,
+    mergeProposalEdits,
     prepareEarthCoachImagesForTransmission,
+    proposalApplyBlocker,
     proposalDiffersFromAi,
     proposalNumber,
     proposalTitle,
+    rebaseProposalEdits,
     resolveProposalPosition,
     revertProposalPatch,
+    subtractProposalEdits,
     validateEarthCoachSelection,
 } from '../earthcoach-workspace-logic';
+import { EARTHCOACH_REQUEST_TICKETS_KEY, EarthCoachRequestTickets } from '../earthcoach-request-tickets';
 import { EarthCoachPreparedRequest, EarthCoachResultProposal } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
@@ -2325,6 +2331,171 @@ async function testFinalAnswerAttachesToSourceResult(): Promise<void> {
     assert.equal(saved.length, 1);
 }
 
+function memoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> & { data: Map<string, string> } {
+    const data = new Map<string, string>();
+    return {
+        data,
+        getItem: key => data.get(key) ?? null,
+        setItem: (key, value) => { data.set(key, value); },
+        removeItem: key => { data.delete(key); },
+    };
+}
+
+function captureServiceWithTickets(
+    storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>,
+    workspaceService: unknown = {}
+): EarthCoachResultCaptureService {
+    const service = new EarthCoachResultCaptureService();
+    (service as unknown as { tickets: EarthCoachRequestTickets }).tickets = new EarthCoachRequestTickets(storage);
+    (service as unknown as { workspaceService: unknown }).workspaceService = workspaceService;
+    return service;
+}
+
+async function testCaptureSurvivesLostSnapshot(): Promise<void> {
+    // Redemarrage (ou 21e envoi) : l'instantane en memoire est perdu, mais le
+    // ticket du stockage local suffit a capturer la reponse du modele.
+    const storage = memoryStorage();
+    const before = captureServiceWithTickets(storage);
+    before.register({
+        ...preparedRequestFixture('resolve'),
+        requestId: 'req-restart',
+        loggingTasks: [{ id: 'logging-task-5', position: 2, question: 'Photo avec le panneau', status: 'todo', kind: 'photo' } as never],
+    });
+    before.register({
+        ...preparedRequestFixture('resolve'),
+        requestId: 'req-refine',
+        refine: { resultId: 12, proposalIndex: 1, focus: 'deepen', previous: { question: 'Q2', status: 'partial' } },
+    });
+    before.registerFinalRequest('final-12-1', 12, 1);
+    assert.ok(storage.data.get(EARTHCOACH_REQUEST_TICKETS_KEY)?.includes('req-restart'));
+    // Le ticket reste leger : jamais le listing complet.
+    assert.doesNotMatch(storage.data.get(EARTHCOACH_REQUEST_TICKETS_KEY) || '', /listing|observations/);
+
+    const captured: Array<{ requestId: string; contextSnapshot: unknown; proposals: EarthCoachResultProposal[] }> = [];
+    const merged: Array<{ resultId: number; proposalIndex?: number }> = [];
+    const finals: number[] = [];
+    const after = captureServiceWithTickets(storage, {
+        captureResult: async (input: { requestId: string; contextSnapshot: unknown; proposals: EarthCoachResultProposal[] }) => {
+            captured.push(input);
+            return { id: 1, geocache_id: 1 } as never;
+        },
+        mergeResultProposal: async (resultId: number, input: { proposalIndex?: number }) => {
+            merged.push({ resultId, proposalIndex: input.proposalIndex });
+            return { id: resultId, geocache_id: 1 } as never;
+        },
+        saveFinalAnswer: async (resultId: number) => {
+            finals.push(resultId);
+            return { id: resultId, geocache_id: 1 } as never;
+        },
+    });
+    assert.equal(after.hasRequest('req-restart'), true);
+    assert.equal(after.hasRequest('final-12-1'), false);
+    assert.equal(after.isFinalRequest('final-12-1'), true);
+
+    await after.capture({
+        request_id: 'req-restart',
+        geocache_id: 1,
+        action: 'resolve',
+        proposals: [
+            { task_id: 5, question: 'Photo avec le panneau', status: 'missing' },
+            { task_id: 6, question: 'Couleur ?', status: 'ready', answer: 'Ocre' },
+        ],
+    });
+    assert.deepEqual(captured[0].contextSnapshot, {});
+    // La consigne photo reste ecartee sans l'instantane.
+    assert.deepEqual(captured[0].proposals.map(proposal => proposal.task_id), [6]);
+    await assert.rejects(() => after.capture({ request_id: 'req-restart', geocache_id: 2, action: 'resolve', proposals: [] }), /géocache/);
+
+    await after.capture({ request_id: 'req-refine', geocache_id: 1, action: 'resolve', proposals: [{ question: 'Q2', status: 'ready', answer: 'x' }] });
+    assert.deepEqual(merged, [{ resultId: 12, proposalIndex: 1 }]);
+
+    await after.attachFinalAnswer('final-12-1', 'Bonjour');
+    assert.deepEqual(finals, [12]);
+}
+
+async function testAwaitingInputIsClearedForTheNextTurn(): Promise<void> {
+    // Apres la reponse de l'utilisateur, le tour suivant doit capturer : une
+    // attente restee posee masquerait l'oubli de capture.
+    const service = captureServiceWithTickets(memoryStorage(), {
+        captureResult: async () => ({ id: 1, geocache_id: 1 } as never),
+    });
+    service.register({ ...preparedRequestFixture('resolve'), requestId: 'req-turns' });
+    service.markAwaitingInput('req-turns', 1, ['Epaisseur ?']);
+    // Le texte du tour de precision est attache, sans compter comme capture.
+    await service.attachMarkdown('req-turns', 'Quelle epaisseur mesurez-vous ?');
+    assert.equal(service.wasCaptured('req-turns'), false);
+    assert.equal(service.isAwaitingInput('req-turns'), true);
+    service.clearAwaitingInput('req-turns');
+    assert.equal(service.isAwaitingInput('req-turns'), false);
+    await service.capture({ request_id: 'req-turns', geocache_id: 1, action: 'resolve', proposals: [] });
+    assert.equal(service.wasCaptured('req-turns'), true);
+}
+
+function testRequestTicketsAreBounded(): void {
+    let now = 1_000_000;
+    const storage = memoryStorage();
+    const tickets = new EarthCoachRequestTickets(storage, () => now);
+    for (let index = 0; index < 60; index += 1) {
+        tickets.put({ requestId: `r${index}`, geocacheId: 1, action: 'resolve', photoTaskIds: [], createdAt: now });
+    }
+    assert.equal(tickets.get('r0'), undefined);
+    assert.ok(tickets.get('r59'));
+    now += 31 * 24 * 60 * 60 * 1000;
+    assert.equal(tickets.get('r59'), undefined);
+    // Stockage illisible : on repart a vide sans lever.
+    storage.setItem(EARTHCOACH_REQUEST_TICKETS_KEY, '{oops');
+    assert.equal(tickets.get('r1'), undefined);
+}
+
+function testPendingEditsSurviveCapture(): void {
+    const base: EarthCoachResultProposal[] = [
+        { task_id: 1, question: 'Q1', status: 'partial', answer: 'IA 1', reasoning: 'r1' },
+        { task_id: 2, question: 'Q2', status: 'partial', answer: 'IA 2', reasoning: 'r2' },
+    ];
+    // L'utilisateur corrige Q2 pendant que EarthCoach reprend Q1.
+    const edits = new Map([[1, { answer: 'Ma correction', status: 'ready' as const }]]);
+    const incoming = [{ ...base[0], answer: 'Reprise', reasoning: 'nouveau' }, base[1]];
+    const rebased = rebaseProposalEdits(incoming, base, edits);
+    assert.deepEqual(rebased.dropped, []);
+    assert.equal(rebased.proposals[0].answer, 'Reprise');
+    assert.equal(rebased.proposals[1].answer, 'Ma correction');
+    assert.equal(rebased.proposals[1].status, 'ready');
+
+    // Correction sur la question meme que la reprise a remplacee : la reprise l'emporte.
+    const conflict = rebaseProposalEdits(incoming, base, new Map([[0, { answer: 'Ma version' }]]));
+    assert.deepEqual(conflict.dropped, [0]);
+    assert.equal(conflict.proposals[0].answer, 'Reprise');
+
+    // Notre propre ecriture qui revient (seuls les champs corriges different) n'est pas une reprise.
+    const echo = rebaseProposalEdits([base[0], { ...base[1], answer: 'Ma correction' }], base, edits);
+    assert.deepEqual(echo.dropped, []);
+    assert.equal(echo.kept.size, 1);
+}
+
+function testProposalEditsBookkeeping(): void {
+    const merged = mergeProposalEdits(new Map([[0, { answer: 'a', status: 'partial' as const }]]), new Map([[0, { answer: 'b' }], [2, { missing: null }]]));
+    assert.deepEqual(merged.get(0), { answer: 'b', status: 'partial' });
+    assert.deepEqual(merged.get(2), { missing: null });
+
+    // Ecriture en vol : seul ce qui a change depuis l'envoi reste en attente.
+    const sent = new Map([[0, { answer: 'b', status: 'partial' as const }]]);
+    const pending = new Map([[0, { answer: 'b2', status: 'partial' as const }], [1, { answer: 'x' }]]);
+    const remaining = subtractProposalEdits(pending, sent);
+    assert.deepEqual(remaining.get(0), { answer: 'b2' });
+    assert.deepEqual(remaining.get(1), { answer: 'x' });
+    assert.equal(subtractProposalEdits(sent, sent).size, 0);
+
+    const applied = applyProposalEdits([{ question: 'Q', status: 'missing' }], new Map([[0, { status: 'ready' as const }]]));
+    assert.equal(applied[0].status, 'ready');
+}
+
+function testProposalApplyBlockerExplainsWhy(): void {
+    assert.equal(proposalApplyBlocker({ task_id: 1, question: 'Q', status: 'ready', answer: 'x' }), undefined);
+    assert.match(proposalApplyBlocker({ task_id: 1, question: 'Q', status: 'partial', answer: 'x' }) || '', /prête/);
+    assert.match(proposalApplyBlocker({ task_id: 1, question: 'Q', status: 'ready', answer: 'x', missing: 'mesurer' }) || '', /compléter/);
+    assert.match(proposalApplyBlocker({ question: 'Q', status: 'ready', answer: 'x' }) || '', /Gérer les questions/);
+}
+
 function testPromptSkipsExtractionHintWithoutQuestions(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -2633,6 +2804,12 @@ async function run(): Promise<void> {
     await testPreparedImagesDetectUndecodableBlob();
     await testCaptureSnapshotCorrectedOnTransmissionFailure();
     await testFinalAnswerAttachesToSourceResult();
+    await testCaptureSurvivesLostSnapshot();
+    await testAwaitingInputIsClearedForTheNextTurn();
+    testRequestTicketsAreBounded();
+    testPendingEditsSurviveCapture();
+    testProposalEditsBookkeeping();
+    testProposalApplyBlockerExplainsWhy();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

@@ -1,7 +1,9 @@
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { ToolInvocationRegistry, ToolRequest, ToolRequestParameters } from '@theia/ai-core';
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { ChatToolContext } from '@theia/ai-chat/lib/common/chat-tool-request-service';
 import { EarthCoachCapturePayload, EarthCoachResultCaptureService } from './earthcoach-result-capture';
+import { EarthCoachResultObserver } from './earthcoach-result-observer';
 import { EarthCoachResultProposal } from './earthcoach-workspace-types';
 
 @injectable()
@@ -14,6 +16,9 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
 
     @inject(EarthCoachResultCaptureService)
     protected readonly capture!: EarthCoachResultCaptureService;
+
+    @inject(EarthCoachResultObserver)
+    protected readonly observer!: EarthCoachResultObserver;
 
     async onStart(): Promise<void> {
         for (const tool of this.buildAllTools()) {
@@ -114,13 +119,19 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                 required: ['request_id', 'geocache_id', 'questions'],
                 additionalProperties: false,
             } as ToolRequestParameters,
-            handler: async (argString: string) => {
+            handler: async (argString: string, ctx?: unknown) => {
                 try {
                     const args = JSON.parse(argString || '{}') as { request_id?: unknown; geocache_id?: unknown; questions?: unknown };
                     const questions = Array.isArray(args.questions)
                         ? args.questions.map(question => String(question)).filter(question => question.trim())
                         : [];
-                    this.capture.markAwaitingInput(String(args.request_id || ''), Number(args.geocache_id), questions);
+                    const requestId = String(args.request_id || '');
+                    this.capture.markAwaitingInput(requestId, Number(args.geocache_id), questions);
+                    // La reponse de l'utilisateur part du chat, hors du bridge :
+                    // le tour suivant est suivi depuis la session elle-meme.
+                    if (ChatToolContext.is(ctx)) {
+                        this.observer.followNextTurn(ctx.request.session, requestId);
+                    }
                     return 'Questions transmises à l utilisateur. Attends sa réponse, puis appelle earthcoach_capture_result avec le même request_id.';
                 } catch (error) {
                     return `Échec de la demande de précisions : ${error instanceof Error ? error.message : String(error)}`;

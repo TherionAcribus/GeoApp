@@ -7,7 +7,7 @@ import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
     applicableProposalIndexes,
     findUncoveredSnapshotTasks,
-    isProposalApplicable,
+    proposalApplyBlocker,
     proposalDiffersFromAi,
     proposalNumber,
     revertProposalPatch,
@@ -223,6 +223,11 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
     const { result, handlers } = props;
     const uncovered = findUncoveredSnapshotTasks(result.proposals, result.snapshot_tasks);
     const applicable = applicableProposalIndexes(result.proposals);
+    // Sans question enregistrée, aucune réponse ne peut être reportée : on le
+    // dit une fois plutôt que de laisser des boutons grisés sans explication.
+    const unregistered = result.proposals.some(proposal =>
+        proposal.status === 'ready' && trailingNumericId(proposal.task_id) === undefined
+    );
     return <>
         <StatusSummary proposals={result.proposals} />
         <ResultMarkdown markdown={result.markdown} />
@@ -235,10 +240,14 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 Reporter les {applicable.length} réponses prêtes dans les questions
             </button>
         </div>}
+        {unregistered && <div className='ecw-muted'>
+            Certaines réponses ne sont rattachées à aucune question enregistrée : enregistrez les questions (« Gérer les questions ») puis relancez la résolution pour pouvoir les reporter.
+        </div>}
         {result.proposals.map((proposal, proposalIndex) => {
             const position = proposalNumber(proposal, result.snapshot_tasks, props.loggingTasks);
             const ai = result.ai_proposals?.[proposalIndex];
             const edited = proposalDiffersFromAi(proposal, ai);
+            const applyBlocker = proposalApplyBlocker(proposal);
             const founded = [
                 ...(proposal.basis || []).map(basis => BASIS_LABELS[basis] || basis),
                 ...(proposal.evidence_ids || []).map(id => describeEarthCoachEvidence(id, props.images, props.observations)),
@@ -285,8 +294,8 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                     {edited && ai && <button className='theia-button secondary' title='Annule vos corrections sur cette question'
                         onClick={() => handlers.onUpdateProposal(result.id, proposalIndex, revertProposalPatch(ai))}>Revenir à la version IA</button>}
                     <span className='ecw-grow' />
-                    <button className='theia-button' disabled={!isProposalApplicable(proposal)}
-                        title={isProposalApplicable(proposal) ? 'Enregistre cette réponse dans la question' : 'Seule une réponse prête, sans élément à compléter, peut être reportée'}
+                    <button className='theia-button' disabled={applyBlocker !== undefined}
+                        title={applyBlocker ?? 'Enregistre cette réponse dans la question'}
                         onClick={() => handlers.onApply(result.id, proposalIndex)}>Reporter dans la question</button>
                 </div>
             </div>;

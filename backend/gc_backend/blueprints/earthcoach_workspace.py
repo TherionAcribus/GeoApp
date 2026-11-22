@@ -601,7 +601,7 @@ def apply_result(result_id: int):
         data = request.get_json(silent=True) or {}
         selected = data.get('proposal_indexes')
         if selected is None:
-            selected = list(range(len(result.proposals or [])))
+            selected = list(range(len(_effective_proposals(result))))
         if not isinstance(selected, list):
             return jsonify({'error': 'proposal_indexes must be a list'}), 400
 
@@ -687,6 +687,14 @@ def merge_result_proposal(result_id: int):
                         if replacement.get(key) in (None, '') and previous.get(key) not in (None, ''):
                             replacement[key] = previous[key]
                     items[index] = replacement
+                elif target_index is not None:
+                    # Une reprise ciblee ne porte que sur une question : une
+                    # proposition qui ne correspond a rien serait un doublon.
+                    # Le refus revient au modele, qui peut recapturer.
+                    raise ValueError(
+                        'the recaptured proposal matches neither the targeted question '
+                        'nor any other question of this result; capture it again for the targeted question'
+                    )
                 else:
                     items.append(proposal)
                 return items

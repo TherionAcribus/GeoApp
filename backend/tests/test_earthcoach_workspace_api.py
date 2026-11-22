@@ -694,6 +694,17 @@ def test_merge_result_proposal_targets_index_for_duplicate_questions(client, see
     assert replaced['answer'] == 'S2 ok'
     assert replaced['question_number'] == 7 and replaced['location'] == 'Station 2'
 
+    # Reprise ciblee qui ne correspond ni a la cible ni a une autre question :
+    # refusee plutot qu'ajoutee en doublon, le resultat reste intact.
+    stray = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal_index': 1, 'proposal': {'task_id': 4242, 'question': 'Autre', 'status': 'ready', 'answer': 'Z'}},
+    )
+    assert stray.status_code == 400
+    assert 'targeted question' in stray.get_json()['error']
+    after = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    assert len(next(item for item in after if item['id'] == result['id'])['proposals']) == 2
+
     # Index invalide : refuse plutot que deviner.
     bad = client.post(
         f"/api/earthcoach-results/{result['id']}/proposals",

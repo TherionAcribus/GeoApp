@@ -1,6 +1,8 @@
-import { MessageService } from '@theia/core';
+import { Disposable, MessageService } from '@theia/core';
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { ChatModel, ChatResponseModel } from '@theia/ai-chat/lib/common/chat-model';
 import {
+    collectAuthoredResponseText,
     GeoAppChatResponseEvent,
     GeoAppChatResponseObserver,
 } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
@@ -11,6 +13,21 @@ function authoredText(event: GeoAppChatResponseEvent): string {
     return event.markdown ?? event.text ?? '';
 }
 
+/** Resout `true` quand la reponse aboutit, `false` si elle est annulee ou en erreur. */
+function whenResponseSettles(response: ChatResponseModel): Promise<boolean> {
+    return new Promise(resolve => {
+        let listener: Disposable | undefined;
+        const check = (): void => {
+            if (response.isComplete || response.isCanceled || response.isError) {
+                listener?.dispose();
+                resolve(response.isComplete && !response.isCanceled && !response.isError);
+            }
+        };
+        listener = response.onDidChange(check);
+        check();
+    });
+}
+
 @injectable()
 export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
     @inject(EarthCoachResultCaptureService)
@@ -18,6 +35,9 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
+
+    /** Requetes dont le tour suivant est deja suivi (un seul abonnement par attente). */
+    protected readonly followedRequests = new Set<string>();
 
     async handleChatResponse(event: GeoAppChatResponseEvent): Promise<void> {
         // Les generations de reponse finale sont correlees par requestId, pas
@@ -43,9 +63,7 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         }
         const visibleMarkdown = stripEarthCoachResultBlocks(authoredText(event));
         try {
-            // hasRequest() a deja garanti un requestId defini. wasCaptured est
-            // lu avant attachMarkdown: l'attachement appelle lui-meme
-            // capture() et marquerait la requete comme deja capturee.
+            // hasRequest() a deja garanti un requestId defini.
             const captured = this.capture.wasCaptured(event.requestId);
             await this.capture.attachMarkdown(event.requestId as string, visibleMarkdown, event.sessionId);
             if (!captured) {
@@ -62,5 +80,41 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         } catch (error) {
             console.warn('[EarthCoach] Unable to attach the response to its prepared request', error);
         }
+    }
+
+    /**
+     * Apres un tour de precision (earthcoach_ask_user), l'utilisateur repond
+     * directement dans le chat : le bridge ne voit pas cette requete, qu'il
+     * n'a pas envoyee. On suit donc le tour suivant de la session pour y
+     * rattacher le texte et signaler une capture oubliee.
+     */
+    followNextTurn(session: ChatModel, requestId: string): void {
+        if (this.followedRequests.has(requestId)) {
+            return;
+        }
+        this.followedRequests.add(requestId);
+        const listener = session.onDidChange(event => {
+            if (event.kind !== 'addRequest') {
+                return;
+            }
+            listener.dispose();
+            this.followedRequests.delete(requestId);
+            // Ce tour doit capturer ; s'il repose des questions, l'outil
+            // remettra lui-meme l'attente.
+            this.capture.clearAwaitingInput(requestId);
+            const response = event.request.response;
+            void whenResponseSettles(response).then(completed => {
+                if (!completed) {
+                    return;
+                }
+                return this.handleChatResponse({
+                    sessionId: session.id,
+                    sessionTitle: '',
+                    requestId,
+                    text: response.response.asDisplayString(),
+                    markdown: collectAuthoredResponseText(response.response.content),
+                });
+            });
+        });
     }
 }

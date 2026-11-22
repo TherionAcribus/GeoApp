@@ -72,16 +72,21 @@ import {
 import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
 import {
     applicableProposalIndexes,
+    applyProposalEdits,
     buildEarthCoachCoverage,
     buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
     EarthCoachCoverageRow,
     EarthCoachCoverageState,
+    EarthCoachProposalEdits,
     EarthCoachRect,
+    mergeProposalEdits,
     prepareEarthCoachImagesForTransmission,
     proposalNumber,
     proposalTitle,
+    rebaseProposalEdits,
+    subtractProposalEdits,
     trailingNumericId,
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
@@ -256,8 +261,14 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     protected saveTimer?: number;
     protected savePromise?: Promise<void>;
     protected changeSequence = 0;
-    /** Résultats dont les propositions ont été modifiées et pas encore sauvées. */
-    protected dirtyResults = new Set<number>();
+    /** Corrections pas encore enregistrées, par résultat puis index de proposition. */
+    protected pendingEdits = new Map<number, EarthCoachProposalEdits>();
+    /** Propositions telles que le serveur les a renvoyées : base des corrections en attente. */
+    protected serverProposals = new Map<number, EarthCoachResultProposal[]>();
+    /** Écritures de corrections, une à la fois par résultat. */
+    protected resultSaves = new Map<number, Promise<EarthCoachResult | undefined>>();
+    /** Versions serveur reçues hors écriture (capture, reprise, réponse finale). */
+    protected resultRevisions = new Map<number, number>();
     protected resultSaveTimers = new Map<number, number>();
     /** Copie locale conservée quand un conflit 409 charge la version serveur. */
     protected conflictBackup?: EarthCoachWorkspace;
@@ -355,13 +366,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         this.title.caption = 'Préparer les observations et images envoyées à EarthCoach';
         this.title.closable = true;
         this.addClass('earthcoach-workspace-widget');
-        this.toDispose.push(this.resultCapture.onDidCapture(result => {
-            if (result.geocache_id === this.context?.geocacheData.id) {
-                this.results = [result, ...this.results.filter(item => item.id !== result.id)];
-                this.expandedResults = new Set([...this.expandedResults, result.id]);
-                this.update();
-            }
-        }));
+        this.toDispose.push(this.resultCapture.onDidCapture(result => this.acceptCapturedResult(result)));
         // Observation ajoutee dans le panneau lateral, questions re-extraites,
         // photo importee depuis l'editeur d'images: le contexte detenu par ce
         // widget est perime, il faut le recharger sans toucher au dossier local.
@@ -384,6 +389,38 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             [GEOAPP_CHAT_IMAGES_TRANSMITTED_EVENT],
             detail => this.onImagesTransmitted(detail)
         ));
+    }
+
+    /**
+     * Une capture, une reprise ou une réponse finale arrive pendant que
+     * l'utilisateur corrige le résultat : ses corrections en attente sont
+     * réappliquées sur la version serveur au lieu d'être écrasées. Seule une
+     * question reprise par EarthCoach perd la correction faite entre-temps.
+     */
+    protected acceptCapturedResult(result: EarthCoachResult): void {
+        if (result.geocache_id !== this.context?.geocacheData.id) {
+            return;
+        }
+        this.resultRevisions.set(result.id, (this.resultRevisions.get(result.id) ?? 0) + 1);
+        const rebased = rebaseProposalEdits(result.proposals, this.serverProposals.get(result.id), this.pendingEdits.get(result.id));
+        this.serverProposals.set(result.id, result.proposals);
+        if (rebased.kept.size) {
+            this.pendingEdits.set(result.id, rebased.kept);
+            this.scheduleResultSave(result.id);
+        } else {
+            this.pendingEdits.delete(result.id);
+        }
+        if (rebased.dropped.length) {
+            const numbers = rebased.dropped.map(index => {
+                const number = proposalNumber(result.proposals[index] || { question: '', status: 'missing' }, result.snapshot_tasks, this.context?.loggingTasks || []);
+                return number !== undefined ? `Q${number}` : `la question ${index + 1}`;
+            });
+            this.messages.warn(`Votre correction en cours sur ${numbers.join(', ')} a été remplacée par la nouvelle proposition d’EarthCoach.`);
+        }
+        const local = { ...result, proposals: rebased.proposals };
+        this.results = [local, ...this.results.filter(item => item.id !== result.id)];
+        this.expandedResults = new Set([...this.expandedResults, result.id]);
+        this.update();
     }
 
     protected onImagesTransmitted(detail: unknown): void {
@@ -557,7 +594,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.saveState = 'idle';
             this.saveError = undefined;
             this.conflictBackup = undefined;
-            this.dirtyResults.clear();
+            this.pendingEdits.clear();
+            this.resultRevisions.clear();
+            this.serverProposals = new Map(this.results.map(result => [result.id, result.proposals]));
             for (const timer of this.resultSaveTimers.values()) {
                 window.clearTimeout(timer);
             }
@@ -1126,7 +1165,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 index === proposalIndex ? { ...proposal, ...patch } : proposal
             ),
         } : result);
-        this.dirtyResults.add(resultId);
+        this.pendingEdits.set(resultId, mergeProposalEdits(this.pendingEdits.get(resultId), new Map([[proposalIndex, patch]])));
         this.scheduleResultSave(resultId);
         this.update();
     }
@@ -1149,23 +1188,60 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             window.clearTimeout(timer);
             this.resultSaveTimers.delete(resultId);
         }
-        if (!this.dirtyResults.has(resultId)) {
+        const inFlight = this.resultSaves.get(resultId);
+        if (inFlight) {
+            await inFlight;
+        }
+        if (!this.pendingEdits.has(resultId)) {
             return this.results.find(item => item.id === resultId);
         }
         return this.saveResult(resultId);
     }
 
-    protected async saveResult(resultId: number): Promise<EarthCoachResult | undefined> {
+    /**
+     * Les écritures d'un même résultat partent l'une après l'autre : deux
+     * PATCH en vol pouvaient arriver dans le désordre et réécrire une
+     * version plus ancienne.
+     */
+    protected saveResult(resultId: number): Promise<EarthCoachResult | undefined> {
+        const previous = this.resultSaves.get(resultId) || Promise.resolve(undefined);
+        const next = previous.then(() => this.writeResult(resultId));
+        this.resultSaves.set(resultId, next);
+        void next.then(() => {
+            if (this.resultSaves.get(resultId) === next) {
+                this.resultSaves.delete(resultId);
+            }
+        });
+        return next;
+    }
+
+    protected async writeResult(resultId: number): Promise<EarthCoachResult | undefined> {
         const result = this.results.find(item => item.id === resultId);
-        if (!result) {
-            return undefined;
+        const sent = this.pendingEdits.get(resultId);
+        if (!result || !sent?.size) {
+            return result;
         }
+        const revision = this.resultRevisions.get(resultId) ?? 0;
         try {
             const saved = await this.workspaceService.updateResult(result.id, result.proposals);
-            this.results = this.results.map(item => item.id === saved.id ? saved : item);
-            this.dirtyResults.delete(resultId);
+            if ((this.resultRevisions.get(resultId) ?? 0) !== revision) {
+                // Une capture est arrivée pendant l'écriture : elle a déjà repris
+                // les corrections en attente, qu'il reste à réécrire par-dessus.
+                this.scheduleResultSave(resultId);
+                return this.results.find(item => item.id === resultId);
+            }
+            // Les corrections saisies pendant l'écriture restent en attente.
+            const remaining = subtractProposalEdits(this.pendingEdits.get(resultId), sent);
+            this.serverProposals.set(resultId, saved.proposals);
+            if (remaining.size) {
+                this.pendingEdits.set(resultId, remaining);
+            } else {
+                this.pendingEdits.delete(resultId);
+            }
+            const local = { ...saved, proposals: applyProposalEdits(saved.proposals, remaining) };
+            this.results = this.results.map(item => item.id === saved.id ? local : item);
             this.update();
-            return saved;
+            return local;
         } catch (error) {
             this.messages.error(error instanceof Error ? error.message : String(error));
             return undefined;
@@ -2088,7 +2164,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 key={result.id}
                 result={result}
                 expanded={this.expandedResults.has(result.id)}
-                dirty={this.dirtyResults.has(result.id)}
+                dirty={this.pendingEdits.has(result.id)}
                 finalBusy={this.generatingFinalResultId !== undefined}
                 generatingFinal={this.generatingFinalResultId === result.id}
                 refineBusy={this.sending}
@@ -2151,7 +2227,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
             `}</style>
             <header className='ecw-head'><h2>Dossier terrain</h2><span className='ecw-muted'>{this.context.geocacheData.name}</span><span className='ecw-grow' />
-                <span title={this.saveError}>{this.dirtyResults.size ? 'Modifications…' : statusLabel(this.saveState)}</span>
+                <span title={this.saveError}>{this.pendingEdits.size ? 'Modifications…' : statusLabel(this.saveState)}</span>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'observations' })}>Gérer les observations</button>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </header>
