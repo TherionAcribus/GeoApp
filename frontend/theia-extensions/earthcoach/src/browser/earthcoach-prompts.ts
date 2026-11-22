@@ -66,6 +66,7 @@ export const SHARED_RULES = [
     '- Ne recopie pas non plus le detail des propositions dans la conversation: le dossier terrain les affiche; une synthese courte suffit.',
     '- Dans une proposition, answer contient la reponse candidate la plus probable (une estimation explicite y a sa place, jamais une mesure inventee); ce qui confirmerait ou preciserait la reponse va dans missing, sans libelle en tete (pas de "A completer :" ni "To complete:").',
     '- Chaque proposition declare question_type (knowledge = listing ou connaissance geologique, photo = lisible sur les images transmises, field = releve sur place impossible a deduire), reasoning (une ou deux phrases) et basis (observation / photo / listing / geology / tool).',
+    '- Chaque proposition porte question_number (rang de la question dans le listing, numerotation continue sur toute la cache; reprends le numero Qn fourni quand les questions sont enregistrees) et, si la cache comporte plusieurs lieux (stations, waypoints, etapes), location: le lieu tel que le listing le nomme (ex. "Station 2", "WP1 - Facade de l eglise"). Deux questions identiques posees a deux lieux sont deux propositions distinctes, chacune avec son location.',
     '- Une question knowledge ou photo sans answer est un echec: quand une reponse plausible existe, meme incertaine, elle est proposee et confidence le dit.',
     '- Une proposition ne constitue jamais un log et ne doit jamais etre publiee automatiquement.',
     '',

@@ -99,7 +99,13 @@ def _normalize_proposal(item: dict) -> None:
             item['basis'] = None
     # Champs texte: les chaines sont nettoyees, tout le reste retombe a None
     # plutot que de stocker un type que l'UI n'attend pas.
-    for key in ('question', 'answer', 'missing', 'question_translation', 'reasoning'):
+    if 'question_number' in item:
+        try:
+            number = int(item.get('question_number'))
+        except (TypeError, ValueError):
+            number = 0
+        item['question_number'] = number if number > 0 else None
+    for key in ('question', 'answer', 'missing', 'question_translation', 'reasoning', 'location'):
         if key in item:
             item[key] = _optional_text(item[key]) if isinstance(item[key], str) else None
 
@@ -667,11 +673,14 @@ def merge_result_proposal(result_id: int):
                 index = _targeted_proposal_index(items, proposal, target_index)
                 if index >= 0:
                     replacement = dict(proposal)
-                    # Le modele omet souvent le task_id : on garde celui de la
-                    # proposition remplacee, sans quoi le report serait refuse.
-                    if _proposal_task_id(replacement) is None and isinstance(items[index], dict) \
-                            and items[index].get('task_id') is not None:
-                        replacement['task_id'] = items[index]['task_id']
+                    # Le modele omet souvent l'identite de la question : on
+                    # garde celle de la proposition remplacee (sans task_id le
+                    # report serait refuse, sans numero ni lieu les stations
+                    # homonymes redeviendraient indiscernables).
+                    previous = items[index] if isinstance(items[index], dict) else {}
+                    for key in ('task_id', 'question_number', 'location'):
+                        if replacement.get(key) in (None, '') and previous.get(key) not in (None, ''):
+                            replacement[key] = previous[key]
                     items[index] = replacement
                 else:
                     items.append(proposal)

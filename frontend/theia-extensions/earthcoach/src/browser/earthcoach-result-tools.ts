@@ -48,6 +48,8 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                             type: 'object',
                             properties: {
                                 task_id: { type: 'number' },
+                                question_number: { type: 'number', description: 'Rang de la question dans le listing (1, 2, 3...), numérotation continue sur toute la cache ; reprendre le numéro Qn fourni quand les questions sont enregistrées.' },
+                                location: { type: 'string', description: 'Lieu auquel la question se rapporte, tel que le listing le nomme (ex. « Station 2 », « WP1 - Façade de l église », « Étape 3 ») ; omis si la cache n a qu un seul lieu.' },
                                 question: { type: 'string', description: 'Question originale du propriétaire, inchangée.' },
                                 question_type: { type: 'string', enum: ['knowledge', 'photo', 'field'], description: 'Origine de la réponse : knowledge = listing ou connaissance géologique, photo = lisible sur les images transmises, field = relevé sur place impossible à déduire.' },
                                 question_translation: { type: 'string', description: 'Traduction de la question dans la langue utilisateur demandée.' },

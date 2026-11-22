@@ -9,7 +9,7 @@ import {
     findUncoveredSnapshotTasks,
     isProposalApplicable,
     proposalDiffersFromAi,
-    resolveProposalPosition,
+    proposalNumber,
     revertProposalPatch,
     trailingNumericId,
 } from './earthcoach-workspace-logic';
@@ -112,8 +112,14 @@ export interface EarthCoachResultCardProps {
     handlers: EarthCoachResultCardHandlers;
 }
 
-function questionLabel(position: number | undefined, question: string): string {
-    return position !== undefined ? `Q${position} · ${question}` : question;
+/** Numero et lieu en tete : deux stations peuvent poser la meme question mot pour mot. */
+function QuestionTitle(props: { number?: number; proposal: EarthCoachResultProposal }): React.ReactElement {
+    const location = props.proposal.location?.trim();
+    return <strong className='ecw-question-title'>
+        {props.number !== undefined && <span className='ecw-question-number'>Q{props.number}</span>}
+        {location && <span className='ecw-location' title='Lieu auquel la question se rapporte'>{location}</span>}
+        <span>{props.proposal.question}</span>
+    </strong>;
 }
 
 const STATUS_ORDER: Array<EarthCoachResultProposal['status']> = ['ready', 'partial', 'missing'];
@@ -230,7 +236,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
             </button>
         </div>}
         {result.proposals.map((proposal, proposalIndex) => {
-            const position = resolveProposalPosition(proposal, result.snapshot_tasks, props.loggingTasks);
+            const position = proposalNumber(proposal, result.snapshot_tasks, props.loggingTasks);
             const ai = result.ai_proposals?.[proposalIndex];
             const edited = proposalDiffersFromAi(proposal, ai);
             const founded = [
@@ -245,7 +251,7 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
             return <div key={`${result.id}-${proposalIndex}`} className={`ecw-proposal ecw-proposal-${proposal.status}`}>
                 <div className='ecw-question'>
                     <div className='ecw-question-head'>
-                        <strong>{questionLabel(position, proposal.question)}</strong>
+                        <QuestionTitle number={position} proposal={proposal} />
                         <StatusPill status={proposal.status}>
                             {STATUS_LABELS[proposal.status] || proposal.status}{proposal.status !== 'ready' ? ' · votre réponse attendue' : ''}
                         </StatusPill>
@@ -315,7 +321,7 @@ function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {
     // L'analyse rend, par question, ce qu'il reste a relever : une liste de
     // travail terrain plutot que des formulaires de reponse.
     const todo = result.proposals
-        .map(proposal => ({ proposal, position: resolveProposalPosition(proposal, result.snapshot_tasks, props.loggingTasks) }))
+        .map(proposal => ({ proposal, position: proposalNumber(proposal, result.snapshot_tasks, props.loggingTasks) }))
         .filter(item => item.proposal.missing?.trim() || item.proposal.status !== 'ready')
         .sort((left, right) => (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER));
     return <>
@@ -323,7 +329,7 @@ function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {
             <strong>À relever sur le terrain</strong>
             <ul>{todo.map(({ proposal, position }, index) => <li key={index}>
                 <StatusPill status={proposal.status} />{' '}
-                <strong>{questionLabel(position, proposal.question)}</strong>
+                <QuestionTitle number={position} proposal={proposal} />
                 {proposal.missing?.trim() ? <div className='ecw-muted'>{proposal.missing}</div> : undefined}
             </li>)}</ul>
         </div>}

@@ -239,6 +239,32 @@ export function resolveProposalPosition(
     return currentTasks.find(task => trailingNumericId(task.id) === taskId)?.position;
 }
 
+/**
+ * Numero affiche d'une proposition : celui de la question enregistree s'il
+ * existe, sinon celui que le modele a lu dans le listing.
+ */
+export function proposalNumber(
+    proposal: EarthCoachResultProposal,
+    snapshotTasks: EarthCoachSnapshotTask[] | undefined,
+    currentTasks: LoggingTask[]
+): number | undefined {
+    const position = resolveProposalPosition(proposal, snapshotTasks, currentTasks);
+    if (position !== undefined) {
+        return position;
+    }
+    const fromModel = Number(proposal.question_number);
+    return Number.isInteger(fromModel) && fromModel > 0 ? fromModel : undefined;
+}
+
+/** Titre texte d'une proposition : « Q3 · Station 2 · question ». */
+export function proposalTitle(number: number | undefined, proposal: EarthCoachResultProposal): string {
+    return [
+        number !== undefined ? `Q${number}` : '',
+        proposal.location?.trim() || '',
+        proposal.question,
+    ].filter(Boolean).join(' · ');
+}
+
 /** Questions de l'instantane pour lesquelles le modele n'a rendu aucune proposition. */
 export function findUncoveredSnapshotTasks(
     proposals: EarthCoachResultProposal[],
@@ -344,7 +370,7 @@ export function containedImageBox(
 }
 
 const PROPOSAL_FIELDS: Array<keyof EarthCoachResultProposal> = [
-    'task_id', 'question', 'question_type', 'question_translation', 'status', 'answer', 'reasoning', 'basis', 'evidence_ids', 'confidence', 'missing',
+    'task_id', 'question_number', 'location', 'question', 'question_type', 'question_translation', 'status', 'answer', 'reasoning', 'basis', 'evidence_ids', 'confidence', 'missing',
 ];
 
 function normalizedField(proposal: EarthCoachResultProposal, field: keyof EarthCoachResultProposal): string {

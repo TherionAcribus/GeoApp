@@ -647,6 +647,32 @@ def test_merge_result_proposal_targets_index_for_duplicate_questions(client, see
     assert proposals[1]['answer'] == 'B2'
     assert str(proposals[1]['task_id']).endswith('999')
 
+    # Numero et lieu de la question remplacee survivent a une reprise qui les omet.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-location',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [
+                {'question_number': 4, 'location': ' Station 1 ', 'question': question, 'status': 'ready', 'answer': 'S1'},
+                {'question_number': '7', 'location': 'Station 2', 'question': question, 'status': 'partial', 'answer': 'S2'},
+                {'question_number': 'abc', 'location': 12, 'question': 'Q', 'status': 'partial', 'answer': 'X'},
+            ],
+        },
+    )
+    captured = create.get_json()['result']['proposals']
+    assert captured[0]['location'] == 'Station 1'
+    assert captured[1]['question_number'] == 7
+    assert captured[2]['question_number'] is None and captured[2]['location'] is None
+    merged = client.post(
+        f"/api/earthcoach-results/{create.get_json()['result']['id']}/proposals",
+        json={'proposal_index': 1, 'proposal': {'question': question, 'status': 'ready', 'answer': 'S2 ok'}},
+    )
+    replaced = merged.get_json()['result']['proposals'][1]
+    assert replaced['answer'] == 'S2 ok'
+    assert replaced['question_number'] == 7 and replaced['location'] == 'Station 2'
+
     # Index invalide : refuse plutot que deviner.
     bad = client.post(
         f"/api/earthcoach-results/{result['id']}/proposals",

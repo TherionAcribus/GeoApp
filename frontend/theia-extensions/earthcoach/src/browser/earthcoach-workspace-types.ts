@@ -145,6 +145,10 @@ export type EarthCoachAnswerBasis = 'observation' | 'photo' | 'listing' | 'geolo
 
 export interface EarthCoachResultProposal {
     task_id?: number;
+    /** Rang de la question dans le listing (Q1, Q2...), donne par le modele quand aucune question n'est enregistree. */
+    question_number?: number;
+    /** Lieu auquel la question se rapporte (station, waypoint, etape), absent pour une cache a lieu unique. */
+    location?: string;
     question: string;
     question_type?: EarthCoachQuestionType;
     question_translation?: string;

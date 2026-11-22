@@ -664,6 +664,8 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
     if (prepared.refine) {
         const previous = prepared.refine.previous;
         const fields = [
+            ...(previous.question_number ? [`question_number=${previous.question_number}`] : []),
+            ...(previous.location ? [`location=${previous.location}`] : []),
             `question=${previous.question || 'reprendre la question ci-dessus'}`,
             `status=${previous.status}`,
             `answer=${previous.answer || 'aucune'}`,
@@ -680,7 +682,7 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
         }
         lines.push(
             '--- REPRISE CIBLEE D UNE QUESTION ---',
-            'Cette demande ne reprend qu une seule question: capture exactement une proposition, pour cette question seulement (meme task_id).',
+            'Cette demande ne reprend qu une seule question: capture exactement une proposition, pour cette question seulement (memes task_id, question_number et location).',
             refineInstruction(prepared.refine),
             `Proposition precedente a depasser: ${fields.join('; ')}`
         );
@@ -766,7 +768,7 @@ export function buildEarthCoachFinalAnswerPrompt(
     ];
     proposals.forEach((proposal, index) => {
         lines.push(
-            `Question ${index + 1} originale: ${proposal.question}`,
+            `Question ${proposal.question_number || index + 1}${proposal.location ? ` (${proposal.location})` : ''} originale: ${proposal.question}`,
             proposal.question_translation ? `Traduction utilisateur: ${proposal.question_translation}` : 'Traduction utilisateur: non fournie',
             `Etat: ${proposal.status}`,
             `Reponse corrigee: ${(proposal.answer || '').trim() || 'aucune'}`,

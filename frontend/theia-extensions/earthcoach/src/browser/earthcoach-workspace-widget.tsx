@@ -80,6 +80,8 @@ import {
     EarthCoachCoverageState,
     EarthCoachRect,
     prepareEarthCoachImagesForTransmission,
+    proposalNumber,
+    proposalTitle,
     trailingNumericId,
     validateEarthCoachSelection,
 } from './earthcoach-workspace-logic';
@@ -1348,7 +1350,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
                 geocacheName: geocache.name,
-                sessionTitle: `EARTHCOACH ${REFINE_SESSION_LABELS[focus]} Q${task?.position ?? '?'} - ${label}`,
+                sessionTitle: `EARTHCOACH ${REFINE_SESSION_LABELS[focus]} Q${task?.position ?? proposal.question_number ?? '?'} - ${label}`,
                 prompt,
                 focus: true,
                 workflowKind: 'general',
@@ -1528,7 +1530,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         // Priorite a la reponse finale relue : c'est la version que
         // l'utilisateur a validee pour le proprietaire de la cache.
         const content = (result.final_answer || result.markdown || result.proposals.map(proposal =>
-            `### ${proposal.question}\n${proposal.answer || 'À compléter'}\nÉtat : ${proposal.status}`
+            `### ${proposalTitle(proposalNumber(proposal, result.snapshot_tasks, this.context?.loggingTasks || []), proposal)}\n${proposal.answer || 'À compléter'}\nÉtat : ${proposal.status}`
         ).join('\n\n')).trim();
         if (!content) {
             this.messages.warn('Ce résultat ne contient aucune synthèse à enregistrer.');
@@ -2140,6 +2142,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 .ecw-question-head{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
                 .ecw-status{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid color-mix(in srgb,var(--ecw-status) 55%,transparent);background:color-mix(in srgb,var(--ecw-status) 14%,transparent)}.ecw-status::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--ecw-status);flex:none}
                 .ecw-status-summary{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+                .ecw-question-title{display:inline-flex;gap:6px;align-items:baseline;flex-wrap:wrap}.ecw-question-number{font-variant-numeric:tabular-nums}.ecw-location{padding:0 7px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid var(--theia-focusBorder);color:var(--theia-focusBorder);white-space:nowrap}
                 .ecw-reply{display:grid;gap:8px;padding:9px;border:1px dashed var(--ecw-status,var(--theia-panel-border));border-radius:6px;background:var(--theia-editor-background)}.ecw-reply label{display:grid;gap:5px;font-weight:600}.ecw-reply-files{display:flex;gap:6px;flex-wrap:wrap}.ecw-reply-file{display:inline-flex;align-items:center;gap:4px;padding:1px 4px 1px 8px;border:1px solid var(--theia-panel-border);border-radius:10px;font-size:12px}.ecw-reply-remove{border:0;background:none;color:inherit;cursor:pointer;padding:0 4px}
                 .ecw-proposal-partial .ecw-missing-field textarea,.ecw-proposal-missing .ecw-missing-field textarea{border:1px solid var(--ecw-status)}
                 .ecw-over-limit{color:var(--theia-errorForeground)}.ecw-markdown{line-height:1.45;min-width:0;overflow-wrap:anywhere}.ecw-markdown p{margin:.4em 0}.ecw-markdown pre{white-space:pre-wrap}.ecw-todo{padding:9px;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-todo ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px}

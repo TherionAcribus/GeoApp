@@ -87,6 +87,8 @@ import {
     findUncoveredSnapshotTasks,
     prepareEarthCoachImagesForTransmission,
     proposalDiffersFromAi,
+    proposalNumber,
+    proposalTitle,
     resolveProposalPosition,
     revertProposalPatch,
     validateEarthCoachSelection,
@@ -909,6 +911,30 @@ function testRefineReplyPrompt(): void {
     assert.match(prompt, /Reponse de l utilisateur: « Je n ai pas de meilleure photo »/);
     assert.match(prompt, /a examiner en priorite\): image=42/);
     assert.doesNotMatch(prompt, /tu peux d abord appeler earthcoach_ask_user/);
+}
+
+function testProposalNumberAndLocation(): void {
+    // Question enregistree: son numero prime; sinon celui lu par le modele.
+    const tasks = createLoggingTasks();
+    const stored = { task_id: Number(tasks[1].id.replace(/\D/g, '')), question_number: 9, question: tasks[1].question, status: 'ready' as const };
+    assert.equal(proposalNumber(stored, undefined, tasks), tasks[1].position);
+    const free = { question_number: 4, location: 'Station 2', question: 'Which weathering?', status: 'partial' as const };
+    assert.equal(proposalNumber(free, undefined, []), 4);
+    assert.equal(proposalNumber({ ...free, question_number: 0 }, undefined, []), undefined);
+    assert.equal(proposalTitle(4, free), 'Q4 · Station 2 · Which weathering?');
+    assert.equal(proposalTitle(undefined, { ...free, location: ' ' }), 'Which weathering?');
+
+    // La reprise rappelle numero et lieu pour distinguer les stations homonymes.
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, gc_code: 'GC123', name: 'Earth test', type: 'EarthCache' },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: [],
+        images: [],
+        preparedRequest: { ...preparedRequestFixture('resolve'), refine: { resultId: 1, proposalIndex: 1, focus: 'deepen', previous: free } },
+    });
+    assert.match(prompt, /question_number=4; location=Station 2; question=Which weathering\?/);
 }
 
 function testPreparedRequestWithoutImagesSaysSo(): void {
@@ -2617,6 +2643,7 @@ async function run(): Promise<void> {
     testSiteContextBlockIsInjected();
     testRefineRequestPrompt();
     testRefineReplyPrompt();
+    testProposalNumberAndLocation();
     testPreparedRequestWithoutImagesSaysSo();
     await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console
