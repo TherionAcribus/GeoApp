@@ -170,6 +170,57 @@ interface SerializedWorkspaceState {
     label?: string;
 }
 
+const NO_REPLY_DRAFTS: ReadonlyMap<number, EarthCoachProposalReply> = new Map();
+
+/**
+ * Le texte des brouillons de reponse est copie dans le stockage local : il
+ * survit a un redemarrage, meme imprevu. Les photos (objets `File`) ne restent
+ * qu'en memoire.
+ */
+function replyDraftsStorageKey(geocacheId: number): string {
+    return `geoapp.earthcoach.replyDrafts.${geocacheId}`;
+}
+
+function readStoredReplyDrafts(geocacheId: number): Map<number, ReadonlyMap<number, EarthCoachProposalReply>> {
+    const drafts = new Map<number, Map<number, EarthCoachProposalReply>>();
+    try {
+        const raw = window.localStorage.getItem(replyDraftsStorageKey(geocacheId));
+        const stored = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+        for (const [key, text] of Object.entries(stored)) {
+            const [resultId, proposalIndex] = key.split(':').map(Number);
+            if (typeof text === 'string' && text && Number.isInteger(resultId) && Number.isInteger(proposalIndex)) {
+                const forResult = drafts.get(resultId) || new Map<number, EarthCoachProposalReply>();
+                forResult.set(proposalIndex, { text, files: [] });
+                drafts.set(resultId, forResult);
+            }
+        }
+    } catch {
+        // Stockage indisponible ou illisible : on repart sans brouillon.
+    }
+    return drafts;
+}
+
+function writeStoredReplyDrafts(geocacheId: number, drafts: Map<number, ReadonlyMap<number, EarthCoachProposalReply>>): void {
+    const stored: Record<string, string> = {};
+    for (const [resultId, forResult] of drafts) {
+        for (const [proposalIndex, draft] of forResult) {
+            if (draft.text) {
+                stored[`${resultId}:${proposalIndex}`] = draft.text;
+            }
+        }
+    }
+    try {
+        const key = replyDraftsStorageKey(geocacheId);
+        if (Object.keys(stored).length) {
+            window.localStorage.setItem(key, JSON.stringify(stored));
+        } else {
+            window.localStorage.removeItem(key);
+        }
+    } catch {
+        // Stockage plein ou bloque : le brouillon reste au moins en memoire.
+    }
+}
+
 const REFINE_SESSION_LABELS: Record<EarthCoachRefineFocus, string> = {
     deepen: 'APPROFONDISSEMENT',
     contest: 'CONTESTATION',
@@ -208,6 +259,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     protected resultSaveTimers = new Map<number, number>();
     /** Copie locale conservée quand un conflit 409 charge la version serveur. */
     protected conflictBackup?: EarthCoachWorkspace;
+    /** Brouillons de réponse à EarthCoach, par résultat puis par index de proposition. */
+    protected replyDrafts = new Map<number, ReadonlyMap<number, EarthCoachProposalReply>>();
     /** Résultats dépliés : seuls ceux-ci rendent leur contenu. */
     protected expandedResults = new Set<number>();
     protected crop?: CropDraft;
@@ -241,7 +294,14 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         onUpdateProposal: (resultId, proposalIndex, patch) => this.updateProposal(resultId, proposalIndex, patch),
         onMoveAnswerToMissing: (resultId, proposalIndex) => this.moveAnswerToMissing(resultId, proposalIndex),
         onRefineProposal: (resultId, proposalIndex, focus) => { void this.refineProposal(resultId, proposalIndex, focus); },
-        onReplyProposal: (resultId, proposalIndex, reply) => this.refineProposal(resultId, proposalIndex, 'reply', reply),
+        onReplyProposal: async (resultId, proposalIndex, reply) => {
+            const sent = await this.refineProposal(resultId, proposalIndex, 'reply', reply);
+            if (sent) {
+                this.setReplyDraft(resultId, proposalIndex, undefined);
+            }
+            return sent;
+        },
+        onReplyDraftChange: (resultId, proposalIndex, draft) => this.setReplyDraft(resultId, proposalIndex, draft),
         onApply: (resultId, proposalIndex) => { void this.applyProposal(resultId, proposalIndex); },
         onApplyAll: resultId => { void this.applyAllReadyProposals(resultId); },
         onGenerateFinal: resultId => { void this.generateFinalAnswer(resultId); },
@@ -429,6 +489,26 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         }
     }
 
+    /** Remplace la map du résultat concerné : sa nouvelle référence fait re-rendre la carte mémoïsée. */
+    protected setReplyDraft(resultId: number, proposalIndex: number, draft?: EarthCoachProposalReply): void {
+        const forResult = new Map(this.replyDrafts.get(resultId) || []);
+        if (draft && (draft.text || draft.files.length)) {
+            forResult.set(proposalIndex, draft);
+        } else {
+            forResult.delete(proposalIndex);
+        }
+        if (forResult.size) {
+            this.replyDrafts.set(resultId, forResult);
+        } else {
+            this.replyDrafts.delete(resultId);
+        }
+        const geocacheId = this.context?.geocacheData.id;
+        if (geocacheId !== undefined) {
+            writeStoredReplyDrafts(geocacheId, this.replyDrafts);
+        }
+        this.update();
+    }
+
     setContext(context: EarthCoachContext, options: EarthCoachWorkspaceOpenOptions = {}): void {
         const changed = this.context?.geocacheData.id !== context.geocacheData.id;
         this.context = context;
@@ -460,6 +540,16 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             );
             this.results = await this.workspaceService.listResults(this.context.geocacheData.id);
             this.expandedResults = new Set(this.results.length ? [this.results[0].id] : []);
+            this.replyDrafts = readStoredReplyDrafts(this.context.geocacheData.id);
+            // Un brouillon en attente rouvre son résultat : il ne doit pas passer
+            // inaperçu. Ceux d'un résultat disparu sont oubliés.
+            for (const resultId of [...this.replyDrafts.keys()]) {
+                if (this.results.some(result => result.id === resultId)) {
+                    this.expandedResults.add(resultId);
+                } else {
+                    this.replyDrafts.delete(resultId);
+                }
+            }
             this.selectedImageId = this.workspace.image_contexts[0]?.image_id;
             this.rebuildDescription();
             this.saveState = 'idle';
@@ -2004,6 +2094,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 finalLanguageChoice={this.finalLanguageChoice}
                 autoFinalLanguage={autoFinalLanguage}
                 photoReminder={photoReminder}
+                replyDrafts={this.replyDrafts.get(result.id) || NO_REPLY_DRAFTS}
                 handlers={this.resultHandlers}
             />
         )}</section>;

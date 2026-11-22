@@ -77,8 +77,10 @@ export interface EarthCoachResultCardHandlers {
     onUpdateProposal(resultId: number, proposalIndex: number, patch: Partial<EarthCoachResultProposal>): void;
     onMoveAnswerToMissing(resultId: number, proposalIndex: number): void;
     onRefineProposal(resultId: number, proposalIndex: number, focus: EarthCoachRefineFocus): void;
-    /** Resout `true` quand la reponse est partie dans le chat (le brouillon peut etre vide). */
+    /** Resout `true` quand la reponse est partie dans le chat ; le widget efface alors le brouillon. */
     onReplyProposal(resultId: number, proposalIndex: number, reply: EarthCoachProposalReply): Promise<boolean>;
+    /** Brouillon de reponse : garde par le widget pour survivre au repli du resultat. */
+    onReplyDraftChange(resultId: number, proposalIndex: number, draft: EarthCoachProposalReply): void;
     onApply(resultId: number, proposalIndex: number): void;
     onApplyAll(resultId: number): void;
     onGenerateFinal(resultId: number): void;
@@ -105,6 +107,8 @@ export interface EarthCoachResultCardProps {
     autoFinalLanguage?: string;
     /** Photos à joindre au log, déjà jointes en une ligne (prop primitive pour `React.memo`). */
     photoReminder?: string;
+    /** Brouillons de réponse par index de proposition (référence stable tant qu'ils ne changent pas). */
+    replyDrafts: ReadonlyMap<number, EarthCoachProposalReply>;
     handlers: EarthCoachResultCardHandlers;
 }
 
@@ -149,28 +153,28 @@ function StatusSummary(props: { proposals: EarthCoachResultProposal[] }): React.
  * et peut joindre des photos. EarthCoach reprend alors cette seule question.
  * Ouvert d'office quand le modele attend quelque chose, replie sinon.
  */
+const EMPTY_REPLY: EarthCoachProposalReply = { text: '', files: [] };
+
 function ProposalReply(props: {
     status: EarthCoachResultProposal['status'];
     busy: boolean;
+    draft?: EarthCoachProposalReply;
+    onChange(draft: EarthCoachProposalReply): void;
     onSend(reply: EarthCoachProposalReply): Promise<boolean>;
 }): React.ReactElement {
     const awaiting = props.status !== 'ready';
-    const [open, setOpen] = React.useState(awaiting);
-    const [text, setText] = React.useState('');
-    const [files, setFiles] = React.useState<File[]>([]);
+    const { text, files } = props.draft || EMPTY_REPLY;
+    const [open, setOpen] = React.useState(awaiting || Boolean(text || files.length));
     const inputRef = React.useRef<HTMLInputElement>(null);
+    const setText = (value: string) => props.onChange({ text: value, files });
+    const setFiles = (value: File[]) => props.onChange({ text, files: value });
     if (!open) {
         return <div className='ecw-row'>
             <button className='theia-button secondary' onClick={() => setOpen(true)}>Répondre à EarthCoach…</button>
         </div>;
     }
     const canSend = !props.busy && (text.trim().length > 0 || files.length > 0);
-    const send = async () => {
-        if (await props.onSend({ text, files })) {
-            setText('');
-            setFiles([]);
-        }
-    };
+    const send = () => props.onSend({ text, files });
     return <div className='ecw-reply'>
         <label>Votre réponse à EarthCoach
             <textarea className='theia-input' rows={2} value={text}
@@ -260,7 +264,8 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                 <label className='ecw-missing-field'>Éléments à compléter — actions, mesures ou informations manquantes<textarea className='theia-input' rows={2} value={proposal.missing || ''}
                     placeholder='Ex. mesurer l’épaisseur sur place'
                     onChange={event => handlers.onUpdateProposal(result.id, proposalIndex, { missing: event.currentTarget.value || null })} /></label>
-                <ProposalReply status={proposal.status} busy={props.refineBusy}
+                <ProposalReply status={proposal.status} busy={props.refineBusy} draft={props.replyDrafts.get(proposalIndex)}
+                    onChange={draft => handlers.onReplyDraftChange(result.id, proposalIndex, draft)}
                     onSend={reply => handlers.onReplyProposal(result.id, proposalIndex, reply)} />
                 <div className='ecw-row'>
                     <button className='theia-button secondary' disabled={props.refineBusy}
