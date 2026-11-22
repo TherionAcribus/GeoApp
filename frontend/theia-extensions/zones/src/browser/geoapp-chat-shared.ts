@@ -624,6 +624,24 @@ export interface GeoAppChatResponseEvent {
      * ni encarts d'information, que `text` sérialise aussi.
      */
     markdown?: string;
+    /**
+     * Issue de la réponse. Theia termine aussi une réponse annulée ou en
+     * erreur : son texte est alors partiel. Absent vaut `completed`.
+     */
+    outcome?: GeoAppChatResponseOutcome;
+}
+
+export type GeoAppChatResponseOutcome = 'completed' | 'canceled' | 'error';
+
+/**
+ * Cycle d'une requête correlée, avant sa réponse : `started` quand elle part
+ * dans une session (on connaît alors la conversation), `failed` quand le
+ * bridge n'a pas pu l'envoyer — aucune réponse ne viendra.
+ */
+export interface GeoAppChatRequestStateEvent {
+    requestId: string;
+    state: 'started' | 'failed';
+    sessionId?: string;
 }
 
 /** Parties de réponse qui portent le texte rédigé par le modèle. */
@@ -644,4 +662,6 @@ export function collectAuthoredResponseText(content: ReadonlyArray<{ kind: strin
 
 export interface GeoAppChatResponseObserver {
     handleChatResponse(event: GeoAppChatResponseEvent): void | Promise<void>;
+    /** Facultatif : suivre une requête correlée (par `requestId`) avant sa réponse. */
+    handleChatRequestState?(event: GeoAppChatRequestStateEvent): void;
 }

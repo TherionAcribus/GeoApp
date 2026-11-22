@@ -87,6 +87,7 @@ import {
     computeEarthCoachCropRect,
     containedImageBox,
     findUncoveredSnapshotTasks,
+    findCarriedCorrections,
     isFinalAnswerEdited,
     mergeProposalEdits,
     prepareEarthCoachImagesForTransmission,
@@ -95,13 +96,16 @@ import {
     proposalNumber,
     proposalTitle,
     rebaseProposalEdits,
+    sortEarthCoachResults,
     resolveProposalPosition,
     revertProposalPatch,
     subtractProposalEdits,
     validateEarthCoachSelection,
 } from '../earthcoach-workspace-logic';
 import { EARTHCOACH_REQUEST_TICKETS_KEY, EarthCoachRequestTickets } from '../earthcoach-request-tickets';
-import { EarthCoachPreparedRequest, EarthCoachResultProposal } from '../earthcoach-workspace-types';
+import { EarthCoachRequestActivity } from '../earthcoach-request-activity';
+import { EarthCoachResultObserver } from '../earthcoach-result-observer';
+import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -2332,6 +2336,145 @@ async function testFinalAnswerAttachesToSourceResult(): Promise<void> {
     assert.equal(saved.length, 1);
 }
 
+function testRequestActivityLifecycle(): void {
+    const activity = new EarthCoachRequestActivity();
+    let changes = 0;
+    activity.onDidChange(() => { changes++; });
+    activity.start({ requestId: 'req-1', geocacheId: 7, kind: 'resolve', startedAt: 1000 });
+    activity.attachSession('req-1', 'session-1');
+    assert.deepEqual(activity.forGeocache(7).map(item => [item.requestId, item.sessionId, item.phase]), [['req-1', 'session-1', 'running']]);
+    assert.equal(activity.forGeocache(8).length, 0);
+
+    // Tour de precision : la fin de la reponse ne clot pas la requete.
+    activity.markAwaitingInput('req-1');
+    activity.settle('req-1');
+    assert.equal(activity.forGeocache(7)[0].phase, 'awaiting_input');
+    activity.resume('req-1');
+    activity.settle('req-1');
+    assert.equal(activity.has('req-1'), false);
+
+    // Relancer depuis le dossier abandonne les precisions en suspens, pas les requetes en cours.
+    activity.start({ requestId: 'req-2', geocacheId: 7, kind: 'resolve', startedAt: 2000 });
+    activity.markAwaitingInput('req-2');
+    activity.start({ requestId: 'req-3', geocacheId: 7, kind: 'refine', label: 'Q3', startedAt: 3000 });
+    activity.start({ requestId: 'req-4', geocacheId: 7, kind: 'final', startedAt: 4000 });
+    assert.deepEqual(activity.forGeocache(7).map(item => item.requestId), ['req-4', 'req-3']);
+    activity.dismiss('req-3');
+    activity.settle('unknown');
+    activity.settle(undefined);
+    assert.deepEqual(activity.forGeocache(7).map(item => item.requestId), ['req-4']);
+    assert.ok(changes > 0);
+}
+
+function observerFixture(storage = memoryStorage()) {
+    const captured: Array<{ requestId: string; markdown?: string; sessionId?: string }> = [];
+    const capture = captureServiceWithTickets(storage, {
+        captureResult: async (input: { requestId: string; markdown?: string; sessionId?: string }) => {
+            captured.push(input);
+            return { id: 1, geocache_id: 1, request_id: input.requestId, action: 'resolve', proposals: [] };
+        },
+    });
+    const warnings: string[] = [];
+    const activity = new EarthCoachRequestActivity();
+    const observer = new EarthCoachResultObserver();
+    Object.assign(observer, {
+        capture,
+        activity,
+        messages: { warn: (text: string) => { warnings.push(text); }, info: () => undefined },
+    });
+    return { observer, capture, activity, captured, warnings };
+}
+
+async function testObserverTracksAndSkipsInterruptedResponses(): Promise<void> {
+    const { observer, capture, activity, captured, warnings } = observerFixture();
+    capture.register({ ...preparedRequestFixture('resolve'), requestId: 'req-cancel' });
+    activity.start({ requestId: 'req-cancel', geocacheId: 1, kind: 'resolve' });
+    observer.handleChatRequestState({ requestId: 'req-cancel', state: 'started', sessionId: 'session-9' });
+    assert.equal(activity.forGeocache(1)[0].sessionId, 'session-9');
+
+    // Annulee : le texte partiel n'est pas attache et l'avertissement le dit.
+    await observer.handleChatResponse({ sessionId: 'session-9', sessionTitle: '', requestId: 'req-cancel', text: 'Je commence…', markdown: 'Je commence…', outcome: 'canceled' });
+    assert.equal(captured.length, 0);
+    assert.equal(activity.has('req-cancel'), false);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /interrompue/);
+
+    // Aboutie : le texte est attache et la requete quitte la banniere.
+    capture.register({ ...preparedRequestFixture('resolve'), requestId: 'req-done' });
+    activity.start({ requestId: 'req-done', geocacheId: 1, kind: 'resolve' });
+    await observer.handleChatResponse({ sessionId: 'session-10', sessionTitle: '', requestId: 'req-done', text: 'Synthèse', markdown: 'Synthèse' });
+    assert.deepEqual(captured.map(item => [item.requestId, item.sessionId]), [['req-done', 'session-10']]);
+    assert.equal(activity.has('req-done'), false);
+
+    // Le bridge n'a pas pu envoyer : aucune reponse ne viendra.
+    activity.start({ requestId: 'req-failed', geocacheId: 1, kind: 'resolve' });
+    observer.handleChatRequestState({ requestId: 'req-failed', state: 'failed' });
+    assert.equal(activity.has('req-failed'), false);
+}
+
+function resultFixture(id: number, proposals: EarthCoachResultProposal[], extra: Partial<EarthCoachResult> = {}): EarthCoachResult {
+    return {
+        id,
+        geocache_id: 1,
+        request_id: `req-${id}`,
+        action: 'resolve',
+        proposals,
+        ai_proposals: proposals,
+        created_at: `2026-11-${10 + id}T10:00:00`,
+        ...extra,
+    } as EarthCoachResult;
+}
+
+function testCarriedCorrections(): void {
+    const q1: EarthCoachResultProposal = { task_id: 1, question: 'Épaisseur ?', status: 'missing', answer: '', missing: 'Mesurer' };
+    const q2: EarthCoachResultProposal = { question: 'Couleur ?', location: 'Station 2', status: 'partial', answer: 'Gris' };
+    const q3: EarthCoachResultProposal = { question: 'Fossiles ?', status: 'ready', answer: 'Oui' };
+    // Resolution 1 : l'utilisateur corrige Q1 et Q2 ; Q3 reste celle du modele.
+    const older = resultFixture(1, [
+        { ...q1, status: 'ready', answer: '12 cm', missing: null },
+        { ...q2, status: 'ready', answer: 'Gris bleuté' },
+        q3,
+    ], { ai_proposals: [q1, q2, q3] });
+    // Resolution 2, plus ancienne que la cible mais plus recente que la 1 : Q2 corrigee autrement.
+    const middle = resultFixture(2, [{ ...q2, status: 'ready', answer: 'Gris foncé' }], { ai_proposals: [q2] });
+    // Nouvelle resolution : repart de la version du modele ; Q1 sans task_id ici.
+    const target = resultFixture(3, [
+        { ...q1, task_id: undefined },
+        { ...q2, question: 'Couleur  ?' },
+        q3,
+    ]);
+    const carried = findCarriedCorrections(target, [target, middle, older]);
+    // Q1 retrouvee par le texte (pas de task_id cote cible), Q2 par lieu + texte normalise.
+    assert.deepEqual([...carried.keys()], [0, 1]);
+    assert.deepEqual(carried.get(0)?.patch, { status: 'ready', answer: '12 cm', missing: null });
+    assert.equal(carried.get(0)?.resultId, 1);
+    // La plus recente prime...
+    assert.equal(carried.get(1)?.patch.answer, 'Gris foncé');
+    // ...sauf si une autre est la reference.
+    const withReference = findCarriedCorrections(target, [target, middle, { ...older, is_reference: true }]);
+    assert.equal(withReference.get(1)?.patch.answer, 'Gris bleuté');
+    assert.equal(withReference.get(1)?.reference, true);
+
+    // Rien pour une question deja corrigee ici, ni quand la correction est deja la valeur actuelle.
+    const correctedTarget = resultFixture(3, [
+        { ...q1, status: 'partial', answer: 'environ 10 cm' },
+        { ...q2, status: 'ready', answer: 'Gris foncé' },
+    ], { ai_proposals: [q1, { ...q2, status: 'ready', answer: 'Gris foncé' }] });
+    assert.equal(findCarriedCorrections(correctedTarget, [correctedTarget, middle, older]).size, 0);
+    // Jamais depuis une resolution posterieure, ni pour une analyse.
+    assert.equal(findCarriedCorrections(older, [target, middle, older]).size, 0);
+    assert.equal(findCarriedCorrections({ ...target, action: 'analyze' }, [target, middle, older]).size, 0);
+    // task_id differents : questions differentes, meme a texte egal.
+    const otherTask = resultFixture(4, [{ ...q1, task_id: 9 }]);
+    assert.equal(findCarriedCorrections(otherTask, [otherTask, older]).size, 0);
+}
+
+function testSortEarthCoachResults(): void {
+    const results = [resultFixture(3, []), resultFixture(2, [], { is_reference: true }), resultFixture(1, [])];
+    assert.deepEqual(sortEarthCoachResults(results).map(result => result.id), [2, 3, 1]);
+    assert.deepEqual(sortEarthCoachResults([resultFixture(2, []), resultFixture(1, [])]).map(result => result.id), [2, 1]);
+}
+
 function memoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> & { data: Map<string, string> } {
     const data = new Map<string, string>();
     return {
@@ -2822,6 +2965,10 @@ async function run(): Promise<void> {
     testProposalEditsBookkeeping();
     testProposalApplyBlockerExplainsWhy();
     testFinalAnswerEditDetection();
+    testRequestActivityLifecycle();
+    await testObserverTracksAndSkipsInterruptedResponses();
+    testCarriedCorrections();
+    testSortEarthCoachResults();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

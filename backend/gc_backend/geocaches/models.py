@@ -677,6 +677,9 @@ class EarthCoachResult(db.Model):
     # Message tel que le modele l'a genere : `final_answer` peut ensuite etre
     # retouche a la main, la version de controle ne traduit que celui-ci.
     final_answer_generated = db.Column(db.Text)
+    # Resultat qui fait foi pour cette geocache (un seul a la fois) : il passe
+    # en tete du dossier et ses corrections sont proposees aux suivants.
+    is_reference = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -726,6 +729,7 @@ class EarthCoachResult(db.Model):
             'final_answer': self.final_answer,
             'final_answer_control': self.final_answer_control,
             'final_answer_generated': self.final_answer_generated,
+            'is_reference': bool(self.is_reference),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

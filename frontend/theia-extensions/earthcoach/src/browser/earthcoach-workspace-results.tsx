@@ -6,6 +6,7 @@ import { stripEarthCoachResultBlocks } from './earthcoach-result-capture';
 import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
     applicableProposalIndexes,
+    EarthCoachCarriedCorrection,
     findUncoveredSnapshotTasks,
     isFinalAnswerEdited,
     proposalApplyBlocker,
@@ -93,6 +94,11 @@ export interface EarthCoachResultCardHandlers {
     onFinalAnswerChange(resultId: number, text: string): void;
     onRevertFinal(resultId: number): void;
     onFinalLanguageChange(choice: string): void;
+    onOpenConversation(sessionId: string): void;
+    onSetReference(resultId: number, reference: boolean): void;
+    onDeleteResult(resultId: number): void;
+    /** Reprend les corrections d'une résolution précédente sur ces questions. */
+    onApplyCarried(resultId: number, proposalIndexes: number[]): void;
 }
 
 export interface EarthCoachResultCardProps {
@@ -117,6 +123,8 @@ export interface EarthCoachResultCardProps {
     replyDrafts: ReadonlyMap<number, EarthCoachProposalReply>;
     /** Retouche du message final pas encore enregistrée. */
     finalDraft?: string;
+    /** Corrections d'une résolution précédente reportables, par index de proposition. */
+    carried: ReadonlyMap<number, EarthCoachCarriedCorrection>;
     handlers: EarthCoachResultCardHandlers;
 }
 
@@ -219,6 +227,46 @@ function ProposalReply(props: {
     </div>;
 }
 
+function carriedOrigin(correction: EarthCoachCarriedCorrection): string {
+    const when = correction.createdAt ? ` du ${new Date(correction.createdAt).toLocaleDateString()}` : '';
+    return correction.reference ? `la résolution de référence${when}` : `la résolution${when}`;
+}
+
+/** Correction faite sur une résolution précédente : la nouvelle repart de la version du modèle. */
+function CarriedCorrection(props: { correction: EarthCoachCarriedCorrection; onApply(): void }): React.ReactElement {
+    const { patch } = props.correction;
+    const answer = patch.answer?.trim();
+    return <div className='ecw-carried'>
+        <span className='ecw-muted'>Vous aviez corrigé cette question dans {carriedOrigin(props.correction)} :</span>
+        <span><StatusPill status={patch.status} />{' '}{answer ? `« ${answer.length > 160 ? `${answer.slice(0, 160)}…` : answer} »` : 'sans réponse'}</span>
+        {patch.missing?.trim() && <span className='ecw-muted'>À compléter : {patch.missing}</span>}
+        <div className='ecw-row'>
+            <button className='theia-button secondary' title='Remplace l’état, la réponse et les éléments à compléter par votre correction'
+                onClick={props.onApply}>Reprendre ma correction</button>
+        </div>
+    </div>;
+}
+
+/** Actions sur le résultat lui-même : conversation, référence, suppression. */
+function ResultToolbar(props: EarthCoachResultCardProps): React.ReactElement {
+    const { result, handlers } = props;
+    const sessionId = result.session_id?.trim();
+    return <div className='ecw-row'>
+        {sessionId && <button className='theia-button secondary' title='Ouvre dans le chat la conversation qui a produit ce résultat'
+            onClick={() => handlers.onOpenConversation(sessionId)}>Ouvrir la conversation</button>}
+        {result.action === 'resolve' && <button className='theia-button secondary'
+            title={result.is_reference
+                ? 'Ce résultat ne sera plus mis en avant'
+                : 'Place ce résultat en tête du dossier ; ses corrections seront proposées aux prochaines résolutions'}
+            onClick={() => handlers.onSetReference(result.id, !result.is_reference)}>
+            {result.is_reference ? 'Ne plus en faire la référence' : 'Marquer comme référence'}
+        </button>}
+        <span className='ecw-grow' />
+        <button className='theia-button secondary' disabled={props.generatingFinal}
+            onClick={() => handlers.onDeleteResult(result.id)}>Supprimer ce résultat</button>
+    </div>;
+}
+
 function ResultMarkdown(props: { markdown?: string | null }): React.ReactElement | null {
     const html = React.useMemo(
         () => (props.markdown ? renderEarthCoachMarkdown(stripEarthCoachResultBlocks(props.markdown)) : ''),
@@ -236,8 +284,20 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
     const unregistered = result.proposals.some(proposal =>
         proposal.status === 'ready' && trailingNumericId(proposal.task_id) === undefined
     );
+    const carriedIndexes = [...props.carried.keys()];
     return <>
+        <ResultToolbar {...props} />
         <StatusSummary proposals={result.proposals} />
+        {carriedIndexes.length > 0 && <div className='ecw-carried'>
+            <span>{carriedIndexes.length > 1
+                ? `${carriedIndexes.length} questions ont été corrigées par vous dans une résolution précédente.`
+                : 'Une question a été corrigée par vous dans une résolution précédente.'}</span>
+            <div className='ecw-row'>
+                <button className='theia-button secondary' onClick={() => handlers.onApplyCarried(result.id, carriedIndexes)}>
+                    {carriedIndexes.length > 1 ? `Reprendre mes ${carriedIndexes.length} corrections` : 'Reprendre ma correction'}
+                </button>
+            </div>
+        </div>}
         <ResultMarkdown markdown={result.markdown} />
         {uncovered.length > 0 && <div className='ecw-warning'>
             Aucune proposition pour {uncovered.map(task => `Q${task.position ?? '?'}`).join(', ')} : relancez la résolution ou complétez à la main.
@@ -276,6 +336,8 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
                     {proposal.question_translation && proposal.question_translation.trim() !== proposal.question.trim() &&
                         <div className='ecw-translation'><span>Traduction :</span> {proposal.question_translation}</div>}
                 </div>
+                {props.carried.get(proposalIndex) && <CarriedCorrection correction={props.carried.get(proposalIndex)!}
+                    onApply={() => handlers.onApplyCarried(result.id, [proposalIndex])} />}
                 {meta && <div className='ecw-muted ecw-evidence'>{meta}</div>}
                 {proposal.reasoning?.trim() && <div className='ecw-muted'>{proposal.reasoning}</div>}
                 <label>État<select className='theia-select' value={proposal.status}
@@ -377,6 +439,7 @@ function AnalysisBody(props: EarthCoachResultCardProps): React.ReactElement {
         .filter(item => item.proposal.missing?.trim() || item.proposal.status !== 'ready')
         .sort((left, right) => (left.position ?? Number.MAX_SAFE_INTEGER) - (right.position ?? Number.MAX_SAFE_INTEGER));
     return <>
+        <ResultToolbar {...props} />
         {todo.length > 0 && <div className='ecw-todo'>
             <strong>À relever sur le terrain</strong>
             <ul>{todo.map(({ proposal, position }, index) => <li key={index}>
@@ -401,7 +464,8 @@ export const EarthCoachResultCard = React.memo(function EarthCoachResultCard(pro
             handlers.onToggle(result.id, open);
         }
     }}>
-        <summary>{result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}
+        <summary>{result.is_reference && <><span className='ecw-reference' title='Résultat de référence'>★ Référence</span>{' · '}</>}
+            {result.action === 'resolve' ? 'Résolution' : 'Analyse'} — {result.created_at ? new Date(result.created_at).toLocaleString() : result.request_id}
             {result.proposals_edited ? ' · corrigé' : ''}{props.dirty ? ' · modifications en cours…' : ''}
             {awaiting > 0 && <>{' '}<StatusPill status={result.proposals.some(proposal => proposal.status === 'missing') ? 'missing' : 'partial'}>
                 {awaiting} en attente

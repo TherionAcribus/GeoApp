@@ -29,6 +29,7 @@ import { EarthCoachWorkspaceTabsManager } from './earthcoach-workspace-tabs-mana
 import { EarthCoachWorkspaceWidget } from './earthcoach-workspace-widget';
 import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
 import { EarthCoachResultObserver } from './earthcoach-result-observer';
+import { EarthCoachRequestActivity } from './earthcoach-request-activity';
 import { EarthCoachResultTools } from './earthcoach-result-tools';
 import { GeoAppChatResponseObserver } from 'theia-ide-zones-ext/lib/browser/geoapp-chat-shared';
 
@@ -58,6 +59,7 @@ export default new ContainerModule(bind => {
     bind(EarthCoachResultCaptureService).toSelf().inSingletonScope();
     bind(EarthCoachResultTools).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachResultTools);
+    bind(EarthCoachRequestActivity).toSelf().inSingletonScope();
     bind(EarthCoachResultObserver).toSelf().inSingletonScope();
     bind(GeoAppChatResponseObserver).toService(EarthCoachResultObserver);
 

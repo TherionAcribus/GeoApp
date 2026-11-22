@@ -206,8 +206,8 @@ export class EarthCoachResultCaptureService {
     }
 
     /** Appel de l'outil `earthcoach_capture_result` par le modele. */
-    async capture(payload: EarthCoachCapturePayload): Promise<EarthCoachResult> {
-        const result = await this.store(payload, {});
+    async capture(payload: EarthCoachCapturePayload, sessionId?: string): Promise<EarthCoachResult> {
+        const result = await this.store(payload, { sessionId });
         // Suivi borne comme les autres maps: il distingue en fin de reponse
         // un dossier avec propositions d'un dossier qui n'a recu que le texte.
         this.capturedRequestIds.add(payload.request_id);

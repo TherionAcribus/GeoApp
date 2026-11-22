@@ -812,3 +812,47 @@ def test_merge_result_proposal_replaces_same_question(client, seeded):
     # Sans contenu, la fusion n'a pas de sens.
     empty = client.post(f"/api/earthcoach-results/{result['id']}/proposals", json={})
     assert empty.status_code == 400
+
+
+def _capture(client, cache_id, request_id):
+    response = client.post(
+        f"/api/geocaches/{cache_id}/earthcoach-results",
+        json={
+            'request_id': request_id,
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [{'question': 'Que voyez-vous ?', 'status': 'ready', 'answer': 'Des strates.'}],
+        },
+    )
+    assert response.status_code == 201
+    return response.get_json()['result']
+
+
+def test_reference_result_is_unique_and_listed_first(client, seeded):
+    first = _capture(client, seeded['cache_id'], 'reference-1')
+    second = _capture(client, seeded['cache_id'], 'reference-2')
+    assert first['is_reference'] is False
+
+    marked = client.patch(f"/api/earthcoach-results/{first['id']}", json={'is_reference': True})
+    assert marked.status_code == 200
+    assert marked.get_json()['result']['is_reference'] is True
+    listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    assert [item['id'] for item in listed[:2]] == [first['id'], second['id']]
+
+    client.patch(f"/api/earthcoach-results/{second['id']}", json={'is_reference': True})
+    listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    assert [(item['id'], item['is_reference']) for item in listed[:2]] == [(second['id'], True), (first['id'], False)]
+
+    client.patch(f"/api/earthcoach-results/{second['id']}", json={'is_reference': False})
+    listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    assert not any(item['is_reference'] for item in listed)
+
+
+def test_delete_result(client, seeded):
+    result = _capture(client, seeded['cache_id'], 'delete-1')
+    deleted = client.delete(f"/api/earthcoach-results/{result['id']}")
+    assert deleted.status_code == 200
+    assert deleted.get_json() == {'deleted': result['id']}
+    listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
+    assert all(item['id'] != result['id'] for item in listed)
+    assert client.delete(f"/api/earthcoach-results/{result['id']}").status_code == 404

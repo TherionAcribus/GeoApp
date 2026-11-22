@@ -19,6 +19,7 @@ import {
 } from './geoapp-chat-agent';
 import {
     GeoAppChatResponseObserver,
+    GeoAppChatResponseOutcome,
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
     collectAuthoredResponseText,
@@ -193,6 +194,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                         text: prompt,
                         ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                     });
+                    this.notifyRequestState(detail.earthcoachRequestId, invocation ? 'started' : 'failed', existingSession.id);
                     this.observeResponse(invocation, existingSession.id, baseSessionTitle, pinnedAgent?.id, detail.earthcoachRequestId);
                 }
                 return;
@@ -208,9 +210,11 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                     text: prompt,
                     ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                 });
+                this.notifyRequestState(detail.earthcoachRequestId, invocation ? 'started' : 'failed', session.id);
                 this.observeResponse(invocation, session.id, baseSessionTitle, pinnedAgent?.id, detail.earthcoachRequestId);
             }
         } catch (error) {
+            this.notifyRequestState(detail.earthcoachRequestId, 'failed');
             console.error('[GeoAppChatBridge] Failed to open GeoApp chat', error);
             const reason = error instanceof Error ? error.message : String(error);
             this.messages.error(`Impossible d'ouvrir le chat GeoApp. ${reason}`);
@@ -239,9 +243,16 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         invocation.responseCompleted.then(response => {
             const text = response?.response?.asDisplayString?.() ?? '';
             const markdown = collectAuthoredResponseText(response?.response?.content ?? []);
+            // Theia resout aussi une reponse annulee ou en erreur : chaque
+            // observateur decide s'il garde un texte partiel.
+            const responseOutcome: GeoAppChatResponseOutcome = response?.isError
+                ? 'error'
+                : response?.isCanceled ? 'canceled' : 'completed';
             for (const observer of this.responseObservers) {
                 try {
-                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, requestId, text, markdown });
+                    const outcome = observer.handleChatResponse({
+                        sessionId, sessionTitle, agentId, requestId, text, markdown, outcome: responseOutcome,
+                    });
                     Promise.resolve(outcome).catch(error =>
                         console.error('[GeoAppChatBridge] Observateur de réponse en échec', error)
                     );
@@ -253,6 +264,20 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             // Réponse annulée ou en erreur : rien à observer, et le chat l'a déjà signalé.
             console.debug('[GeoAppChatBridge] Réponse non aboutie, observateurs non appelés', error);
         });
+    }
+
+    /** Les observateurs suivent une requete correlee des son depart, avant toute reponse. */
+    protected notifyRequestState(requestId: string | undefined, state: 'started' | 'failed', sessionId?: string): void {
+        if (!requestId?.trim()) {
+            return;
+        }
+        for (const observer of this.responseObservers) {
+            try {
+                observer.handleChatRequestState?.({ requestId, state, sessionId });
+            } catch (error) {
+                console.error('[GeoAppChatBridge] Observateur de requête en échec', error);
+            }
+        }
     }
 
     protected hasExplicitAgentSelection(detail: GeoAppOpenChatRequestDetail): boolean {

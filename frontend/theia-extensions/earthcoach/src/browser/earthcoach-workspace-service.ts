@@ -146,6 +146,24 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
+    /** Marque (ou demarque) le resultat qui fait foi ; le backend retire la marque aux autres. */
+    async setResultReference(resultId: number, reference: boolean): Promise<EarthCoachResult> {
+        const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
+            `/api/earthcoach-results/${resultId}`,
+            this.apiClient.createJsonInit('PATCH', { is_reference: reference }),
+            'Erreur lors du choix du résultat de référence EarthCoach'
+        );
+        return response.result;
+    }
+
+    async deleteResult(resultId: number): Promise<void> {
+        await this.apiClient.requestJson<{ deleted: number }>(
+            `/api/earthcoach-results/${resultId}`,
+            this.apiClient.createJsonInit('DELETE'),
+            'Erreur lors de la suppression du résultat EarthCoach'
+        );
+    }
+
     /** Retouche manuelle : le message genere et sa version de controle restent la reference. */
     async saveEditedFinalAnswer(resultId: number, finalAnswer: string): Promise<EarthCoachResult> {
         const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(

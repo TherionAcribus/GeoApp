@@ -74,7 +74,7 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                 required: ['request_id', 'geocache_id', 'action', 'proposals'],
                 additionalProperties: false,
             } as ToolRequestParameters,
-            handler: async (argString: string) => {
+            handler: async (argString: string, ctx?: unknown) => {
                 try {
                     const args = JSON.parse(argString || '{}') as EarthCoachCapturePayload;
                     const payload: EarthCoachCapturePayload = {
@@ -83,7 +83,10 @@ export class EarthCoachResultTools implements FrontendApplicationContribution {
                         action: args.action,
                         proposals: Array.isArray(args.proposals) ? args.proposals as EarthCoachResultProposal[] : [],
                     };
-                    const result = await this.capture.capture(payload);
+                    // La conversation est rattachee des la capture : le lien du
+                    // resultat existe meme si la reponse est ensuite interrompue.
+                    const sessionId = ChatToolContext.is(ctx) ? ctx.request.session.id : undefined;
+                    const result = await this.capture.capture(payload, sessionId);
                     return `Résultat EarthCoach enregistré dans le dossier terrain (résultat ${result.id}).`;
                 } catch (error) {
                     return `Échec de l'enregistrement EarthCoach : ${error instanceof Error ? error.message : String(error)}`;

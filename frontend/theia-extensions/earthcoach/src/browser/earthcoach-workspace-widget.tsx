@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { ApplicationShell, Message, StatefulWidget } from '@theia/core/lib/browser';
+import { ApplicationShell, ConfirmDialog, Dialog, Message, StatefulWidget } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService, MessageService } from '@theia/core/lib/common';
 import { PreferenceScope, PreferenceService } from '@theia/core/lib/common/preferences';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
+import { ChatService } from '@theia/ai-chat/lib/common/chat-service';
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import { GeocacheDetailsService } from 'theia-ide-zones-ext/lib/browser/geocache-details-service';
 import { buildOwnerMessageUrl, openExternalUrl } from 'theia-ide-zones-ext/lib/browser/geocaching-owner-links';
@@ -72,6 +73,7 @@ import {
     EarthCoachWorkspaceService,
 } from './earthcoach-workspace-service';
 import { EarthCoachResultCaptureService } from './earthcoach-result-capture';
+import { EarthCoachActivity, EarthCoachRequestActivity } from './earthcoach-request-activity';
 import {
     applicableProposalIndexes,
     applyProposalEdits,
@@ -79,6 +81,8 @@ import {
     buildPhotoReminders,
     computeEarthCoachCropRect,
     containedImageBox,
+    findCarriedCorrections,
+    EarthCoachCarriedCorrection,
     EarthCoachCoverageRow,
     EarthCoachCoverageState,
     EarthCoachProposalEdits,
@@ -88,6 +92,7 @@ import {
     proposalNumber,
     proposalTitle,
     rebaseProposalEdits,
+    sortEarthCoachResults,
     subtractProposalEdits,
     trailingNumericId,
     validateEarthCoachSelection,
@@ -230,6 +235,20 @@ function writeStoredReplyDrafts(geocacheId: number, drafts: Map<number, Readonly
     }
 }
 
+const NO_CARRIED_CORRECTIONS: ReadonlyMap<number, EarthCoachCarriedCorrection> = new Map();
+
+function activityLabel(activity: EarthCoachActivity): string {
+    if (activity.phase === 'awaiting_input') {
+        return 'EarthCoach attend vos précisions dans le chat pour finaliser le dossier.';
+    }
+    switch (activity.kind) {
+        case 'analyze': return 'EarthCoach analyse vos observations…';
+        case 'resolve': return 'EarthCoach résout le dossier…';
+        case 'refine': return `EarthCoach reprend ${activity.label || 'la question'}…`;
+        case 'final': return 'EarthCoach rédige la réponse finale…';
+    }
+}
+
 const REFINE_SESSION_LABELS: Record<EarthCoachRefineFocus, string> = {
     deepen: 'APPROFONDISSEMENT',
     contest: 'CONTESTATION',
@@ -281,6 +300,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     protected replyDrafts = new Map<number, ReadonlyMap<number, EarthCoachProposalReply>>();
     /** Résultats dépliés : seuls ceux-ci rendent leur contenu. */
     protected expandedResults = new Set<number>();
+    /** Corrections reportables par résultat, gardées tant qu'elles ne changent pas (pour `React.memo`). */
+    protected carriedCache = new Map<number, { signature: string; value: ReadonlyMap<number, EarthCoachCarriedCorrection> }>();
     protected crop?: CropDraft;
     protected cropping = false;
     protected readonly previewImageRef = React.createRef<HTMLImageElement>();
@@ -337,6 +358,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.finalLanguageChoice = choice;
             this.update();
         },
+        onOpenConversation: sessionId => { void this.openConversation(sessionId); },
+        onSetReference: (resultId, reference) => { void this.setReference(resultId, reference); },
+        onDeleteResult: resultId => { void this.deleteResult(resultId); },
+        onApplyCarried: (resultId, proposalIndexes) => this.applyCarriedCorrections(resultId, proposalIndexes),
     };
 
     @inject(EarthCoachWorkspaceService)
@@ -369,6 +394,12 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     @inject(EarthCoachResultCaptureService)
     protected readonly resultCapture!: EarthCoachResultCaptureService;
 
+    @inject(EarthCoachRequestActivity)
+    protected readonly activity!: EarthCoachRequestActivity;
+
+    @inject(ChatService)
+    protected readonly chatService!: ChatService;
+
     @inject(EarthCoachGeologyService)
     protected readonly geologyService!: EarthCoachGeologyService;
 
@@ -383,6 +414,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         this.title.closable = true;
         this.addClass('earthcoach-workspace-widget');
         this.toDispose.push(this.resultCapture.onDidCapture(result => this.acceptCapturedResult(result)));
+        this.toDispose.push(this.activity.onDidChange(() => this.update()));
         // Observation ajoutee dans le panneau lateral, questions re-extraites,
         // photo importee depuis l'editeur d'images: le contexte detenu par ce
         // widget est perime, il faut le recharger sans toucher au dossier local.
@@ -439,7 +471,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.messages.warn(`Votre correction en cours sur ${numbers.join(', ')} a été remplacée par la nouvelle proposition d’EarthCoach.`);
         }
         const local = { ...result, proposals: rebased.proposals };
-        this.results = [local, ...this.results.filter(item => item.id !== result.id)];
+        this.results = sortEarthCoachResults([local, ...this.results.filter(item => item.id !== result.id)]);
         this.expandedResults = new Set([...this.expandedResults, result.id]);
         this.update();
     }
@@ -598,7 +630,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.workspace = cloneWorkspace(
                 this.context.workspace || await this.workspaceService.getWorkspace(this.context.geocacheData.id)
             );
-            this.results = await this.workspaceService.listResults(this.context.geocacheData.id);
+            // Le résultat de référence en tête : c'est lui qui s'ouvre.
+            this.results = sortEarthCoachResults(await this.workspaceService.listResults(this.context.geocacheData.id));
+            this.carriedCache.clear();
             this.expandedResults = new Set(this.results.length ? [this.results[0].id] : []);
             this.replyDrafts = readStoredReplyDrafts(this.context.geocacheData.id);
             // Un brouillon en attente rouvre son résultat : il ne doit pas passer
@@ -1149,6 +1183,11 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 preparedRequest: snapshot,
             });
             const label = geocache.gc_code || geocache.name;
+            this.activity.start({
+                requestId: snapshot.requestId,
+                geocacheId: geocache.id,
+                kind: action === 'resolve' ? 'resolve' : 'analyze',
+            });
             dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
@@ -1447,11 +1486,13 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 preparedRequest: snapshot,
             });
             const label = geocache.gc_code || geocache.name;
+            const questionLabel = `Q${task?.position ?? proposal.question_number ?? '?'}`;
+            this.activity.start({ requestId: snapshot.requestId, geocacheId: geocache.id, kind: 'refine', label: questionLabel });
             dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
                 geocacheName: geocache.name,
-                sessionTitle: `EARTHCOACH ${REFINE_SESSION_LABELS[focus]} Q${task?.position ?? proposal.question_number ?? '?'} - ${label}`,
+                sessionTitle: `EARTHCOACH ${REFINE_SESSION_LABELS[focus]} ${questionLabel} - ${label}`,
                 prompt,
                 focus: true,
                 workflowKind: 'general',
@@ -1539,6 +1580,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             // la reponse finale au dossier au lieu de la laisser dans le chat.
             const requestId = `final-${saved.id}-${Date.now()}`;
             this.resultCapture.registerFinalRequest(requestId, saved.id, geocache.id);
+            this.activity.start({ requestId, geocacheId: geocache.id, kind: 'final' });
             dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
                 geocacheId: geocache.id,
                 gcCode: geocache.gc_code,
@@ -1613,6 +1655,106 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         }
         this.contextService.invalidate(geocacheId);
         dispatchEarthCoachDataUpdated(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, geocacheId, EarthCoachWorkspaceWidget.ID);
+    }
+
+    /** Rouvre la conversation d'une requête, même restaurée depuis l'historique du chat. */
+    protected async openConversation(sessionId: string): Promise<void> {
+        try {
+            const session = await this.chatService.getOrRestoreSession(sessionId);
+            if (!session) {
+                this.messages.warn('Cette conversation n’existe plus dans l’historique du chat.');
+                return;
+            }
+            this.chatService.setActiveSession(session.id, { focus: true });
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    protected async setReference(resultId: number, reference: boolean): Promise<void> {
+        try {
+            const saved = await this.workspaceService.setResultReference(resultId, reference);
+            // Seule la marque change : les propositions locales (et leurs
+            // corrections en attente) restent telles quelles.
+            this.results = sortEarthCoachResults(this.results.map(item => item.id === saved.id
+                ? { ...item, is_reference: saved.is_reference }
+                : (saved.is_reference && item.is_reference ? { ...item, is_reference: false } : item)));
+            this.update();
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    protected async deleteResult(resultId: number): Promise<void> {
+        const result = this.results.find(item => item.id === resultId);
+        if (!result || this.generatingFinalResultId === resultId) {
+            return;
+        }
+        const confirmed = await new ConfirmDialog({
+            title: result.action === 'resolve' ? 'Supprimer la résolution' : 'Supprimer l’analyse',
+            msg: 'Ce résultat et vos corrections dessus seront supprimés du dossier. Les réponses déjà reportées dans les questions sont conservées.',
+            ok: 'Supprimer',
+            cancel: Dialog.CANCEL,
+        }).open();
+        if (!confirmed) {
+            return;
+        }
+        // Les corrections en attente sont abandonnées : une écriture différée
+        // viserait un résultat disparu.
+        const cancelPendingWrites = () => {
+            const timer = this.resultSaveTimers.get(resultId);
+            if (timer !== undefined) {
+                window.clearTimeout(timer);
+                this.resultSaveTimers.delete(resultId);
+            }
+            this.pendingEdits.delete(resultId);
+            this.dropFinalDraft(resultId);
+        };
+        cancelPendingWrites();
+        await this.resultSaves.get(resultId)?.catch(() => undefined);
+        cancelPendingWrites();
+        try {
+            await this.workspaceService.deleteResult(resultId);
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+            return;
+        }
+        this.results = this.results.filter(item => item.id !== resultId);
+        this.serverProposals.delete(resultId);
+        this.resultRevisions.delete(resultId);
+        this.carriedCache.delete(resultId);
+        this.expandedResults.delete(resultId);
+        if (this.replyDrafts.delete(resultId) && this.context) {
+            writeStoredReplyDrafts(this.context.geocacheData.id, this.replyDrafts);
+        }
+        this.update();
+    }
+
+    /** Reprend, question par question, les corrections faites sur une résolution précédente. */
+    protected applyCarriedCorrections(resultId: number, proposalIndexes: number[]): void {
+        const result = this.results.find(item => item.id === resultId);
+        if (!result) {
+            return;
+        }
+        const carried = findCarriedCorrections(result, this.results);
+        for (const index of proposalIndexes) {
+            const correction = carried.get(index);
+            if (correction) {
+                this.updateProposal(resultId, index, correction.patch);
+            }
+        }
+    }
+
+    /** Même référence tant que les corrections reportables ne changent pas : la carte ne se redessine pas. */
+    protected carriedFor(result: EarthCoachResult): ReadonlyMap<number, EarthCoachCarriedCorrection> {
+        const value = findCarriedCorrections(result, this.results);
+        const signature = JSON.stringify([...value]);
+        const cached = this.carriedCache.get(result.id);
+        if (cached && cached.signature === signature) {
+            return cached.value;
+        }
+        this.carriedCache.set(result.id, { signature, value });
+        return value;
     }
 
     protected async copyFinalAnswer(finalAnswer: string): Promise<void> {
@@ -2283,10 +2425,40 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 autoFinalLanguage={autoFinalLanguage}
                 photoReminder={photoReminder}
                 replyDrafts={this.replyDrafts.get(result.id) || NO_REPLY_DRAFTS}
+                carried={this.expandedResults.has(result.id) ? this.carriedFor(result) : NO_CARRIED_CORRECTIONS}
                 finalDraft={this.finalDrafts.get(result.id)}
                 handlers={this.resultHandlers}
             />
         )}</section>;
+    }
+
+    /**
+     * Ce qu'EarthCoach fait pour ce dossier : sans elle, rien n'indique après
+     * l'envoi qu'une réponse se prépare dans le chat. Collante en haut, avec
+     * le chemin vers la conversation.
+     */
+    protected renderActivity(): React.ReactNode {
+        const geocacheId = this.context?.geocacheData.id;
+        const activities = geocacheId !== undefined ? this.activity.forGeocache(geocacheId) : [];
+        if (!activities.length) {
+            return undefined;
+        }
+        return <section className='ecw-activity' aria-live='polite'>
+            {activities.map(activity => <div key={activity.requestId}
+                className={`ecw-activity-item${activity.phase === 'awaiting_input' ? ' ecw-activity-awaiting' : ''}`}>
+                {activity.phase === 'running' && <span className='ecw-spinner' aria-hidden='true' />}
+                <span>{activityLabel(activity)}</span>
+                <span className='ecw-muted'>lancée à {new Date(activity.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span className='ecw-grow' />
+                <button className='theia-button' disabled={!activity.sessionId}
+                    title={activity.sessionId ? undefined : 'La requête part dans le chat…'}
+                    onClick={() => { if (activity.sessionId) { void this.openConversation(activity.sessionId); } }}>
+                    {activity.phase === 'awaiting_input' ? 'Répondre dans la conversation' : 'Ouvrir la conversation'}
+                </button>
+                <button className='theia-button secondary' title='Masque ce suivi sans interrompre EarthCoach'
+                    onClick={() => this.activity.dismiss(activity.requestId)}>Masquer</button>
+            </div>)}
+        </section>;
     }
 
     protected render(): React.ReactNode {
@@ -2333,6 +2505,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 .ecw-reply{display:grid;gap:8px;padding:9px;border:1px dashed var(--ecw-status,var(--theia-panel-border));border-radius:6px;background:var(--theia-editor-background)}.ecw-reply label{display:grid;gap:5px;font-weight:600}.ecw-reply-files{display:flex;gap:6px;flex-wrap:wrap}.ecw-reply-file{display:inline-flex;align-items:center;gap:4px;padding:1px 4px 1px 8px;border:1px solid var(--theia-panel-border);border-radius:10px;font-size:12px}.ecw-reply-remove{border:0;background:none;color:inherit;cursor:pointer;padding:0 4px}
                 .ecw-proposal-partial .ecw-missing-field textarea,.ecw-proposal-missing .ecw-missing-field textarea{border:1px solid var(--ecw-status)}
                 .ecw-over-limit{color:var(--theia-errorForeground)}.ecw-markdown{line-height:1.45;min-width:0;overflow-wrap:anywhere}.ecw-markdown p{margin:.4em 0}.ecw-markdown pre{white-space:pre-wrap}.ecw-todo{padding:9px;border:1px solid var(--theia-panel-border);border-radius:6px}.ecw-todo ul{margin:6px 0 0;padding-left:18px;display:grid;gap:6px}
+                .ecw-activity{position:sticky;top:0;z-index:2;display:grid;gap:6px}.ecw-activity-item{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--theia-focusBorder);border-radius:6px;background:var(--theia-editorWidget-background,var(--theia-editor-background));box-shadow:0 2px 6px rgba(0,0,0,.15)}.ecw-activity-awaiting{border-color:var(--theia-charts-orange,#e69500)}
+                .ecw-spinner{width:12px;height:12px;border-radius:50%;border:2px solid var(--theia-focusBorder);border-top-color:transparent;animation:ecw-spin 1s linear infinite;flex:none}@keyframes ecw-spin{to{transform:rotate(360deg)}}
+                .ecw-reference{color:var(--theia-charts-yellow,#cca700);font-weight:600}.ecw-carried{display:grid;gap:6px;padding:8px 10px;border-left:3px solid var(--theia-focusBorder);background:var(--theia-editor-background)}
                 @media(max-width:900px){.ecw-main{grid-template-columns:1fr}.ecw-groups,.ecw-results{grid-column:auto}.ecw-preview img{max-height:45vh}}
             `}</style>
             <header className='ecw-head'><h2>Dossier terrain</h2><span className='ecw-muted'>{this.context.geocacheData.name}</span><span className='ecw-grow' />
@@ -2340,6 +2515,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'observations' })}>Gérer les observations</button>
                 <button className='theia-button secondary' onClick={() => void this.commands.executeCommand(EarthCoachOpenCommandId, { geocacheData: this.context?.geocacheData, action: 'logging_tasks' })}>Gérer les questions</button>
             </header>
+            {this.renderActivity()}
             {this.conflictBackup && <section className='ecw-panel ecw-warning'>
                 Le dossier a été modifié ailleurs : la version enregistrée a été chargée. Vos modifications locales sont conservées en réserve.
                 <div className='ecw-row'>

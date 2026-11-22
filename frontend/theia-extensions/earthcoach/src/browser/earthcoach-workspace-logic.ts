@@ -1,5 +1,6 @@
 import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
+    EarthCoachResult,
     EarthCoachResultProposal,
     EarthCoachSnapshotTask,
     EarthCoachWorkspaceGroup,
@@ -492,4 +493,80 @@ export function rebaseProposalEdits(
         }
     }
     return { proposals: applyProposalEdits(incoming, kept), kept, dropped };
+}
+
+/** Le résultat de référence en tête, les autres dans leur ordre (du plus récent au plus ancien). */
+export function sortEarthCoachResults(results: EarthCoachResult[]): EarthCoachResult[] {
+    return [...results.filter(result => result.is_reference), ...results.filter(result => !result.is_reference)];
+}
+
+/** Ce que l'utilisateur corrige d'une proposition : c'est ce qui se reporte d'une résolution à l'autre. */
+const CARRIED_FIELDS: Array<'status' | 'answer' | 'missing'> = ['status', 'answer', 'missing'];
+
+export interface EarthCoachCarriedCorrection {
+    /** Résultat où l'utilisateur avait corrigé cette question. */
+    resultId: number;
+    createdAt?: string | null;
+    reference: boolean;
+    patch: Pick<EarthCoachResultProposal, 'status' | 'answer' | 'missing'>;
+}
+
+function questionKey(proposal: EarthCoachResultProposal): string {
+    const normalize = (value?: string | null) => (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return `${normalize(proposal.location)}|${normalize(proposal.question)}`;
+}
+
+function sameQuestion(left: EarthCoachResultProposal, right: EarthCoachResultProposal): boolean {
+    const leftId = trailingNumericId(left.task_id);
+    const rightId = trailingNumericId(right.task_id);
+    if (leftId !== undefined && rightId !== undefined) {
+        return leftId === rightId;
+    }
+    return questionKey(left) === questionKey(right);
+}
+
+function correctedFields(proposal: EarthCoachResultProposal, ai: EarthCoachResultProposal | undefined): boolean {
+    return Boolean(ai) && CARRIED_FIELDS.some(field => normalizedField(proposal, field) !== normalizedField(ai!, field));
+}
+
+/**
+ * Corrections faites sur des résolutions antérieures, à proposer question par
+ * question dans `target` : une nouvelle résolution complète repart de la
+ * version du modèle. La référence prime, puis la plus récente. Rien n'est
+ * proposé pour une question déjà corrigée ici, ni quand la correction est
+ * déjà la valeur actuelle.
+ */
+export function findCarriedCorrections(target: EarthCoachResult, results: EarthCoachResult[]): Map<number, EarthCoachCarriedCorrection> {
+    const carried = new Map<number, EarthCoachCarriedCorrection>();
+    if (target.action !== 'resolve') {
+        return carried;
+    }
+    const sources = results
+        .filter(result => result.action === 'resolve' && result.id < target.id)
+        .sort((left, right) => Number(Boolean(right.is_reference)) - Number(Boolean(left.is_reference)) || right.id - left.id);
+    target.proposals.forEach((proposal, index) => {
+        if (correctedFields(proposal, target.ai_proposals?.[index])) {
+            return;
+        }
+        for (const source of sources) {
+            const position = source.proposals.findIndex((candidate, candidateIndex) =>
+                sameQuestion(candidate, proposal) && correctedFields(candidate, source.ai_proposals?.[candidateIndex])
+            );
+            if (position < 0) {
+                continue;
+            }
+            const corrected = source.proposals[position];
+            if (CARRIED_FIELDS.every(field => normalizedField(corrected, field) === normalizedField(proposal, field))) {
+                return;
+            }
+            carried.set(index, {
+                resultId: source.id,
+                createdAt: source.created_at,
+                reference: Boolean(source.is_reference),
+                patch: { status: corrected.status, answer: corrected.answer, missing: corrected.missing ?? null },
+            });
+            return;
+        }
+    });
+    return carried;
 }

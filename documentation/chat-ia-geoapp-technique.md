@@ -1976,6 +1976,13 @@ attendu **sans bloquer l'ouverture de session** — une génération dure des di
 secondes. Chaque observateur est isolé : l'un qui lève ne prive pas les autres de
 l'événement, et ne fait pas remonter d'erreur dans un chat qui, lui, a réussi.
 
+Theia résout aussi `responseCompleted` pour une réponse annulée ou en erreur, avec un texte
+partiel. L'événement porte donc `outcome` (`completed`, `canceled` ou `error`) : chaque
+observateur décide s'il garde ce texte. Pour une requête corrélée (`earthcoachRequestId`),
+la méthode facultative `handleChatRequestState` reçoit aussi le départ de la requête, avec
+sa session (`started`), ou l'échec de son envoi (`failed`) : EarthCoach s'en sert pour sa
+bannière « en cours » et son lien vers la conversation.
+
 `OutingPlanResponseObserver` ne s'active que sur une session de sortie, reconnue à son agent
 épinglé ou, à défaut, au préfixe `SORTIE - ` de son titre — une session reprise peut avoir
 perdu son épinglage sans cesser d'être la même préparation.

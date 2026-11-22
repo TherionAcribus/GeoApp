@@ -502,7 +502,8 @@ def list_results(geocache_id: int):
     results = (
         EarthCoachResult.query
         .filter_by(geocache_id=geocache_id)
-        .order_by(EarthCoachResult.created_at.desc(), EarthCoachResult.id.desc())
+        # Le resultat de reference d'abord : c'est lui que le dossier ouvre.
+        .order_by(EarthCoachResult.is_reference.desc(), EarthCoachResult.created_at.desc(), EarthCoachResult.id.desc())
         .all()
     )
     return jsonify({'results': [result.to_dict(include_snapshot=False) for result in results]})
@@ -596,8 +597,29 @@ def update_result(result_id: int):
                 result.final_answer_control = None
     if 'final_answer_control' in data:
         result.final_answer_control = _optional_text(data.get('final_answer_control'))
+    if 'is_reference' in data:
+        if data.get('is_reference'):
+            # Une seule reference par geocache : marquer celle-ci la retire aux autres.
+            (
+                EarthCoachResult.query
+                .filter(EarthCoachResult.geocache_id == result.geocache_id, EarthCoachResult.id != result.id)
+                .update({'is_reference': False}, synchronize_session=False)
+            )
+            result.is_reference = True
+        else:
+            result.is_reference = False
     db.session.commit()
     return jsonify({'result': result.to_dict()})
+
+
+@bp.delete('/api/earthcoach-results/<int:result_id>')
+def delete_result(result_id: int):
+    result = EarthCoachResult.query.get(result_id)
+    if not result:
+        return jsonify({'error': 'EarthCoach result not found'}), 404
+    db.session.delete(result)
+    db.session.commit()
+    return jsonify({'deleted': result_id})
 
 
 @bp.post('/api/earthcoach-results/<int:result_id>/apply')
