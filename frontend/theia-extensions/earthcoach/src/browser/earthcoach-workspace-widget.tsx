@@ -1311,6 +1311,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 unavailableImages: checked.failures,
                 refine: {
                     resultId: result.id,
+                    proposalIndex,
                     focus,
                     previous: proposal,
                     userReply: reply?.text.trim() || undefined,

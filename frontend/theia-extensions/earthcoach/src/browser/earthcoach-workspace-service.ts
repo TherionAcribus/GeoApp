@@ -112,12 +112,15 @@ export class EarthCoachWorkspaceService {
      */
     async mergeResultProposal(resultId: number, input: {
         proposal?: EarthCoachResultProposal;
+        /** Proposition visee ; sans lui le backend la retrouve par task_id puis par texte. */
+        proposalIndex?: number;
         markdownAppend?: string;
     }): Promise<EarthCoachResult> {
         const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
             `/api/earthcoach-results/${resultId}/proposals`,
             this.apiClient.createJsonInit('POST', {
                 proposal: input.proposal,
+                proposal_index: input.proposalIndex,
                 markdown_append: input.markdownAppend,
             }),
             'Erreur lors de la fusion de la proposition EarthCoach'

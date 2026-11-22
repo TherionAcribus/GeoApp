@@ -90,6 +90,11 @@ export interface EarthCoachRefineTarget {
     /** Resultat auquel rattacher la proposition recapturee. */
     resultId: number;
     focus: EarthCoachRefineFocus;
+    /**
+     * Position de la proposition visee dans le resultat. Le texte ne suffit
+     * pas : deux stations peuvent poser la meme question mot pour mot.
+     */
+    proposalIndex?: number;
     /** Proposition precedente a depasser, reprise dans le prompt. */
     previous: EarthCoachResultProposal;
     /** Reponse libre de l'utilisateur (focus `reply`). */

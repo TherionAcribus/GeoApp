@@ -143,6 +143,20 @@ def _proposal_index(items: list, proposal: dict) -> int:
     return -1
 
 
+def _targeted_proposal_index(items: list, proposal: dict, target_index: int | None) -> int:
+    """Index a remplacer lors d'une reprise ciblee. La position envoyee par
+    le dossier prime : deux stations peuvent poser la meme question mot pour
+    mot, et sans task_id (questions non enregistrees) le texte designerait
+    toujours la premiere. Elle n'est ecartee que si son task_id contredit
+    celui de la proposition recapturee."""
+    if target_index is not None and 0 <= target_index < len(items) and isinstance(items[target_index], dict):
+        expected = _proposal_task_id(items[target_index])
+        received = _proposal_task_id(proposal)
+        if expected is None or received is None or expected == received:
+            return target_index
+    return _proposal_index(items, proposal)
+
+
 def _snapshot_task(snapshot: object, task_id: int) -> dict | None:
     """Retrouve la tache telle qu'elle etait quand le resultat a ete genere.
     Les taches du dossier portent des ids 'logging-task-N'."""
@@ -627,10 +641,12 @@ def apply_result(result_id: int):
 
 @bp.post('/api/earthcoach-results/<int:result_id>/proposals')
 def merge_result_proposal(result_id: int):
-    """Reprise ciblee (approfondir / contester) : la nouvelle proposition
-    remplace celle de la meme question dans le resultat existant - version IA
-    et version corrigee - sans creer de resultat supplementaire. Le texte
-    visible de la reponse s'ajoute au Markdown du resultat."""
+    """Reprise ciblee (approfondir / contester / reponse de l'utilisateur) :
+    la nouvelle proposition remplace celle de la meme question dans le
+    resultat existant - version IA et version corrigee - sans creer de
+    resultat supplementaire. `proposal_index` designe la proposition visee ;
+    sans lui, elle est retrouvee par task_id puis par texte. Le texte visible
+    de la reponse s'ajoute au Markdown du resultat."""
     try:
         result = EarthCoachResult.query.get(result_id)
         if not result:
@@ -638,6 +654,7 @@ def merge_result_proposal(result_id: int):
         data = request.get_json(silent=True) or {}
         proposal_data = data.get('proposal')
         markdown_append = _optional_text(data.get('markdown_append'))
+        target_index = _optional_int(data.get('proposal_index'), 'proposal_index')
         if proposal_data is None and not markdown_append:
             return jsonify({'error': 'proposal or markdown_append is required'}), 400
         if proposal_data is not None:
@@ -647,9 +664,15 @@ def merge_result_proposal(result_id: int):
 
             def _merge(items: list) -> list:
                 items = list(items)
-                index = _proposal_index(items, proposal)
+                index = _targeted_proposal_index(items, proposal, target_index)
                 if index >= 0:
-                    items[index] = proposal
+                    replacement = dict(proposal)
+                    # Le modele omet souvent le task_id : on garde celui de la
+                    # proposition remplacee, sans quoi le report serait refuse.
+                    if _proposal_task_id(replacement) is None and isinstance(items[index], dict) \
+                            and items[index].get('task_id') is not None:
+                        replacement['task_id'] = items[index]['task_id']
+                    items[index] = replacement
                 else:
                     items.append(proposal)
                 return items

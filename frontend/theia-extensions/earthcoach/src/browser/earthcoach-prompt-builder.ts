@@ -673,6 +673,11 @@ function buildPreparedRequestBlock(input: EarthCoachPromptInput): string[] {
         if (previous.reasoning) {
             fields.push(`raisonnement=${previous.reasoning}`);
         }
+        // Sans task_id (questions non enregistrees), la proposition visee est
+        // designee par sa position, cote application: le modele n'a rien a ajouter.
+        if (previous.task_id != null) {
+            fields.unshift(`task_id=${previous.task_id}`);
+        }
         lines.push(
             '--- REPRISE CIBLEE D UNE QUESTION ---',
             'Cette demande ne reprend qu une seule question: capture exactement une proposition, pour cette question seulement (meme task_id).',

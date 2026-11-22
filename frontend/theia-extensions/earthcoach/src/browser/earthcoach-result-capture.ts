@@ -191,6 +191,7 @@ export class EarthCoachResultCaptureService {
         const result = snapshot.refine
             ? await this.workspaceService.mergeResultProposal(snapshot.refine.resultId, {
                 proposal: proposals[0],
+                proposalIndex: snapshot.refine.proposalIndex,
                 markdownAppend: options.markdown,
             })
             : await this.workspaceService.captureResult({

@@ -592,6 +592,69 @@ def test_result_list_omits_heavy_snapshot_but_keeps_tasks(client, seeded):
     assert result['snapshot_tasks'] == [{'id': seeded['task_id'], 'position': 1, 'question': 'Q1', 'kind': 'question'}]
 
 
+def test_merge_result_proposal_targets_index_for_duplicate_questions(client, seeded):
+    # Deux stations posent la meme question mot pour mot, sans task_id : la
+    # reprise doit remplacer la proposition visee, pas la premiere du meme texte.
+    question = 'Which type of weathering do you see here?'
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-duplicate',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [
+                {'question': question, 'status': 'ready', 'answer': 'Station 1'},
+                {'question': question, 'status': 'partial', 'answer': 'Station 2 incomplete'},
+            ],
+        },
+    )
+    result = create.get_json()['result']
+    merged = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal_index': 1, 'proposal': {'question': question, 'status': 'ready', 'answer': 'Station 2 complete'}},
+    )
+    assert merged.status_code == 200
+    proposals = merged.get_json()['result']['proposals']
+    assert [item['answer'] for item in proposals] == ['Station 1', 'Station 2 complete']
+
+    # Un task_id contradictoire ecarte l'index : on retombe sur le task_id.
+    create = client.post(
+        f"/api/geocaches/{seeded['cache_id']}/earthcoach-results",
+        json={
+            'request_id': 'request-duplicate-ids',
+            'action': 'resolve',
+            'context_snapshot': {},
+            'proposals': [
+                {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'partial', 'answer': 'A'},
+                {'task_id': 999, 'question': 'Q2', 'status': 'partial', 'answer': 'B'},
+            ],
+        },
+    )
+    result = create.get_json()['result']
+    merged = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal_index': 1, 'proposal': {'task_id': seeded['task_id'], 'question': 'Q1', 'status': 'ready', 'answer': 'A2'}},
+    )
+    proposals = merged.get_json()['result']['proposals']
+    assert [item['answer'] for item in proposals] == ['A2', 'B']
+
+    # Sans task_id dans la reprise, celui de la proposition remplacee est garde.
+    merged = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal_index': 1, 'proposal': {'question': 'Q2', 'status': 'ready', 'answer': 'B2'}},
+    )
+    proposals = merged.get_json()['result']['proposals']
+    assert proposals[1]['answer'] == 'B2'
+    assert str(proposals[1]['task_id']).endswith('999')
+
+    # Index invalide : refuse plutot que deviner.
+    bad = client.post(
+        f"/api/earthcoach-results/{result['id']}/proposals",
+        json={'proposal_index': 'deux', 'proposal': {'question': 'Q2', 'status': 'ready', 'answer': 'B3'}},
+    )
+    assert bad.status_code == 400
+
+
 def test_merge_result_proposal_replaces_same_question(client, seeded):
     # Reprise ciblee (approfondir / contester): la proposition recapturee
     # remplace celle de la meme question, version IA et version corrigee.
