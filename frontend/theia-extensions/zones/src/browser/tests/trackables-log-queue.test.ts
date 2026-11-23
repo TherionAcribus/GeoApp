@@ -16,6 +16,7 @@ import {
     isLikelyPublicCode,
     parseTrackableCodeTokens,
     queueItemDisplayCode,
+    queueItemOriginLabel,
     restoreQueueFromStorage,
     sanitizeQueueForStorage,
     trackableLogTypeNeedsGeocache,
@@ -145,6 +146,24 @@ function testSanitizeQueueForStorage(): void {
     assert.equal(stored[2].status, 'pending');
 }
 
+function testPreferredActionStaysOnItsItem(): void {
+    // L'action d'une fiche cache et sa cache (publiques) survivent à la reprise…
+    const [stored] = sanitizeQueueForStorage([item({
+        inputCode: 'TB5XYZ', reference_code: 'TB5XYZ', status: 'ready',
+        preferredAction: 'retrieve', geocacheCode: 'GC1E51',
+    })]);
+    assert.equal(stored.preferredAction, 'retrieve');
+    assert.equal(stored.geocacheCode, 'GC1E51');
+    const [restored] = restoreQueueFromStorage({ version: 1, items: [stored] });
+    assert.equal(restored.preferredAction, 'retrieve');
+    assert.equal(restored.geocacheCode, 'GC1E51');
+    // …et l'origine se lit sur la ligne de l'élément, pas dans un bandeau global.
+    assert.equal(queueItemOriginLabel(restored), 'retirer (fiche GC1E51)');
+    assert.equal(queueItemOriginLabel(item({ preferredAction: 'discover' })), 'découvrir (fiche cache)');
+    assert.equal(queueItemOriginLabel(item({ preferredAction: 'log' })), undefined);
+    assert.equal(queueItemOriginLabel(item({})), undefined);
+}
+
 function testRestoreQueueFromStorage(): void {
     const restored = restoreQueueFromStorage({
         version: 1,
@@ -224,6 +243,7 @@ function run(): void {
     testDefaultTrackableLogType();
     testTrackableQueueCounts();
     testSanitizeQueueForStorage();
+    testPreferredActionStaysOnItsItem();
     testRestoreQueueFromStorage();
     testBuildTrackableQueueReportNoSecrets();
     testBuildTrackableQueueCsv();

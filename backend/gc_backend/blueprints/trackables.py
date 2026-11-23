@@ -485,45 +485,14 @@ def post_trackable_log(tb_code: str):
     if geocache_code and (len(geocache_code) > _MAX_GEOCACHE_CODE_LENGTH or not geocache_code.startswith('GC')):
         return _error('invalid_geocache', 'geocacheCode doit être un code de géocache (GC…).', 400)
 
-    # Préflight métier : la page de log du TB dit ce que le site autorise *à
-    # l'instant T* — types de log permis et cache courante. Le frontend ne fait
-    # pas foi.
-    info = GeocachingTrackablesClient().fetch_log_page_info(code)
-    if log_type_id not in info.allowed_log_type_ids:
-        return _error(
-            'trackable_action_not_allowed',
-            f'Le type de log « {TRACKABLE_LOG_TYPE_LABELS.get(log_type_id, log_type_id)} » '
-            'n’est pas autorisé pour ce trackable actuellement.',
-            400,
-        )
-
-    if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE:
-        if (geocache_code and info.current_geocache_code
-                and geocache_code != info.current_geocache_code
-                and not data.get('locationConflictConfirmed')):
-            return jsonify({
-                'success': False,
-                'error': 'trackable_location_conflict',
-                'error_message': (
-                    f'Ce trackable est déclaré dans {info.current_geocache_code}, pas dans '
-                    f'{geocache_code} : confirmez ou rafraîchissez sa fiche.'
-                ),
-                'current_geocache_code': info.current_geocache_code,
-                'current_geocache_name': info.current_geocache_name,
-            }), 409
-        if not geocache_code:
-            geocache_code = info.current_geocache_code
-            if not geocache_code:
-                return _error(
-                    'missing_geocache',
-                    "Impossible de savoir dans quelle cache se trouve ce trackable : précisez geocacheCode.",
-                    400,
-                )
-
-    # Clé d'opération : empêche un double envoi (double clic, workers parallèles).
     operation_id = str(data.get('operationId') or '').strip()
     if len(operation_id) > _MAX_OPERATION_ID_LENGTH:
         return _error('invalid_operation_id', 'operationId trop long.', 400)
+
+    # Clé d'opération : empêche un double envoi (double clic, workers parallèles).
+    # Elle est vérifiée *avant* le préflight distant : rejouer un « Retiré » réussi
+    # doit rendre la réponse mémorisée, pas un refus de la page de log qui ne
+    # propose plus « Retiré » puisque le TB est désormais en main.
     existing = _claim_log_operation(operation_id) if operation_id else None
     if existing is not None:
         if existing['state'] == 'in_flight':
@@ -531,6 +500,16 @@ def post_trackable_log(tb_code: str):
         return jsonify(existing['payload']), existing['status']
 
     try:
+        refusal, geocache_code = _check_remote_rules(
+            code, log_type_id, geocache_code,
+            conflict_confirmed=bool(data.get('locationConflictConfirmed')),
+        )
+        if refusal is not None:
+            # Rien n'est parti : la clé est libérée, un nouvel essai (conflit
+            # confirmé, cache précisée…) reste possible avec le même identifiant.
+            if operation_id:
+                _release_log_operation(operation_id)
+            return refusal
         payload, status = _submit_validated_trackable_log(
             code,
             tracking_code=tracking_code,
@@ -546,6 +525,47 @@ def post_trackable_log(tb_code: str):
     if operation_id:
         _store_log_operation(operation_id, payload, status)
     return jsonify(payload), status
+
+
+def _check_remote_rules(code: str, log_type_id: int, geocache_code: Optional[str], *,
+                        conflict_confirmed: bool):
+    """
+    Préflight métier : la page de log du TB dit ce que le site autorise *à
+    l'instant T* — types de log permis et cache courante. Le frontend ne fait
+    pas foi. Retourne ``(réponse de refus ou None, cache retenue)``.
+    """
+    info = GeocachingTrackablesClient().fetch_log_page_info(code)
+    if log_type_id not in info.allowed_log_type_ids:
+        return _error(
+            'trackable_action_not_allowed',
+            f'Le type de log « {TRACKABLE_LOG_TYPE_LABELS.get(log_type_id, log_type_id)} » '
+            'n’est pas autorisé pour ce trackable actuellement.',
+            400,
+        ), geocache_code
+
+    if log_type_id in TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE:
+        if (geocache_code and info.current_geocache_code
+                and geocache_code != info.current_geocache_code
+                and not conflict_confirmed):
+            return (jsonify({
+                'success': False,
+                'error': 'trackable_location_conflict',
+                'error_message': (
+                    f'Ce trackable est déclaré dans {info.current_geocache_code}, pas dans '
+                    f'{geocache_code} : confirmez ou rafraîchissez sa fiche.'
+                ),
+                'current_geocache_code': info.current_geocache_code,
+                'current_geocache_name': info.current_geocache_name,
+            }), 409), geocache_code
+        if not geocache_code:
+            geocache_code = info.current_geocache_code
+            if not geocache_code:
+                return _error(
+                    'missing_geocache',
+                    "Impossible de savoir dans quelle cache se trouve ce trackable : précisez geocacheCode.",
+                    400,
+                ), None
+    return None, geocache_code
 
 
 # ----------------------------------------------------------- Envoi et résultat
@@ -652,8 +672,14 @@ def _reconcile_submitted_log(code: str, log_type_id: int, text: str, visited_dat
     Cherche dans les logs récents du TB le log qu'on vient peut-être de créer :
     empreinte = type + date + auteur courant + texte normalisé.
 
-    Retourne ``('confirmed', entrée)`` / ``('absent', None)`` / ``('ambiguous', None)`` —
-    ambigu quand la fiche est illisible ou l'auteur inconnu : impossible de trancher.
+    Retourne ``('confirmed', entrée)`` / ``('absent', None)`` / ``('ambiguous', None)``.
+
+    « absent » autorise un renvoi : il n'est répondu que si aucun log du même
+    type et du même auteur ne peut être le nôtre. Une correspondance partielle
+    — date illisible ou au format inconnu, texte réécrit par le site (lien
+    Markdown, emoji…) — est « ambiguous » : mieux vaut faire vérifier que
+    risquer un doublon public. Ambigu aussi quand la fiche est illisible ou
+    l'auteur inconnu.
     """
     try:
         state = get_auth_service().get_auth_state()
@@ -668,27 +694,36 @@ def _reconcile_submitted_log(code: str, log_type_id: int, text: str, visited_dat
     except (TrackableError, NotAuthenticatedError):
         return 'ambiguous', None
 
-    wanted = _log_text_fingerprint(text, is_html=False)
+    wanted_author = author.strip().casefold()
+    wanted_date = visited_date.isoformat()
+    wanted_text = _log_text_fingerprint(text, is_html=False)
+    partial_match = False
     for entry in details.logs:
-        if (entry.log_type_id == log_type_id
-                and entry.log_date == visited_date.isoformat()
-                and entry.author_username == author
-                and _log_text_fingerprint(entry.text_html, is_html=True) == wanted):
+        if entry.log_type_id != log_type_id or (entry.author_username or '').strip().casefold() != wanted_author:
+            continue
+        dates = entry.possible_dates()
+        if dates is not None and wanted_date not in dates:
+            continue  # log du même type, mais d'un autre jour
+        if dates is not None and _log_text_fingerprint(entry.text_html, is_html=True) == wanted_text:
             return ('confirmed', entry) if entry.log_reference_code else ('ambiguous', None)
-    return 'absent', None
+        partial_match = True
+    return ('ambiguous', None) if partial_match else ('absent', None)
 
 
 def _log_text_fingerprint(text, *, is_html: bool) -> str:
     """
     Empreinte de texte pour comparer le corps envoyé (markdown brut) au `text_html`
-    rendu par le site : les balises sont retirées côté HTML, puis tout caractère
-    non alphanumérique est ignoré — « **super** » et « <strong>super</strong> »
-    se rejoignent. Le but est de retrouver *le même* log, pas de prouver qu'un
-    texte différent n'existe pas : en cas de doute, la réconciliation répond
-    « absent » et l'utilisateur décide.
+    rendu par le site : les balises sont retirées côté HTML, les liens et images
+    Markdown réduits à ce que le HTML en garde, puis tout caractère non
+    alphanumérique est ignoré — « **super** » et « <strong>super</strong> »
+    se rejoignent. Le but est de retrouver *le même* log : un écart restant
+    rend la réconciliation ambiguë, jamais « absent » à tort.
     """
     if is_html:
         text = re.sub(r'<[^>]+>', '', text or '')
+    else:
+        text = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', text or '')          # image : rien en texte
+        text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)             # lien : son libellé
     text = html_lib.unescape(text or '')
     return re.sub(r'[^\w]+', '', text.lower())
 

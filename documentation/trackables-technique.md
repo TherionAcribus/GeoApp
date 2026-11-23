@@ -220,19 +220,31 @@ Le frontend ne doit jamais rendre la valeur brute sans assainissement.
 - **Clé d'opération** (`operationId`, optionnel) : mémorisée avec la réponse pour
   rejouer un appel identique sans renvoyer le log — réponse rejouée à l'identique,
   ou 409 `operation_in_flight` si l'envoi est encore en cours. Sans clé, chaque
-  appel part au site.
+  appel part au site. La clé est vérifiée **avant** le préflight distant : un
+  « Retiré » réussi puis rejoué rend sa réponse mémorisée, alors que la page de
+  log ne propose plus « Retiré ». Un refus avant envoi (type non permis, conflit
+  de localisation, cache manquante) libère la clé : rien n'est parti, la
+  confirmation peut repasser avec le même identifiant.
 - **Coupure réseau** : `LogSubmitNetworkError` distingue `ConnectionError`
   (requête sans doute jamais partie → 502 `network_failed_before_response`,
   l'utilisateur peut réessayer) des autres erreurs de transport — timeout de
   lecture, réponse tronquée — où le site a pu enregistrer le log. Dans ce cas
   aucun renvoi automatique : la route relit les logs récents du TB et cherche le
-  log envoyé (empreinte : type + date + auteur courant + texte normalisé). S'il
-  est là → 200 avec `reconciled: 'confirmed'`, comme un succès direct. S'il n'y
-  est pas → 502 `submit_failed` avec `reconciled: 'absent'`, on peut réessayer.
-  Si la fiche est illisible ou l'auteur inconnu → 502 `unknown_remote_outcome`
-  avec `reconciled: 'ambiguous'` et `trackable_url` : l'utilisateur doit vérifier
-  sur le site avant de réessayer. L'état local n'est écrit qu'en cas de succès
-  confirmé.
+  log envoyé (empreinte : type + date + auteur courant, sans casse + texte
+  normalisé, liens et images Markdown réduits à ce que le HTML en garde).
+  - Trouvé → 200 avec `reconciled: 'confirmed'`, comme un succès direct.
+  - Aucun log du même type et du même auteur ne peut être le nôtre → 502
+    `submit_failed` avec `reconciled: 'absent'`, on peut réessayer.
+  - Correspondance partielle → 502 `unknown_remote_outcome`,
+    `reconciled: 'ambiguous'` et `trackable_url` : l'utilisateur vérifie sur le
+    site avant de réessayer. C'est le cas d'une date illisible (format du compte
+    non numérique), ou d'un texte différent le même jour (réécrit par le site).
+    Une date jour/mois ambiguë (`log_date_ambiguous`) est comparée sous ses deux
+    lectures (`TrackableLogEntry.possible_dates`). « absent » autorise un renvoi,
+    donc un doublon public en cas d'erreur : dans le doute, c'est « ambiguous ».
+  - Fiche illisible ou auteur inconnu → `ambiguous`, de même.
+
+  L'état local n'est écrit qu'en cas de succès confirmé.
 - **Réessais CSRF** : inchangés — un rejet 401/403 explicite retente une fois avec
   un jeton frais ; une coupure réseau, jamais.
 
@@ -466,7 +478,13 @@ Trois onglets :
     le corps, jamais en URL) puis `GET /<TB>/log-info` pour `allowed_log_types`,
     cache courante et `has_tracking_code`. `defaultTrackableLogType` choisit le
     type selon l'action préremplie (« retirer » → 13, « découvrir » → 48, sinon
-    « Découvert » puis premier permis). Si `log-info` est injoignable, une
+    « Découvert » puis premier permis). L'action est portée par l'élément
+    (`TrackableQueueItem.preferredAction`, persistée avec sa `geocacheCode`) : un
+    « Retirer » venu d'une fiche cache ne déteint pas sur les codes collés
+    ensuite, et l'origine se lit sur la ligne (`queueItemOriginLabel`, « retirer
+    (fiche GC…) »). « Loguer » depuis l'inventaire ajoute le TB à la file. Les
+    avertissements du préflight (types non relus, aucun type proposé) restent
+    affichés sur l'élément prêt. Si `log-info` est injoignable, une
     liste de repli des types courants est proposée et le backend revalide à
     l'envoi ; si le site n'en propose aucun, l'élément est signalé.
   - **Secret** : le code saisi n'est jamais affiché (`queueItemDisplayCode`

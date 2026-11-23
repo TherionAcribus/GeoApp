@@ -762,6 +762,66 @@ def test_timeout_with_unreadable_details_is_ambiguous(app, trackable_log_client,
     assert trackable_log_client.sent['count'] == 1
 
 
+def test_timeout_reconciles_an_ambiguous_day_month_date(app, trackable_log_client, fake_network, monkeypatch):
+    """Compte en dd/MM : « 05/09/2026 » estimé 9 mai, mais le 5 septembre reste une lecture possible."""
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch, details=TrackableDetails(
+        reference_code='TBBAQ0Z',
+        logs=[_log_entry(log_date='2026-05-09', log_date_raw='05/09/2026', log_date_ambiguous=True)],
+    ))
+
+    response = _post_tb_log(trackable_log_client, date='2026-09-05')
+
+    assert response.status_code == 200
+    assert response.get_json()['reconciled'] == 'confirmed'
+
+
+def test_timeout_matches_markdown_links_and_author_case(app, trackable_log_client, fake_network, monkeypatch):
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch, details=TrackableDetails(
+        reference_code='TBBAQ0Z',
+        logs=[_log_entry(author_username='Moi',
+                         text_html='<p>Vu <a href="https://example.com/p.jpg">ma photo</a> !</p>')],
+    ))
+
+    response = _post_tb_log(trackable_log_client, text='Vu [ma photo](https://example.com/p.jpg) !')
+
+    assert response.status_code == 200
+    assert response.get_json()['reconciled'] == 'confirmed'
+
+
+@pytest.mark.parametrize('entry', [
+    # Format de date du compte non numérique : la date ne peut pas écarter ce log.
+    {'log_date': None, 'log_date_raw': '29 Sep 26'},
+    # Même jour, même auteur, même type, texte réécrit par le site.
+    {'text_html': '<p>Je le prends 🐞</p><p>(modifié)</p>'},
+], ids=['unreadable-date', 'rewritten-text'])
+def test_timeout_with_a_partial_match_is_ambiguous_not_absent(app, trackable_log_client, fake_network,
+                                                              monkeypatch, entry):
+    """Un log qui peut être le nôtre ne doit jamais autoriser un renvoi (doublon public)."""
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch,
+                     details=TrackableDetails(reference_code='TBBAQ0Z', logs=[_log_entry(**entry)]))
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 502
+    body = response.get_json()
+    assert body['error'] == 'unknown_remote_outcome'
+    assert body['reconciled'] == 'ambiguous'
+
+
+def test_timeout_with_only_older_logs_of_the_same_type_is_absent(app, trackable_log_client, fake_network,
+                                                                 monkeypatch):
+    _unknown_outcome(trackable_log_client, fake_network, monkeypatch, details=TrackableDetails(
+        reference_code='TBBAQ0Z',
+        logs=[_log_entry(log_date='2026-08-14', log_date_raw='08/14/2026'),
+              _log_entry(author_username='quelquun', text_html='<p>Autre texte</p>')],
+    ))
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 502
+    assert response.get_json()['reconciled'] == 'absent'
+
+
 def test_connection_failure_needs_no_reconciliation(app, trackable_log_client, fake_network, monkeypatch):
     """Coupé avant réponse : la requête n'est pas partie, pas besoin de relire la fiche."""
     monkeypatch.setattr(trackables_bp, 'get_auth_service', lambda: _FakeAuthService())
@@ -828,6 +888,32 @@ def test_in_flight_operation_is_refused(trackable_log_client):
     assert response.status_code == 409
     assert response.get_json()['error'] == 'operation_in_flight'
     assert 'count' not in trackable_log_client.sent
+
+
+def test_replayed_operation_ignores_the_changed_log_page(trackable_log_client, fake_network):
+    """Après un « Retiré » réussi, la page de log ne le propose plus : le rejeu rend quand même la réponse."""
+    trackable_store.save_cache_inventory('GC1E51', [TrackableSummary(reference_code='TBBAQ0Z')])
+    first = _post_tb_log(trackable_log_client, operationId='op-replay')
+    in_hand = fake_network(log_info=TrackableLogPageInfo(reference_code='TBBAQ0Z', allowed_log_type_ids=[4]))
+
+    second = _post_tb_log(trackable_log_client, operationId='op-replay')
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.get_json() == first.get_json()
+    assert trackable_log_client.sent['count'] == 1
+    assert in_hand.calls == []      # pas même un préflight distant
+
+
+def test_refused_operation_releases_its_key(trackable_log_client):
+    """Un refus avant envoi (conflit de localisation) n'est pas mémorisé : la confirmation part."""
+    refused = _post_tb_log(trackable_log_client, geocacheCode='GCOTHER', operationId='op-conflict')
+    confirmed = _post_tb_log(trackable_log_client, geocacheCode='GCOTHER', operationId='op-conflict',
+                             locationConflictConfirmed=True)
+
+    assert refused.status_code == 409
+    assert confirmed.status_code == 200
+    assert trackable_log_client.sent['count'] == 1
 
 
 def test_inventory_is_refetched_when_older_than_max_age(app, fake_network):

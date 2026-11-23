@@ -45,6 +45,7 @@ import {
     isLikelyPublicCode,
     parseTrackableCodeTokens,
     queueItemDisplayCode,
+    queueItemOriginLabel,
     restoreQueueFromStorage,
     sanitizeQueueForStorage,
     trackableLogTypeNeedsGeocache,
@@ -152,8 +153,7 @@ export class TrackablesWidget extends ReactWidget {
     protected inventoryFilter = '';
     /** Clauses du panneau « Filtres supplémentaires » de la barre de recherche. */
     protected inventoryFilterClauses: AdvancedFilterClause[] = [];
-    /** Préremplissage des onglets à venir (lot 5.2 / 5.3 et actions du lot 4). */
-    protected pendingLogContext: { code: string; action?: string; geocacheCode?: string } | undefined;
+    /** Préremplissage de l'onglet Fiche (l'action d'un log, elle, vit sur l'élément de file). */
     protected pendingDetailCode: string | undefined;
 
     /* ---- File « Loguer / Découvrir » ---- */
@@ -212,6 +212,8 @@ export class TrackablesWidget extends ReactWidget {
                         has_tracking_code: item.has_tracking_code,
                         allowed_log_types: item.allowed_log_types,
                         logTypeId: item.logTypeId,
+                        geocacheCode: item.geocacheCode,
+                        preferredAction: item.preferredAction,
                         status: item.status,
                         statusDetail: item.statusDetail,
                         trackable_url: item.trackable_url,
@@ -238,7 +240,6 @@ export class TrackablesWidget extends ReactWidget {
     setContext(ctx: TrackablesWidgetContext): void {
         if (ctx.trackableCode && (ctx.tab === 'log' || ctx.tab === 'detail')) {
             if (ctx.tab === 'log') {
-                this.pendingLogContext = { code: ctx.trackableCode, action: ctx.action, geocacheCode: ctx.geocacheCode };
                 // Le code entre directement dans la file : « Retirer »/« Découvrir »
                 // d'une fiche cache arrive prêt à l'aperçu.
                 this.enqueueCode(ctx.trackableCode, ctx.action, ctx.geocacheCode);
@@ -259,27 +260,35 @@ export class TrackablesWidget extends ReactWidget {
         this.update();
     }
 
-    /** Ajoute un code à la file s'il n'y figure pas déjà, puis lance le préflight. */
+    /**
+     * Ajoute un code à la file, puis lance le préflight. L'action demandée est
+     * portée par l'élément : elle ne déteint pas sur les codes ajoutés ensuite.
+     * Déjà présent et pas encore envoyé, l'élément reprend l'action et la cache.
+     */
     protected enqueueCode(code: string, preferredAction?: string, geocacheCode?: string): void {
         const normalized = code.trim().toUpperCase();
         if (!normalized) {
             return;
         }
-        const exists = this.queue.some(item =>
+        const existing = this.queue.find(item =>
             item.inputCode.toUpperCase() === normalized || item.reference_code === normalized);
-        if (!exists) {
+        if (!existing) {
             this.queue = [...this.queue, {
                 key: `q${++this.queueSequence}-${Date.now()}`,
                 inputCode: normalized,
                 geocacheCode,
+                preferredAction,
                 status: 'pending',
-                statusDetail: preferredAction === 'retrieve' ? 'Retirer (fiche cache)'
-                    : preferredAction === 'discover' ? 'Découvrir (fiche cache)' : undefined,
             }];
             this.persistQueue();
-        }
-        if (preferredAction) {
-            this.pendingLogContext = { code: normalized, action: preferredAction, geocacheCode };
+        } else if (preferredAction && (existing.status === 'pending' || existing.status === 'ready')) {
+            this.patchQueueItem(existing.key, {
+                preferredAction,
+                geocacheCode: geocacheCode ?? existing.geocacheCode,
+                ...(existing.status === 'ready' && existing.allowed_log_types
+                    ? { logTypeId: defaultTrackableLogType(existing.allowed_log_types, preferredAction) }
+                    : {}),
+            });
         }
         void this.preflightQueue();
     }
@@ -536,7 +545,7 @@ export class TrackablesWidget extends ReactWidget {
                             patch = {
                                 ...patch,
                                 allowed_log_types: allowed,
-                                logTypeId: defaultTrackableLogType(allowed, this.pendingLogContext?.action),
+                                logTypeId: defaultTrackableLogType(allowed, item.preferredAction),
                                 current_geocache_code: info.current_geocache_code ?? patch.current_geocache_code,
                                 current_geocache_name: info.current_geocache_name ?? patch.current_geocache_name,
                                 has_tracking_code: patch.has_tracking_code || info.has_tracking_code === true,
@@ -545,6 +554,8 @@ export class TrackablesWidget extends ReactWidget {
                     } catch {
                         // Traité par le repli ci-dessous.
                     }
+                    // Les avertissements ci-dessous restent affichés une fois prêt.
+                    patch = { ...patch, statusDetail: undefined };
                     if (!logInfoOk) {
                         // log-info injoignable : choix courants du site en repli —
                         // le backend revalide avant l'envoi, rien n'est acquis.
@@ -552,13 +563,13 @@ export class TrackablesWidget extends ReactWidget {
                             ...patch,
                             allowed_log_types: patch.allowed_log_types ?? [...TRACKABLE_LOG_TYPE_FALLBACK_CHOICES],
                             logTypeId: patch.logTypeId ?? defaultTrackableLogType(
-                                TRACKABLE_LOG_TYPE_FALLBACK_CHOICES, this.pendingLogContext?.action),
+                                TRACKABLE_LOG_TYPE_FALLBACK_CHOICES, item.preferredAction),
                             statusDetail: 'Types de log non relus (log-info) : le site revalidera à l’envoi.',
                         };
                     } else if (patch.allowed_log_types && patch.allowed_log_types.length === 0) {
                         patch = { ...patch, statusDetail: 'Aucun type de log proposé par le site pour ce trackable.' };
                     }
-                    this.patchQueueItem(item.key, { ...patch, status: 'ready', statusDetail: undefined });
+                    this.patchQueueItem(item.key, { ...patch, status: 'ready' });
                 } catch {
                     this.patchQueueItem(item.key, { status: 'error', statusDetail: 'Backend injoignable pendant le préflight.' });
                 }
@@ -831,7 +842,7 @@ export class TrackablesWidget extends ReactWidget {
                                     this.showTab('detail');
                                 }}
                                 onLog={code => {
-                                    this.pendingLogContext = { code, action: 'log' };
+                                    this.enqueueCode(code, 'log');
                                     this.showTab('log');
                                 }}
                             />
@@ -863,13 +874,6 @@ export class TrackablesWidget extends ReactWidget {
         }
         return (
             <div className='geoapp-trackables-widget__panel' role='tabpanel'>
-                {this.pendingLogContext && (
-                    <div className='geoapp-trackables-widget__notice' role='status'>
-                        Prérempli depuis la fiche cache : {this.pendingLogContext.action === 'retrieve' ? 'retirer'
-                            : this.pendingLogContext.action === 'discover' ? 'découvrir' : 'loguer'}
-                        {this.pendingLogContext.geocacheCode ? ` dans ${this.pendingLogContext.geocacheCode}` : ''}.
-                    </div>
-                )}
                 <label className='geoapp-trackables-widget__label'>
                     Codes de suivi ou publics — un par ligne, collage libre, URLs coord.info ou ?tracker= acceptées :
                     <textarea
@@ -1041,7 +1045,8 @@ export class TrackablesWidget extends ReactWidget {
                 </span>
                 <span className='geoapp-trackables-widget__queue-meta'>
                     {[item.owner_username, item.current_geocache_code
-                        ? `dans ${item.current_geocache_code}` : undefined]
+                        ? `dans ${item.current_geocache_code}` : undefined,
+                    queueItemOriginLabel(item)]
                         .filter(Boolean).join(' · ')}
                 </span>
                 {item.status === 'ready' && item.allowed_log_types && item.allowed_log_types.length > 0 && (

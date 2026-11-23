@@ -88,6 +88,11 @@ export interface TrackableQueueItem {
     logTypeId?: number;
     /** Cache visée par un « Retiré » (préremplie depuis la fiche cache du lot 4). */
     geocacheCode?: string;
+    /**
+     * Action demandée à l'ouverture (`retrieve`, `discover`, `log`) — propre à
+     * l'élément : elle choisit son type par défaut, pas celui des codes suivants.
+     */
+    preferredAction?: string;
     /** Le backend a refusé par conflit de localisation — bouton « Confirmer » affiché. */
     locationConflictPending?: boolean;
     /** L'utilisateur a confirmé le conflit de localisation (409 du backend). */
@@ -130,6 +135,16 @@ export function queueItemDisplayCode(item: Pick<TrackableQueueItem, 'reference_c
         return item.inputCode.toUpperCase();
     }
     return '(code saisi)';
+}
+
+/** Origine d'un élément venu d'une fiche cache (« retirer de GC… »), sinon rien. */
+export function queueItemOriginLabel(item: Pick<TrackableQueueItem, 'preferredAction' | 'geocacheCode'>): string | undefined {
+    const verb = item.preferredAction === 'retrieve' ? 'retirer'
+        : item.preferredAction === 'discover' ? 'découvrir' : undefined;
+    if (!verb) {
+        return undefined;
+    }
+    return item.geocacheCode ? `${verb} (fiche ${item.geocacheCode})` : `${verb} (fiche cache)`;
 }
 
 /** Extrait les codes d'un collage libre, dédoublonnés dans l'ordre d'apparition. */
@@ -236,6 +251,9 @@ export interface StoredTrackableQueueItem {
     has_tracking_code?: boolean;
     allowed_log_types?: { id: number; label: string }[];
     logTypeId?: number;
+    /** Cache de retrait et action d'origine : publiques, elles survivent à la reprise. */
+    geocacheCode?: string;
+    preferredAction?: string;
     status: TrackableQueueStatus;
     statusDetail?: string;
     trackable_url?: string;
@@ -258,6 +276,8 @@ export function sanitizeQueueForStorage(items: readonly TrackableQueueItem[]): S
         has_tracking_code: item.has_tracking_code,
         allowed_log_types: item.allowed_log_types?.map(t => ({ id: t.id, label: t.label })),
         logTypeId: item.logTypeId,
+        geocacheCode: item.geocacheCode,
+        preferredAction: item.preferredAction,
         // 'submitting' restauré = envoi interrompu au résultat inconnu.
         status: item.status === 'submitting'
             ? 'unknown'

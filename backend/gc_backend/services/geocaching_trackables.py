@@ -229,6 +229,19 @@ class TrackableLogEntry:
     # alors une meilleure estimation, `log_date_raw` reste la valeur probante.
     log_date_ambiguous: bool = False
 
+    def possible_dates(self) -> Optional[set[str]]:
+        """
+        Dates ISO compatibles avec la date affichée, ou ``None`` si elle n'a pas
+        pu être lue (format non numérique). Une date ambiguë admet ses deux
+        lectures jour/mois : l'estimation seule ne suffit pas à l'écarter.
+        """
+        if not self.log_date:
+            return None
+        if not self.log_date_ambiguous:
+            return {self.log_date}
+        readings = (_parse_numeric_date(self.log_date_raw, True), _parse_numeric_date(self.log_date_raw, False))
+        return {value for value in readings if value} or {self.log_date}
+
     def to_dict(self) -> dict:
         return asdict(self)
 
