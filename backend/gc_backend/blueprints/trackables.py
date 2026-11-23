@@ -305,26 +305,51 @@ def get_geocache_inventory(gc_code: str):
 _DETAIL_CACHE_TTL_SECONDS = 300
 _DETAIL_CACHE_MAX_ENTRIES = 2000
 _detail_cache: dict[str, tuple[float, dict]] = {}
+# Les verrous `_sync_lock` sont par clé : deux fiches différentes écrivent en
+# parallèle. Ce verrou commun protège le dictionnaire lui-même (le nettoyage le
+# parcourt pendant qu'un autre thread pourrait y insérer).
+_detail_cache_lock = threading.Lock()
 
 
 def _detail_cache_get(key: str):
-    entry = _detail_cache.get(key)
-    if entry is None:
-        return None
-    expires_at, payload = entry
-    if monotonic() > expires_at:
-        _detail_cache.pop(key, None)
-        return None
-    return payload
+    with _detail_cache_lock:
+        entry = _detail_cache.get(key)
+        if entry is None:
+            return None
+        expires_at, payload = entry
+        if monotonic() > expires_at:
+            _detail_cache.pop(key, None)
+            return None
+        return payload
 
 
 def _detail_cache_put(key: str, payload: dict) -> None:
-    if len(_detail_cache) >= _DETAIL_CACHE_MAX_ENTRIES:
-        # Nettoyage opportuniste des entrées expirées avant de grossir encore.
+    with _detail_cache_lock:
         now = monotonic()
-        for k in [k for k, (exp, _) in _detail_cache.items() if exp < now]:
-            _detail_cache.pop(k, None)
-    _detail_cache[key] = (monotonic() + _DETAIL_CACHE_TTL_SECONDS, payload)
+        if len(_detail_cache) >= _DETAIL_CACHE_MAX_ENTRIES:
+            # Expirées d'abord ; encore plein, les plus proches de l'expiration
+            # partent — le cache reste borné même sous une rafale de fiches.
+            for k in [k for k, (exp, _) in _detail_cache.items() if exp < now]:
+                del _detail_cache[k]
+            overflow = len(_detail_cache) - _DETAIL_CACHE_MAX_ENTRIES + 1
+            if overflow > 0:
+                for k, _ in sorted(_detail_cache.items(), key=lambda item: item[1][0])[:overflow]:
+                    del _detail_cache[k]
+        _detail_cache[key] = (now + _DETAIL_CACHE_TTL_SECONDS, payload)
+
+
+def invalidate_trackable_details(codes) -> None:
+    """
+    Oublie la fiche et les types de log en cache court de ces TBs. Appelé après
+    tout POST de log qui les porte — accepté, refusé ou au résultat incertain :
+    position, derniers logs et types permis peuvent avoir changé, et la fiche ne
+    doit pas montrer l'ancienne cache pendant cinq minutes.
+    """
+    with _detail_cache_lock:
+        for code in codes:
+            code = normalize_code(code)
+            _detail_cache.pop(f'trackable:{code}', None)
+            _detail_cache.pop(f'loginfo:{code}', None)
 
 
 # ------------------------------------------------------------------- Un TB
@@ -522,6 +547,10 @@ def post_trackable_log(tb_code: str):
         if operation_id:
             _release_log_operation(operation_id)
         raise
+    finally:
+        # Un POST parti — accepté, refusé ou incertain — rend la fiche en cache court
+        # douteuse ; après un refus avant envoi, l'oubli ne coûte qu'une relecture.
+        invalidate_trackable_details([code])
     if operation_id:
         _store_log_operation(operation_id, payload, status)
     return jsonify(payload), status

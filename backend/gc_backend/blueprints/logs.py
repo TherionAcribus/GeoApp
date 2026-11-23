@@ -37,6 +37,7 @@ from ..services.geocaching_trackables import CACHE_LOG_TRACKABLE_ACTIONS, is_pub
 from ..services import gps_visit_store, my_found_dates, trackable_store
 from ..services.log_problems import PROBLEM_CATEGORIES, PROBLEM_LOG_TYPE_LABELS, validate_problem
 from ..services.zone_membership import found_row, mark_found_everywhere
+from .trackables import invalidate_trackable_details
 
 bp = Blueprint('logs', __name__)
 logger = logging.getLogger(__name__)
@@ -761,6 +762,12 @@ def submit_geocache_log(geocache_id: int):
                 'error': 'Log submission interrupted by a network error',
                 'error_code': error_code,
             }), 502
+        finally:
+            # Un log portant des TBs est parti (accepté, refusé ou incertain) : leurs
+            # fiches en cache court (position, derniers logs) ne sont plus fiables.
+            invalidate_trackable_details(
+                code for code, action in trackable_actions.items() if action in CACHE_LOG_TRACKABLE_ACTIONS
+            )
         if not result:
             return jsonify({'error': 'Failed to submit log to Geocaching.com'}), 502
 

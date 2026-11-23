@@ -794,6 +794,18 @@ def test_cache_inventory_clears_a_location_learned_elsewhere(app):
     assert Trackable.query.filter_by(reference_code='TBAAA1').one().current_geocache_code is None
 
 
+def test_my_inventory_takes_trackables_out_of_their_caches(app):
+    """Retiré via le site ou c:geo : en main, le TB ne figure plus dans la fiche de la cache."""
+    trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA1')), _summary(_cache_item('TBAAA2'))])
+    trackable_store.save_cache_inventory('GC2F62', [_summary(_cache_item('TBAAA3'))])
+
+    trackable_store.save_my_inventory([_summary(_inventory_item('TBAAA1'))])
+
+    assert [t.reference_code for t in trackable_store.list_cache_inventory('GC1E51')] == ['TBAAA2']
+    assert [t.reference_code for t in trackable_store.list_cache_inventory('GC2F62')] == ['TBAAA3']
+    assert Trackable.query.filter_by(reference_code='TBAAA1').one().current_geocache_code is None
+
+
 def test_full_fetch_clears_location_when_trackable_left_the_cache(app):
     """Fiche complète avec `currentGeocache: null` : le TB est reparti en main/chez quelqu'un."""
     trackable_store.save_cache_inventory('GC1E51', [_summary(_cache_item('TBAAA1'))])

@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
+from sqlalchemy import select
+
 from ..database import db
 from ..models import AppConfig, GeocacheTrackable, Trackable
 from .geocaching_trackables import TrackableSummary, normalize_code
@@ -195,6 +197,14 @@ def save_my_inventory(items: Iterable[TrackableSummary]) -> InventorySyncReport:
         for start in range(0, len(seen), _PRELOAD_CHUNK):
             stale = stale.filter(~Trackable.reference_code.in_(seen[start:start + _PRELOAD_CHUNK]))
         removed = stale.update({'in_my_inventory': False}, synchronize_session=False)
+
+        # Un TB en main n'est dans aucune cache : ses relations `GeocacheTrackable`
+        # tombent avec sa localisation, sinon la fiche de la cache le listerait
+        # encore jusqu'à son prochain relevé (TB retiré via le site ou c:geo).
+        # Un seul DELETE sur sous-requête, quel que soit le nombre de TBs.
+        held = select(Trackable.reference_code).where(Trackable.in_my_inventory.is_(True))
+        GeocacheTrackable.query.filter(GeocacheTrackable.trackable_code.in_(held)).delete(
+            synchronize_session=False)
 
         synced_at = datetime.now(timezone.utc)
         AppConfig.set_value(INVENTORY_LAST_SYNC_KEY, synced_at.isoformat())

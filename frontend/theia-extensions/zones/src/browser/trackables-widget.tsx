@@ -309,13 +309,18 @@ export class TrackablesWidget extends ReactWidget {
         this.update();
     }
 
-    protected async loadInventory(mode: 'auto' | 'refresh'): Promise<void> {
+    /**
+     * `auto` relit le site si le relevé est périmé, `refresh` le force, `local`
+     * relit seulement la base du backend — déjà mise à jour par un log envoyé.
+     */
+    protected async loadInventory(mode: 'auto' | 'refresh' | 'local'): Promise<void> {
         if (this.inventory.loading) {
             return;
         }
         this.inventory = { ...this.inventory, loading: true, error: undefined };
         this.update();
-        const query = mode === 'refresh' ? '?refresh=1' : `?max_age=${TRACKABLE_INVENTORY_MAX_AGE_SECONDS}`;
+        const query = mode === 'refresh' ? '?refresh=1'
+            : mode === 'local' ? '' : `?max_age=${TRACKABLE_INVENTORY_MAX_AGE_SECONDS}`;
         try {
             const res = await fetch(`${this.backendBaseUrl}/api/trackables/inventory${query}`, {
                 credentials: 'include',
@@ -602,6 +607,7 @@ export class TrackablesWidget extends ReactWidget {
         }
         this.queueRunning = true;
         this.queueStopRequested = false;
+        const confirmedBefore = trackableQueueCounts(this.queue).confirmed;
         this.update();
         try {
             for (const item of this.queue) {
@@ -697,6 +703,11 @@ export class TrackablesWidget extends ReactWidget {
             }
             this.persistQueue();
             this.update();
+            // Un TB retiré ou pris est entré dans l'inventaire local côté backend :
+            // l'onglet Inventaire le montre sans attendre un « Rafraîchir ».
+            if (counts.confirmed > confirmedBefore) {
+                void this.loadInventory('local');
+            }
         }
     }
 

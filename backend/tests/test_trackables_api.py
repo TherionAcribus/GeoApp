@@ -554,6 +554,17 @@ def test_log_info_is_cached_but_tracking_code_stays_fresh(app, fake_network):
     assert len([c for c in fake.calls if c[0] == 'log_info']) == 1
 
 
+def test_detail_cache_stays_bounded(monkeypatch):
+    """Plein de fiches encore valides : les plus proches de l'expiration cèdent la place."""
+    monkeypatch.setattr(trackables_bp, '_DETAIL_CACHE_MAX_ENTRIES', 3)
+    for index in range(5):
+        trackables_bp._detail_cache_put(f'trackable:TB{index}', {'n': index})
+
+    assert len(trackables_bp._detail_cache) == 3
+    assert trackables_bp._detail_cache_get('trackable:TB4') == {'n': 4}
+    assert trackables_bp._detail_cache_get('trackable:TB0') is None
+
+
 def test_trackable_route_maps_partial_result(app, fake_network):
     fake_network(trackable=TrackablePartialResultError('inventaire tronqué'))
     response = app.test_client().get('/api/trackables/TBBAQ0Z')
@@ -903,6 +914,39 @@ def test_replayed_operation_ignores_the_changed_log_page(trackable_log_client, f
     assert second.get_json() == first.get_json()
     assert trackable_log_client.sent['count'] == 1
     assert in_hand.calls == []      # pas même un préflight distant
+
+
+def test_trackable_log_forgets_the_cached_detail(trackable_log_client):
+    """Après un « Retiré », la fiche et les types permis sont relus, pas servis du cache 5 min."""
+    trackables_bp._detail_cache_put('trackable:TBBAQ0Z', {'success': True, 'stale': 'dans GC1E51'})
+    trackables_bp._detail_cache_put('loginfo:TBBAQ0Z', {'allowed_log_type_ids': [4, 13]})
+    trackables_bp._detail_cache_put('trackable:TBOTHER', {'success': True})
+
+    response = _post_tb_log(trackable_log_client)
+
+    assert response.status_code == 200
+    assert trackables_bp._detail_cache_get('trackable:TBBAQ0Z') is None
+    assert trackables_bp._detail_cache_get('loginfo:TBBAQ0Z') is None
+    assert trackables_bp._detail_cache_get('trackable:TBOTHER') == {'success': True}
+
+
+def test_cache_log_forgets_the_cached_detail_of_its_trackables(app, cache_log_client):
+    """Même un résultat incertain : le dépôt a pu avoir lieu, la fiche en cache n'est plus fiable."""
+    trackable_store.save_my_inventory([_mine('TBAAA1'), _mine('TBAAA2'), _mine('TBAAA3')])
+    for code in ('TBAAA1', 'TBAAA2', 'TBAAA3'):
+        trackables_bp._detail_cache_put(f'trackable:{code}', {'success': True})
+    cache_log_client.sent['result'] = LogSubmitNetworkError('read timeout', outcome='unknown_remote_outcome')
+
+    response = _submit_cache_log(cache_log_client, app.geocache_id, [
+        {'code': 'TBAAA1', 'action': 'visit'},
+        {'code': 'TBAAA2', 'action': 'drop'},
+        {'code': 'TBAAA3', 'action': 'none'},   # pas envoyé au site : rien à oublier
+    ])
+
+    assert response.status_code == 502
+    assert trackables_bp._detail_cache_get('trackable:TBAAA1') is None
+    assert trackables_bp._detail_cache_get('trackable:TBAAA2') is None
+    assert trackables_bp._detail_cache_get('trackable:TBAAA3') == {'success': True}
 
 
 def test_refused_operation_releases_its_key(trackable_log_client):

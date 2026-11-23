@@ -123,7 +123,9 @@ parallèle existe (`add_trackable_tables`).
 - un relevé ne vide jamais un champ déjà connu : l'inventaire d'une cache, pauvre,
   n'efface ni le propriétaire ni le code de suivi appris par mon inventaire ;
 - `save_my_inventory` sort de l'inventaire les TBs qui n'y sont plus, et efface la
-  cache courante des TBs en main ;
+  cache courante des TBs en main ainsi que leurs relations `geocache_trackable`
+  (un seul `DELETE … IN (SELECT …)`) — un TB retiré via le site ou c:geo ne
+  reste pas listé dans la fiche de sa cache jusqu'au prochain relevé de celle-ci ;
 - la localisation suit un tri-état (`TrackableSummary.location_known`) : une source
   qui omet le champ `currentGeocache` ne touche pas à la localisation connue, une
   source qui l'affirme peut la remplacer *ou la vider* (`currentGeocache: null` =
@@ -275,7 +277,7 @@ d'une cache — extensible à la fiche et à log-info) :
   explicite confirme un inventaire réellement vide.
 | `POST /lookup` | Corps `{"code": "…"}` : code public ou code de suivi, qui ne passe donc jamais dans une URL ; `tracking_code_matched` dit si c'était un code de suivi, alors gardé en base | 400 `invalid_code`, 404 `not_found` |
 | `GET /lookup?code=` | **Déprécié** (en-tête `Deprecation`) : codes publics `TB…` seulement, tout autre code est refusé (`use_post_lookup`) car ce pourrait être un code de suivi | 400 `use_post_lookup`, 404 `not_found` |
-| `GET /<TB>[?refresh=1]` | `trackable` (base mise à jour) + `details` (fiche HTML, logs). Réponse en cache 5 min (les deux lectures restent séquentielles — la session n'est pas garantie sûre en concurrence ; le verrou `_sync_lock` coalesce les appels) ; `refresh=1` relit le site | 502 `partial_result` si le relevé distant est tronqué |
+| `GET /<TB>[?refresh=1]` | `trackable` (base mise à jour) + `details` (fiche HTML, logs). Réponse en cache 5 min (les deux lectures restent séquentielles — la session n'est pas garantie sûre en concurrence ; le verrou `_sync_lock` coalesce les appels) ; `refresh=1` relit le site. Fiche et log-info sont oubliées (`invalidate_trackable_details`) après tout POST de log qui porte le TB — log autonome, ou visite/dépôt dans un log de cache, quelle qu'en soit l'issue. Le cache est borné (2000 entrées, les plus proches de l'expiration cèdent la place) et protégé par un verrou commun | 502 `partial_result` si le relevé distant est tronqué |
 | `GET /<TB>/log-info[?refresh=1]` | Types autorisés, cache courante (cache 5 min), `has_tracking_code` toujours relu en base | |
 | `POST /<TB>/logs` | Log autonome (§ 5.2) | 400 `invalid_log_type`, `missing_text`, `text_too_long`, `invalid_date`, `missing_tracking_code`, `invalid_tracking_code`, `invalid_geocache`, `missing_geocache`, `trackable_action_not_allowed`, `invalid_operation_id` ; 409 `trackable_location_conflict`, `operation_in_flight` ; 502 `submit_failed` (+ `reconciled: absent` si relu), `submit_rejected`, `network_failed_before_response`, `unknown_remote_outcome` |
 
@@ -508,7 +510,9 @@ Trois onglets :
     au résultat inconnu (`unknown_remote_outcome`, exception fetch) →
     `unknown`, lien « Vérifier sur Geocaching.com », jamais de renvoi à
     l'aveugle. La persistance (localStorage, versionnée) restaure les envois
-    interrompus en « à vérifier » et les préflights en attente.
+    interrompus en « à vérifier » et les préflights en attente. Une file qui a
+    confirmé au moins un log relit l'inventaire local (`loadInventory('local')`,
+    sans appel au site) : un TB retiré apparaît aussitôt dans l'onglet Inventaire.
   - **Lot** : « Type pour tous les prêts » (`applyQueueLogType`) n'applique le
     choix qu'aux éléments dont `allowed_log_types` le contient — les autres
     sont comptés, pas forcés. Les codes déjà présents sont écartés à l'analyse
