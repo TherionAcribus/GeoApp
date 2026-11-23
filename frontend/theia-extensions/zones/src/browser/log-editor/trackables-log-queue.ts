@@ -326,6 +326,76 @@ export function restoreQueueFromStorage(raw: unknown): StoredTrackableQueueItem[
     return restored;
 }
 
+/* ---------------------------------------------------------------------------
+ * Date du log commune à la file
+ * ------------------------------------------------------------------------- */
+
+/** Statuts d'un élément qui reste à envoyer (ou à renvoyer) : la file n'est pas finie. */
+const UNSENT_QUEUE_STATUSES = new Set<TrackableQueueStatus>(['pending', 'preflight', 'ready', 'rejected', 'error']);
+
+/**
+ * Écart en jours entre deux dates `YYYY-MM-DD` (négatif = `iso` dans le passé),
+ * ou `undefined` si `iso` n'est pas une date du calendrier (le 31 février est
+ * refusé : `Date.parse` le reporterait au 3 mars).
+ */
+function queueDayOffset(iso: string, today: string): number | undefined {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        return undefined;
+    }
+    const target = Date.parse(`${iso}T12:00:00Z`);
+    const base = Date.parse(`${today}T12:00:00Z`);
+    if (Number.isNaN(target) || Number.isNaN(base) || new Date(target).toISOString().slice(0, 10) !== iso) {
+        return undefined;
+    }
+    return Math.round((target - base) / 86400000);
+}
+
+/**
+ * Date du log à la reprise de la file (`today` en heure locale, cf.
+ * `todayIsoDate`). La date mémorisée n'est reprise que si la file a encore des
+ * envois à faire — une sortie passée en cours de saisie. File terminée ou vide,
+ * date illisible ou future : retour à aujourd'hui, sinon un widget rouvert des
+ * jours plus tard pré-daterait les logs suivants.
+ */
+export function restoredQueueLogDate(
+    storedDate: unknown,
+    items: readonly Pick<TrackableQueueItem, 'status'>[],
+    today: string
+): string {
+    if (typeof storedDate !== 'string' || !items.some(item => UNSENT_QUEUE_STATUSES.has(item.status))) {
+        return today;
+    }
+    const offset = queueDayOffset(storedDate, today);
+    return offset !== undefined && offset <= 0 ? storedDate : today;
+}
+
+/** Indication affichée près du champ date : « hier », « il y a 6 jours »… */
+export function queueLogDateHint(
+    iso: string,
+    today: string
+): { label: string; tone: 'info' | 'warn' | 'error' } | undefined {
+    const offset = queueDayOffset(iso, today);
+    if (offset === undefined) {
+        return iso ? { label: 'date invalide', tone: 'error' } : undefined;
+    }
+    if (offset > 0) {
+        return { label: offset === 1 ? 'demain !' : `dans ${offset} jours !`, tone: 'error' };
+    }
+    if (offset === 0) {
+        return { label: "aujourd'hui", tone: 'info' };
+    }
+    return offset === -1 ? { label: 'hier', tone: 'info' } : { label: `il y a ${-offset} jours`, tone: 'warn' };
+}
+
+/** Motif de refus de la date avant envoi (vide, invalide ou future), sinon `undefined`. */
+export function queueLogDateError(iso: string, today: string): string | undefined {
+    const offset = queueDayOffset(iso, today);
+    if (offset === undefined) {
+        return 'Indiquez une date de log valide.';
+    }
+    return offset > 0 ? 'La date du log est dans le futur.' : undefined;
+}
+
 /** Bilan copiable de la file — codes publics seulement, jamais de code de suivi. */
 export function buildTrackableQueueReport(items: readonly TrackableQueueItem[]): string {
     const counts = trackableQueueCounts(items);

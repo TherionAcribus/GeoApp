@@ -78,6 +78,23 @@
     opacity: 0.85;
 }
 
+/* Écart de la date du log avec aujourd'hui : une date ancienne se remarque, une date future bloque. */
+.geoapp-trackables-widget__date-hint {
+    margin-left: 6px;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.geoapp-trackables-widget__date-hint--warn {
+    color: var(--theia-editorWarning-foreground);
+    opacity: 1;
+}
+
+.geoapp-trackables-widget__date-hint--error {
+    color: var(--theia-errorForeground);
+    opacity: 1;
+}
+
 .geoapp-trackables-widget__empty {
     opacity: 0.7;
     font-style: italic;

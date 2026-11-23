@@ -46,12 +46,16 @@ import {
     parseTrackableCodeTokens,
     queueItemDisplayCode,
     queueItemOriginLabel,
+    queueLogDateError,
+    queueLogDateHint,
     restoreQueueFromStorage,
+    restoredQueueLogDate,
     sanitizeQueueForStorage,
     trackableLogTypeNeedsGeocache,
     trackableLogTypeNeedsTrackingCode,
     trackableQueueCounts,
 } from './log-editor/trackables-log-queue';
+import { todayIsoDate } from './log-editor/helpers';
 
 export type TrackablesWidgetTab = 'inventory' | 'log' | 'detail';
 
@@ -162,7 +166,8 @@ export class TrackablesWidget extends ReactWidget {
     protected queue: TrackableQueueItem[] = [];
     /** Codes de suivi saisis par élément — mémoire seule : jamais en localStorage. */
     protected queueTrackingCodes: Record<string, string> = {};
-    protected queueLogDate = new Date().toISOString().slice(0, 10);
+    /** Date locale (pas UTC : entre minuit et 2 h, `toISOString` donnerait la veille). */
+    protected queueLogDate = todayIsoDate();
     protected queueLogText = '';
     protected queueRunning = false;
     protected queuePreflighting = false;
@@ -219,9 +224,7 @@ export class TrackablesWidget extends ReactWidget {
                         trackable_url: item.trackable_url,
                     }));
                 }
-                if (stored.logDate) {
-                    this.queueLogDate = stored.logDate;
-                }
+                this.queueLogDate = restoredQueueLogDate(stored.logDate, this.queue, todayIsoDate());
                 if (stored.logText) {
                     this.queueLogText = stored.logText;
                 }
@@ -592,6 +595,11 @@ export class TrackablesWidget extends ReactWidget {
             this.messages.warn('Le texte du log est requis.');
             return;
         }
+        const dateError = queueLogDateError(this.queueLogDate, todayIsoDate());
+        if (dateError) {
+            this.messages.warn(dateError);
+            return;
+        }
         this.queueRunning = true;
         this.queueStopRequested = false;
         this.update();
@@ -861,6 +869,8 @@ export class TrackablesWidget extends ReactWidget {
         const counts = trackableQueueCounts(this.queue);
         const busy = this.queueRunning || this.queuePreflighting;
         const sendable = this.queue.some(item => item.status === 'ready');
+        const today = todayIsoDate();
+        const dateHint = queueLogDateHint(this.queueLogDate, today);
         // « Tout mettre à » : union des types que le site propose aux prêts.
         const massLogTypes = new Map<number, string>();
         for (const item of this.queue) {
@@ -939,12 +949,23 @@ export class TrackablesWidget extends ReactWidget {
                                     type='date'
                                     className='theia-input'
                                     value={this.queueLogDate}
+                                    max={today}
+                                    disabled={this.queueRunning}
+                                    aria-describedby={dateHint ? 'geoapp-trackables-date-hint' : undefined}
                                     onChange={e => {
                                         this.queueLogDate = e.currentTarget.value;
                                         this.persistQueue();
                                         this.update();
                                     }}
                                 />
+                                {dateHint && (
+                                    <span
+                                        id='geoapp-trackables-date-hint'
+                                        className={`geoapp-trackables-widget__date-hint geoapp-trackables-widget__date-hint--${dateHint.tone}`}
+                                    >
+                                        {dateHint.label}
+                                    </span>
+                                )}
                             </label>
                             <label className='geoapp-trackables-widget__label geoapp-trackables-widget__label--grow'>
                                 Texte commun à tous les logs

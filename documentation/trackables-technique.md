@@ -492,6 +492,15 @@ Trois onglets :
     persisté (`sanitizeQueueForStorage` retire `inputCode` et le collage n'est
     pas stocké), et le code de suivi exigé par les types hors « Note » est un
     champ masqué vivant en mémoire jusqu'au POST.
+  - **Date du log** : date du jour en heure **locale** (`todayIsoDate`, pas
+    `toISOString` qui donnait la veille entre minuit et 2 h). À la reprise, la
+    date mémorisée n'est gardée que si la file a encore des envois à faire
+    (`restoredQueueLogDate` : `pending`/`ready`/`rejected`/`error`) ; file
+    terminée ou vide, date future ou hors calendrier → aujourd'hui. Le champ
+    affiche l'écart (`queueLogDateHint` : « hier », « il y a 6 jours » en
+    avertissement, date future en erreur), est borné à aujourd'hui (`max`) et
+    figé pendant l'envoi ; `queueLogDateError` bloque l'envoi d'une date vide,
+    invalide ou future avant tout POST.
   - **File d'envoi** : `POST /<TB>/logs` un élément à la fois avec
     `operationId` neuf par tentative ; « Arrêter après l'envoi en cours » ;
     `locationConflictConfirmed` renvoyé après le 409 de conflit. Échec net →

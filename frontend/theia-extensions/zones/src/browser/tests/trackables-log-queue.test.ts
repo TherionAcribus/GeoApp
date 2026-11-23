@@ -17,7 +17,10 @@ import {
     parseTrackableCodeTokens,
     queueItemDisplayCode,
     queueItemOriginLabel,
+    queueLogDateError,
+    queueLogDateHint,
     restoreQueueFromStorage,
+    restoredQueueLogDate,
     sanitizeQueueForStorage,
     trackableLogTypeNeedsGeocache,
     trackableLogTypeNeedsTrackingCode,
@@ -187,6 +190,47 @@ function testRestoreQueueFromStorage(): void {
     assert.deepEqual(restoreQueueFromStorage({ items: 'nope' }), []);
 }
 
+/* --------------------------- date du log ------------------------------ */
+
+function testRestoredQueueLogDate(): void {
+    const today = '2026-11-23';
+    const unsent = [item({ status: 'confirmed' }), item({ status: 'ready' })];
+    // File en cours : la date d'une sortie passée est reprise.
+    assert.equal(restoredQueueLogDate('2026-11-16', unsent, today), '2026-11-16');
+    for (const status of ['pending', 'rejected', 'error'] as const) {
+        assert.equal(restoredQueueLogDate('2026-11-16', [item({ status })], today), '2026-11-16');
+    }
+    // File terminée (confirmés, à vérifier) ou vide : retour à aujourd'hui.
+    const done = [item({ status: 'confirmed' }), item({ status: 'unknown' })];
+    assert.equal(restoredQueueLogDate('2026-11-16', done, today), today);
+    assert.equal(restoredQueueLogDate('2026-11-16', [], today), today);
+    // Date future, illisible, hors calendrier ou absente : jamais reprise.
+    assert.equal(restoredQueueLogDate('2026-11-24', unsent, today), today);
+    assert.equal(restoredQueueLogDate('23/11/2026', unsent, today), today);
+    assert.equal(restoredQueueLogDate('2026-02-31', unsent, today), today);
+    assert.equal(restoredQueueLogDate('', unsent, today), today);
+    assert.equal(restoredQueueLogDate(undefined, unsent, today), today);
+}
+
+function testQueueLogDateHintAndError(): void {
+    const today = '2026-11-23';
+    assert.deepEqual(queueLogDateHint(today, today), { label: "aujourd'hui", tone: 'info' });
+    assert.deepEqual(queueLogDateHint('2026-11-22', today), { label: 'hier', tone: 'info' });
+    assert.deepEqual(queueLogDateHint('2026-11-17', today), { label: 'il y a 6 jours', tone: 'warn' });
+    assert.deepEqual(queueLogDateHint('2026-11-24', today), { label: 'demain !', tone: 'error' });
+    assert.deepEqual(queueLogDateHint('2026-12-03', today), { label: 'dans 10 jours !', tone: 'error' });
+    // Changement d'heure (29 mars) : l'écart reste un nombre entier de jours.
+    assert.deepEqual(queueLogDateHint('2026-03-28', '2026-03-30'), { label: 'il y a 2 jours', tone: 'warn' });
+    assert.equal(queueLogDateHint('', today), undefined);
+    assert.deepEqual(queueLogDateHint('2026-02-31', today), { label: 'date invalide', tone: 'error' });
+
+    assert.equal(queueLogDateError(today, today), undefined);
+    assert.equal(queueLogDateError('2026-11-01', today), undefined);
+    assert.ok(queueLogDateError('2026-11-24', today)?.includes('futur'));
+    assert.ok(queueLogDateError('', today));
+    assert.ok(queueLogDateError('2026-02-31', today));
+}
+
 function testBuildTrackableQueueReportNoSecrets(): void {
     const report = buildTrackableQueueReport([
         item({ key: 'a', inputCode: 'SECRET9', reference_code: 'TB5XYZ', status: 'confirmed' }),
@@ -245,6 +289,8 @@ function run(): void {
     testSanitizeQueueForStorage();
     testPreferredActionStaysOnItsItem();
     testRestoreQueueFromStorage();
+    testRestoredQueueLogDate();
+    testQueueLogDateHintAndError();
     testBuildTrackableQueueReportNoSecrets();
     testBuildTrackableQueueCsv();
     testApplyQueueLogType();
