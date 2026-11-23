@@ -560,6 +560,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     protected readonly preventFileDropNavigation = (event: DragEvent): void => {
         if (Array.from(event.dataTransfer?.types || []).includes('Files')) {
             event.preventDefault();
+            event.stopPropagation();
         }
     };
 
@@ -989,6 +990,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             return;
         }
         event.preventDefault();
+        event.stopPropagation();
         event.dataTransfer.dropEffect = 'copy';
     }
 
@@ -1008,6 +1010,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             return;
         }
         event.preventDefault();
+        event.stopPropagation();
         this.dragDepth = 0;
         this.dropActive = false;
         void this.upload(Array.from(event.dataTransfer.files || []));
