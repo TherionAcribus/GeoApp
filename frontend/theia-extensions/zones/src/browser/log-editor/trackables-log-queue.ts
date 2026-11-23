@@ -22,16 +22,22 @@ export const TRACKABLE_LOG_TYPE_IDS = {
     VISITED: 75,
 } as const;
 
-/** Libellés de repli quand `log-info` n'a pas fourni `allowed_log_types`. */
+/**
+ * Libellés des types de log TB : repli quand `log-info` n'a pas fourni
+ * `allowed_log_types`, et source du bilan, de l'export CSV et des messages.
+ * Miroir exact de `TRACKABLE_LOG_TYPE_LABELS` du backend (`gcApiId` de c:geo).
+ */
 export const TRACKABLE_LOG_TYPE_FALLBACK_LABELS: Record<number, string> = {
     4: 'Note',
     5: 'Archivé',
     13: 'Retiré de la cache',
     14: 'Déposé',
-    16: 'Transféré',
+    15: 'Transféré',
+    16: 'Marqué manquant',
     19: 'Pris ailleurs',
     48: 'Découvert',
-    74: 'Marqué manquant',
+    69: 'Déplacé vers la collection',
+    70: "Déplacé vers l'inventaire",
     75: 'Visité',
 };
 
@@ -45,6 +51,23 @@ const TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE = new Set<number>([TRACKABLE_LOG_TYPE
 
 export function trackableLogTypeNeedsGeocache(logTypeId: number | undefined): boolean {
     return logTypeId !== undefined && TRACKABLE_LOG_TYPES_NEEDING_GEOCACHE.has(logTypeId);
+}
+
+/**
+ * Cache de retrait après le préflight : celle déjà saisie ou venue d'une fiche
+ * cache reste prioritaire (le backend signale un conflit), sinon la cache où le
+ * site situe le TB — c'est elle que le backend retiendrait, autant l'afficher
+ * plutôt que de bloquer l'envoi sur un champ vide.
+ */
+export function defaultRetrieveGeocacheCode(
+    current: string | undefined,
+    declared: string | null | undefined
+): string | undefined {
+    if (current?.trim()) {
+        return current;
+    }
+    const code = (declared ?? '').trim().toUpperCase();
+    return code.startsWith('GC') ? code : undefined;
 }
 
 /**

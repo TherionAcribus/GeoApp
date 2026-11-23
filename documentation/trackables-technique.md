@@ -489,6 +489,12 @@ Trois onglets :
     affichés sur l'élément prêt. Si `log-info` est injoignable, une
     liste de repli des types courants est proposée et le backend revalide à
     l'envoi ; si le site n'en propose aucun, l'élément est signalé.
+    La cache de retrait est préremplie à la fin du préflight
+    (`defaultRetrieveGeocacheCode`) : une cache déjà saisie ou venue d'une
+    fiche cache reste prioritaire, sinon celle où le site situe le TB — celle
+    que le backend retiendrait de toute façon. Les libellés des types
+    (`TRACKABLE_LOG_TYPE_FALLBACK_LABELS`, repli et export CSV) sont le miroir
+    exact de `TRACKABLE_LOG_TYPE_LABELS` du backend.
   - **Secret** : le code saisi n'est jamais affiché (`queueItemDisplayCode`
     n'expose que le code public résolu, sinon « (code saisi) »), jamais
     persisté (`sanitizeQueueForStorage` retire `inputCode` et le collage n'est

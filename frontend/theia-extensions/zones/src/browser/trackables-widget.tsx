@@ -41,6 +41,7 @@ import {
     applyQueueLogType,
     buildTrackableQueueCsv,
     buildTrackableQueueReport,
+    defaultRetrieveGeocacheCode,
     defaultTrackableLogType,
     isLikelyPublicCode,
     parseTrackableCodeTokens,
@@ -577,6 +578,12 @@ export class TrackablesWidget extends ReactWidget {
                     } else if (patch.allowed_log_types && patch.allowed_log_types.length === 0) {
                         patch = { ...patch, statusDetail: 'Aucun type de log proposé par le site pour ce trackable.' };
                     }
+                    // Relu dans la file : la cache a pu être saisie pendant le préflight.
+                    const typedGeocache = this.queue.find(entry => entry.key === item.key)?.geocacheCode;
+                    patch = {
+                        ...patch,
+                        geocacheCode: defaultRetrieveGeocacheCode(typedGeocache, patch.current_geocache_code),
+                    };
                     this.patchQueueItem(item.key, { ...patch, status: 'ready' });
                 } catch {
                     this.patchQueueItem(item.key, { status: 'error', statusDetail: 'Backend injoignable pendant le préflight.' });
@@ -1102,6 +1109,7 @@ export class TrackablesWidget extends ReactWidget {
                         value={item.geocacheCode ?? ''}
                         disabled={this.queueRunning}
                         placeholder='GC… de retrait'
+                        title='Préremplie avec la cache où Geocaching.com situe le trackable'
                         aria-label={`Cache de retrait pour ${displayCode}`}
                         onChange={e => this.patchQueueItem(item.key, { geocacheCode: e.currentTarget.value })}
                     />

@@ -8,10 +8,12 @@
  */
 import * as assert from 'assert/strict';
 import {
+    TRACKABLE_LOG_TYPE_FALLBACK_LABELS,
     TRACKABLE_LOG_TYPE_IDS,
     applyQueueLogType,
     buildTrackableQueueCsv,
     buildTrackableQueueReport,
+    defaultRetrieveGeocacheCode,
     defaultTrackableLogType,
     isLikelyPublicCode,
     parseTrackableCodeTokens,
@@ -84,6 +86,33 @@ function testLogTypeHelpers(): void {
     assert.equal(trackableLogTypeNeedsTrackingCode(undefined), false);
     assert.equal(trackableLogTypeNeedsGeocache(TRACKABLE_LOG_TYPE_IDS.RETRIEVED), true);
     assert.equal(trackableLogTypeNeedsGeocache(TRACKABLE_LOG_TYPE_IDS.DISCOVERED), false);
+}
+
+function testDefaultRetrieveGeocacheCode(): void {
+    // Rien de saisi : la cache où le site situe le TB, normalisée.
+    assert.equal(defaultRetrieveGeocacheCode(undefined, 'gc1e51'), 'GC1E51');
+    assert.equal(defaultRetrieveGeocacheCode('  ', 'GC1E51'), 'GC1E51');
+    // Saisie ou fiche cache : prioritaire, même en désaccord (le backend signale le conflit).
+    assert.equal(defaultRetrieveGeocacheCode('GC2F62', 'GC1E51'), 'GC2F62');
+    // TB en main ou chez quelqu'un : rien à proposer.
+    assert.equal(defaultRetrieveGeocacheCode(undefined, null), undefined);
+    assert.equal(defaultRetrieveGeocacheCode(undefined, 'PR-UTILISATEUR'), undefined);
+}
+
+function testLogTypeLabelsMirrorBackend(): void {
+    // Miroir de TRACKABLE_LOG_TYPE_LABELS (backend) : 15 et 16 étaient décalés, 74 n'est pas un type TB.
+    assert.equal(TRACKABLE_LOG_TYPE_FALLBACK_LABELS[15], 'Transféré');
+    assert.equal(TRACKABLE_LOG_TYPE_FALLBACK_LABELS[16], 'Marqué manquant');
+    assert.equal(TRACKABLE_LOG_TYPE_FALLBACK_LABELS[74], undefined);
+    assert.deepEqual(
+        Object.keys(TRACKABLE_LOG_TYPE_FALLBACK_LABELS).map(Number),
+        [4, 5, 13, 14, 15, 16, 19, 48, 69, 70, 75],
+    );
+    // L'export CSV nomme le type envoyé avec ces libellés (« Transféré » sortait pour un 16).
+    const csv = buildTrackableQueueCsv([
+        item({ key: 'a', inputCode: 'TB5XYZ', reference_code: 'TB5XYZ', status: 'confirmed', logTypeId: 16 }),
+    ]);
+    assert.ok(csv.split('\n')[1].includes(';Marqué manquant;'), csv);
 }
 
 function testDefaultTrackableLogType(): void {
@@ -285,6 +314,8 @@ function run(): void {
     testDisplayCodeNeverLeaksSecret();
     testLogTypeHelpers();
     testDefaultTrackableLogType();
+    testDefaultRetrieveGeocacheCode();
+    testLogTypeLabelsMirrorBackend();
     testTrackableQueueCounts();
     testSanitizeQueueForStorage();
     testPreferredActionStaysOnItsItem();
