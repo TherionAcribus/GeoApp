@@ -3,6 +3,7 @@ import {
     EarthCoachResult,
     EarthCoachResultProposal,
     EarthCoachSnapshotTask,
+    EarthCoachWorkspace,
     EarthCoachWorkspaceGroup,
     EarthCoachWorkspaceImageContext,
 } from './earthcoach-workspace-types';
@@ -713,4 +714,59 @@ export function findLogSpoilers(log: string, proposals: EarthCoachResultProposal
         }
     });
     return spoilers;
+}
+
+/** Forme stockée d'un texte : le backend le nettoie (espaces de bord, vide → null). */
+function cleanedText(value: string | null | undefined): string | null {
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    return trimmed || null;
+}
+
+/**
+ * Le backend nettoie les champs texte (`strip`, vide → null). Reprendre la
+ * version nettoyée dans l'état local efface l'espace que l'utilisateur vient
+ * de taper et remet le curseur en fin de champ : quand les deux versions ne
+ * diffèrent que par les espaces de bord, la saisie locale est conservée.
+ */
+export function preserveTypedText<T extends string | null | undefined>(saved: T, submitted: T): T {
+    return cleanedText(saved) === cleanedText(submitted) ? submitted : saved;
+}
+
+/**
+ * Fusionne le dossier renvoyé par le serveur après une écriture : tout vient
+ * de la réponse, sauf les champs texte (nettoyés côté serveur, voir
+ * `preserveTypedText`) et l'id local du groupe. Le backend supprime puis
+ * recrée les groupes à chaque PUT : reprendre le nouvel id changerait la clé
+ * React du groupe et remonterait le champ en cours de saisie.
+ */
+export function mergeSavedWorkspace(saved: EarthCoachWorkspace, submitted: EarthCoachWorkspace): EarthCoachWorkspace {
+    const submittedComments = new Map(submitted.image_contexts.map(item => [item.image_id, item.comment]));
+    const image_contexts = saved.image_contexts.map(item => ({
+        ...item,
+        comment: submittedComments.has(item.image_id)
+            ? preserveTypedText(item.comment, submittedComments.get(item.image_id))
+            : item.comment,
+    }));
+    const sameMembers = (left: EarthCoachWorkspaceGroup, right: EarthCoachWorkspaceGroup): boolean =>
+        left.members.length === right.members.length
+        && left.members.every((member, index) => member.image_id === right.members[index].image_id);
+    const groups = saved.groups.length === submitted.groups.length
+        ? saved.groups.map((group, index) => {
+            const local = submitted.groups[index];
+            return local && sameMembers(local, group)
+                ? {
+                    ...group,
+                    id: local.id,
+                    title: preserveTypedText(group.title, local.title),
+                    instruction: preserveTypedText(group.instruction, local.instruction),
+                }
+                : group;
+        })
+        : saved.groups;
+    return {
+        ...saved,
+        general_comment: preserveTypedText(saved.general_comment, submitted.general_comment),
+        image_contexts,
+        groups,
+    };
 }

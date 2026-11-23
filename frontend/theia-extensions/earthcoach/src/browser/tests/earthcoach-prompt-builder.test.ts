@@ -94,7 +94,9 @@ import {
     findLogSpoilers,
     isFinalAnswerEdited,
     mergeProposalEdits,
+    mergeSavedWorkspace,
     prepareEarthCoachImagesForTransmission,
+    preserveTypedText,
     proposalApplyBlocker,
     proposalDiffersFromAi,
     proposalNumber,
@@ -109,7 +111,7 @@ import {
 import { EARTHCOACH_REQUEST_TICKETS_KEY, EarthCoachRequestTickets } from '../earthcoach-request-tickets';
 import { EarthCoachRequestActivity } from '../earthcoach-request-activity';
 import { EarthCoachResultObserver } from '../earthcoach-result-observer';
-import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal } from '../earthcoach-workspace-types';
+import { EarthCoachPreparedRequest, EarthCoachResult, EarthCoachResultProposal, EarthCoachWorkspace } from '../earthcoach-workspace-types';
 import { EarthCoachResultTools } from '../earthcoach-result-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -1003,6 +1005,61 @@ function testFinalAnswerControlVersion(): void {
     assert.deepEqual(splitFinalAnswer('Bonjour, message en francais.'), { message: 'Bonjour, message en francais.' });
     // Marqueur sans message avant : le texte n est pas perdu.
     assert.deepEqual(splitFinalAnswer('=== VERSION DE CONTROLE ===\nSalut.'), { message: 'Salut.' });
+}
+
+function testMergeSavedWorkspacePreservesTypedText(): void {
+    const submitted: EarthCoachWorkspace = {
+        geocache_id: 1,
+        version: 2,
+        exists: true,
+        general_comment: 'Noter la strate ',
+        selected_language: 'fr',
+        description_fingerprint: 'fp',
+        image_contexts: [
+            { id: 11, image_id: 7, included: true, comment: 'grain fin ', waypoint_id: null, observation_id: null, position: 0 },
+        ],
+        groups: [{
+            id: 5,
+            title: 'Avant / après ',
+            instruction: 'comparer ',
+            waypoint_id: null,
+            position: 0,
+            members: [{ image_id: 7, role: 'before', position: 0 }],
+        }],
+        created_at: null,
+        updated_at: null,
+    };
+    // Le serveur a nettoie les textes (strip) et recree le groupe (id 9).
+    const saved: EarthCoachWorkspace = {
+        ...submitted,
+        version: 3,
+        general_comment: 'Noter la strate',
+        image_contexts: [{ ...submitted.image_contexts[0], comment: 'grain fin' }],
+        groups: [{ ...submitted.groups[0], id: 9, title: 'Avant / après', instruction: 'comparer' }],
+    };
+    const merged = mergeSavedWorkspace(saved, submitted);
+    assert.equal(merged.version, 3);
+    // La saisie locale (espace de fin compris) survit au nettoyage serveur,
+    // et l'id local du groupe garde la cle React stable.
+    assert.equal(merged.general_comment, 'Noter la strate ');
+    assert.equal(merged.image_contexts[0].comment, 'grain fin ');
+    assert.equal(merged.groups[0].title, 'Avant / après ');
+    assert.equal(merged.groups[0].instruction, 'comparer ');
+    assert.equal(merged.groups[0].id, 5);
+
+    // Un contenu vraiment different cote serveur l'emporte quand meme.
+    const divergent = { ...submitted, general_comment: 'autre chose' };
+    assert.equal(mergeSavedWorkspace(saved, divergent).general_comment, 'Noter la strate');
+    // Groupes differents : la version serveur est conservee telle quelle.
+    const regrouped = {
+        ...submitted,
+        groups: [{ ...submitted.groups[0], members: [{ image_id: 8, role: 'before' as const, position: 0 }] }],
+    };
+    assert.equal(mergeSavedWorkspace(saved, regrouped).groups[0].id, 9);
+
+    assert.equal(preserveTypedText(null, ''), '');
+    assert.equal(preserveTypedText('abc', ' abc '), ' abc ');
+    assert.equal(preserveTypedText('abc', 'abd'), 'abc');
 }
 
 function testPreparedRequestWithoutImagesSaysSo(): void {
@@ -3149,6 +3206,7 @@ async function run(): Promise<void> {
     testRefineReplyPrompt();
     testProposalNumberAndLocation();
     testFinalAnswerControlVersion();
+    testMergeSavedWorkspacePreservesTypedText();
     testPreparedRequestWithoutImagesSaysSo();
     await testPreparedImagesAreEncodedOnce();
     // eslint-disable-next-line no-console

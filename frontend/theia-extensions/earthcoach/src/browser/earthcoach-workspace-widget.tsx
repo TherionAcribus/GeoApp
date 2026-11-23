@@ -92,7 +92,9 @@ import {
     EarthCoachProposalEdits,
     EarthCoachRect,
     mergeProposalEdits,
+    mergeSavedWorkspace,
     prepareEarthCoachImagesForTransmission,
+    preserveTypedText,
     proposalNumber,
     proposalTitle,
     rebaseProposalEdits,
@@ -841,7 +843,10 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             groups: submitted.groups,
         }).then(saved => {
             if (this.changeSequence === submittedSequence) {
-                this.workspace = cloneWorkspace(saved);
+                // Le serveur nettoie les champs texte (strip) : garder la
+                // saisie locale evite de perdre l'espace en cours de frappe
+                // et de renvoyer le curseur en fin de champ.
+                this.workspace = mergeSavedWorkspace(saved, submitted);
                 this.saveState = 'saved';
             } else if (this.workspace) {
                 this.workspace = { ...this.workspace, version: saved.version, exists: true };
@@ -1965,7 +1970,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             // Seuls les champs du message : les propositions ont leurs propres corrections en attente.
             this.results = this.results.map(item => item.id === saved.id ? {
                 ...item,
-                final_answer: saved.final_answer,
+                final_answer: preserveTypedText(saved.final_answer, text),
                 final_answer_control: saved.final_answer_control,
                 final_answer_generated: saved.final_answer_generated,
             } : item);
