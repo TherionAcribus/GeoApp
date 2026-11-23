@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { flushSync } from 'react-dom';
 import { ApplicationShell, ConfirmDialog, Dialog, Message, StatefulWidget } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService, MessageService } from '@theia/core/lib/common';
@@ -2735,6 +2736,58 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                     onClick={() => this.activity.dismiss(activity.requestId)}>Masquer</button>
             </div>)}
         </section>;
+    }
+
+    /**
+     * `root.render()` (React 19) committe de façon asynchrone : un rendu
+     * calculé avant une frappe peut se commettre après que le navigateur a
+     * mis à jour le champ, et React réécrit alors `value` — le curseur
+     * saute en fin de texte. `flushSync` rend chaque commit atomique
+     * vis-à-vis des frappes (render() relit toujours l'état courant), et la
+     * sélection est restaurée si `value` a malgré tout été réécrite.
+     */
+    protected override onUpdateRequest(msg: Message): void {
+        const caret = this.captureTextCaret();
+        let rendered = false;
+        try {
+            flushSync(() => {
+                super.onUpdateRequest(msg);
+                rendered = true;
+            });
+        } catch {
+            // flushSync refusé pendant un lifecycle React : repli sur le
+            // rendu différé habituel si le render n'a pas été enregistré.
+            if (!rendered) {
+                super.onUpdateRequest(msg);
+            }
+        }
+        this.restoreTextCaret(caret);
+    }
+
+    protected captureTextCaret(): { element: HTMLTextAreaElement | HTMLInputElement; start: number; end: number; direction: 'forward' | 'backward' | 'none' } | undefined {
+        const active = document.activeElement;
+        if (!(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) || !this.node.contains(active)) {
+            return undefined;
+        }
+        if (active.selectionStart === null || active.selectionEnd === null) {
+            return undefined;
+        }
+        return { element: active, start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection };
+    }
+
+    protected restoreTextCaret(caret: { element: HTMLTextAreaElement | HTMLInputElement; start: number; end: number; direction: 'forward' | 'backward' | 'none' } | undefined): void {
+        if (!caret) {
+            return;
+        }
+        const { element, start, end, direction } = caret;
+        if (document.activeElement === element && element.isConnected
+            && (element.selectionStart !== start || element.selectionEnd !== end)) {
+            try {
+                element.setSelectionRange(start, end, direction);
+            } catch {
+                // Certains types d'input ne supportent pas setSelectionRange.
+            }
+        }
     }
 
     protected render(): React.ReactNode {
