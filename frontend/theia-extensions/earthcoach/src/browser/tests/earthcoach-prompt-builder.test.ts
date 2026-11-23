@@ -41,6 +41,7 @@ import {
 import {
     buildEarthCoachDescriptionExcerpt,
     buildEarthCoachFinalAnswerPrompt,
+    buildEarthCoachLogPrompt,
     buildEarthCoachPrompt,
     DESCRIPTION_GAP_MARKER,
     selectEarthCoachImagesForChat,
@@ -90,6 +91,7 @@ import {
     currentResolution,
     findUncoveredSnapshotTasks,
     findCarriedCorrections,
+    findLogSpoilers,
     isFinalAnswerEdited,
     mergeProposalEdits,
     prepareEarthCoachImagesForTransmission,
@@ -2519,6 +2521,65 @@ function testQuestionBoard(): void {
     assert.equal(currentResolution([analysis]), undefined);
 }
 
+function testLogSpoilers(): void {
+    const proposals: EarthCoachResultProposal[] = [
+        { question: 'Quelle épaisseur a la couche à la station 2 ?', status: 'ready', answer: 'Environ 12,5 cm.' },
+        { question: 'Quelle roche voyez-vous ?', status: 'ready', answer: 'Un calcaire à entroques très fossilifère.' },
+        { question: 'Combien de strates ?', status: 'missing', answer: '' },
+    ];
+    // Log propre : le « 2 » de la station n'est pas une réponse.
+    assert.deepEqual(findLogSpoilers('Superbe visite à la station 2, merci pour cette découverte ! Réponses envoyées par message.', proposals), []);
+    // Nombre repris (virgule ou point), et suite de mots de la réponse, accents ignorés.
+    const spoilers = findLogSpoilers('La couche fait 12.5 cm, un CALCAIRE A ENTROQUES fossilifere superbe.', proposals);
+    assert.deepEqual(spoilers, [
+        { proposalIndex: 0, fragment: '12.5' },
+        { proposalIndex: 1, fragment: 'calcaire entroques fossilifere' },
+    ]);
+    assert.deepEqual(findLogSpoilers('   ', proposals), []);
+}
+
+function testLogPrompt(): void {
+    const prompt = buildEarthCoachLogPrompt([
+        { question: 'What rock?', question_translation: 'Quelle roche ?', question_number: 2, location: 'Station 1', status: 'ready', answer: 'Calcaire' },
+    ], { user: 'fr', log: 'en' }, ['Photo de vous avec le panneau']);
+    assert.match(prompt, /PREPARATION DU LOG PUBLIC/);
+    assert.match(prompt, /Langue du log: (English|anglais)/i);
+    assert.match(prompt, /Question 2 \(Station 1\): Quelle roche \?/);
+    assert.match(prompt, /Reponse secrete: Calcaire/);
+    assert.match(prompt, /Photo de vous avec le panneau/);
+    assert.match(prompt, /N appelle aucun tool/);
+    // Sans langue imposée, celle de l'utilisateur.
+    assert.match(buildEarthCoachLogPrompt([], { user: 'fr' }), /Langue du log: (French|francais|français)/i);
+}
+
+async function testLogRequestAttachesToItsResult(): Promise<void> {
+    const saved: Array<{ resultId: number; text: string }> = [];
+    const { observer, capture, activity, captured, warnings } = observerFixture();
+    Object.assign(capture, {
+        workspaceService: {
+            saveLogDraft: async (resultId: number, text: string) => {
+                saved.push({ resultId, text });
+                return { id: resultId, geocache_id: 1, request_id: 'r', action: 'resolve', proposals: [], log_draft: text };
+            },
+        },
+    });
+    capture.registerLogRequest('log-12-1', 12, 1);
+    // Un ticket de log n'est ni un dossier ni une réponse finale.
+    assert.equal(capture.isLogRequest('log-12-1'), true);
+    assert.equal(capture.hasRequest('log-12-1'), false);
+    assert.equal(capture.isFinalRequest('log-12-1'), false);
+
+    activity.start({ requestId: 'log-12-1', geocacheId: 1, kind: 'log' });
+    await observer.handleChatResponse({ sessionId: 's', sessionTitle: '', requestId: 'log-12-1', text: '', markdown: '**Mode EarthCoach : résolution**\nSuperbe site, merci !', outcome: 'canceled' });
+    assert.equal(saved.length, 0);
+    assert.match(warnings[0], /log a été interrompue/);
+
+    await observer.handleChatResponse({ sessionId: 's', sessionTitle: '', requestId: 'log-12-1', text: '', markdown: '**Mode EarthCoach : résolution**\nSuperbe site, merci !' });
+    assert.deepEqual(saved, [{ resultId: 12, text: 'Superbe site, merci !' }]);
+    assert.equal(captured.length, 0);
+    assert.equal(activity.has('log-12-1'), false);
+}
+
 function testSortEarthCoachResults(): void {
     const results = [resultFixture(3, []), resultFixture(2, [], { is_reference: true }), resultFixture(1, [])];
     assert.deepEqual(sortEarthCoachResults(results).map(result => result.id), [2, 3, 1]);
@@ -3020,6 +3081,9 @@ async function run(): Promise<void> {
     testCarriedCorrections();
     testSortEarthCoachResults();
     testQuestionBoard();
+    testLogSpoilers();
+    testLogPrompt();
+    await testLogRequestAttachesToItsResult();
     testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();

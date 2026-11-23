@@ -856,3 +856,15 @@ def test_delete_result(client, seeded):
     listed = client.get(f"/api/geocaches/{seeded['cache_id']}/earthcoach-results").get_json()['results']
     assert all(item['id'] != result['id'] for item in listed)
     assert client.delete(f"/api/earthcoach-results/{result['id']}").status_code == 404
+
+
+def test_result_patch_stores_log_draft(client, seeded):
+    result = _capture(client, seeded['cache_id'], 'log-1')
+    assert result['log_draft'] is None
+    saved = client.patch(f"/api/earthcoach-results/{result['id']}", json={'log_draft': '  Très beau site.  '})
+    assert saved.status_code == 200
+    assert saved.get_json()['result']['log_draft'] == 'Très beau site.'
+    # Les autres champs ne bougent pas.
+    assert saved.get_json()['result']['final_answer'] is None
+    cleared = client.patch(f"/api/earthcoach-results/{result['id']}", json={'log_draft': ''})
+    assert cleared.get_json()['result']['log_draft'] is None

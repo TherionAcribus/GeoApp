@@ -8,6 +8,7 @@ import { ChatService } from '@theia/ai-chat/lib/common/chat-service';
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import { GeocacheDetailsService } from 'theia-ide-zones-ext/lib/browser/geocache-details-service';
 import { buildOwnerMessageUrl, openExternalUrl } from 'theia-ide-zones-ext/lib/browser/geocaching-owner-links';
+import { GeocacheLogEditorTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-log-editor-tabs-manager';
 import {
     buildGeoAppOpenChatRequestDetail,
     dispatchGeoAppOpenChatRequest,
@@ -45,7 +46,7 @@ import { EarthCoachElevationService } from './earthcoach-elevation-service';
 import { formatElevationSummary } from './earthcoach-elevation';
 import { EarthCoachGeologyService } from './earthcoach-geology-service';
 import { formatFrenchGeologySummary, formatGeologySummary } from './earthcoach-geology';
-import { buildEarthCoachFinalAnswerPrompt, buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
+import { buildEarthCoachFinalAnswerPrompt, buildEarthCoachLogPrompt, buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
 import {
     EarthCoachAgentId,
     EarthCoachGeocacheData,
@@ -272,6 +273,7 @@ function activityLabel(activity: EarthCoachActivity): string {
         case 'resolve': return 'EarthCoach résout le dossier…';
         case 'refine': return `EarthCoach reprend ${activity.label || 'la question'}…`;
         case 'final': return 'EarthCoach rédige la réponse finale…';
+        case 'log': return 'EarthCoach prépare le log…';
     }
 }
 
@@ -300,6 +302,7 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
     protected dragDepth = 0;
     protected sending = false;
     protected generatingFinalResultId?: number;
+    protected generatingLogResultId?: number;
     protected responseLanguage = 'fr';
     /** Langue du message au propriétaire : `auto` ou un code de langue imposé. */
     protected finalLanguageChoice = 'auto';
@@ -391,6 +394,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
             this.update();
         },
         onOpenConversation: sessionId => { void this.openConversation(sessionId); },
+        onGenerateLog: resultId => { void this.generateLog(resultId); },
+        onOpenLogEditor: text => { void this.openLogEditor(text); },
+        onCopyLog: text => { void this.copyText(text, 'Log copié dans le presse-papiers.'); },
         onSetReference: (resultId, reference) => { void this.setReference(resultId, reference); },
         onDeleteResult: resultId => { void this.deleteResult(resultId); },
         onApplyCarried: (resultId, proposalIndexes) => this.applyCarriedCorrections(resultId, proposalIndexes),
@@ -410,6 +416,9 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
 
     @inject(GeocacheDetailsService)
     protected readonly geocacheDetailsService!: GeocacheDetailsService;
+
+    @inject(GeocacheLogEditorTabsManager)
+    protected readonly logEditorTabs!: GeocacheLogEditorTabsManager;
 
     @inject(PreferenceService)
     protected readonly preferences!: PreferenceService;
@@ -1696,6 +1705,76 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
         }
     }
 
+    /**
+     * Log public de la visite, rédigé dans le chat comme la réponse finale et
+     * rattaché au résultat par `requestId`. Les réponses ne servent au modèle
+     * qu'à savoir quoi taire.
+     */
+    protected async generateLog(resultId: number): Promise<void> {
+        if (!this.context || this.generatingLogResultId !== undefined) {
+            return;
+        }
+        this.generatingLogResultId = resultId;
+        this.update();
+        try {
+            const saved = await this.flushResultSave(resultId);
+            if (!saved || saved.action !== 'resolve' || !saved.proposals.length) {
+                return;
+            }
+            const geocache = this.context.geocacheData;
+            const label = geocache.gc_code || geocache.name;
+            const requestId = `log-${saved.id}-${Date.now()}`;
+            this.resultCapture.registerLogRequest(requestId, saved.id, geocache.id);
+            this.activity.start({ requestId, geocacheId: geocache.id, kind: 'log' });
+            dispatchGeoAppOpenChatRequest(window, CustomEvent, buildGeoAppOpenChatRequestDetail({
+                geocacheId: geocache.id,
+                gcCode: geocache.gc_code,
+                geocacheName: geocache.name,
+                sessionTitle: `EARTHCOACH LOG - ${label}`,
+                prompt: buildEarthCoachLogPrompt(saved.proposals, {
+                    user: this.responseLanguage,
+                    log: this.finalLanguageChoice === 'auto' ? this.autoFinalLanguage() : this.finalLanguageChoice,
+                }, buildPhotoReminders(this.context.loggingTasks)),
+                focus: true,
+                workflowKind: 'general',
+                preferredAgentId: EarthCoachAgentId,
+                earthcoachMode: 'resolver',
+                earthcoachVerbosity: this.readVerbosity(),
+                earthcoachResponseLanguage: this.responseLanguage,
+                earthcoachRequestId: requestId,
+                sessionKind: 'earthcoach',
+            }));
+        } finally {
+            this.generatingLogResultId = undefined;
+            this.update();
+        }
+    }
+
+    /** Éditeur de log de la cache, pré-rempli en « Trouvée » avec le texte préparé. */
+    protected async openLogEditor(text: string): Promise<void> {
+        const geocache = this.context?.geocacheData;
+        if (!geocache) {
+            return;
+        }
+        try {
+            await this.logEditorTabs.resumeLogEditor({
+                geocacheIds: [geocache.id],
+                prefill: { source: 'earthcoach', perCacheLogType: { [geocache.id]: 'found' }, perCacheText: { [geocache.id]: text } },
+            });
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    protected async copyText(text: string, done: string): Promise<void> {
+        try {
+            await navigator.clipboard.writeText(text);
+            this.messages.info(done);
+        } catch (error) {
+            this.messages.error(error instanceof Error ? error.message : String(error));
+        }
+    }
+
     protected async applyProposal(resultId: number, proposalIndex: number): Promise<void> {
         const saved = await this.flushResultSave(resultId);
         if (!saved) {
@@ -2607,6 +2686,8 @@ export class EarthCoachWorkspaceWidget extends ReactWidget implements StatefulWi
                 dirty={this.pendingEdits.has(result.id)}
                 finalBusy={this.generatingFinalResultId !== undefined}
                 generatingFinal={this.generatingFinalResultId === result.id}
+                logBusy={this.generatingLogResultId !== undefined}
+                generatingLog={this.generatingLogResultId === result.id}
                 refineBusy={this.sending}
                 images={images}
                 observations={observations}

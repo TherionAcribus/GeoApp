@@ -1231,6 +1231,10 @@ export class GeocacheLogEditorWidget extends ReactWidget implements StatefulWidg
             await this.loadGeocaches();
             this.applyPrefill();
             await this.restoreDraftIfAny();
+            // Après le brouillon : le texte proposé ne l'écrase qu'avec accord.
+            if (this.prefill?.perCacheText) {
+                void this.applyPreparedText(this.prefill.perCacheText);
+            }
             // Après le brouillon : ses choix de TB priment sur les défauts. Pas d'attente : un
             // relevé trop ancien part sur Geocaching.com et ne doit pas bloquer la rédaction.
             void this.loadTrackableInventory('auto');
@@ -1263,7 +1267,7 @@ export class GeocacheLogEditorWidget extends ReactWidget implements StatefulWidg
             if (proposed) {
                 nextTypes[gc.id] = sanitizeLogTypeForGeocache(proposed, gc);
             }
-            const visit = prefill.perCacheVisit[gc.id];
+            const visit = prefill.perCacheVisit?.[gc.id];
             if (visit?.hasNm) {
                 problems[gc.id] = { category: 'needsMaintenance', text: this.getDefaultProblemText('needsMaintenance') };
             }
@@ -1274,6 +1278,45 @@ export class GeocacheLogEditorWidget extends ReactWidget implements StatefulWidg
         this.perCacheLogType = nextTypes;
         this.perCacheProblem = problems;
         this.pendingTypeConfirmation = toConfirm;
+        this.update();
+    }
+
+    /**
+     * Texte préparé ailleurs (log EarthCoach) : il remplit une zone vide. Un
+     * brouillon déjà rédigé n'est remplacé que si l'utilisateur l'accepte.
+     */
+    async applyPreparedText(perCacheText: Record<number, string>): Promise<void> {
+        for (const gc of this.geocaches) {
+            const text = perCacheText[gc.id]?.trim();
+            if (!text) {
+                continue;
+            }
+            // Une seule géocache avec texte commun : c'est la zone commune qu'on voit.
+            const shared = this.useSameTextForAll;
+            const current = (shared ? this.globalText : this.perCacheText[gc.id] ?? '').trim();
+            if (current === text) {
+                continue;
+            }
+            if (current) {
+                const choice = await this.messages.info(
+                    `Un brouillon de log existe déjà pour ${gc.gc_code || gc.name}. Le remplacer par le log préparé ?`,
+                    'Remplacer',
+                    'Garder le brouillon'
+                );
+                if (choice !== 'Remplacer') {
+                    continue;
+                }
+            }
+            if (shared && this.geocaches.length === 1) {
+                this.globalText = text;
+            } else {
+                if (shared) {
+                    // Le texte commun vaudrait pour toutes les caches : celui-ci n'en vise qu'une.
+                    this.toggleUseSameTextForAll(false);
+                }
+                this.perCacheText = { ...this.perCacheText, [gc.id]: text };
+            }
+        }
         this.update();
     }
 

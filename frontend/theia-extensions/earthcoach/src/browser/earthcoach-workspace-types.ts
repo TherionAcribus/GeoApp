@@ -195,6 +195,8 @@ export interface EarthCoachResult {
     final_answer_control?: string | null;
     /** Message tel que le modele l'a genere ; `final_answer` peut avoir ete retouche depuis. */
     final_answer_generated?: string | null;
+    /** Log public préparé depuis ce résultat, sans les réponses. */
+    log_draft?: string | null;
     /** Résultat qui fait foi pour la géocache : en tête du dossier, ses corrections sont proposées aux suivants. */
     is_reference?: boolean;
     created_at?: string | null;

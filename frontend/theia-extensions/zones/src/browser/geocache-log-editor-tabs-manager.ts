@@ -10,7 +10,7 @@ import { LogEditorPrefill } from './log-editor/types';
 export interface OpenGeocacheLogEditorOptions {
     geocacheIds: number[];
     title?: string;
-    /** Pré-remplissage (visites GPS) : date, types de log, aide-mémoire par cache. */
+    /** Pré-remplissage (visites GPS, log EarthCoach) : date, types de log, aide-mémoire, texte par cache. */
     prefill?: LogEditorPrefill;
 }
 
@@ -51,11 +51,17 @@ export class GeocacheLogEditorTabsManager {
         );
     }
 
-    /** Revient à l'onglet de ces géocaches s'il est ouvert, sinon l'ouvre : son brouillon est restauré. */
+    /**
+     * Revient à l'onglet de ces géocaches s'il est ouvert, sinon l'ouvre : son brouillon est restauré.
+     * Un texte proposé (`prefill.perCacheText`) est aussi offert à l'onglet déjà ouvert.
+     */
     async resumeLogEditor(options: OpenGeocacheLogEditorOptions): Promise<GeocacheLogEditorWidget> {
         const open = this.findLogEditor(options.geocacheIds);
         if (open) {
             this.shell.activateWidget(open.id);
+            if (options.prefill?.perCacheText) {
+                void open.applyPreparedText(options.prefill.perCacheText);
+            }
             return open;
         }
         return this.openLogEditor(options);

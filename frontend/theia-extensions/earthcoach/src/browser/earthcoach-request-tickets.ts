@@ -17,6 +17,8 @@ export interface EarthCoachRequestTicket {
     refine?: { resultId: number; proposalIndex?: number };
     /** Generation de reponse finale : resultat source. */
     finalResultId?: number;
+    /** Preparation du log public : resultat source. */
+    logResultId?: number;
     /** Le modele a pose des questions de precision (earthcoach_ask_user). */
     awaitingInput?: boolean;
     createdAt: number;

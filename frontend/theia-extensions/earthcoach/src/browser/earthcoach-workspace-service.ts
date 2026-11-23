@@ -146,6 +146,15 @@ export class EarthCoachWorkspaceService {
         return response.result;
     }
 
+    async saveLogDraft(resultId: number, text: string): Promise<EarthCoachResult> {
+        const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(
+            `/api/earthcoach-results/${resultId}`,
+            this.apiClient.createJsonInit('PATCH', { log_draft: text }),
+            'Erreur lors de l enregistrement du log préparé par EarthCoach'
+        );
+        return response.result;
+    }
+
     /** Marque (ou demarque) le resultat qui fait foi ; le backend retire la marque aux autres. */
     async setResultReference(resultId: number, reference: boolean): Promise<EarthCoachResult> {
         const response = await this.apiClient.requestJson<{ result: EarthCoachResult }>(

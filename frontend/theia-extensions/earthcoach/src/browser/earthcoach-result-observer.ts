@@ -89,6 +89,22 @@ export class EarthCoachResultObserver implements GeoAppChatResponseObserver {
         // Correlation stricte par requestId : tout envoi de dossier enregistre
         // sa requete avant le dispatch, ce qui rend le filtrage par titre de
         // session (EARTHCOACH ANALYSE / RESOLUTION) inutile et fragile.
+        if (this.capture.isLogRequest(event.requestId)) {
+            if (interrupted) {
+                this.messages.warn('La préparation du log a été interrompue : relancez-la depuis le dossier.');
+                return;
+            }
+            try {
+                await this.capture.attachLogDraft(
+                    event.requestId as string,
+                    stripEarthCoachModeBadge(stripEarthCoachResultBlocks(authoredText(event)))
+                );
+            } catch (error) {
+                console.warn('[EarthCoach] Unable to attach the log draft to its result', error);
+                this.messages.warn('Le log préparé reste dans le chat, mais son rattachement au dossier a échoué.');
+            }
+            return;
+        }
         if (!this.capture.hasRequest(event.requestId)) {
             return;
         }

@@ -597,6 +597,8 @@ def update_result(result_id: int):
                 result.final_answer_control = None
     if 'final_answer_control' in data:
         result.final_answer_control = _optional_text(data.get('final_answer_control'))
+    if 'log_draft' in data:
+        result.log_draft = _optional_text(data.get('log_draft'))
     if 'is_reference' in data:
         if data.get('is_reference'):
             # Une seule reference par geocache : marquer celle-ci la retire aux autres.

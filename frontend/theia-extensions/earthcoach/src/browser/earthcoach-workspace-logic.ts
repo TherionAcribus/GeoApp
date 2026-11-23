@@ -647,3 +647,70 @@ export function currentResolution(results: EarthCoachResult[]): EarthCoachResult
     return results.find(result => result.action === 'resolve' && result.is_reference)
         ?? results.find(result => result.action === 'resolve');
 }
+
+/** Passage du log qui reprend peut-être la réponse d'une question. */
+export interface EarthCoachLogSpoiler {
+    proposalIndex: number;
+    fragment: string;
+}
+
+/** Mots trop courants pour signaler une reprise : ils ne disent rien de la réponse. */
+const SPOILER_STOPWORDS = new Set([
+    'avec', 'dans', 'pour', 'sont', 'mais', 'plus', 'tres', 'cette', 'comme', 'entre', 'aussi', 'leur', 'leurs', 'elle', 'elles', 'nous', 'vous', 'etre', 'avoir', 'fait', 'peut',
+    'with', 'that', 'this', 'from', 'they', 'there', 'their', 'have', 'were', 'which', 'about', 'into', 'some', 'very', 'also',
+    'eine', 'einer', 'nicht', 'sind', 'oder', 'auch', 'sehr', 'wird',
+]);
+
+function normalizeForSpoilers(text: string): string {
+    return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function spoilerNumbers(text: string): string[] {
+    const numbers: string[] = normalizeForSpoilers(text).match(/\d+(?:[.,]\d+)?/g) || [];
+    return numbers.map(value => value.replace(',', '.'));
+}
+
+function contentWords(text: string): string[] {
+    const words: string[] = normalizeForSpoilers(text).match(/[a-z]+/g) || [];
+    return words.filter(word => word.length >= 4 && !SPOILER_STOPWORDS.has(word));
+}
+
+/**
+ * Garde-fou du log public : signale, par question, les nombres de la réponse
+ * repris dans le log (hors ceux de la question elle-même, « station 2 ») et
+ * les suites de trois mots significatifs communes à la réponse et au log.
+ * Un signal, pas une preuve : c'est l'utilisateur qui tranche.
+ */
+export function findLogSpoilers(log: string, proposals: EarthCoachResultProposal[]): EarthCoachLogSpoiler[] {
+    const spoilers: EarthCoachLogSpoiler[] = [];
+    if (!log.trim()) {
+        return spoilers;
+    }
+    const logNumbers = new Set(spoilerNumbers(log));
+    const logWords = contentWords(log);
+    const logTriples = new Set(logWords.slice(2).map((word, index) => `${logWords[index]} ${logWords[index + 1]} ${word}`));
+    proposals.forEach((proposal, proposalIndex) => {
+        const answer = proposal.answer || '';
+        if (!answer.trim()) {
+            return;
+        }
+        const questionNumbers = new Set(spoilerNumbers(`${proposal.question} ${proposal.question_translation || ''} ${proposal.location || ''}`));
+        const found = new Set<string>();
+        for (const value of spoilerNumbers(answer)) {
+            if (!questionNumbers.has(value) && logNumbers.has(value)) {
+                found.add(value);
+            }
+        }
+        const words = contentWords(answer);
+        for (let index = 0; index + 2 < words.length; index++) {
+            const triple = `${words[index]} ${words[index + 1]} ${words[index + 2]}`;
+            if (logTriples.has(triple)) {
+                found.add(triple);
+            }
+        }
+        for (const fragment of found) {
+            spoilers.push({ proposalIndex, fragment });
+        }
+    });
+    return spoilers;
+}

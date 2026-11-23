@@ -68,6 +68,35 @@ export class EarthCoachResultCaptureService {
         return this.tickets.get(requestId)?.finalResultId !== undefined;
     }
 
+    /** Preparation du log public : correlee au resultat source, comme la reponse finale. */
+    registerLogRequest(requestId: string, resultId: number, geocacheId: number): void {
+        this.tickets.put({
+            requestId,
+            geocacheId,
+            action: 'resolve',
+            photoTaskIds: [],
+            logResultId: resultId,
+            createdAt: Date.now(),
+        });
+    }
+
+    isLogRequest(requestId: string | undefined): boolean {
+        return this.tickets.get(requestId)?.logResultId !== undefined;
+    }
+
+    async attachLogDraft(requestId: string, text: string): Promise<EarthCoachResult> {
+        const resultId = this.tickets.get(requestId)?.logResultId;
+        if (resultId === undefined) {
+            throw new Error('Requête de log EarthCoach introuvable.');
+        }
+        if (!text.trim()) {
+            throw new Error('Log EarthCoach vide : rien à enregistrer.');
+        }
+        const result = await this.workspaceService.saveLogDraft(resultId, text.trim());
+        this.capturedEmitter.fire(result);
+        return result;
+    }
+
     /** Requete de dossier (pas de reponse finale) : instantane en memoire, sinon son ticket. */
     protected requestTicket(requestId: string | undefined): EarthCoachRequestTicket | undefined {
         const snapshot = requestId ? this.requests.get(requestId) : undefined;
@@ -75,7 +104,7 @@ export class EarthCoachResultCaptureService {
             return { ...ticketFromPreparedRequest(snapshot), awaitingInput: this.tickets.get(requestId)?.awaitingInput };
         }
         const ticket = this.tickets.get(requestId);
-        return ticket && ticket.finalResultId === undefined ? ticket : undefined;
+        return ticket && ticket.finalResultId === undefined && ticket.logResultId === undefined ? ticket : undefined;
     }
 
     /**

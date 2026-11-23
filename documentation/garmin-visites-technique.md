@@ -289,6 +289,9 @@ produit :
 - `prefill` (`LogEditorPrefill`, [types.ts](../frontend/theia-extensions/zones/src/browser/log-editor/types.ts)) :
   `logDate`, `perCacheLogType` (type proposé) et `perCacheVisit` (`GpsVisitHint` : heure,
   libellé du GPS, commentaire, détail des passages, `hasNm`, `needsConfirmation`).
+  `source` vaut `gps-visits` ; `logDate` et `perCacheVisit` sont facultatifs depuis que le
+  dossier EarthCoach ouvre aussi l'éditeur (`source: 'earthcoach'`, avec `perCacheText`,
+  voir `earthcoach-technique.md`).
 
 Un onglet par jour : l'éditeur n'a qu'une date par onglet.
 

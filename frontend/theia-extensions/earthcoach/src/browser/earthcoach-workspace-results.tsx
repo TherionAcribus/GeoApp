@@ -7,6 +7,7 @@ import { GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import {
     applicableProposalIndexes,
     EarthCoachCarriedCorrection,
+    findLogSpoilers,
     findUncoveredSnapshotTasks,
     isFinalAnswerEdited,
     proposalApplyBlocker,
@@ -95,6 +96,10 @@ export interface EarthCoachResultCardHandlers {
     onRevertFinal(resultId: number): void;
     onFinalLanguageChange(choice: string): void;
     onOpenConversation(sessionId: string): void;
+    onGenerateLog(resultId: number): void;
+    /** Ouvre l'éditeur de log de la cache avec ce texte (sans écraser un brouillon sans accord). */
+    onOpenLogEditor(text: string): void;
+    onCopyLog(text: string): void;
     onSetReference(resultId: number, reference: boolean): void;
     onDeleteResult(resultId: number): void;
     /** Reprend les corrections d'une résolution précédente sur ces questions. */
@@ -108,6 +113,9 @@ export interface EarthCoachResultCardProps {
     /** Une generation de reponse finale est en cours (tous resultats confondus). */
     finalBusy: boolean;
     generatingFinal: boolean;
+    /** Une préparation de log est en cours (tous résultats confondus). */
+    logBusy: boolean;
+    generatingLog: boolean;
     /** Une reprise ciblee (approfondir / contester) est en preparation. */
     refineBusy: boolean;
     images: GeoImage[];
@@ -380,8 +388,13 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
             <button className='theia-button' disabled={props.finalBusy} onClick={() => handlers.onGenerateFinal(result.id)}>
                 {props.generatingFinal ? 'Préparation…' : (result.final_answer || result.final_answer_generated ? 'Régénérer la réponse finale' : 'Générer la réponse finale avec mes corrections')}
             </button>
+            <button className='theia-button secondary' disabled={props.logBusy || !result.proposals.length}
+                title='Rédige le log public de la visite, sans aucune réponse : celles-ci partent au propriétaire par message'
+                onClick={() => handlers.onGenerateLog(result.id)}>
+                {props.generatingLog ? 'Préparation du log…' : (result.log_draft ? 'Régénérer le log' : 'Préparer le log')}
+            </button>
             <button className='theia-button secondary' onClick={() => handlers.onSaveNote(result)}>Enregistrer la synthèse dans les notes</button>
-            <label>Langue du message <select className='theia-select' value={props.finalLanguageChoice}
+            <label>Langue du message et du log <select className='theia-select' value={props.finalLanguageChoice}
                 title='Automatique : votre langue si le listing la propose, sinon l’anglais'
                 onChange={event => handlers.onFinalLanguageChange(event.currentTarget.value)}>
                 <option value='auto'>{props.autoFinalLanguage
@@ -392,7 +405,37 @@ function ResolutionBody(props: EarthCoachResultCardProps): React.ReactElement {
         </div>
         {props.photoReminder && <div className='ecw-muted'>📷 Pense à joindre au log : {props.photoReminder}</div>}
         <FinalAnswer {...props} />
+        <LogDraft {...props} />
     </>;
+}
+
+/**
+ * Log public préparé : relu ici, vérifié contre les réponses, puis rédigé
+ * pour de bon dans l'éditeur de log (amélioration, traduction, envoi).
+ */
+function LogDraft(props: EarthCoachResultCardProps): React.ReactElement | null {
+    const { result, handlers } = props;
+    const log = result.log_draft?.trim();
+    const spoilers = React.useMemo(() => (log ? findLogSpoilers(log, result.proposals) : []), [log, result.proposals]);
+    if (!log) {
+        return null;
+    }
+    const labels = spoilers.map(spoiler => {
+        const number = proposalNumber(result.proposals[spoiler.proposalIndex], result.snapshot_tasks, props.loggingTasks);
+        return `${number !== undefined ? `Q${number}` : `question ${spoiler.proposalIndex + 1}`} (« ${spoiler.fragment} »)`;
+    });
+    return <div className='ecw-proposal'>
+        <div className='ecw-question'><strong>Log public préparé</strong>
+            <span className='ecw-muted'>À relire puis publier depuis l’éditeur de log : il ne contient pas les réponses, envoyées au propriétaire par message.</span></div>
+        {labels.length > 0 && <div className='ecw-warning'>
+            Ce log reprend peut-être des réponses : {labels.join(', ')}. Retirez-les avant de publier.
+        </div>}
+        <pre>{log}</pre>
+        <div className='ecw-row'>
+            <button className='theia-button' onClick={() => handlers.onOpenLogEditor(log)}>Ouvrir dans l’éditeur de log</button>
+            <button className='theia-button secondary' onClick={() => handlers.onCopyLog(log)}>Copier le log</button>
+        </div>
+    </div>;
 }
 
 /**

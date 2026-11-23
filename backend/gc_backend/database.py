@@ -304,6 +304,11 @@ def init_db(app):
                 logger.info('Adding missing column earthcoach_result.is_reference (BOOLEAN)')
                 db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN is_reference BOOLEAN NOT NULL DEFAULT 0'))
                 db.session.commit()
+            # Log public prepare depuis le resultat.
+            if existing_cols and 'log_draft' not in existing_cols:
+                logger.info('Adding missing column earthcoach_result.log_draft (TEXT)')
+                db.session.execute(text('ALTER TABLE earthcoach_result ADD COLUMN log_draft TEXT'))
+                db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (earthcoach_result): %s', error)
             db.session.rollback()

@@ -226,11 +226,17 @@ export interface GpsVisitHint {
  * mêmes géocaches l'emporte toujours.
  */
 export interface LogEditorPrefill {
-    source: 'gps-visits';
+    /** `gps-visits` : visites Garmin ; `earthcoach` : log préparé depuis le dossier terrain. */
+    source: 'gps-visits' | 'earthcoach';
     /** Jour local des visites (AAAA-MM-JJ) : remplace la date de l'onglet, sans toucher à la date épinglée. */
-    logDate: string;
+    logDate?: string;
     perCacheLogType: Record<number, LogTypeValue>;
-    perCacheVisit: Record<number, GpsVisitHint>;
+    perCacheVisit?: Record<number, GpsVisitHint>;
+    /**
+     * Texte proposé par cache. Il remplit une zone vide ; un brouillon qui a
+     * déjà du texte n'est remplacé qu'avec l'accord de l'utilisateur.
+     */
+    perCacheText?: Record<number, string>;
 }
 
 export interface LogTextPattern {

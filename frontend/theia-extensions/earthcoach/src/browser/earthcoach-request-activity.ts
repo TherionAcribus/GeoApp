@@ -2,7 +2,7 @@ import { Emitter, Event } from '@theia/core';
 import { injectable } from '@theia/core/shared/inversify';
 
 /** Ce qu'EarthCoach est en train de faire pour le dossier. */
-export type EarthCoachActivityKind = 'analyze' | 'resolve' | 'refine' | 'final';
+export type EarthCoachActivityKind = 'analyze' | 'resolve' | 'refine' | 'final' | 'log';
 
 export interface EarthCoachActivity {
     requestId: string;

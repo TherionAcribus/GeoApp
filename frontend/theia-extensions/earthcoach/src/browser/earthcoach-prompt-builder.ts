@@ -829,6 +829,44 @@ export function buildEarthCoachFinalAnswerPrompt(
     return lines.join('\n').trim();
 }
 
+/**
+ * Log public d'une EarthCache : le recit de la visite, jamais les reponses,
+ * qui partent au proprietaire par message. Les reponses sont donnees au modele
+ * uniquement pour qu'il sache quoi taire ; `findLogSpoilers` verifie ensuite.
+ */
+export function buildEarthCoachLogPrompt(
+    proposals: EarthCoachResultProposal[],
+    languages: { user: string; log?: string },
+    photoInstructions: string[] = []
+): string {
+    const language = earthCoachLanguageName(languages.log || languages.user);
+    const photoLine = photoInstructions.length
+        ? [`Le proprietaire demande une photo jointe au log (${photoInstructions.map(text => text.replace(/\s+/g, ' ').trim()).join(' / ')}): indique en une phrase que la photo est jointe, sans la decrire.`]
+        : [];
+    const lines = [
+        '--- PREPARATION DU LOG PUBLIC EARTHCOACH ---',
+        `Langue du log: ${language}.`,
+        'Redige le log que l utilisateur publiera sur la page de l EarthCache. Ce texte est PUBLIC: tous les geocacheurs le liront avant leur visite.',
+        'Ecris a la premiere personne, comme le geocacheur qui a visite le site: 3 a 6 phrases naturelles sur la visite, ce que le site a d interessant en termes generaux, et des remerciements au proprietaire pour la decouverte.',
+        'Indique simplement que les reponses ont ete envoyees au proprietaire par message.',
+        'INTERDIT: toute reponse, meme partielle ou deguisee. Aucun nombre, mesure, comptage, couleur, nom de roche, de mineral ou de fossile, ni aucune identification qui repond a une question ci-dessous; ne reprends pas leur formulation. En cas de doute, reste vague.',
+        'N invente aucun detail de visite (meteo, compagnie, heure): tu ne les connais pas. Ne mentionne ni les photos ni les donnees fournies au modele, sauf la photo demandee par le proprietaire.',
+        'Reponds uniquement par le texte du log, sans titre, sans Markdown, sans guillemets autour et sans JSON.',
+        'N appelle aucun tool: le texte produit est directement rattache au dossier.',
+        ...photoLine,
+        '',
+        '--- REPONSES A NE JAMAIS REVELER DANS LE LOG ---',
+    ];
+    proposals.forEach((proposal, index) => {
+        lines.push(
+            `Question ${proposal.question_number || index + 1}${proposal.location ? ` (${proposal.location})` : ''}: ${proposal.question_translation || proposal.question}`,
+            `Reponse secrete: ${(proposal.answer || '').trim() || 'aucune'}`,
+            ''
+        );
+    });
+    return lines.join('\n').trim();
+}
+
 function buildVerbosityInstruction(verbosity: EarthCoachVerbosity, mode?: EarthCoachMode): string[] {
     // Meme plancher que dans le prompt systeme: en resolution, le gabarit
     // question par question ne tient pas dans un compte rendu de 5 puces.
